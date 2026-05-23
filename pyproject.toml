@@ -15,12 +15,19 @@ dependencies = [
     "openai>=1.20.0,<2",
     "fastapi>=0.110.0,<0.112",
     "uvicorn>=0.28.0,<0.30",
+    "httpx>=0.27.0,<1",
     "pyyaml>=6.0.1,<7",
     "apscheduler>=3.10.0,<4",
     "pandas>=2.2.0,<3",
 ]
 
+[project.scripts]
+dojoagents = "dojoagents.cli.main:main"
+
 [tool.uv.sources]
+
+[tool.setuptools.packages.find]
+include = ["dojoagents*"]
 
 
 [project.optional-dependencies]
@@ -30,4 +37,3 @@ dev = [
     "mock>=5.2.0",
     "pytest-asyncio>=1.2.0",
 ]
-
