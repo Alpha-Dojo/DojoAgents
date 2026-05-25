@@ -56,7 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     gateway.add_argument("--config", default="~/.dojo/agents.yaml")
 
     sub.add_parser("scheduler")
+
+    model_parser = sub.add_parser("model")
+    model_parser.add_argument("--config", default="~/.dojo/agents.yaml")
     return parser
+
 
 
 async def _run_chat(args: argparse.Namespace) -> int:
@@ -143,7 +147,11 @@ def main(argv: list[str] | None = None) -> int:
         runtime = Runtime.from_default_config()
         print(f"Loaded {len(runtime.scheduler.list_jobs())} scheduled jobs")
         return 0
+    if args.command == "model":
+        from dojoagents.cli.model_setup import configure_model_connection
+        return configure_model_connection(config_path=args.config)
     return 2
+
 
 
 if __name__ == "__main__":

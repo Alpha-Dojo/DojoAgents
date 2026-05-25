@@ -182,3 +182,37 @@ def test_gateway_setup_rejects_unknown_adapter(tmp_path):
     code = main(["gateway", "setup", "unknown", "--config", str(tmp_path / "agents.yaml")])
 
     assert code == 2
+
+
+def test_model_setup_writes_config(tmp_path, monkeypatch):
+    import httpx
+    from dojoagents.cli.main import main
+
+    config_path = tmp_path / "agents.yaml"
+    
+    inputs = iter(["1", "", "1"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(inputs))
+    monkeypatch.setattr("getpass.getpass", lambda _prompt="": "fake-openai-key")
+
+    def mock_get(url, headers=None, timeout=None):
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "gpt-4o"},
+                    {"id": "gpt-4o-mini"}
+                ]
+            }
+        )
+    monkeypatch.setattr("httpx.get", mock_get)
+
+    code = main(["model", "--config", str(config_path)])
+
+    assert code == 0
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert data["llm_provider"]["default"] == "openai"
+    assert data["llm_provider"]["providers"]["openai"]["model"] == "gpt-4o"
+    assert data["llm_provider"]["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
+    assert data["llm_provider"]["providers"]["openai"]["api_key"] == "fake-openai-key"
+    assert data["agent"]["model"] == "gpt-4o"
+

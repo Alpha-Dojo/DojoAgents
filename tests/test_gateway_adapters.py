@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 import pytest
 
@@ -162,17 +163,176 @@ async def test_wechat_adapter_accepts_ilink_qr_token_config():
     assert call["headers"]["iLink-App-ClientVersion"] == str((2 << 16) | (2 << 8) | 0)
     expected_body = json.dumps(call["payload"], ensure_ascii=False, separators=(",", ":"))
     assert call["headers"]["Content-Length"] == str(len(expected_body.encode("utf-8")))
-    assert call["payload"] == {
-        "msg": {
-            "from_user_id": "",
-            "to_user_id": "U1",
-            "client_id": "U1",
-            "message_type": 2,
-            "message_state": 2,
-            "item_list": [{"type": 1, "text_item": {"text": "hello"}}],
+    payload = call["payload"]
+    assert payload["msg"]["from_user_id"] == ""
+    assert payload["msg"]["to_user_id"] == "U1"
+    assert payload["msg"]["client_id"].startswith("dojo-wechat-")
+    assert payload["msg"]["message_type"] == 2
+    assert payload["msg"]["message_state"] == 2
+    assert payload["msg"]["item_list"] == [{"type": 1, "text_item": {"text": "hello"}}]
+    assert payload["base_info"] == {"channel_version": "2.2.0"}
+
+
+
+@pytest.mark.asyncio
+async def test_wechat_polling_runs_gateway_agent_and_replies_with_context_token(
+    tmp_path,
+    monkeypatch,
+):
+    import dojoagents.gateway.adapters.wechat as wechat
+
+    from dojoagents.agent.models import AgentResponse
+    from dojoagents.gateway.adapters.wechat import WeChatAdapter
+    from dojoagents.gateway.registry import GatewayRegistry, PlatformEntry
+    from dojoagents.gateway.runner import GatewayRunner
+
+    agent_seen = asyncio.Event()
+    monkeypatch.setattr(wechat, "_account_dir", lambda: tmp_path / "wechat" / "accounts")
+
+    class FlowHttpClient:
+        def __init__(self):
+            self.calls = []
+            self.polls = 0
+
+        async def post_json(self, url, payload, headers=None):
+            self.calls.append({"url": url, "payload": payload, "headers": headers or {}})
+            if url.endswith("/ilink/bot/getupdates"):
+                self.polls += 1
+                if self.polls == 1:
+                    return {
+                        "sync_buf": "sync-buf-1",
+                        "get_updates_buf": "buf-1",
+                        "msgs": [
+                            {
+                                "seq": 1,
+                                "message_id": 7464560103419609352,
+                                "from_user_id": "U1",
+                                "to_user_id": "BOT",
+                                "client_id": "client-1",
+                                "create_time_ms": 1779689813397,
+                                "update_time_ms": 1779689813519,
+                                "delete_time_ms": 0,
+                                "session_id": "",
+                                "group_id": "",
+                                "message_type": 1,
+                                "message_state": 2,
+                                "item_list": [
+                                    {
+                                        "type": 1,
+                                        "create_time_ms": 1779689813397,
+                                        "update_time_ms": 1779689813397,
+                                        "is_completed": True,
+                                        "button_item_list": [],
+                                        "text_item": {"text": "hello wechat"},
+                                    }
+                                ],
+                                "context_token": "ctx-1",
+                                "root_id": 0,
+                                "parent_id": 0,
+                            }
+                        ],
+                    }
+                return {"sync_buf": "sync-buf-1", "get_updates_buf": "buf-1", "msgs": []}
+            if url.endswith("/ilink/bot/sendmessage"):
+                return {"errcode": 0, "message_id": "sent-1"}
+            raise AssertionError(f"unexpected url: {url}")
+
+    class FakeAgent:
+        async def run(self, request):
+            assert request.channel == "wechat"
+            assert request.message == "hello wechat"
+            assert request.user_id == "U1"
+            agent_seen.set()
+            return AgentResponse(content="reply from agent", session_id=request.session_id)
+
+    class FakeRuntime:
+        agent = FakeAgent()
+
+    http = FlowHttpClient()
+    registry = GatewayRegistry()
+    registry.register(
+        PlatformEntry(
+            name="wechat",
+            label="WeChat",
+            adapter_factory=lambda config: WeChatAdapter(config, http_client=http),
+        )
+    )
+    runner = GatewayRunner(
+        runtime=FakeRuntime(),
+        registry=registry,
+        gateway_config={
+            "hooks": {
+                "wechat": {
+                    "enabled": True,
+                    "account_id": "BOT",
+                    "token": "bot-token",
+                    "base_url": "https://ilink.example",
+                    "dm_policy": "open",
+                    "poll_interval_seconds": 0.01,
+                    "context_token_store": str(tmp_path / "ctx.json"),
+                }
+            },
+            "streaming": {"enabled": False},
+            "session_store": str(tmp_path / "sessions.db"),
+            "pid_file": str(tmp_path / "gateway.pid"),
+            "clean_marker": str(tmp_path / ".clean_shutdown"),
         },
-        "base_info": {"channel_version": "2.2.0"},
+    )
+
+    await runner.start()
+    await asyncio.wait_for(agent_seen.wait(), timeout=1.0)
+    await runner.stop()
+
+    send_calls = [call for call in http.calls if call["url"].endswith("/ilink/bot/sendmessage")]
+    assert len(send_calls) == 1
+    assert send_calls[0]["payload"]["msg"]["context_token"] == "ctx-1"
+    assert send_calls[0]["payload"]["msg"]["to_user_id"] == "U1"
+    assert send_calls[0]["payload"]["msg"]["item_list"][0]["text_item"]["text"] == "reply from agent"
+    sync_file = tmp_path / "wechat" / "accounts" / "BOT.sync.json"
+    assert json.loads(sync_file.read_text(encoding="utf-8")) == {
+        "get_updates_buf": "buf-1",
+        "sync_buf": "sync-buf-1",
     }
+
+
+@pytest.mark.asyncio
+async def test_wechat_send_retries_without_stale_context_token(tmp_path):
+    from dojoagents.gateway.adapters.wechat import WeChatAdapter
+
+    class RetryHttpClient:
+        def __init__(self):
+            self.calls = []
+
+        async def post_json(self, url, payload, headers=None):
+            self.calls.append(
+                {
+                    "url": url,
+                    "payload": json.loads(json.dumps(payload)),
+                    "headers": headers or {},
+                }
+            )
+            if len(self.calls) == 1:
+                return {"errcode": -14, "errmsg": "session expired"}
+            return {"errcode": 0, "message_id": "sent-2"}
+
+    http = RetryHttpClient()
+    adapter = WeChatAdapter(
+        {
+            "token": "bot-token",
+            "base_url": "https://ilink.example",
+            "context_token_store": str(tmp_path / "ctx.json"),
+        },
+        http_client=http,
+    )
+    adapter.context_tokens.set("U1", "stale-ctx")
+
+    result = await adapter.send("U1", "hello")
+
+    assert result.success is True
+    assert len(http.calls) == 2
+    assert http.calls[0]["payload"]["msg"]["context_token"] == "stale-ctx"
+    assert "context_token" not in http.calls[1]["payload"].get("msg", {})
+    assert adapter.context_tokens.get("U1") is None
 
 
 def test_registry_can_create_default_adapter_instances():
@@ -513,6 +673,139 @@ async def test_gateway_runner_blocks_wechat_group_when_group_policy_disabled(tmp
 
 
 @pytest.mark.asyncio
+async def test_gateway_runner_wechat_pairing_policy_requires_approval(tmp_path):
+    from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
+    from dojoagents.gateway.registry import GatewayRegistry, PlatformEntry
+    from dojoagents.gateway.runner import GatewayRunner
+
+    class FakeRuntime:
+        class agent:
+            @staticmethod
+            async def run(request):
+                raise AssertionError("agent should not run before pairing approval")
+
+    class FakeAdapter:
+        def __init__(self, config):
+            self.sent = []
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+        def normalize_message(self, payload):
+            return GatewayEvent(
+                platform="wechat",
+                text="hello",
+                target="U1",
+                user_id="U1",
+                raw=payload,
+            )
+
+        async def send(self, target, message, *, thread_id=None):
+            self.sent.append((target, message))
+            return GatewaySendResult(success=True)
+
+    registry = GatewayRegistry()
+    registry.register(
+        PlatformEntry(
+            name="wechat",
+            label="WeChat",
+            adapter_factory=lambda config: FakeAdapter(config),
+        )
+    )
+    runner = GatewayRunner(
+        runtime=FakeRuntime(),
+        registry=registry,
+        gateway_config={
+            "hooks": {"wechat": {"enabled": True, "dm_policy": "pairing"}},
+            "session_store": str(tmp_path / "sessions.db"),
+            "pairing_store": str(tmp_path / "pairing.json"),
+            "pid_file": str(tmp_path / "gateway.pid"),
+        },
+    )
+    await runner.start()
+
+    result = await runner.handle_webhook("wechat", {"user_name": "Alice"})
+
+    assert result == {"accepted": False, "reason": "unauthorized"}
+    assert runner.adapters["wechat"].sent[0][0] == "U1"
+    assert "pairing code" in runner.adapters["wechat"].sent[0][1]
+    await runner.stop()
+
+
+@pytest.mark.asyncio
+async def test_gateway_runner_wechat_group_allowlist_uses_group_allow_from(tmp_path):
+    from dojoagents.agent.models import AgentResponse
+    from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
+    from dojoagents.gateway.registry import GatewayRegistry, PlatformEntry
+    from dojoagents.gateway.runner import GatewayRunner
+
+    class FakeRuntime:
+        class agent:
+            @staticmethod
+            async def run(request):
+                return AgentResponse(content="ok", session_id=request.session_id)
+
+    class FakeAdapter:
+        def __init__(self, config):
+            self.sent = []
+
+        async def start(self):
+            pass
+
+        async def stop(self):
+            pass
+
+        def normalize_message(self, payload):
+            return GatewayEvent(
+                platform="wechat",
+                text="hello",
+                target=payload["target"],
+                user_id="U1",
+                raw={"room_id": payload["target"]},
+            )
+
+        async def send(self, target, message, *, thread_id=None):
+            self.sent.append((target, message))
+            return GatewaySendResult(success=True)
+
+    registry = GatewayRegistry()
+    registry.register(
+        PlatformEntry(
+            name="wechat",
+            label="WeChat",
+            adapter_factory=lambda config: FakeAdapter(config),
+        )
+    )
+    runner = GatewayRunner(
+        runtime=FakeRuntime(),
+        registry=registry,
+        gateway_config={
+            "hooks": {
+                "wechat": {
+                    "enabled": True,
+                    "group_policy": "allowlist",
+                    "group_allow_from": ["room-ok@chatroom"],
+                }
+            },
+            "session_store": str(tmp_path / "sessions.db"),
+            "pid_file": str(tmp_path / "gateway.pid"),
+        },
+    )
+    await runner.start()
+
+    blocked = await runner.handle_webhook("wechat", {"target": "room-bad@chatroom"})
+    allowed = await runner.handle_webhook("wechat", {"target": "room-ok@chatroom"})
+
+    assert blocked == {"accepted": False, "reason": "unauthorized"}
+    assert allowed["accepted"] is True
+    assert runner.adapters["wechat"].sent[-1] == ("room-ok@chatroom", "ok")
+    await runner.stop()
+
+
+@pytest.mark.asyncio
 async def test_gateway_runner_wires_adapter_listener_and_hooks(tmp_path):
     from dojoagents.agent.models import AgentResponse
     from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
@@ -573,3 +866,43 @@ async def test_gateway_runner_wires_adapter_listener_and_hooks(tmp_path):
 
     assert events == ["from-listener"]
     assert runner.adapters["test"].sent == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_wechat_adapter_file_persistence(tmp_path, monkeypatch):
+    import dojoagents.gateway.adapters.wechat as wechat
+    from dojoagents.gateway.adapters.wechat import WeChatAdapter
+
+    # Mock _account_dir to point to a temp path
+    monkeypatch.setattr(wechat, "_account_dir", lambda: tmp_path / "wechat" / "accounts")
+
+    config = {
+        "account_id": "test-bot-acc",
+        "token": "token-12345",
+        "base_url": "https://ilink.test",
+        "home_channel": "wechat-owner",
+    }
+    
+    # 1. Initialize adapter and start it
+    adapter = WeChatAdapter(config)
+    await adapter.start()
+    
+    # 2. Check that the credentials file is written
+    credentials_file = tmp_path / "wechat" / "accounts" / "test-bot-acc.json"
+    assert credentials_file.exists()
+    
+    # 3. Modify updates_buf and save it
+    adapter.save_update_buf("my-sync-buf")
+    sync_file = tmp_path / "wechat" / "accounts" / "test-bot-acc.sync.json"
+    assert sync_file.exists()
+    
+    # 4. Stop adapter
+    await adapter.stop()
+
+    # 5. Initialize a new adapter instance with only the account_id
+    new_adapter = WeChatAdapter({"account_id": "test-bot-acc"})
+    
+    # Verify updates_buf and config were loaded from disk persistence
+    assert new_adapter._updates_buf == "my-sync-buf"
+    assert new_adapter.config.get("bot_token") == "token-12345"
+    assert new_adapter.config.get("base_url") == "https://ilink.test"
