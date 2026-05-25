@@ -244,16 +244,10 @@ class GatewayRunner:
 
     def _authorized(self, platform: str, event: GatewayEvent) -> bool:
         config = self._hook_config(platform) or {}
-        if platform == "wechat" and self._is_group_event(event):
-            group_policy = str(config.get("group_policy", "disabled")).lower()
-            if group_policy == "disabled":
-                return False
-        if platform == "wechat" and not self._is_group_event(event):
-            dm_policy = str(config.get("dm_policy", "open")).lower()
-            if dm_policy == "disabled":
-                return False
         if config.get("allow_all") or config.get("allow_all_users"):
             return True
+        if platform == "wechat":
+            return self._authorized_wechat(event, config)
         allowed = _coerce_list(config.get("allow_from") or config.get("allowed_users"))
         if not allowed:
             static_ok = True
@@ -264,6 +258,34 @@ class GatewayRunner:
             return True
 
         return self.pairing_store.is_approved(platform, event.user_id)
+
+    def _authorized_wechat(self, event: GatewayEvent, config: dict[str, Any]) -> bool:
+        if self._is_group_event(event):
+            group_policy = str(config.get("group_policy", "disabled")).lower()
+            if group_policy == "disabled":
+                return False
+            if group_policy == "open":
+                return True
+            if group_policy == "allowlist":
+                allowed = _coerce_list(
+                    config.get("group_allow_from")
+                    or config.get("allow_from")
+                    or config.get("allowed_users")
+                )
+                return event.target in allowed
+            return False
+
+        dm_policy = str(config.get("dm_policy", "open")).lower()
+        if dm_policy == "disabled":
+            return False
+        if dm_policy == "open":
+            return True
+        if dm_policy == "allowlist":
+            allowed = _coerce_list(config.get("allow_from") or config.get("allowed_users"))
+            return event.user_id in allowed or event.target in allowed
+        if dm_policy == "pairing":
+            return self.pairing_store.is_approved(event.platform, event.user_id)
+        return False
 
     def _is_group_event(self, event: GatewayEvent) -> bool:
         return bool(
@@ -395,7 +417,7 @@ class GatewayRunner:
 
             stream_cfg = self.gateway_config.get("streaming") or {}
             consumer = None
-            if stream_cfg.get("enabled", True):
+            if stream_cfg.get("enabled", False):
                 from dojoagents.gateway.stream_consumer import GatewayStreamConsumer
                 consumer = GatewayStreamConsumer(
                     adapter=adapter,

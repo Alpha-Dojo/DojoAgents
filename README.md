@@ -181,8 +181,28 @@ Telegram Telegram bot token: telegram-bot-token
 Telegram Default Telegram chat ID: 123456
 Telegram configured
 Saved gateway configuration to /Users/you/.dojo/agents.yaml
-Start the gateway with: dojoagents gateway
 ```
+
+## Model Interactive Setup
+
+Configure LLM provider and connection parameters interactively:
+
+```bash
+dojoagents model
+```
+
+Use a custom config file:
+
+```bash
+dojoagents model --config ./agents.yaml
+```
+
+The command allows you to:
+1. Select from preset providers (`openai`, `anthropic`, `gemini`, `deepseek`) or define a `custom` endpoint (e.g. Ollama, llama.cpp, vLLM).
+2. Override the Base URL.
+3. Enter the API Key securely (using masked input).
+4. Probe the endpoint to fetch available models and select from a list.
+5. Save the configuration directly inside `~/.dojo/agents.yaml` under the `llm_provider` block.
 
 ## Gateway Config Location
 

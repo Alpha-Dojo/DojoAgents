@@ -265,3 +265,65 @@ async def test_agent_loop_runs_tool_roundtrip_and_syncs_memory():
     assert response.metadata["iterations"] == 2
     assert memory.turns[-1]["assistant"] == response.content
     assert any(message.get("role") == "tool" for message in llm.calls[1]["messages"])
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_sanitizes_tool_names_for_openai_compatible_providers():
+    from dojoagents.agent.loop import AgentLoop
+    from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall
+    from dojoagents.agent.providers import StaticLLMProvider
+    from dojoagents.config.models import AgentConfig
+    from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
+    from dojoagents.memory.manager import MemoryManager
+    from dojoagents.skills.manager import SkillManager
+    from dojoagents.tools.executor import ToolExecutor
+    from dojoagents.tools.registry import ToolRegistry, ToolSpec
+    from dojoagents.tools.sandbox import SandboxPolicy
+
+    async def market_snapshot(args):
+        return {"content": f"snapshot:{','.join(args['symbols'])}"}
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            name="dojo.market.snapshot",
+            description="Return a market snapshot.",
+            parameters={"type": "object"},
+            handler=market_snapshot,
+        )
+    )
+    llm = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        name="dojo_market_snapshot",
+                        arguments={"symbols": ["BTC-USD"]},
+                    )
+                ],
+            ),
+            LLMResult(content="done"),
+        ]
+    )
+    loop = AgentLoop(
+        llm_provider=llm,
+        tool_executor=ToolExecutor(registry, SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(model="test-model", max_iterations=3),
+    )
+
+    response = await loop.run(
+        ChatRequest(user_id="local", session_id="s1", message="Analyze BTC.")
+    )
+
+    assert response.content == "done"
+    assert llm.calls[0]["tools"][0]["name"] == "dojo_market_snapshot"
+    assistant_message = llm.calls[1]["messages"][-2]
+    tool_message = llm.calls[1]["messages"][-1]
+    assert assistant_message["tool_calls"][0]["function"]["name"] == "dojo_market_snapshot"
+    assert tool_message["name"] == "dojo_market_snapshot"
+    assert tool_message["content"] == "snapshot:BTC-USD"
