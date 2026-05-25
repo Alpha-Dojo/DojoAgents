@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
@@ -19,6 +21,7 @@ class AgentLoop:
         memory_manager: MemoryManager,
         extension_registry: DojoExtensionRegistry,
         config: AgentConfig,
+        stream_delta_callback: Callable[[str], None] | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -26,6 +29,7 @@ class AgentLoop:
         self.memory_manager = memory_manager
         self.extension_registry = extension_registry
         self.config = config
+        self.stream_delta_callback = stream_delta_callback
 
     async def run(self, request: ChatRequest) -> AgentResponse:
         messages = await self._build_messages(request)
@@ -36,6 +40,8 @@ class AgentLoop:
                 messages,
                 tool_specs,
                 model=self.config.model,
+                stream=bool(self.stream_delta_callback),
+                stream_callback=self.stream_delta_callback,
                 metadata={"session_id": request.session_id, "channel": request.channel},
             )
             if not llm_result.tool_calls:
@@ -92,10 +98,12 @@ class AgentLoop:
             blocks.append(request.quant.prompt_block())
             blocks.append(self.extension_registry.prompt_context(request.quant))
         system = "\n\n".join(block for block in blocks if block)
-        return [
-            {"role": "system", "content": system},
-            {"role": "user", "content": request.message},
-        ]
+        messages = [{"role": "system", "content": system}]
+        history = request.metadata.get("history") or []
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": request.message})
+        return messages
 
     def _collect_tool_specs(self) -> list[dict]:
         return self.tool_executor.registry.schema_list()

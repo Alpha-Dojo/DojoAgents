@@ -12,11 +12,14 @@ import yaml
 from dojoagents.config.models import (
     AgentConfig,
     AgentsConfig,
+    DEFAULT_LOG_DATE_FORMAT,
+    DEFAULT_LOG_FORMAT,
     DashboardConfig,
     DojoExtensionsConfig,
     GatewayConfig,
     LLMConfig,
     LLMProviderConfig,
+    LoggingConfig,
     MemoryConfig,
     SandboxConfig,
     SchedulerConfig,
@@ -92,6 +95,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     gateway_raw = raw.get("gateway", {})
     dashboard_raw = raw.get("dashboard", {})
     extensions_raw = raw.get("dojo_extensions", {})
+    logging_raw = raw.get("logging", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -120,6 +124,11 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             enabled=list(
                 extensions_raw.get("enabled", ["dojo_market_data", "dojo_research"])
             )
+        ),
+        logging=LoggingConfig(
+            level=str(logging_raw.get("level", "INFO")),
+            format=str(logging_raw.get("format", DEFAULT_LOG_FORMAT)),
+            date_format=str(logging_raw.get("date_format", DEFAULT_LOG_DATE_FORMAT)),
         ),
     )
 

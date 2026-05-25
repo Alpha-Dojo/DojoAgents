@@ -20,6 +20,10 @@ llm_provider:
       api_key_env: DOJO_TEST_KEY
 dashboard:
   port: 9999
+logging:
+  level: DEBUG
+  format: "%(levelname)s:%(message)s"
+  date_format: "%H:%M:%S"
 """,
         encoding="utf-8",
     )
@@ -32,10 +36,90 @@ dashboard:
     assert snapshot.llm_provider.providers["openai_compatible"].base_url == "https://models.example.test/v1"
     assert snapshot.dashboard.port == 9999
     assert snapshot.memory.provider == "skill_summary"
+    assert snapshot.logging.level == "DEBUG"
+    assert snapshot.logging.format == "%(levelname)s:%(message)s"
+    assert snapshot.logging.date_format == "%H:%M:%S"
 
     redacted = store.redacted()
     assert "secret-value" not in str(redacted)
     assert redacted["llm_provider"]["providers"]["openai_compatible"]["api_key"] == "***"
+
+
+def test_config_store_logging_defaults():
+    from dojoagents.config.loader import ConfigStore
+
+    snapshot = ConfigStore(path="/tmp/dojoagents-missing-config.yaml").snapshot()
+
+    assert snapshot.logging.level == "INFO"
+    assert "%(asctime)s" in snapshot.logging.format
+    assert "%(process)d" in snapshot.logging.format
+    assert "%(thread)d" in snapshot.logging.format
+    assert "%(filename)s:%(lineno)d" in snapshot.logging.format
+    assert snapshot.logging.date_format == "%Y-%m-%d %H:%M:%S"
+
+
+def test_global_logger_uses_configured_format_without_duplicate_handlers():
+    import io
+
+    from dojoagents.config.models import LoggingConfig
+    from dojoagents.logging import configure_logging, get_logger
+
+    stream = io.StringIO()
+    config = LoggingConfig(
+        level="DEBUG",
+        format="%(process)d|%(thread)d|%(filename)s:%(lineno)d|%(levelname)s|%(message)s",
+        date_format="%H:%M:%S",
+    )
+
+    logger = configure_logging(config, stream=stream)
+    configure_logging(config, stream=stream)
+    get_logger("test").debug("hello")
+
+    lines = stream.getvalue().strip().splitlines()
+    assert len(lines) == 1
+    assert "|DEBUG|hello" in lines[0]
+    assert "test_core_contracts.py:" in lines[0]
+    assert logger.name == "dojoagents"
+
+
+def test_global_logger_rejects_invalid_level():
+    import pytest
+
+    from dojoagents.config.models import LoggingConfig
+    from dojoagents.logging import configure_logging
+
+    with pytest.raises(ValueError, match="Invalid log level"):
+        configure_logging(LoggingConfig(level="NOPE"))
+
+
+def test_module_logger_initializes_from_config_store_yaml(tmp_path, monkeypatch):
+    import importlib
+
+    config_dir = tmp_path / ".dojo"
+    config_dir.mkdir()
+    (config_dir / "agents.yaml").write_text(
+        """
+logging:
+  level: DEBUG
+  format: "CONFIG:%(levelname)s:%(message)s"
+  date_format: "%H:%M"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    import dojoagents.logging as dojo_logging
+
+    dojo_logging = importlib.reload(dojo_logging)
+    handler = next(
+        handler
+        for handler in dojo_logging.LOGGER.handlers
+        if getattr(handler, "_dojoagents_managed_handler", False)
+    )
+
+    assert dojo_logging.LOGGER.level == 10
+    assert handler.formatter._fmt == "CONFIG:%(levelname)s:%(message)s"
+    assert handler.formatter.datefmt == "%H:%M"
 
 
 @pytest.mark.asyncio

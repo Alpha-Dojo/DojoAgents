@@ -33,6 +33,24 @@ def build_parser() -> argparse.ArgumentParser:
     gateway_setup = gateway_sub.add_parser("setup")
     gateway_setup.add_argument("adapter", help="Adapter name or 'all'")
     gateway_setup.add_argument("--config", default="~/.dojo/agents.yaml")
+
+    gateway_pairing = gateway_sub.add_parser("pairing")
+    pairing_sub = gateway_pairing.add_subparsers(dest="pairing_command", required=True)
+
+    pairing_list = pairing_sub.add_parser("list")
+    pairing_list.add_argument("--platform", default=None)
+    pairing_list.add_argument("--config", default="~/.dojo/agents.yaml")
+
+    pairing_approve = pairing_sub.add_parser("approve")
+    pairing_approve.add_argument("platform")
+    pairing_approve.add_argument("code")
+    pairing_approve.add_argument("--config", default="~/.dojo/agents.yaml")
+
+    pairing_deny = pairing_sub.add_parser("deny")
+    pairing_deny.add_argument("platform")
+    pairing_deny.add_argument("code")
+    pairing_deny.add_argument("--config", default="~/.dojo/agents.yaml")
+
     gateway.add_argument("--host", default="127.0.0.1")
     gateway.add_argument("--port", type=int, default=8766)
     gateway.add_argument("--config", default="~/.dojo/agents.yaml")
@@ -78,6 +96,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gateway":
         if args.gateway_command == "setup":
             return configure_gateway_adapters(args.adapter, config_path=args.config)
+        if args.gateway_command == "pairing":
+            from dojoagents.gateway.pairing import PairingStore
+            from dojoagents.config.loader import ConfigStore
+            raw_config = ConfigStore(args.config).raw()
+            gateway_config = raw_config.get("gateway") or {}
+            pairing_store_path = gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json")
+            store = PairingStore(filepath=pairing_store_path)
+
+            if args.pairing_command == "list":
+                pending = store.list_pending(platform=args.platform)
+                if not pending:
+                    print("No pending pairing requests found.")
+                else:
+                    print(f"{'Platform':<15} {'User ID':<20} {'User Name':<20} {'Pairing Code':<15}")
+                    print("-" * 75)
+                    for p in pending:
+                        print(f"{p['platform']:<15} {p['user_id']:<20} {p['user_name']:<20} {p['code']:<15}")
+                return 0
+
+            elif args.pairing_command == "approve":
+                try:
+                    success = store.approve_code(args.platform, args.code)
+                    if success:
+                        print(f"Successfully approved pairing code '{args.code}' for platform '{args.platform}'.")
+                        return 0
+                    else:
+                        print(f"Failed to approve pairing code '{args.code}' on platform '{args.platform}': code not found or invalid.")
+                        return 1
+                except Exception as e:
+                    print(f"Error: {str(e)}")
+                    return 1
+
+            elif args.pairing_command == "deny":
+                success = store.deny_code(args.platform, args.code)
+                if success:
+                    print(f"Successfully denied pairing code '{args.code}' for platform '{args.platform}'.")
+                    return 0
+                else:
+                    print(f"Failed to deny pairing code '{args.code}' on platform '{args.platform}': code not found.")
+                    return 1
+
         uvicorn.run(create_gateway_app(config_path=args.config), host=args.host, port=args.port)
         return 0
     if args.command == "scheduler":

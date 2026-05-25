@@ -17,6 +17,7 @@ from dojoagents.config.loader import ConfigStore
 from dojoagents.gateway.adapters import create_default_gateway_registry
 from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
 from dojoagents.gateway.registry import GatewayRegistry
+from dojoagents.logging import LOGGER
 
 
 _SECRET_PATTERNS = (
@@ -27,76 +28,8 @@ _SECRET_PATTERNS = (
 )
 
 
-@dataclass
-class GatewaySession:
-    key: str
-    platform: str
-    target: str
-    user_id: str
-    status: str = "idle"
-    model_override: str | None = None
-    reasoning_override: str | None = None
-    resume_pending: bool = False
-    updated_at: float = 0.0
-
-
-class GatewaySessionStore:
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path).expanduser()
-        self.sessions: dict[str, GatewaySession] = {}
-        self.load()
-
-    def load(self) -> None:
-        if not self.path.exists():
-            return
-        raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
-        records = raw.get("sessions", raw) if isinstance(raw, dict) else []
-        self.sessions = {
-            record["key"]: GatewaySession(**record)
-            for record in records
-            if isinstance(record, dict) and record.get("key")
-        }
-
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        records = [asdict(session) for session in self.sessions.values()]
-        self.path.write_text(
-            yaml.safe_dump({"sessions": records}, sort_keys=False),
-            encoding="utf-8",
-        )
-
-    def get(self, key: str) -> GatewaySession:
-        return self.sessions[key]
-
-    def ensure(self, event: GatewayEvent) -> GatewaySession:
-        session = self.sessions.get(event.session_key)
-        if session is None:
-            session = GatewaySession(
-                key=event.session_key,
-                platform=event.platform,
-                target=event.target,
-                user_id=event.user_id,
-            )
-            self.sessions[event.session_key] = session
-        session.updated_at = time.time()
-        self.save()
-        return session
-
-    def set_status(self, key: str, status: str) -> None:
-        if key in self.sessions:
-            self.sessions[key].status = status
-            self.sessions[key].updated_at = time.time()
-            self.save()
-
-    def set_model(self, key: str, model: str | None) -> None:
-        if key in self.sessions:
-            self.sessions[key].model_override = model
-            self.sessions[key].updated_at = time.time()
-            self.save()
-
-    def clear(self, key: str) -> None:
-        self.sessions.pop(key, None)
-        self.save()
+from dojoagents.gateway.state import GatewaySession, GatewaySessionStore
+from dojoagents.gateway.pairing import PairingStore
 
 
 class GatewayRunner:
@@ -121,7 +54,10 @@ class GatewayRunner:
         self.registry = registry or create_default_gateway_registry()
         self.gateway_config = gateway_config or asdict(self.runtime.config.gateway)
         self.session_store = GatewaySessionStore(
-            self.gateway_config.get("session_store", "~/.dojo/gateway/sessions.yaml")
+            self.gateway_config.get("session_store", "~/.dojo/gateway/state.db")
+        )
+        self.pairing_store = PairingStore(
+            self.gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json")
         )
         self.adapters: dict[str, Any] = {}
         self.platform_status: dict[str, dict[str, Any]] = {}
@@ -217,6 +153,17 @@ class GatewayRunner:
 
         event = adapter.normalize_message(payload)
         if not self._authorized(platform, event):
+            if not self._is_group_event(event):
+                try:
+                    user_name = payload.get("user_name") or event.user_id
+                    code = self.pairing_store.generate_code(platform, event.user_id, user_name)
+                    await adapter.send(
+                        event.target,
+                        f"Unauthorized. To pair this account, use pairing code: {code}",
+                        thread_id=event.thread_id,
+                    )
+                except Exception:
+                    pass
             return {"accepted": False, "reason": "unauthorized"}
         if not event.text.strip():
             return {"accepted": False, "reason": "empty_message"}
@@ -268,12 +215,14 @@ class GatewayRunner:
     async def _connect_platform(self, platform: str, hook_config: dict[str, Any]) -> None:
         self._set_platform_status(platform, "connecting")
         try:
+            LOGGER.info(f"Connecting to platform: {platform}")
             adapter = self.registry.create_adapter(platform, hook_config)
             setter = getattr(adapter, "set_message_handler", None)
             if setter is not None:
                 setter(lambda payload, _platform=platform: self.handle_webhook(_platform, payload))
             self.adapters[platform] = adapter
             await adapter.start()
+            LOGGER.info(f"Connected to platform: {platform}")
             self._set_platform_status(platform, "connected")
         except Exception as exc:
             self.adapters.pop(platform, None)
@@ -307,8 +256,14 @@ class GatewayRunner:
             return True
         allowed = _coerce_list(config.get("allow_from") or config.get("allowed_users"))
         if not allowed:
+            static_ok = True
+        else:
+            static_ok = event.user_id in allowed or event.target in allowed
+
+        if static_ok:
             return True
-        return event.user_id in allowed or event.target in allowed
+
+        return self.pairing_store.is_approved(platform, event.user_id)
 
     def _is_group_event(self, event: GatewayEvent) -> bool:
         return bool(
@@ -361,6 +316,26 @@ class GatewayRunner:
             await adapter.send(event.target, "Queued", thread_id=event.thread_id)
             return {"accepted": True, "command": "queue"}
         if name in {"approve", "deny"}:
+            code = arg.strip()
+            if code:
+                if name == "approve":
+                    try:
+                        success = self.pairing_store.approve_code(event.platform, code)
+                        if success:
+                            msg = f"Successfully approved pairing code: {code}"
+                        else:
+                            msg = f"Failed to approve pairing code: {code} (not found or invalid)"
+                    except Exception as e:
+                        msg = f"Error approving pairing code: {str(e)}"
+                else:
+                    success = self.pairing_store.deny_code(event.platform, code)
+                    if success:
+                        msg = f"Successfully denied pairing code: {code}"
+                    else:
+                        msg = f"Failed to deny pairing code: {code} (not found or invalid)"
+                await adapter.send(event.target, msg, thread_id=event.thread_id)
+                return {"accepted": True, "command": name}
+
             pending = self._pending_approvals.pop(event.session_key, None)
             if pending is None:
                 await adapter.send(event.target, f"{name}: no pending approval", thread_id=event.thread_id)
@@ -412,20 +387,54 @@ class GatewayRunner:
     ) -> dict[str, Any]:
         async with lock:
             self.session_store.set_status(event.session_key, "active")
+            self.session_store.add_transcript(event.session_key, "user", event.text)
             await self._emit("message:received", {"event": event})
             await self._send_typing(adapter, event, True)
             request = self._build_chat_request(event)
             agent = self._agent_for_session(event.session_key)
+
+            stream_cfg = self.gateway_config.get("streaming") or {}
+            consumer = None
+            if stream_cfg.get("enabled", True):
+                from dojoagents.gateway.stream_consumer import GatewayStreamConsumer
+                consumer = GatewayStreamConsumer(
+                    adapter=adapter,
+                    target=event.target,
+                    thread_id=event.thread_id,
+                    edit_interval=stream_cfg.get("edit_interval", 0.2),
+                )
+                await consumer.start()
+                agent.stream_delta_callback = consumer.on_delta
+
             try:
                 response: AgentResponse = await agent.run(request)
                 content = _redact_text(response.content)
-                send_result = await adapter.send(
-                    event.target,
-                    content,
-                    thread_id=event.thread_id,
-                )
+                self.session_store.add_transcript(event.session_key, "assistant", content)
+                
+                if consumer is not None:
+                    await consumer.stop()
+                    if consumer.message_id is not None:
+                        final_text = consumer._strip_thinking(content)
+                        edit_fn = getattr(adapter, "edit", None)
+                        if edit_fn is not None:
+                            await edit_fn(event.target, consumer.message_id, final_text, thread_id=event.thread_id)
+                        send_result = GatewaySendResult(success=True, message_id=consumer.message_id)
+                    else:
+                        send_result = await adapter.send(
+                            event.target,
+                            content,
+                            thread_id=event.thread_id,
+                        )
+                else:
+                    send_result = await adapter.send(
+                        event.target,
+                        content,
+                        thread_id=event.thread_id,
+                    )
                 self.session_store.set_status(event.session_key, "idle")
             except Exception as exc:
+                if consumer is not None:
+                    await consumer.stop()
                 content = _user_safe_error(str(exc))
                 send_result = await adapter.send(
                     event.target,
@@ -435,6 +444,10 @@ class GatewayRunner:
                 self.session_store.set_status(event.session_key, "failed")
                 response = AgentResponse(content=content, session_id=event.session_key)
             finally:
+                if consumer is not None:
+                    await consumer.stop()
+                    if hasattr(agent, "stream_delta_callback"):
+                        agent.stream_delta_callback = None
                 await self._send_typing(adapter, event, False)
         await self._emit("message:replied", {"event": event, "response": response})
         await self._drain_pending(event.session_key)
@@ -446,11 +459,13 @@ class GatewayRunner:
         }
 
     def _build_chat_request(self, event: GatewayEvent) -> ChatRequest:
+        history = self.session_store.get_history(event.session_key, limit=20)
         metadata = {
             "target": event.target,
             "message_id": event.message_id,
             "thread_id": event.thread_id,
             "media": _extract_media(event.raw),
+            "history": history,
         }
         session = self.session_store.sessions.get(event.session_key)
         if session and session.model_override:

@@ -16,6 +16,7 @@ class LLMProvider(Protocol):
         model: str,
         stream: bool = False,
         metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> LLMResult:
         ...
 
@@ -46,6 +47,7 @@ class StaticLLMProvider:
         model: str,
         stream: bool = False,
         metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> LLMResult:
         self.calls.append(
             {
@@ -57,8 +59,15 @@ class StaticLLMProvider:
             }
         )
         if len(self._results) > 1:
-            return self._results.pop(0)
-        return self._results[0]
+            res = self._results.pop(0)
+        else:
+            res = self._results[0]
+
+        if stream and stream_callback and res.content:
+            chunk_size = 5
+            for i in range(0, len(res.content), chunk_size):
+                stream_callback(res.content[i:i+chunk_size])
+        return res
 
 
 class OpenAICompatibleProvider:
@@ -76,6 +85,7 @@ class OpenAICompatibleProvider:
         model: str,
         stream: bool = False,
         metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
     ) -> LLMResult:
         if not self.api_key:
             return LLMResult(
@@ -94,5 +104,14 @@ class OpenAICompatibleProvider:
             tools=[{"type": "function", "function": tool} for tool in tools] or None,
             stream=stream,
         )
-        message = response.choices[0].message
-        return LLMResult(content=message.content or "", metadata={"provider": self.name})
+        if stream and stream_callback:
+            full_content = []
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full_content.append(delta)
+                    stream_callback(delta)
+            return LLMResult(content="".join(full_content), metadata={"provider": self.name})
+        else:
+            message = response.choices[0].message
+            return LLMResult(content=message.content or "", metadata={"provider": self.name})

@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+DEFAULT_LOG_FORMAT = (
+    "%(asctime)s %(process)d %(thread)d %(levelname)s %(name)s "
+    "%(filename)s:%(lineno)d - %(message)s"
+)
+DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 @dataclass(frozen=True)
 class LLMProviderConfig:
@@ -74,6 +80,13 @@ class DojoExtensionsConfig:
 
 
 @dataclass(frozen=True)
+class LoggingConfig:
+    level: str = "INFO"
+    format: str = DEFAULT_LOG_FORMAT
+    date_format: str = DEFAULT_LOG_DATE_FORMAT
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     version: int = 1
     llm_provider: LLMConfig = field(default_factory=LLMConfig)
@@ -84,3 +97,4 @@ class AgentsConfig:
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     dojo_extensions: DojoExtensionsConfig = field(default_factory=DojoExtensionsConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
