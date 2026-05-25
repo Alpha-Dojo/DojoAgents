@@ -1,0 +1,46 @@
+*.pyc
+__pycache__
+
+tags
+cscope.*
+.idea
+.vscode
+.history
+
+# build
+dist/
+build/
+emergingai.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+reports
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+htmlcov.tar
+reports.tar
+coverage_summary.txt
+pylint/
+unittest_summary.txt
+*stderr*
+*stdout*
+var/
+front/.yalc/
+.DS_Store
+.env
+
+# UV tool
+.python-version
+uv.lock
+
+# Local worktrees
+.worktrees/
+.agents/
+.specify/

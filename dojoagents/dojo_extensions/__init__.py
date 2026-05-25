@@ -1,0 +1,1 @@
+"""Dojo extension facade registry."""

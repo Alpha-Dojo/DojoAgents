@@ -1,0 +1,1 @@
+"""Chat gateway adapter registry."""

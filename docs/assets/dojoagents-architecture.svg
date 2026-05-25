@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="820" viewBox="0 0 1320 820" role="img" aria-labelledby="title desc">
+  <title id="title">DojoAgents architecture</title>
+  <desc id="desc">Layered architecture diagram for DojoAgents showing entrances, runtime, agent loop, skills, tools, memory, scheduler, gateway, dashboard, configuration, and Dojo quantitative extensions.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .panel { fill: #ffffff; stroke: #c9d2df; stroke-width: 2; rx: 8; }
+      .core { fill: #eef6ff; stroke: #4f83bd; stroke-width: 2; rx: 8; }
+      .domain { fill: #edf8f1; stroke: #4b9563; stroke-width: 2; rx: 8; }
+      .infra { fill: #fff6e5; stroke: #b98022; stroke-width: 2; rx: 8; }
+      .entry { fill: #f2efff; stroke: #7763b5; stroke-width: 2; rx: 8; }
+      .text { font-family: Arial, Helvetica, sans-serif; fill: #1f2937; font-size: 22px; font-weight: 700; }
+      .small { font-family: Arial, Helvetica, sans-serif; fill: #374151; font-size: 15px; font-weight: 400; }
+      .label { font-family: Arial, Helvetica, sans-serif; fill: #111827; font-size: 16px; font-weight: 700; }
+      .arrow { stroke: #526173; stroke-width: 2.5; fill: none; marker-end: url(#arrowhead); }
+      .dash { stroke: #7b8794; stroke-width: 2; fill: none; stroke-dasharray: 6 6; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#526173"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1320" height="820"/>
+
+  <text class="text" x="48" y="52">DojoAgents Prototype Architecture</text>
+  <text class="small" x="48" y="82">Quant finance agent runtime with decoupled entrances, core loop, tools, memory, scheduler, dashboard, and Dojo extensions.</text>
+
+  <rect class="entry" x="48" y="130" width="210" height="92"/>
+  <text class="label" x="78" y="166">CLI</text>
+  <text class="small" x="78" y="192">chat, dashboard</text>
+  <text class="small" x="78" y="212">gateway, scheduler</text>
+
+  <rect class="entry" x="48" y="270" width="210" height="112"/>
+  <text class="label" x="78" y="306">ApiGateway</text>
+  <text class="small" x="78" y="332">Slack, WeChat</text>
+  <text class="small" x="78" y="352">WeCom, Feishu</text>
+  <text class="small" x="78" y="372">Discord, Telegram</text>
+
+  <rect class="entry" x="48" y="430" width="210" height="92"/>
+  <text class="label" x="78" y="466">Dashboard</text>
+  <text class="small" x="78" y="492">FastAPI + web UI</text>
+  <text class="small" x="78" y="512">jobs, config, chat</text>
+
+  <rect class="infra" x="48" y="570" width="210" height="92"/>
+  <text class="label" x="78" y="606">Scheduler</text>
+  <text class="small" x="78" y="632">APScheduler</text>
+  <text class="small" x="78" y="652">cron job runs</text>
+
+  <rect class="core" x="340" y="210" width="260" height="132"/>
+  <text class="label" x="380" y="250">Runtime</text>
+  <text class="small" x="380" y="278">wires config snapshot</text>
+  <text class="small" x="380" y="300">agent, tools, memory</text>
+  <text class="small" x="380" y="322">extensions, delivery</text>
+
+  <rect class="core" x="680" y="160" width="260" height="152"/>
+  <text class="label" x="720" y="200">AgentLoop</text>
+  <text class="small" x="720" y="228">prompt assembly</text>
+  <text class="small" x="720" y="250">LLM calls</text>
+  <text class="small" x="720" y="272">tool roundtrips</text>
+  <text class="small" x="720" y="294">turn persistence</text>
+
+  <rect class="core" x="1010" y="160" width="230" height="112"/>
+  <text class="label" x="1042" y="200">LLM Providers</text>
+  <text class="small" x="1042" y="228">OpenAI compatible</text>
+  <text class="small" x="1042" y="250">future provider registry</text>
+
+  <rect class="infra" x="680" y="370" width="260" height="132"/>
+  <text class="label" x="720" y="410">Skills and Tools</text>
+  <text class="small" x="720" y="438">skill manager</text>
+  <text class="small" x="720" y="460">tool registry</text>
+  <text class="small" x="720" y="482">sandbox execution</text>
+
+  <rect class="infra" x="1010" y="370" width="230" height="112"/>
+  <text class="label" x="1042" y="410">Memory</text>
+  <text class="small" x="1042" y="438">provider lifecycle</text>
+  <text class="small" x="1042" y="460">skill summaries</text>
+
+  <rect class="domain" x="680" y="560" width="260" height="132"/>
+  <text class="label" x="720" y="600">DojoExtensions</text>
+  <text class="small" x="720" y="628">market data facade</text>
+  <text class="small" x="720" y="650">research artifacts</text>
+  <text class="small" x="720" y="672">dashboard cards</text>
+
+  <rect class="domain" x="1010" y="560" width="230" height="132"/>
+  <text class="label" x="1042" y="600">Quant Analysis</text>
+  <text class="small" x="1042" y="628">market context</text>
+  <text class="small" x="1042" y="650">analysis workflow</text>
+  <text class="small" x="1042" y="672">result contracts</text>
+
+  <rect class="panel" x="340" y="470" width="260" height="132"/>
+  <text class="label" x="380" y="510">ConfigStore</text>
+  <text class="small" x="380" y="538">~/.dojo/agents.yaml</text>
+  <text class="small" x="380" y="560">dynamic reload</text>
+  <text class="small" x="380" y="582">secret redaction</text>
+
+  <path class="arrow" d="M258 176 H340"/>
+  <path class="arrow" d="M258 326 H340"/>
+  <path class="arrow" d="M258 476 H340"/>
+  <path class="arrow" d="M258 616 C300 616 300 342 340 300"/>
+
+  <path class="arrow" d="M600 276 H680"/>
+  <path class="dash" d="M470 470 V342"/>
+  <path class="arrow" d="M940 224 H1010"/>
+  <path class="arrow" d="M810 312 V370"/>
+  <path class="arrow" d="M940 436 H1010"/>
+  <path class="arrow" d="M810 502 V560"/>
+  <path class="arrow" d="M940 626 H1010"/>
+  <path class="dash" d="M600 536 C640 536 640 438 680 438"/>
+  <path class="dash" d="M600 536 C640 536 640 626 680 626"/>
+
+  <text class="small" x="380" y="720">Entrances normalize work into ChatRequest. Runtime snapshots config and wires components. AgentLoop stays domain-aware through QuantContext and DojoExtensions, while Gateway, Scheduler, and Dashboard remain adapters.</text>
+</svg>
