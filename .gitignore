@@ -44,3 +44,4 @@ uv.lock
 .worktrees/
 .agents/
 .specify/
+*egg-info/
