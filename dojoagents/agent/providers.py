@@ -1,8 +1,7 @@
-from __future__ import annotations
+import json
+from typing import Any, Protocol, Callable
 
-from typing import Any, Protocol
-
-from dojoagents.agent.models import LLMResult
+from dojoagents.agent.models import LLMResult, ToolCall
 
 
 class LLMProvider(Protocol):
@@ -106,12 +105,89 @@ class OpenAICompatibleProvider:
         )
         if stream and stream_callback:
             full_content = []
+            full_reasoning = []
+            tool_calls_buffer: dict[int, dict[str, Any]] = {}
             async for chunk in response:
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    full_content.append(delta)
-                    stream_callback(delta)
-            return LLMResult(content="".join(full_content), metadata={"provider": self.name})
+                choice = chunk.choices[0]
+                delta = choice.delta
+                reasoning_delta = getattr(delta, "reasoning_content", None) or (
+                    delta.model_extra.get("reasoning_content")
+                    if hasattr(delta, "model_extra") and delta.model_extra
+                    else None
+                )
+                if reasoning_delta:
+                    full_reasoning.append(reasoning_delta)
+                content_delta = delta.content or ""
+                if content_delta:
+                    full_content.append(content_delta)
+                    stream_callback(content_delta)
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls_buffer:
+                            tool_calls_buffer[idx] = {
+                                "id": "",
+                                "name": "",
+                                "arguments": ""
+                            }
+                        if tc_delta.id:
+                            tool_calls_buffer[idx]["id"] = tc_delta.id
+                        if tc_delta.function and tc_delta.function.name:
+                            tool_calls_buffer[idx]["name"] = tc_delta.function.name
+                        if tc_delta.function and tc_delta.function.arguments:
+                            tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
+
+            final_tool_calls = []
+            for idx, tc in sorted(tool_calls_buffer.items()):
+                args_dict = {}
+                if tc["arguments"].strip():
+                    try:
+                        args_dict = json.loads(tc["arguments"])
+                    except json.JSONDecodeError:
+                        args_dict = {"raw_arguments": tc["arguments"]}
+                final_tool_calls.append(
+                    ToolCall(
+                        id=tc["id"],
+                        name=tc["name"],
+                        arguments=args_dict
+                    )
+                )
+            return LLMResult(
+                content="".join(full_content),
+                tool_calls=final_tool_calls,
+                metadata={
+                    "provider": self.name,
+                    "reasoning_content": "".join(full_reasoning),
+                }
+            )
         else:
             message = response.choices[0].message
-            return LLMResult(content=message.content or "", metadata={"provider": self.name})
+            reasoning_content = getattr(message, "reasoning_content", None) or (
+                message.model_extra.get("reasoning_content")
+                if hasattr(message, "model_extra") and message.model_extra
+                else None
+            )
+            final_tool_calls = []
+            if message.tool_calls:
+                for tc in message.tool_calls:
+                    args_dict = {}
+                    if tc.function.arguments:
+                        try:
+                            args_dict = json.loads(tc.function.arguments)
+                        except json.JSONDecodeError:
+                            args_dict = {"raw_arguments": tc.function.arguments}
+                    final_tool_calls.append(
+                        ToolCall(
+                            id=tc.id,
+                            name=tc.function.name,
+                            arguments=args_dict
+                        )
+                    )
+            return LLMResult(
+                content=message.content or "",
+                tool_calls=final_tool_calls,
+                metadata={
+                    "provider": self.name,
+                    "reasoning_content": reasoning_content or "",
+                }
+            )
