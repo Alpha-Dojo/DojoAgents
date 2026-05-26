@@ -17,8 +17,13 @@ class ToolExecutor:
         self, tool_calls: list[ToolCall], *, session_id: str = ""
     ) -> ToolResultList:
         results = ToolResultList()
-        for call in tool_calls:
-            results.append(await self.execute_one(call, session_id=session_id))
+        if not tool_calls:
+            return results
+
+        tasks = [self.execute_one(call, session_id=session_id) for call in tool_calls]
+        executed_results = await asyncio.gather(*tasks)
+        for res in executed_results:
+            results.append(res)
         return results
 
     async def execute_one(self, call: ToolCall, *, session_id: str = "") -> ToolResult:

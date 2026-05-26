@@ -128,8 +128,20 @@ class WeChatQRLoginClient:
         if not qrcode or not qr_url:
             raise RuntimeError("iLink did not return a usable WeChat QR code.")
 
-        print("WeChat QR login URL: " + str(qr_url))
+        print("\n请使用微信扫描以下二维码：")
+        print(f"\033[4;34m{qr_url}\033[0m\n")
+
+        try:
+            import qrcode as qr_mod
+            qr_renderer = qr_mod.QRCode()
+            qr_renderer.add_data(qr_url)
+            qr_renderer.make(fit=True)
+            qr_renderer.print_ascii(invert=True)
+        except Exception as exc:
+            print(f"（终端二维码渲染失败: {exc}，请直接打开上面的二维码链接进行扫描）\n")
+
         print("Scan the QR code or open the URL above with WeChat, then confirm login.")
+
 
         current_base_url = self.base_url
         refresh_count = 0
@@ -296,17 +308,27 @@ def _prompt_for_wechat(
     existing: dict[str, Any],
     qr_client: WeChatQRClient,
 ) -> dict[str, Any]:
-    print("WeChat QR setup")
-    print("1. DojoAgents requests a Tencent iLink QR login URL.")
-    print("2. Scan the QR code or open the URL with the WeChat mobile app.")
-    print("3. Confirm the login, then DojoAgents saves account_id/token/base_url.")
+    print("\n\033[1;36m◆ Messaging Platforms\033[0m")
+    print("\n\033[1;34m—— 💬 Weixin / WeChat Setup ——\033[0m\n")
+    print("  1. DojoAgents will open Tencent iLink QR login in this terminal.")
 
-    start = _prompt_choice("Start WeChat QR login now?", ("y", "n"), "y")
+    print("  2. Use WeChat to scan and confirm the QR code.")
+    print("  3. DojoAgents will store the returned account_id/token in agents.yaml.")
+    print("  4. This adapter supports native text, image, video, and document delivery.\n")
+
+    if existing.get("enabled") and (existing.get("token") or existing.get("bot_token")):
+        print("\033[1;32m✓ Weixin is already configured.\033[0m")
+        reconfig = _prompt_choice("Reconfigure Weixin?", ("y", "n"), "y")
+        if reconfig == "n":
+            return existing
+
+    start = _prompt_choice("Start QR login now?", ("y", "n"), "y")
     if start == "n":
         print("WeChat configuration skipped")
         return {**existing, "enabled": bool(existing.get("enabled", False))}
 
     credentials = _run_async(qr_client.login())
+
     dm_policy = _prompt_choice(
         "WeChat DM policy",
         ("pairing", "open", "allowlist", "disabled"),

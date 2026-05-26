@@ -21,6 +21,7 @@ from dojoagents.config.models import (
     LLMProviderConfig,
     LoggingConfig,
     MemoryConfig,
+    SkillsConfig,
     SandboxConfig,
     SchedulerConfig,
     ToolsConfig,
@@ -91,6 +92,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         )
     )
     memory_raw = raw.get("memory", {})
+    skills_raw = raw.get("skills", {})
     scheduler_raw = raw.get("scheduler", {})
     gateway_raw = raw.get("gateway", {})
     dashboard_raw = raw.get("dashboard", {})
@@ -106,6 +108,15 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             generated_skill_dir=memory_raw.get(
                 "generated_skill_dir", "~/.dojo/skills/generated"
             ),
+        ),
+        skills=SkillsConfig(
+            dir=skills_raw.get("dir", "~/.dojo/skills"),
+            generated_skill_dir=skills_raw.get(
+                "generated_skill_dir", "~/.dojo/skills/generated"
+            ),
+            external_dirs=list(skills_raw.get("external_dirs", [])),
+            disabled=list(skills_raw.get("disabled", [])),
+            platform_disabled=dict(skills_raw.get("platform_disabled", {})),
         ),
         scheduler=SchedulerConfig(
             enabled=bool(scheduler_raw.get("enabled", True)),

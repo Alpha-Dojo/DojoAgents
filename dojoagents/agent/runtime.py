@@ -17,6 +17,7 @@ from dojoagents.skills.manager import SkillManager
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
+from dojoagents.tools.skill_manage import SkillManagerTool
 
 
 @dataclass
@@ -44,6 +45,33 @@ class Runtime:
         for spec in extensions.tool_specs():
             tool_registry.register(spec)
 
+        skills_cfg = config.skills
+        skill_dirs = [
+            skills_cfg.dir,
+            skills_cfg.generated_skill_dir
+        ] + skills_cfg.external_dirs
+
+        skill_manager = SkillManager(
+            skill_dirs=skill_dirs,
+            disabled_skills=skills_cfg.disabled,
+            platform_disabled=skills_cfg.platform_disabled,
+            enable_cache=config.agent.enable_skill_cache,
+            lazy_skills=config.agent.lazy_skills,
+        )
+
+        skill_tool = SkillManagerTool(
+            main_skills_dir=Path(skills_cfg.dir),
+            skill_manager=skill_manager
+        )
+        tool_registry.register(skill_tool.get_tool_spec())
+
+        from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
+        tool_registry.register(SkillsListTool(skill_manager).get_tool_spec())
+        tool_registry.register(SkillViewTool(skill_manager).get_tool_spec())
+
+        tool_names = [spec.name for spec in tool_registry.all()]
+        skill_manager.loaded_tools = set(tool_names)
+
         provider_cfg = config.llm_provider.providers.get(config.llm_provider.default)
         if provider_cfg is None:
             provider_cfg = next(iter(config.llm_provider.providers.values()))
@@ -70,7 +98,7 @@ class Runtime:
                     timeout_seconds=config.tools.sandbox.timeout_seconds,
                 ),
             ),
-            skill_manager=SkillManager([]),
+            skill_manager=skill_manager,
             memory_manager=memory,
             extension_registry=extensions,
             config=config.agent,

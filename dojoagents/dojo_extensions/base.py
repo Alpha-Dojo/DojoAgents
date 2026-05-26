@@ -23,10 +23,13 @@ class DashboardCardSpec:
 class DojoExtension(Protocol):
     name: str
     version: str
+    specification: str
 
     def health(self) -> ExtensionHealth: ...
 
     def tool_specs(self) -> list[ToolSpec]: ...
+    
+    def execute_command(self, command: str) -> str: ...
 
     def dashboard_cards(self) -> list[DashboardCardSpec]: ...
 

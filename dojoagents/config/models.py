@@ -31,6 +31,11 @@ class AgentConfig:
     model: str = "gpt-4.1"
     max_iterations: int = 8
     max_tool_workers: int = 4
+    lazy_skills: bool = True
+    enable_skill_cache: bool = True
+    enable_guardrails: bool = True
+    enable_think_scrubbing: bool = True
+    enable_context_compression: bool = True
     default_skills: list[str] = field(default_factory=lambda: ["dojo-quant-analyst"])
 
 
@@ -51,6 +56,15 @@ class ToolsConfig:
 class MemoryConfig:
     provider: str = "skill_summary"
     generated_skill_dir: str = "~/.dojo/skills/generated"
+
+
+@dataclass(frozen=True)
+class SkillsConfig:
+    dir: str = "~/.dojo/skills"
+    generated_skill_dir: str = "~/.dojo/skills/generated"
+    external_dirs: list[str] = field(default_factory=list)
+    disabled: list[str] = field(default_factory=list)
+    platform_disabled: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -93,6 +107,7 @@ class AgentsConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    skills: SkillsConfig = field(default_factory=SkillsConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
