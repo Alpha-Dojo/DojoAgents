@@ -50,3 +50,23 @@ class MCPServerTask:
             await self.session.__aexit__(None, None, None)
         if self.client_ctx:
             await self.client_ctx.__aexit__(None, None, None)
+
+async def _run_on_mcp_loop(coro):
+    _ensure_mcp_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, _mcp_loop)
+    return await asyncio.wrap_future(future)
+
+def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
+    async def handler(args: dict[str, Any]) -> dict[str, Any]:
+        async def _call():
+            res = await server_task.session.call_tool(tool_name, arguments=args)
+            if res.isError:
+                error_msg = "".join(b.text for b in res.content if hasattr(b, "text") and b.text)
+                raise Exception(error_msg or f"MCP tool '{tool_name}' returned error")
+            parts = [b.text for b in res.content if hasattr(b, "text") and b.text]
+            return {
+                "content": "\n".join(parts),
+                "metadata": {"server": server_task.name, "mcp_tool": tool_name}
+            }
+        return await _run_on_mcp_loop(_call())
+    return handler
