@@ -3,6 +3,7 @@ import threading
 from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from dojoagents.tools.registry import ToolRegistry, ToolSpec
 
 _mcp_loop: asyncio.AbstractEventLoop | None = None
 _mcp_thread: threading.Thread | None = None
@@ -70,3 +71,33 @@ def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
             }
         return await _run_on_mcp_loop(_call())
     return handler
+
+def discover_and_register_mcp_tools(registry: ToolRegistry, mcp_config: dict[str, Any]) -> None:
+    if not mcp_config:
+        return
+    _ensure_mcp_loop()
+
+    async def _setup_all():
+        for name, cfg in mcp_config.items():
+            if not cfg.get("enabled", True):
+                continue
+            task = MCPServerTask(name, cfg)
+            await task.connect()
+            _servers[name] = task
+            
+            for mcp_tool in task.tools:
+                safe_name = f"mcp_{name}_{mcp_tool.name}"
+                spec = ToolSpec(
+                    name=safe_name,
+                    description=mcp_tool.description or "",
+                    parameters=mcp_tool.inputSchema,
+                    handler=make_mcp_tool_handler(task, mcp_tool.name)
+                )
+                registry.register(spec)
+
+    future = asyncio.run_coroutine_threadsafe(_setup_all(), _mcp_loop)
+    try:
+        future.result(timeout=30)
+    except Exception as e:
+        import logging
+        logging.getLogger("dojoagents").error(f"Failed to initialize MCP servers: {e}")
