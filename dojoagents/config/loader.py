@@ -141,6 +141,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             format=str(logging_raw.get("format", DEFAULT_LOG_FORMAT)),
             date_format=str(logging_raw.get("date_format", DEFAULT_LOG_DATE_FORMAT)),
         ),
+        mcp_servers=dict(raw.get("mcp_servers", {})),
     )
 
 
