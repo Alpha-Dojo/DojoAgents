@@ -45,3 +45,5 @@ uv.lock
 .agents/
 .specify/
 *egg-info/
+docs/superpowers/
+docs/hermes/
