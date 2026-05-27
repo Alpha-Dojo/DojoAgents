@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Callable
+
+from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.models import AgentResponse, ChatRequest, LLMResult, ToolCall
 from dojoagents.agent.providers import LLMProvider
@@ -51,8 +54,31 @@ class AgentLoop:
         self.guardrails = ToolCallGuardrailController()
 
     async def run(self, request: ChatRequest) -> AgentResponse:
+        plugin_registry = get_plugin_registry()
+        plugin_registry.invoke_hook(
+            "on_session_start",
+            session_id=request.session_id,
+            model=self.config.model,
+        )
+
         messages = await self._build_messages(request)
+
+        # 2. Invoke pre_llm_call hook
+        pre_results = plugin_registry.invoke_hook(
+            "pre_llm_call",
+            session_id=request.session_id,
+            user_message=request.message,
+        )
+        for res in pre_results:
+            if isinstance(res, str) and res.strip():
+                messages[-1]["content"] += f"\n\n[Plugin Context]\n{res}"
+
         tool_specs = self._collect_tool_specs()
+        for plugin_tool in plugin_registry._tools:
+            self.tool_executor.registry.register(plugin_tool)
+            if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
+                tool_specs.append(plugin_tool.schema())
+
         tool_specs, tool_name_map = self._sanitize_tool_specs(tool_specs)
 
         if self.config.enable_guardrails:
@@ -78,6 +104,14 @@ class AgentLoop:
                 else:
                     active_callback = self.stream_delta_callback
 
+                # 3. Invoke pre_api_request hook
+                plugin_registry.invoke_hook(
+                    "pre_api_request",
+                    session_id=request.session_id,
+                    api_call_count=iteration + 1,
+                    request_messages=messages,
+                )
+
                 llm_result = await self.llm_provider.chat(
                     messages,
                     tool_specs,
@@ -85,6 +119,14 @@ class AgentLoop:
                     stream=bool(active_callback),
                     stream_callback=active_callback,
                     metadata={"session_id": request.session_id, "channel": request.channel},
+                )
+
+                # 4. Invoke post_api_request hook
+                plugin_registry.invoke_hook(
+                    "post_api_request",
+                    session_id=request.session_id,
+                    api_call_count=iteration + 1,
+                    llm_result=llm_result,
                 )
 
                 # Flush scrubber at end of stream
@@ -106,8 +148,14 @@ class AgentLoop:
                         llm_result.content,
                         session_id=request.session_id,
                     )
+                    response_text = self._run_exit_hooks(
+                        llm_result.content or "",
+                        request,
+                        messages,
+                        completed=True,
+                    )
                     return AgentResponse(
-                        content=llm_result.content,
+                        content=response_text,
                         session_id=request.session_id,
                         metadata={"iterations": iteration + 1},
                     )
@@ -121,6 +169,67 @@ class AgentLoop:
                 blocked_results = []
 
                 for call in tool_calls:
+                    block_message = None
+                    try:
+                        pre_results = plugin_registry.invoke_hook(
+                            "pre_tool_call",
+                            tool_name=call.name,
+                            args=call.arguments,
+                            session_id=request.session_id,
+                            tool_call_id=call.id,
+                        )
+                        for res in pre_results:
+                            if isinstance(res, dict) and res.get("action") == "block":
+                                block_message = res.get("message") or "Blocked by plugin"
+                                break
+                    except Exception as he:
+                        LOGGER.exception(f"Error in pre_tool_call hook: {he}")
+
+                    if block_message:
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": llm_result.content,
+                        }
+                        if llm_result.tool_calls:
+                            assistant_msg["tool_calls"] = [
+                                {
+                                    "id": c.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": c.name,
+                                        "arguments": (
+                                            json.dumps(c.arguments, ensure_ascii=False)
+                                            if isinstance(c.arguments, dict)
+                                            else str(c.arguments)
+                                        ),
+                                    },
+                                }
+                                for c in llm_result.tool_calls
+                            ]
+                        reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
+                        if reasoning_content:
+                            assistant_msg["reasoning_content"] = reasoning_content
+                        messages.append(assistant_msg)
+
+                        messages.append({
+                            "role": "tool",
+                            "name": call.name,
+                            "tool_call_id": call.id,
+                            "content": json.dumps({"error": block_message}, ensure_ascii=False),
+                        })
+
+                        response_text = self._run_exit_hooks(
+                            block_message,
+                            request,
+                            messages,
+                            completed=False,
+                        )
+                        return AgentResponse(
+                            content=response_text,
+                            session_id=request.session_id,
+                            metadata={"iterations": iteration + 1, "stopped": "plugin_blocked"},
+                        )
+
                     if self.config.enable_guardrails:
                         decision = self.guardrails.before_call(call.name, call.arguments)
                         if decision.should_halt:
@@ -167,8 +276,14 @@ class AgentLoop:
                                 "tool_call_id": call.id,
                                 "content": blocked_res["content"],
                             })
+                            response_text = self._run_exit_hooks(
+                                decision.message,
+                                request,
+                                messages,
+                                completed=False,
+                            )
                             return AgentResponse(
-                                content=decision.message,
+                                content=response_text,
                                 session_id=request.session_id,
                                 metadata={"iterations": iteration + 1, "stopped": "guardrail_halt"},
                             )
@@ -189,10 +304,53 @@ class AgentLoop:
                         allowed_tool_calls.append(call)
 
                 # Execute allowed tool calls concurrently
+                tool_start_time = time.monotonic()
                 tool_results = await self.tool_executor.execute_many(
                     allowed_tool_calls,
                     session_id=request.session_id,
                 )
+                duration_ms = int((time.monotonic() - tool_start_time) * 1000)
+
+                for res in tool_results:
+                    tc = next((c for c in allowed_tool_calls if c.id == res.call_id), None)
+                    tc_args = tc.arguments if tc else {}
+
+                    # post_tool_call hook
+                    try:
+                        plugin_registry.invoke_hook(
+                            "post_tool_call",
+                            tool_name=res.name,
+                            args=tc_args,
+                            result=res.content if res.ok else res.error,
+                            task_id=request.user_id,
+                            session_id=request.session_id,
+                            tool_call_id=res.call_id,
+                            duration_ms=duration_ms,
+                        )
+                    except Exception as he:
+                        LOGGER.exception(f"Error in post_tool_call hook: {he}")
+
+                    # transform_tool_result hook
+                    try:
+                        transform_results = plugin_registry.invoke_hook(
+                            "transform_tool_result",
+                            tool_name=res.name,
+                            args=tc_args,
+                            result=res.content if res.ok else res.error,
+                            task_id=request.user_id,
+                            session_id=request.session_id,
+                            tool_call_id=res.call_id,
+                            duration_ms=duration_ms,
+                        )
+                        for trans_res in transform_results:
+                            if isinstance(trans_res, str):
+                                if res.ok:
+                                    res.content = trans_res
+                                else:
+                                    res.error = trans_res
+                                break
+                    except Exception as he:
+                        LOGGER.exception(f"Error in transform_tool_result hook: {he}")
 
                 # Process results through guardrails after execution
                 if self.config.enable_guardrails:
@@ -253,17 +411,67 @@ class AgentLoop:
                 )
             except Exception as e:
                 LOGGER.exception(f"Error in agent loop: {e}")
+                response_text = self._run_exit_hooks(
+                    f"Error in agent loop: {e}",
+                    request,
+                    messages,
+                    completed=False,
+                )
                 return AgentResponse(
-                    content=f"Error in agent loop: {e}",
+                    content=response_text,
                     session_id=request.session_id,
                     metadata={"stopped": "error"},
                 )
 
+        response_text = self._run_exit_hooks(
+            "Agent stopped after reaching the iteration limit.",
+            request,
+            messages,
+            completed=False,
+        )
         return AgentResponse(
-            content="Agent stopped after reaching the iteration limit.",
+            content=response_text,
             session_id=request.session_id,
             metadata={"stopped": "iteration_limit"},
         )
+
+    def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
+        plugin_registry = get_plugin_registry()
+        try:
+            transform_results = plugin_registry.invoke_hook(
+                "transform_llm_output",
+                response_text=response_text,
+                session_id=request.session_id,
+            )
+            for trans in transform_results:
+                if isinstance(trans, str):
+                    response_text = trans
+        except Exception as he:
+            LOGGER.exception(f"Error in transform_llm_output hook: {he}")
+
+        try:
+            plugin_registry.invoke_hook(
+                "post_llm_call",
+                session_id=request.session_id,
+                user_message=request.message,
+                assistant_response=response_text,
+                conversation_history=messages,
+                model=self.config.model,
+                platform=request.channel,
+            )
+        except Exception as he:
+            LOGGER.exception(f"Error in post_llm_call hook: {he}")
+
+        try:
+            plugin_registry.invoke_hook(
+                "on_session_end",
+                session_id=request.session_id,
+                completed=completed,
+            )
+        except Exception as he:
+            LOGGER.exception(f"Error in on_session_end hook: {he}")
+
+        return response_text
 
     async def _build_messages(self, request: ChatRequest) -> list[dict]:
         blocks = [

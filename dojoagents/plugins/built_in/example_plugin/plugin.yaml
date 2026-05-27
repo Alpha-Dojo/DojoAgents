@@ -1,0 +1,8 @@
+name: example_plugin
+version: 1.0.0
+description: "Dojo 通用插件模版。演示如何注册工具和绑定生命周期钩子。"
+provides_tools:
+  - example_tool
+provides_hooks:
+  - pre_llm_call
+  - transform_llm_output
