@@ -35,6 +35,8 @@ class ToolExecutor:
                 ok=False,
                 error=f"Tool '{call.name}' is not registered",
             )
+        from dojoagents.tools.process_registry import active_session_id
+        token = active_session_id.set(session_id)
         try:
             self.sandbox.check_tool(call.name)
             raw = await asyncio.wait_for(
@@ -49,6 +51,8 @@ class ToolExecutor:
                 ok=False,
                 error=str(exc),
             )
+        finally:
+            active_session_id.reset(token)
 
     def _coerce_result(
         self, call: ToolCall, raw: dict[str, Any] | str | None, *, session_id: str

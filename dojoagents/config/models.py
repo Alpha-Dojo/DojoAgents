@@ -113,3 +113,4 @@ class AgentsConfig:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     dojo_extensions: DojoExtensionsConfig = field(default_factory=DojoExtensionsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    mcp_servers: dict[str, Any] = field(default_factory=dict)

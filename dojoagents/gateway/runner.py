@@ -70,11 +70,21 @@ class GatewayRunner:
         self._hooks: dict[str, list[Any]] = {}
         self._agent_cache: dict[str, Any] = {}
         self._pending_approvals: dict[str, dict[str, Any]] = {}
+        import sys
+        is_testing = "pytest" in sys.modules or "unittest" in sys.modules
+        default_pid_path = "~/.dojo/gateway/gateway.pid"
+        default_clean_path = "~/.dojo/gateway/.clean_shutdown"
+        if is_testing:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            default_pid_path = os.path.join(temp_dir, f"dojo_gateway_test_{os.getpid()}.pid")
+            default_clean_path = os.path.join(temp_dir, f"dojo_gateway_test_{os.getpid()}.clean")
+
         self._pid_file = Path(
-            self.gateway_config.get("pid_file", "~/.dojo/gateway/gateway.pid")
+            self.gateway_config.get("pid_file", default_pid_path)
         ).expanduser()
         self._clean_marker = Path(
-            self.gateway_config.get("clean_marker", "~/.dojo/gateway/.clean_shutdown")
+            self.gateway_config.get("clean_marker", default_clean_path)
         ).expanduser()
 
     async def start(self) -> bool:
@@ -88,6 +98,7 @@ class GatewayRunner:
                 continue
             await self._connect_platform(platform, hook_config)
         self._state = "running"
+        self._watcher_task = asyncio.create_task(self._watch_completion_queue())
         await self._emit("gateway:startup", self.status())
         await self._send_startup_notifications()
         return True
@@ -95,6 +106,12 @@ class GatewayRunner:
     async def stop(self) -> None:
         self._state = "stopping"
         await self._emit("gateway:shutdown", self.status())
+        if hasattr(self, "_watcher_task") and self._watcher_task:
+            self._watcher_task.cancel()
+            try:
+                await self._watcher_task
+            except asyncio.CancelledError:
+                pass
         for task in self._reconnect_tasks.values():
             task.cancel()
         self._reconnect_tasks.clear()
@@ -301,7 +318,7 @@ class GatewayRunner:
         if not text.startswith("/"):
             return None
         name, _, arg = text[1:].partition(" ")
-        name = name.lower()
+        name = name.lower().replace("_", "-")
         if name in {"reset", "new"}:
             self._pending_events.pop(event.session_key, None)
             self._agent_cache.pop(event.session_key, None)
@@ -368,8 +385,73 @@ class GatewayRunner:
         if name == "restart":
             self._state = "restart_requested"
             await adapter.send(event.target, "Gateway restart requested", thread_id=event.thread_id)
-            return {"accepted": True, "command": "restart"}
-        return None
+            return {"accepted": True, "command": name}
+
+        # Check for skill commands
+        skill_manager = self.runtime.agent.skill_manager
+        available_skills = skill_manager.list_skills()
+        if name in available_skills:
+            skill_file = None
+            for root in skill_manager.skill_dirs:
+                if not root.exists():
+                    continue
+                candidate = root / name / "SKILL.md"
+                if candidate.exists():
+                    skill_file = candidate
+                    break
+
+            if skill_file:
+                try:
+                    frontmatter, body = skill_manager._get_skill_content(skill_file)
+                    skill_name = frontmatter.get("name", name)
+                    activation_note = (
+                        f'[IMPORTANT: The user has invoked the "{skill_name}" skill, indicating '
+                        f'they want you to follow its instructions. The full skill content is loaded below.]'
+                    )
+                    parts = [
+                        activation_note,
+                        "",
+                        body.strip()
+                    ]
+
+                    skill_dir = skill_file.parent
+                    supporting = []
+                    for subdir in ("references", "templates", "scripts", "assets"):
+                        subdir_path = skill_dir / subdir
+                        if subdir_path.exists():
+                            for f in sorted(subdir_path.rglob("*")):
+                                if f.is_file() and not f.is_symlink():
+                                    rel = str(f.relative_to(skill_dir))
+                                    supporting.append(f"- {rel}  ->  {f}")
+                    if supporting:
+                        parts.extend([
+                            "",
+                            "[This skill has supporting files:]",
+                            *supporting,
+                            f"\nLoad any of these with skill_view(name=\"{name}\", file_path=\"<path>\")."
+                        ])
+
+                    if arg.strip():
+                        parts.extend([
+                            "",
+                            f"The user has provided the following instruction alongside the skill invocation: {arg.strip()}"
+                        ])
+
+                    object.__setattr__(event, "text", "\n".join(parts))
+                    return None
+                except Exception as e:
+                    LOGGER.error(f"Failed to load skill '{name}' inside gateway: {e}")
+                    await adapter.send(event.target, f"Error: Failed to load skill '{name}'.", thread_id=event.thread_id)
+                    return {"accepted": True, "error": str(e)}
+
+        # Unrecognized slash command
+        await adapter.send(
+            event.target,
+            f"Unknown command `/{name}`. Resend without the leading slash to talk normally, "
+            f"or use one of the available skills: {', '.join(available_skills)}.",
+            thread_id=event.thread_id
+        )
+        return {"accepted": True, "command": "unknown"}
 
     def _hook_config(self, platform: str) -> dict[str, Any] | None:
         hooks = self.gateway_config.get("hooks", {})
@@ -567,6 +649,65 @@ class GatewayRunner:
     def _write_clean_marker(self) -> None:
         self._clean_marker.parent.mkdir(parents=True, exist_ok=True)
         self._clean_marker.write_text(str(time.time()), encoding="utf-8")
+
+    async def _watch_completion_queue(self) -> None:
+        from dojoagents.tools.process_registry import process_registry
+        while not self._stop_event.is_set():
+            try:
+                event = await process_registry.completion_queue.get()
+                session_key = event.get("session_key")
+                if not session_key:
+                    continue
+                parts = session_key.split(":")
+                if len(parts) == 3:
+                    platform, target, user_id = parts
+                else:
+                    platform, target, user_id = "cli", "cli", "local"
+                
+                adapter = self.adapters.get(platform)
+                if not adapter:
+                    continue
+                
+                exit_code = event.get("exit_code", 0)
+                cmd = event.get("command", "")
+                sid = event.get("session_id", "")
+                raw_out = event.get("output", "")
+                
+                _LIMIT = 2000
+                if len(raw_out) > _LIMIT:
+                    _tail = raw_out[-_LIMIT:]
+                    _nl = _tail.find("\n")
+                    _out = _tail[_nl + 1:] if _nl != -1 else _tail
+                    _out = f"[… output truncated — showing last {len(_out)} chars]\n{_out}"
+                else:
+                    _out = raw_out
+                
+                synth_text = (
+                    f"[IMPORTANT: Background process {sid} completed "
+                    f"(exit code {exit_code}).\n"
+                    f"Command: {cmd}\n"
+                    f"Output:\n{_out}]"
+                )
+                
+                gateway_event = GatewayEvent(
+                    platform=platform,
+                    text=synth_text,
+                    target=target,
+                    user_id=user_id,
+                    thread_id=None,
+                    internal=True,
+                )
+                
+                lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+                if lock.locked():
+                    self._pending_events.setdefault(session_key, []).append(gateway_event)
+                else:
+                    asyncio.create_task(self._run_event(adapter, gateway_event, lock))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                LOGGER.error("Error in completion queue watcher: %s", e)
+                await asyncio.sleep(1)
 
 
 def _coerce_list(value: Any) -> list[str]:

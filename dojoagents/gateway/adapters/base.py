@@ -18,6 +18,7 @@ class GatewayEvent:
     message_id: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
     thread_id: str | None = None
+    internal: bool = False
 
     def to_chat_request(self, *, session_id: str | None = None) -> ChatRequest:
         return ChatRequest(

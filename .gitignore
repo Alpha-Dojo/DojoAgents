@@ -44,3 +44,6 @@ uv.lock
 .worktrees/
 .agents/
 .specify/
+*egg-info/
+docs/superpowers/
+docs/hermes/

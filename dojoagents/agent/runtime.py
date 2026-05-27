@@ -46,9 +46,11 @@ class Runtime:
             tool_registry.register(spec)
 
         skills_cfg = config.skills
+        built_in_dir = Path(__file__).parent.parent / "skills" / "built_in"
         skill_dirs = [
             skills_cfg.dir,
-            skills_cfg.generated_skill_dir
+            skills_cfg.generated_skill_dir,
+            built_in_dir,
         ] + skills_cfg.external_dirs
 
         skill_manager = SkillManager(
@@ -68,6 +70,21 @@ class Runtime:
         from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
         tool_registry.register(SkillsListTool(skill_manager).get_tool_spec())
         tool_registry.register(SkillViewTool(skill_manager).get_tool_spec())
+
+        from dojoagents.tools.terminal_tool import get_terminal_spec
+        policy = SandboxPolicy(
+            allowed_roots=config.tools.sandbox.allowed_roots,
+            allow_network=config.tools.sandbox.allow_network,
+            allowed_commands=config.tools.sandbox.allowed_commands,
+            timeout_seconds=config.tools.sandbox.timeout_seconds,
+        )
+        tool_registry.register(get_terminal_spec(policy))
+
+        from dojoagents.tools.code_execution_tool import get_code_execution_spec
+        tool_registry.register(get_code_execution_spec(tool_registry, policy))
+
+        from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
+        discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
 
         tool_names = [spec.name for spec in tool_registry.all()]
         skill_manager.loaded_tools = set(tool_names)
@@ -91,12 +108,7 @@ class Runtime:
             llm_provider=provider,
             tool_executor=ToolExecutor(
                 tool_registry,
-                SandboxPolicy(
-                    allowed_roots=config.tools.sandbox.allowed_roots,
-                    allow_network=config.tools.sandbox.allow_network,
-                    allowed_commands=config.tools.sandbox.allowed_commands,
-                    timeout_seconds=config.tools.sandbox.timeout_seconds,
-                ),
+                policy,
             ),
             skill_manager=skill_manager,
             memory_manager=memory,

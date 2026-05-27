@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     model_parser = sub.add_parser("model")
     model_parser.add_argument("--config", default="~/.dojo/agents.yaml")
+
+    mcp_parser = sub.add_parser("mcp")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_sub.add_parser("serve")
     return parser
 
 
@@ -150,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "model":
         from dojoagents.cli.model_setup import configure_model_connection
         return configure_model_connection(config_path=args.config)
+    if args.command == "mcp":
+        if args.mcp_command == "serve":
+            from dojoagents.cli.mcp_serve import run_server
+            run_server()
+            return 0
     return 2
 
 

@@ -1,0 +1,8 @@
+name: project_guardian
+version: 1.0.0
+description: "A declarative sentinel that intercepts tool calls and blocks malicious commands."
+provides_hooks:
+  - pre_tool_call
+hooks:
+  pre_tool_call:
+    command: "python scripts/audit.py"
