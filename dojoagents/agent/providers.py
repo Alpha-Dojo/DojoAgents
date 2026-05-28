@@ -1,6 +1,6 @@
 import json
 from typing import Any, Protocol, Callable
-
+from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 
 
@@ -97,12 +97,17 @@ class OpenAICompatibleProvider:
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=[{"type": "function", "function": tool} for tool in tools] or None,
-            stream=stream,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=[{"type": "function", "function": tool} for tool in tools] or None,
+                stream=stream,
+            )
+        except Exception as e:
+            LOGGER.exception(f"Error calling OpenAI API: {e}, messages: {messages}, tools: {tools}, model: {model}")
+            raise e
+
         if stream and stream_callback:
             full_content = []
             full_reasoning = []
