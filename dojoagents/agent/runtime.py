@@ -45,13 +45,16 @@ class Runtime:
         for spec in extensions.tool_specs():
             tool_registry.register(spec)
 
+        from dojoagents.plugins import get_plugin_registry
+        plugin_registry = get_plugin_registry()
+
         skills_cfg = config.skills
         built_in_dir = Path(__file__).parent.parent / "skills" / "built_in"
         skill_dirs = [
             skills_cfg.dir,
             skills_cfg.generated_skill_dir,
             built_in_dir,
-        ] + skills_cfg.external_dirs
+        ] + skills_cfg.external_dirs + plugin_registry._skill_dirs
 
         skill_manager = SkillManager(
             skill_dirs=skill_dirs,
@@ -71,6 +74,10 @@ class Runtime:
         tool_registry.register(SkillsListTool(skill_manager).get_tool_spec())
         tool_registry.register(SkillViewTool(skill_manager).get_tool_spec())
 
+        from dojoagents.tools.plugin_manage import PluginListTool, PluginDeleteTool
+        tool_registry.register(PluginListTool(plugin_registry).get_tool_spec())
+        tool_registry.register(PluginDeleteTool(plugin_registry).get_tool_spec())
+
         from dojoagents.tools.terminal_tool import get_terminal_spec
         policy = SandboxPolicy(
             allowed_roots=config.tools.sandbox.allowed_roots,
@@ -85,6 +92,10 @@ class Runtime:
 
         from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
+        if plugin_registry._mcp_configs:
+            from dojoagents.logging import LOGGER
+            LOGGER.debug(f"Registering MCP tools config from plugins: {plugin_registry._mcp_configs}")
+            discover_and_register_mcp_tools(tool_registry, plugin_registry._mcp_configs)
 
         tool_names = [spec.name for spec in tool_registry.all()]
         skill_manager.loaded_tools = set(tool_names)

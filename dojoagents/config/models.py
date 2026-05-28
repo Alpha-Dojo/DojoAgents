@@ -29,7 +29,7 @@ class LLMConfig:
 @dataclass(frozen=True)
 class AgentConfig:
     model: str = "gpt-4.1"
-    max_iterations: int = 8
+    max_iterations: int = 100
     max_tool_workers: int = 4
     lazy_skills: bool = True
     enable_skill_cache: bool = True

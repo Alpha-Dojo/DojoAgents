@@ -4,7 +4,7 @@ import json
 import re
 import time
 from typing import Callable
-
+from dataclasses import asdict
 from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.models import AgentResponse, ChatRequest, LLMResult, ToolCall
@@ -120,7 +120,7 @@ class AgentLoop:
                     stream_callback=active_callback,
                     metadata={"session_id": request.session_id, "channel": request.channel},
                 )
-
+                LOGGER.debug(f"LLM Result: {json.dumps(asdict(llm_result), ensure_ascii=False)}")
                 # 4. Invoke post_api_request hook
                 plugin_registry.invoke_hook(
                     "post_api_request",

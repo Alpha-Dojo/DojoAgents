@@ -386,6 +386,79 @@ class GatewayRunner:
             self._state = "restart_requested"
             await adapter.send(event.target, "Gateway restart requested", thread_id=event.thread_id)
             return {"accepted": True, "command": name}
+        if name == "plugins":
+            subcommand, _, subarg = arg.strip().partition(" ")
+            subcommand = subcommand.lower().strip()
+            from dojoagents.plugins import get_plugin_registry
+            plugin_registry = get_plugin_registry()
+            if subcommand == "list":
+                plugins_data = []
+                for manifest in plugin_registry._manifests.values():
+                    plugins_data.append({
+                        "name": manifest.name,
+                        "version": manifest.version,
+                        "description": manifest.description,
+                        "source": manifest.source,
+                        "is_claude": manifest.is_claude,
+                        "provides_tools": manifest.provides_tools,
+                        "provides_hooks": manifest.provides_hooks,
+                        "path": manifest.path,
+                    })
+                if not plugins_data:
+                    msg = "No plugins installed."
+                else:
+                    lines = ["Installed Plugins:"]
+                    for p in plugins_data:
+                        claude_tag = " [Claude]" if p["is_claude"] else ""
+                        lines.append(f"- {p['name']} (v{p['version']}){claude_tag} - {p['description']} ({p['source']})")
+                    msg = "\n".join(lines)
+                await adapter.send(event.target, msg, thread_id=event.thread_id)
+                return {"accepted": True, "command": "plugins-list"}
+            elif subcommand == "delete":
+                plugin_name = subarg.strip()
+                if not plugin_name:
+                    await adapter.send(event.target, "Error: Plugin name is required. Usage: /plugins delete <name>", thread_id=event.thread_id)
+                    return {"accepted": True, "command": "plugins-delete"}
+                manifest = plugin_registry._manifests.get(plugin_name)
+                if not manifest:
+                    await adapter.send(event.target, f"Error: Plugin '{plugin_name}' not found.", thread_id=event.thread_id)
+                    return {"accepted": True, "command": "plugins-delete"}
+                if manifest.source == "built_in":
+                    await adapter.send(event.target, f"Error: Cannot delete built-in plugin '{plugin_name}'.", thread_id=event.thread_id)
+                    return {"accepted": True, "command": "plugins-delete"}
+                if not manifest.path:
+                    await adapter.send(event.target, f"Error: Plugin '{plugin_name}' does not have a valid directory path.", thread_id=event.thread_id)
+                    return {"accepted": True, "command": "plugins-delete"}
+                import shutil
+                user_plugins_root = Path("~/.dojo/plugins").expanduser().resolve()
+                plugin_path = Path(manifest.path).resolve()
+                try:
+                    plugin_path.relative_to(user_plugins_root)
+                except ValueError:
+                    await adapter.send(
+                        event.target,
+                        f"Security Error: Plugin path '{plugin_path}' is outside the authorized user plugins directory.",
+                        thread_id=event.thread_id
+                    )
+                    return {"accepted": True, "command": "plugins-delete"}
+                if not plugin_path.exists():
+                    await adapter.send(event.target, f"Error: Plugin directory '{plugin_path}' does not exist.", thread_id=event.thread_id)
+                    return {"accepted": True, "command": "plugins-delete"}
+                try:
+                    shutil.rmtree(plugin_path)
+                    plugin_registry.discover_and_load(force=True)
+                    msg = f"Plugin '{plugin_name}' deleted successfully and registry reloaded."
+                except Exception as e:
+                    msg = f"Error: Failed to delete plugin '{plugin_name}': {e}"
+                await adapter.send(event.target, msg, thread_id=event.thread_id)
+                return {"accepted": True, "command": "plugins-delete"}
+            else:
+                await adapter.send(
+                    event.target,
+                    "Usage:\n/plugins list - List all plugins\n/plugins delete <name> - Delete a plugin",
+                    thread_id=event.thread_id
+                )
+                return {"accepted": True, "command": "plugins-help"}
 
         # Check for skill commands
         skill_manager = self.runtime.agent.skill_manager

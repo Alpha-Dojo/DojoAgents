@@ -1,8 +1,8 @@
 ---
 name: plan
-description: "Plan mode: write markdown plan to .hermes/plans/, no exec."
+description: "Plan mode: write markdown plan to .dojo/plans/, no exec."
 version: 1.0.0
-author: Hermes Agent
+author: DojoAgents
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
