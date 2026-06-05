@@ -28,7 +28,7 @@ _SECRET_PATTERNS = (
 )
 
 
-from dojoagents.gateway.state import GatewaySession, GatewaySessionStore
+from dojoagents.gateway.state import GatewaySessionStore
 from dojoagents.gateway.pairing import PairingStore
 
 

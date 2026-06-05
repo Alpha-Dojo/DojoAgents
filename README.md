@@ -37,6 +37,62 @@ dojoagents gateway --host 127.0.0.1 --port 8766
 dojoagents scheduler
 ```
 
+## Dashboard
+
+The Dashboard provides a Vue 3 SPA frontend with OpenAI-compatible chat API, SSE streaming, and a Canvas panel for dynamic chart rendering.
+
+### Prerequisites
+
+- **Python**: >= 3.11
+- **Node.js**: >= 18 (for frontend build)
+- **npm**: >= 9
+
+### Build Frontend
+
+```bash
+cd dojoagents/dashboard/frontend
+npm install
+npm run build
+```
+
+This compiles the Vue 3 SPA and outputs to `dojoagents/dashboard/static/`, which is served by the FastAPI backend.
+
+### Start Dashboard Server
+
+```bash
+dojoagents dashboard --host 127.0.0.1 --port 8765
+```
+
+Then open [http://127.0.0.1:8765/](http://127.0.0.1:8765/) in your browser.
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/config` | Redacted configuration |
+| `GET` | `/api/jobs` | Scheduled jobs list |
+| `GET` | `/api/extensions` | Registered extensions |
+| `POST` | `/api/chat` | Chat completion (OpenAI-compatible) |
+| `GET` | `/` | Frontend SPA |
+
+### Frontend Development (HMR)
+
+For frontend development with hot-reload:
+
+```bash
+cd dojoagents/dashboard/frontend
+npm run dev
+```
+
+This starts Vite dev server on `http://localhost:5173` with a proxy to the backend at `http://127.0.0.1:8765/api`.
+
+Make sure the backend is running first:
+
+```bash
+dojoagents dashboard --host 127.0.0.1 --port 8765
+```
+
 The gateway command starts a FastAPI service that exposes:
 
 ```text

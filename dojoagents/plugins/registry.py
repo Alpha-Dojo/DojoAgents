@@ -488,3 +488,265 @@ class DojoPluginRegistry:
                 LOGGER.error(f"Error in declarative hook '{hook_name}' in plugin '{hook['plugin_name']}': {e}", exc_info=True)
                 
         return results
+
+    def as_strands_plugin(self) -> DojoPluginBridge:
+        return DojoPluginBridge(self)
+
+
+from strands.plugins.plugin import Plugin
+
+
+class DojoPluginBridge(Plugin):
+    @property
+    def name(self) -> str:
+        return "dojo:plugin_bridge"
+
+    def __init__(self, registry: DojoPluginRegistry) -> None:
+        self.registry = registry
+        super().__init__()
+
+    def init_agent(self, agent: Any) -> None:
+        from strands.hooks.events import (
+            BeforeInvocationEvent,
+            BeforeModelCallEvent,
+            AfterModelCallEvent,
+            BeforeToolCallEvent,
+            AfterToolCallEvent,
+            AfterInvocationEvent,
+        )
+
+        agent.add_hook(self._on_before_invocation, BeforeInvocationEvent)
+        agent.add_hook(self._on_before_model_call, BeforeModelCallEvent)
+        agent.add_hook(self._on_after_model_call, AfterModelCallEvent)
+        agent.add_hook(self._on_before_tool_call, BeforeToolCallEvent)
+        agent.add_hook(self._on_after_tool_call, AfterToolCallEvent)
+        agent.add_hook(self._on_after_invocation, AfterInvocationEvent)
+
+
+
+    async def _on_before_invocation(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        # Trigger on_session_start legacy hooks
+        self.registry.invoke_hook("on_session_start", session_id=session_id, model=event.agent.model)
+
+        # Trigger pre_llm_call legacy hooks
+        query = ""
+        if event.messages:
+            last_msg = event.messages[-1]
+            if last_msg.get("role") == "user":
+                content = last_msg.get("content")
+                if isinstance(content, list):
+                    query = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+                elif isinstance(content, str):
+                    query = content
+
+        pre_results = self.registry.invoke_hook(
+            "pre_llm_call",
+            session_id=session_id,
+            user_message=query,
+        )
+        for res in pre_results:
+            if isinstance(res, str) and res.strip() and event.messages:
+                last_msg = event.messages[-1]
+                content = last_msg.get("content")
+                if isinstance(content, list):
+                    content.append({"type": "text", "text": f"\n\n[Plugin Context]\n{res}"})
+                elif isinstance(content, str):
+                    last_msg["content"] = content + f"\n\n[Plugin Context]\n{res}"
+
+    async def _on_before_model_call(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        self.registry.invoke_hook(
+            "pre_api_request",
+            session_id=session_id,
+            api_call_count=len(event.agent.messages),
+            request_messages=event.agent.messages,
+        )
+
+    async def _on_after_model_call(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        self.registry.invoke_hook(
+            "post_api_request",
+            session_id=session_id,
+            api_call_count=len(event.agent.messages),
+            llm_result=event.stop_response,
+        )
+
+    async def _on_before_tool_call(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        if not event.tool_use:
+            return
+        
+        tool_name = event.tool_use.get("name")
+        args = event.tool_use.get("input") or {}
+        tool_call_id = event.tool_use.get("toolUseId")
+
+        import time
+        if "tool_start_times" not in event.invocation_state:
+            event.invocation_state["tool_start_times"] = {}
+        event.invocation_state["tool_start_times"][tool_call_id] = time.time()
+
+        pre_results = self.registry.invoke_hook(
+            "pre_tool_call",
+            tool_name=tool_name,
+            args=args,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+        )
+        for res in pre_results:
+            if isinstance(res, dict) and res.get("action") == "block":
+                block_message = res.get("message") or "Blocked by plugin"
+                from dojoagents.agent.loop import GuardrailHaltException
+                raise GuardrailHaltException(block_message, "plugin_block")
+
+    async def _on_after_tool_call(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        if not event.tool_use:
+            return
+
+        tool_name = event.tool_use.get("name")
+        args = event.tool_use.get("input") or {}
+        tool_call_id = event.tool_use.get("toolUseId")
+
+        raw_result = ""
+        if event.result and isinstance(event.result, dict):
+            content = event.result.get("content", [])
+            raw_result = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+        elif event.result and hasattr(event.result, "content"):
+            content = event.result.content
+            if isinstance(content, list):
+                raw_result = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+            else:
+                raw_result = str(content)
+
+        import time
+        start_time = event.invocation_state.get("tool_start_times", {}).get(tool_call_id)
+        duration_ms = int((time.time() - start_time) * 1000) if start_time else 0
+
+        self.registry.invoke_hook(
+            "post_tool_call",
+            tool_name=tool_name,
+            args=args,
+            result=raw_result,
+            task_id=session_id,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            duration_ms=duration_ms,
+        )
+
+        transform_results = self.registry.invoke_hook(
+            "transform_tool_result",
+            tool_name=tool_name,
+            args=args,
+            result=raw_result,
+            task_id=session_id,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            duration_ms=duration_ms,
+        )
+        for trans_res in transform_results:
+            if isinstance(trans_res, str):
+                if event.result and isinstance(event.result, dict):
+                    event.result["content"] = [{"type": "text", "text": trans_res}]
+                elif event.result and hasattr(event.result, "content"):
+                    event.result.content = [{"type": "text", "text": trans_res}]
+                break
+
+    async def _on_after_invocation(self, event: Any) -> None:
+        session_id = event.invocation_state.get("session_id", "default")
+        
+        if event.result and event.result.message:
+            msg = event.result.message
+            content = msg.get("content")
+            response_text = ""
+            if isinstance(content, list):
+                response_text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+            elif isinstance(content, str):
+                response_text = content
+
+            transform_results = self.registry.invoke_hook(
+                "transform_llm_output",
+                response_text=response_text,
+                session_id=session_id,
+            )
+            for trans in transform_results:
+                if isinstance(trans, str):
+                    response_text = trans
+                    if isinstance(content, list):
+                        msg["content"] = [{"type": "text", "text": trans}]
+                    elif isinstance(content, str):
+                        msg["content"] = trans
+                    break
+
+            query = ""
+            agent = event.agent
+            if agent and agent.messages:
+                for idx in range(len(agent.messages)-1, -1, -1):
+                    m = agent.messages[idx]
+                    if m.get("role") == "user":
+                        c = m.get("content")
+                        if isinstance(c, list):
+                            query = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and "text" in b)
+                        elif isinstance(c, str):
+                            query = c
+                        break
+
+            dojo_history = []
+            if agent and agent.messages:
+                for m in agent.messages:
+                    role = m.get("role")
+                    c = m.get("content")
+                    
+                    text_content = ""
+                    reasoning_content = ""
+                    if isinstance(c, list):
+                        for b in c:
+                            if isinstance(b, dict):
+                                if "text" in b:
+                                    text_content += b.get("text", "")
+                                elif "reasoningContent" in b:
+                                    rc = b["reasoningContent"]
+                                    if "reasoningText" in rc and "text" in rc["reasoningText"]:
+                                        reasoning_content += rc["reasoningText"]["text"]
+                    else:
+                        text_content = str(c)
+                    
+                    tool_calls = []
+                    if isinstance(c, list):
+                        for b in c:
+                            if isinstance(b, dict) and "toolUse" in b:
+                                tu = b["toolUse"]
+                                tool_calls.append({
+                                    "id": tu.get("toolUseId"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": tu.get("name"),
+                                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)
+                                    }
+                                })
+                    
+                    dojo_msg = {"role": role, "content": text_content}
+                    if tool_calls:
+                        dojo_msg["tool_calls"] = tool_calls
+                    
+                    reasoning = reasoning_content or m.get("reasoning")
+                    if reasoning:
+                        dojo_msg["reasoning_content"] = reasoning
+                    dojo_history.append(dojo_msg)
+
+            self.registry.invoke_hook(
+                "post_llm_call",
+                session_id=session_id,
+                user_message=query,
+                assistant_response=response_text,
+                conversation_history=dojo_history,
+                model=agent.model.config.get("model_id") if agent and hasattr(agent.model, "config") else "",
+                platform=event.invocation_state.get("channel", "cli"),
+            )
+
+        self.registry.invoke_hook(
+            "on_session_end",
+            session_id=session_id,
+            completed=True,
+        )
+

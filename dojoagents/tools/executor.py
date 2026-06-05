@@ -26,6 +26,9 @@ class ToolExecutor:
             results.append(res)
         return results
 
+    async def execute(self, call: ToolCall, *, session_id: str = "") -> ToolResult:
+        return await self.execute_one(call, session_id=session_id)
+
     async def execute_one(self, call: ToolCall, *, session_id: str = "") -> ToolResult:
         spec = self.registry.get(call.name)
         if spec is None:

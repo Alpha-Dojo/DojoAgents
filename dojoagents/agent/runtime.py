@@ -8,7 +8,6 @@ from dojoagents.agent.providers import OpenAICompatibleProvider
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.cron.jobs import JobStore
-from dojoagents.dojo_extensions.quant_data import DojoMarketDataExtension
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.dojo_extensions.research import DojoResearchExtension
 from dojoagents.memory.manager import MemoryManager
@@ -36,8 +35,6 @@ class Runtime:
     def from_config_store(cls, store: ConfigStore) -> "Runtime":
         config = store.snapshot()
         extensions = DojoExtensionRegistry()
-        if "dojo_market_data" in config.dojo_extensions.enabled:
-            extensions.register(DojoMarketDataExtension())
         if "dojo_research" in config.dojo_extensions.enabled:
             extensions.register(DojoResearchExtension())
 
@@ -55,6 +52,9 @@ class Runtime:
             skills_cfg.generated_skill_dir,
             built_in_dir,
         ] + skills_cfg.external_dirs + plugin_registry._skill_dirs
+
+        if skills_cfg.read_claude_skills:
+            skill_dirs.append("~/.claude/skills")
 
         skill_manager = SkillManager(
             skill_dirs=skill_dirs,
@@ -89,6 +89,13 @@ class Runtime:
 
         from dojoagents.tools.code_execution_tool import get_code_execution_spec
         tool_registry.register(get_code_execution_spec(tool_registry, policy))
+
+        from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
+        for spec in get_dojo_sdk_specs(config.dojosdk):
+            tool_registry.register(spec)
+
+        from dojoagents.tools.tools_list_tool import ToolsListTool
+        tool_registry.register(ToolsListTool(tool_registry).get_tool_spec())
 
         from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)

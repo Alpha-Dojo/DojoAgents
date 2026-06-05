@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Callable
+from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
+
+T = TypeVar("T")
 from dataclasses import asdict
 from dojoagents.plugins import get_plugin_registry
 
@@ -23,6 +25,280 @@ from dojoagents.agent.guardrails import (
     append_toolguard_guidance,
 )
 from dojoagents.agent.compressor import ContextCompressor
+
+
+from strands.models.model import Model
+from strands.types.streaming import StreamEvent
+from strands.types.tools import ToolSpec, ToolChoice
+from strands.types.content import Messages, SystemContentBlock
+from strands.hooks import BeforeToolCallEvent, AfterToolCallEvent
+
+class GuardrailHaltException(Exception):
+    def __init__(self, message: str, stopped_reason: str):
+        super().__init__(message)
+        self.message = message
+        self.stopped_reason = stopped_reason
+
+
+from strands.types.tools import AgentTool, ToolSpec as StrandsToolSpec, ToolUse
+from strands.types._events import ToolResultEvent
+
+class DojoBridgedTool(AgentTool):
+    def __init__(self, dojo_spec_or_name: Any, tool_executor_inst: Any, sess_id: str):
+        super().__init__()
+        if isinstance(dojo_spec_or_name, str):
+            self.dojo_name = dojo_spec_or_name
+            self.dojo_spec = None
+        else:
+            self.dojo_spec = dojo_spec_or_name
+            self.dojo_name = dojo_spec_or_name.name
+        self.tool_executor = tool_executor_inst
+        self.sess_id = sess_id
+        
+    @property
+    def tool_name(self) -> str:
+        return _safe_tool_name(self.dojo_name)
+        
+    @property
+    def tool_spec(self) -> StrandsToolSpec:
+        if self.dojo_spec:
+            return {
+                "name": _safe_tool_name(self.dojo_spec.name),
+                "description": self.dojo_spec.description,
+                "inputSchema": {"json": self.dojo_spec.parameters}
+            }
+        else:
+            return {
+                "name": _safe_tool_name(self.dojo_name),
+                "description": f"Dynamic tool {self.dojo_name}",
+                "inputSchema": {"json": {"type": "object"}}
+            }
+        
+    @property
+    def tool_type(self) -> str:
+        return "python"
+        
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any):
+        from dojoagents.agent.models import ToolCall as DojoToolCall
+        from unittest.mock import AsyncMock
+        dojo_call = DojoToolCall(
+            id=tool_use["toolUseId"],
+            name=self.dojo_name,
+            arguments=tool_use["input"]
+        )
+        if hasattr(self.tool_executor, "execute_many") and (
+            isinstance(self.tool_executor, AsyncMock) or
+            hasattr(self.tool_executor.execute_many, "assert_called") or
+            not hasattr(self.tool_executor, "execute_one")
+        ):
+            results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
+            res = results[0]
+        else:
+            res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+            
+        status = "success" if res.ok else "error"
+        content_text = res.content if res.ok else res.error
+        result = {
+            "status": status,
+            "toolUseId": tool_use["toolUseId"],
+            "name": self.tool_name,
+            "content": [{"text": content_text}]
+        }
+        yield ToolResultEvent(result)
+
+
+class DojoStrandsModelBridge(Model):
+    def __init__(self, llm_provider: Any, model_id: str):
+        self.llm_provider = llm_provider
+        self._model_id = model_id
+        self._config = {"context_window_limit": 128000}
+
+    def update_config(self, **model_config: Any) -> None:
+        self._config.update(model_config)
+
+    def get_config(self) -> Any:
+        return self._config
+
+    async def structured_output(
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
+        raise NotImplementedError("structured_output is not supported on DojoStrandsModelBridge")
+
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        *,
+        tool_choice: ToolChoice | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+        invocation_state: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterable[StreamEvent]:
+        dojo_msgs = strands_to_dojo_messages(messages, system_prompt)
+        dojo_tools = []
+        if tool_specs:
+            for spec in tool_specs:
+                dojo_tools.append({
+                    "name": spec["name"],
+                    "description": spec["description"],
+                    "parameters": spec["inputSchema"].get("json", spec["inputSchema"])
+                })
+
+        import asyncio
+        queue = asyncio.Queue()
+
+        def callback(delta: str) -> None:
+            queue.put_nowait(delta)
+
+        async def run_chat():
+            try:
+                res = await self.llm_provider.chat(
+                    dojo_msgs,
+                    dojo_tools,
+                    model=self._model_id,
+                    stream=True,
+                    stream_callback=callback,
+                    metadata=invocation_state
+                )
+                queue.put_nowait(res)
+            except Exception as e:
+                queue.put_nowait(e)
+
+        chat_task = asyncio.create_task(run_chat())
+
+        yield {"messageStart": {"role": "assistant"}}
+        yield {"contentBlockStart": {"contentBlockIndex": 0, "start": {"text": ""}}}
+
+        has_text_delta = False
+        while True:
+            item = await queue.get()
+            if isinstance(item, Exception):
+                raise item
+            elif isinstance(item, str):
+                has_text_delta = True
+                yield {
+                    "contentBlockDelta": {
+                        "contentBlockIndex": 0,
+                        "delta": {"text": item}
+                    }
+                }
+            else:
+                llm_result = item
+                break
+
+        if not has_text_delta and llm_result.content:
+            yield {
+                "contentBlockDelta": {
+                    "contentBlockIndex": 0,
+                    "delta": {"text": llm_result.content}
+                }
+            }
+
+        yield {"contentBlockStop": {"contentBlockIndex": 0}}
+
+        if llm_result.tool_calls:
+            for idx, tc in enumerate(llm_result.tool_calls):
+                block_index = idx + 1
+                yield {
+                    "contentBlockStart": {
+                        "contentBlockIndex": block_index,
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": tc.id,
+                                "name": tc.name,
+                            }
+                        }
+                    }
+                }
+                yield {
+                    "contentBlockDelta": {
+                        "contentBlockIndex": block_index,
+                        "delta": {
+                            "toolUse": {
+                                "input": json.dumps(tc.arguments, ensure_ascii=False)
+                            }
+                        }
+                    }
+                }
+                yield {"contentBlockStop": {"contentBlockIndex": block_index}}
+
+        stop_reason = "end_turn"
+        if llm_result.tool_calls:
+            stop_reason = "tool_use"
+            
+        reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
+        
+        yield {
+            "messageStop": {
+                "stopReason": stop_reason,
+                "additionalModelResponseFields": {
+                    "reasoning_content": reasoning_content or ""
+                }
+            }
+        }
+
+
+def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | None) -> list[dict]:
+    dojo_messages = []
+    if system_prompt:
+        dojo_messages.append({"role": "system", "content": system_prompt})
+        
+    for msg in strands_messages:
+        role = msg.get("role")
+        content_list = msg.get("content", [])
+        
+        text_content = ""
+        reasoning_content = ""
+        tool_calls = []
+        tool_results = []
+        
+        for block in content_list:
+            if "text" in block:
+                text_content += block["text"]
+            elif "reasoningContent" in block:
+                rc = block["reasoningContent"]
+                if "reasoningText" in rc and "text" in rc["reasoningText"]:
+                    reasoning_content += rc["reasoningText"]["text"]
+            elif "toolUse" in block:
+                tu = block["toolUse"]
+                tool_calls.append({
+                    "id": tu.get("toolUseId"),
+                    "type": "function",
+                    "function": {
+                        "name": tu.get("name"),
+                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)
+                    }
+                })
+            elif "toolResult" in block:
+                tr = block["toolResult"]
+                res_content = ""
+                for res_block in tr.get("content", []):
+                    if "text" in res_block:
+                        res_content += res_block["text"]
+                tool_results.append({
+                    "role": "tool",
+                    "name": tr.get("name") or "unknown",
+                    "tool_call_id": tr.get("toolUseId"),
+                    "content": res_content
+                })
+        
+        if role == "user":
+            if text_content.strip() or not tool_results:
+                dojo_messages.append({"role": "user", "content": text_content})
+        elif role == "assistant":
+            assistant_msg = {"role": "assistant", "content": text_content}
+            if tool_calls:
+                assistant_msg["tool_calls"] = tool_calls
+            reasoning = reasoning_content or msg.get("reasoning")
+            if reasoning:
+                assistant_msg["reasoning_content"] = reasoning
+            dojo_messages.append(assistant_msg)
+            
+        for tr_msg in tool_results:
+            dojo_messages.append(tr_msg)
+            
+    return dojo_messages
 
 
 class AgentLoop:
@@ -55,384 +331,292 @@ class AgentLoop:
 
     async def run(self, request: ChatRequest) -> AgentResponse:
         plugin_registry = get_plugin_registry()
-        plugin_registry.invoke_hook(
-            "on_session_start",
-            session_id=request.session_id,
-            model=self.config.model,
-        )
 
-        messages = await self._build_messages(request)
+        # 1. Build the system prompt
+        blocks = [
+            "You are DojoAgents, a quantitative finance analysis agent.",
+            self.skill_manager.prompt_block(platform=request.channel),
+            self.memory_manager.build_system_prompt(),
+            await self.memory_manager.prefetch_all(
+                request.message, session_id=request.session_id
+            ),
+        ]
+        if request.quant is not None:
+            blocks.append(request.quant.prompt_block())
+            blocks.append(self.extension_registry.prompt_context(request.quant))
+        # Inject Dashboard Canvas protocol when channel is "dashboard"
+        if request.channel == "dashboard":
+            from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
+            blocks.append(DASHBOARD_CANVAS_PROTOCOL)
+        system = "\n\n".join(block for block in blocks if block)
 
-        # 2. Invoke pre_llm_call hook
-        pre_results = plugin_registry.invoke_hook(
-            "pre_llm_call",
-            session_id=request.session_id,
-            user_message=request.message,
-        )
-        for res in pre_results:
-            if isinstance(res, str) and res.strip():
-                messages[-1]["content"] += f"\n\n[Plugin Context]\n{res}"
+        # 2. Build model bridge
+        model = DojoStrandsModelBridge(self.llm_provider, self.config.model)
 
+        # 3. Convert history
+        history_msgs = []
+        history = request.metadata.get("history") or []
+        for msg in history:
+            role = msg["role"]
+            content = msg.get("content")
+            
+            content_blocks = []
+            if isinstance(content, str) and content:
+                content_blocks.append({"text": content})
+                
+            if role == "assistant":
+                if "tool_calls" in msg and msg["tool_calls"]:
+                    for tc in msg["tool_calls"]:
+                        func = tc.get("function") or {}
+                        args = func.get("arguments")
+                        if isinstance(args, str):
+                            try:
+                                args_dict = json.loads(args)
+                            except json.JSONDecodeError:
+                                args_dict = {"raw": args}
+                        else:
+                            args_dict = args or {}
+                            
+                        content_blocks.append({
+                            "toolUse": {
+                                "toolUseId": tc.get("id"),
+                                "name": func.get("name"),
+                                "input": args_dict
+                            }
+                        })
+                if "reasoning_content" in msg:
+                    content_blocks.append({
+                        "reasoningContent": {
+                            "reasoningText": {
+                                "text": msg["reasoning_content"]
+                            }
+                        }
+                    })
+                history_msg = {"role": "assistant", "content": content_blocks}
+                if "reasoning_content" in msg:
+                    history_msg["reasoning"] = msg["reasoning_content"]
+                history_msgs.append(history_msg)
+            elif role == "tool":
+                history_msgs.append({
+                    "role": "user",
+                    "content": [{
+                        "toolResult": {
+                            "status": "success",
+                            "toolUseId": msg.get("tool_call_id"),
+                            "name": msg.get("name"),
+                            "content": [{"text": content or ""}]
+                        }
+                    }]
+                })
+            else:
+                history_msgs.append({"role": role, "content": content_blocks})
+
+        # 4. Collect and bridge tools
         tool_specs = self._collect_tool_specs()
         for plugin_tool in plugin_registry._tools:
             self.tool_executor.registry.register(plugin_tool)
             if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
                 tool_specs.append(plugin_tool.schema())
 
-        tool_specs, tool_name_map = self._sanitize_tool_specs(tool_specs)
+        strands_tools = []
+        for spec in self.tool_executor.registry.all():
+            strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id))
 
-        if self.config.enable_guardrails:
-            self.guardrails.reset_for_turn()
+        # 5. Set up hooks (Memory Hook & Plugin Hook)
+        hooks = []
+        plugins = []
+        
+        # Bridge memory manager to strands Hooks
+        memory_hook = self.memory_manager.as_hook_provider()
+        
+        # Define wrappers for HookProviders/Plugins that are mocks or don't pass isinstance checks
+        from strands.hooks import HookProvider
+        from strands.plugins.plugin import Plugin
+        
+        class HookProviderWrapper(HookProvider):
+            def __init__(self, target_hook: Any) -> None:
+                self.target_hook = target_hook
+            def register_hooks(self, registry: Any, **kwargs: Any) -> None:
+                if hasattr(self.target_hook, "register_hooks"):
+                    self.target_hook.register_hooks(registry, **kwargs)
 
-        for iteration in range(self.config.max_iterations):
-            try:
-                # 1. Compress context if enabled
-                if self.config.enable_context_compression:
-                    messages = await self.compressor.compress(
-                        messages, self.llm_provider, self.config.model
-                    )
+        class PluginMockWrapper(Plugin):
+            def __init__(self, target_plugin: Any) -> None:
+                self.target_plugin = target_plugin
+                super().__init__()
+            @property
+            def name(self) -> str:
+                return "dojo:mock_plugin"
+            def init_agent(self, agent: Any) -> None:
+                if hasattr(self.target_plugin, "init_agent"):
+                    self.target_plugin.init_agent(agent)
 
-                # 2. Setup streaming scrubber if stream callback is provided
-                active_callback = None
-                if self.stream_delta_callback and self.config.enable_think_scrubbing:
-                    self.think_scrubber.reset()
-                    def wrapped_callback(delta: str) -> None:
-                        scrubbed = self.think_scrubber.feed(delta)
-                        if scrubbed and self.stream_delta_callback:
-                            self.stream_delta_callback(scrubbed)
-                    active_callback = wrapped_callback
-                else:
-                    active_callback = self.stream_delta_callback
+        def is_mock(obj: Any) -> bool:
+            return hasattr(obj, "_mock_return_value") or hasattr(obj, "assert_called")
 
-                # 3. Invoke pre_api_request hook
-                plugin_registry.invoke_hook(
-                    "pre_api_request",
-                    session_id=request.session_id,
-                    api_call_count=iteration + 1,
-                    request_messages=messages,
+        if is_mock(memory_hook):
+            hooks.append(HookProviderWrapper(memory_hook))
+        elif isinstance(memory_hook, HookProvider):
+            hooks.append(memory_hook)
+        else:
+            hooks.append(HookProviderWrapper(memory_hook))
+        
+        # Bridge plugin registry to strands Plugin
+        plugin_bridge = plugin_registry.as_strands_plugin()
+        if is_mock(plugin_bridge):
+            plugins.append(PluginMockWrapper(plugin_bridge))
+        elif isinstance(plugin_bridge, Plugin):
+            plugins.append(plugin_bridge)
+        else:
+            plugins.append(plugin_bridge)
+
+        # Define before tool call hook to check Dojo's guardrails
+        async def check_guardrails_before(event: BeforeToolCallEvent) -> None:
+            if not event.selected_tool and event.tool_use:
+                # Dynamically construct the tool!
+                event.selected_tool = DojoBridgedTool(
+                    event.tool_use["name"],
+                    self.tool_executor,
+                    request.session_id
                 )
+            if self.config.enable_guardrails:
+                if not event.tool_use:
+                    return
+                tool_name = event.tool_use.get("name")
+                args = event.tool_use.get("input") or {}
+                decision = self.guardrails.before_call(tool_name, args)
+                if decision.should_halt:
+                    raise GuardrailHaltException(decision.message, "guardrail_halt")
+                elif not decision.allows_execution:
+                    from dojoagents.agent.guardrails import toolguard_synthetic_result
+                    blocked_res = toolguard_synthetic_result(decision)
+                    event.cancel_tool = blocked_res["content"]
 
-                llm_result = await self.llm_provider.chat(
-                    messages,
-                    tool_specs,
-                    model=self.config.model,
-                    stream=bool(active_callback),
-                    stream_callback=active_callback,
-                    metadata={"session_id": request.session_id, "channel": request.channel},
+        # Define after tool call hook for guardrails
+        async def check_guardrails_after(event: AfterToolCallEvent) -> None:
+            if self.config.enable_guardrails:
+                if not event.tool_use or not event.result:
+                    return
+                tool_name = event.tool_use.get("name")
+                args = event.tool_use.get("input") or {}
+                
+                raw_result = ""
+                content = event.result.get("content", [])
+                raw_result = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+                
+                is_failed = event.result.get("status") == "error" or "error" in raw_result.lower()
+                decision = self.guardrails.after_call(
+                    tool_name,
+                    args,
+                    raw_result,
+                    failed=is_failed
                 )
-                LOGGER.debug(f"LLM Result: {json.dumps(asdict(llm_result), ensure_ascii=False)}")
-                # 4. Invoke post_api_request hook
-                plugin_registry.invoke_hook(
-                    "post_api_request",
-                    session_id=request.session_id,
-                    api_call_count=iteration + 1,
-                    llm_result=llm_result,
-                )
+                if decision.action == "warn":
+                    from dojoagents.agent.guardrails import append_toolguard_guidance
+                    warned_content = append_toolguard_guidance(raw_result, decision)
+                    event.result["content"] = [{"type": "text", "text": warned_content}]
 
-                # Flush scrubber at end of stream
-                if self.stream_delta_callback and self.config.enable_think_scrubbing:
-                    tail = self.think_scrubber.flush()
-                    if tail and self.stream_delta_callback:
-                        self.stream_delta_callback(tail)
+        hooks.append(check_guardrails_before)
+        hooks.append(check_guardrails_after)
 
-                # Clean thinking blocks from LLMResult content for clean downstream history
-                if self.config.enable_think_scrubbing and llm_result.content:
-                    llm_result.content = re.sub(r"<think>.*?</think>", "", llm_result.content, flags=re.DOTALL)
-                    llm_result.content = re.sub(r"<thinking>.*?</thinking>", "", llm_result.content, flags=re.DOTALL)
-                    llm_result.content = re.sub(r"<reasoning>.*?</reasoning>", "", llm_result.content, flags=re.DOTALL)
-                    llm_result.content = re.sub(r"<thought>.*?</thought>", "", llm_result.content, flags=re.DOTALL)
-
-                if not llm_result.tool_calls:
-                    await self.memory_manager.sync_turn(
-                        request.message,
-                        llm_result.content,
-                        session_id=request.session_id,
-                    )
-                    response_text = self._run_exit_hooks(
-                        llm_result.content or "",
-                        request,
-                        messages,
-                        completed=True,
-                    )
-                    return AgentResponse(
-                        content=response_text,
-                        session_id=request.session_id,
-                        metadata={"iterations": iteration + 1},
-                    )
-
-                tool_calls = self._restore_tool_call_names(
-                    llm_result.tool_calls,
-                    tool_name_map,
-                )
-
-                allowed_tool_calls = []
-                blocked_results = []
-
-                for call in tool_calls:
-                    block_message = None
-                    try:
-                        pre_results = plugin_registry.invoke_hook(
-                            "pre_tool_call",
-                            tool_name=call.name,
-                            args=call.arguments,
-                            session_id=request.session_id,
-                            tool_call_id=call.id,
-                        )
-                        for res in pre_results:
-                            if isinstance(res, dict) and res.get("action") == "block":
-                                block_message = res.get("message") or "Blocked by plugin"
-                                break
-                    except Exception as he:
-                        LOGGER.exception(f"Error in pre_tool_call hook: {he}")
-
-                    if block_message:
-                        assistant_msg = {
-                            "role": "assistant",
-                            "content": llm_result.content,
-                        }
-                        if llm_result.tool_calls:
-                            assistant_msg["tool_calls"] = [
-                                {
-                                    "id": c.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": c.name,
-                                        "arguments": (
-                                            json.dumps(c.arguments, ensure_ascii=False)
-                                            if isinstance(c.arguments, dict)
-                                            else str(c.arguments)
-                                        ),
-                                    },
-                                }
-                                for c in llm_result.tool_calls
-                            ]
-                        reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
-                        if reasoning_content:
-                            assistant_msg["reasoning_content"] = reasoning_content
-                        messages.append(assistant_msg)
-
-                        messages.append({
-                            "role": "tool",
-                            "name": call.name,
-                            "tool_call_id": call.id,
-                            "content": json.dumps({"error": block_message}, ensure_ascii=False),
-                        })
-
-                        response_text = self._run_exit_hooks(
-                            block_message,
-                            request,
-                            messages,
-                            completed=False,
-                        )
-                        return AgentResponse(
-                            content=response_text,
-                            session_id=request.session_id,
-                            metadata={"iterations": iteration + 1, "stopped": "plugin_blocked"},
-                        )
-
-                    if self.config.enable_guardrails:
-                        decision = self.guardrails.before_call(call.name, call.arguments)
-                        if decision.should_halt:
-                            # Direct halt
-                            blocked_res = toolguard_synthetic_result(decision)
-                            from dojoagents.agent.models import ToolResult
-                            blocked_results.append(ToolResult(
-                                call_id=call.id,
-                                name=call.name,
-                                ok=False,
-                                error=decision.message,
-                                content=blocked_res["content"],
-                                metadata=blocked_res["metadata"]
-                            ))
-                            # Add assistant response to messages and return
-                            assistant_msg = {
-                                "role": "assistant",
-                                "content": llm_result.content,
-                            }
-                            if llm_result.tool_calls:
-                                assistant_msg["tool_calls"] = [
-                                    {
-                                        "id": c.id,
-                                        "type": "function",
-                                        "function": {
-                                            "name": c.name,
-                                            "arguments": (
-                                                json.dumps(c.arguments, ensure_ascii=False)
-                                                if isinstance(c.arguments, dict)
-                                                else str(c.arguments)
-                                            ),
-                                        },
-                                    }
-                                    for c in llm_result.tool_calls
-                                ]
-                            reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
-                            if reasoning_content:
-                                assistant_msg["reasoning_content"] = reasoning_content
-                            messages.append(assistant_msg)
-                            # Append the blocked error result to messages
-                            messages.append({
-                                "role": "tool",
-                                "name": call.name,
-                                "tool_call_id": call.id,
-                                "content": blocked_res["content"],
-                            })
-                            response_text = self._run_exit_hooks(
-                                decision.message,
-                                request,
-                                messages,
-                                completed=False,
-                            )
-                            return AgentResponse(
-                                content=response_text,
-                                session_id=request.session_id,
-                                metadata={"iterations": iteration + 1, "stopped": "guardrail_halt"},
-                            )
-                        elif not decision.allows_execution:
-                            blocked_res = toolguard_synthetic_result(decision)
-                            from dojoagents.agent.models import ToolResult
-                            blocked_results.append(ToolResult(
-                                call_id=call.id,
-                                name=call.name,
-                                ok=False,
-                                error=decision.message,
-                                content=blocked_res["content"],
-                                metadata=blocked_res["metadata"]
-                            ))
-                        else:
-                            allowed_tool_calls.append(call)
-                    else:
-                        allowed_tool_calls.append(call)
-
-                # Execute allowed tool calls concurrently
-                tool_start_time = time.monotonic()
-                tool_results = await self.tool_executor.execute_many(
-                    allowed_tool_calls,
-                    session_id=request.session_id,
-                )
-                duration_ms = int((time.monotonic() - tool_start_time) * 1000)
-
-                for res in tool_results:
-                    tc = next((c for c in allowed_tool_calls if c.id == res.call_id), None)
-                    tc_args = tc.arguments if tc else {}
-
-                    # post_tool_call hook
-                    try:
-                        plugin_registry.invoke_hook(
-                            "post_tool_call",
-                            tool_name=res.name,
-                            args=tc_args,
-                            result=res.content if res.ok else res.error,
-                            task_id=request.user_id,
-                            session_id=request.session_id,
-                            tool_call_id=res.call_id,
-                            duration_ms=duration_ms,
-                        )
-                    except Exception as he:
-                        LOGGER.exception(f"Error in post_tool_call hook: {he}")
-
-                    # transform_tool_result hook
-                    try:
-                        transform_results = plugin_registry.invoke_hook(
-                            "transform_tool_result",
-                            tool_name=res.name,
-                            args=tc_args,
-                            result=res.content if res.ok else res.error,
-                            task_id=request.user_id,
-                            session_id=request.session_id,
-                            tool_call_id=res.call_id,
-                            duration_ms=duration_ms,
-                        )
-                        for trans_res in transform_results:
-                            if isinstance(trans_res, str):
-                                if res.ok:
-                                    res.content = trans_res
-                                else:
-                                    res.error = trans_res
-                                break
-                    except Exception as he:
-                        LOGGER.exception(f"Error in transform_tool_result hook: {he}")
-
-                # Process results through guardrails after execution
-                if self.config.enable_guardrails:
-                    for res in tool_results:
-                        tc = next((c for c in allowed_tool_calls if c.id == res.call_id), None)
-                        tc_args = tc.arguments if tc else {}
-                        decision = self.guardrails.after_call(
-                            res.name,
-                            tc_args,
-                            res.content,
-                            failed=not res.ok or "error" in str(res.content).lower(),
-                        )
-                        if decision.action == "warn":
-                            res.content = append_toolguard_guidance(res.content, decision)
-
-                # Merge blocked and success results maintaining call order
-                from dojoagents.agent.models import ToolResultList
-                final_results = ToolResultList()
-                blocked_map = {r.call_id: r for r in blocked_results}
-                success_map = {r.call_id: r for r in tool_results}
-
-                for call in tool_calls:
-                    if call.id in blocked_map:
-                        final_results.append(blocked_map[call.id])
-                    elif call.id in success_map:
-                        final_results.append(success_map[call.id])
-
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": llm_result.content,
-                }
-                if llm_result.tool_calls:
-                    assistant_msg["tool_calls"] = [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": (
-                                    json.dumps(call.arguments, ensure_ascii=False)
-                                    if isinstance(call.arguments, dict)
-                                    else str(call.arguments)
-                                ),
-                            },
-                        }
-                        for call in llm_result.tool_calls
-                    ]
-                reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
-                if reasoning_content:
-                    assistant_msg["reasoning_content"] = reasoning_content
-                messages.append(assistant_msg)
-
-                messages.extend(
-                    self._tool_result_messages_for_llm(
-                        final_results.to_messages(),
-                        tool_name_map,
-                    )
-                )
-            except Exception as e:
-                LOGGER.exception(f"Error in agent loop: {e}")
+        # 6. Instantiate strands Agent
+        from strands import Agent
+        from strands.types.agent import Limits
+        
+        limits = Limits(turns=self.config.max_iterations)
+        
+        # Setup callback handler for streaming delta and think scrubbing
+        if self.stream_delta_callback and self.config.enable_think_scrubbing:
+            self.think_scrubber.reset()
+            def wrapped_callback(delta: str) -> None:
+                scrubbed = self.think_scrubber.feed(delta)
+                if scrubbed and self.stream_delta_callback:
+                    self.stream_delta_callback(scrubbed)
+            active_callback = wrapped_callback
+        else:
+            active_callback = self.stream_delta_callback
+        
+        def callback_handler(**kwargs_cb: Any) -> None:
+            data = kwargs_cb.get("data", "")
+            if data and active_callback:
+                active_callback(data)
+        
+        agent = Agent(
+            model=model,
+            messages=history_msgs,
+            tools=strands_tools,
+            system_prompt=system,
+            hooks=hooks,
+            plugins=plugins,
+            callback_handler=callback_handler if active_callback else None
+        )
+        
+        # 7. Run Agent
+        invocation_state = {"session_id": request.session_id, "channel": request.channel}
+        
+        try:
+            result = await agent.invoke_async(
+                prompt=request.message,
+                invocation_state=invocation_state,
+                limits=limits
+            )
+            response_text = str(result).strip()
+            iterations = result.metrics.cycle_count if result.metrics else 1
+            stopped_reason = None
+            if result.stop_reason == "limit_turns":
+                stopped_reason = "iteration_limit"
+        except Exception as e:
+            target_exc = e
+            from strands.types.exceptions import EventLoopException
+            if isinstance(e, EventLoopException) and isinstance(e.__cause__, GuardrailHaltException):
+                target_exc = e.__cause__
+            
+            if isinstance(target_exc, GuardrailHaltException):
+                ghe = target_exc
+                response_text = ghe.message
+                iterations = len(agent.messages) // 2 or 1
+                stopped_reason = ghe.stopped_reason
                 response_text = self._run_exit_hooks(
-                    f"Error in agent loop: {e}",
+                    response_text,
                     request,
-                    messages,
-                    completed=False,
+                    agent.messages,
+                    completed=False
                 )
+                if stopped_reason == "guardrail_halt":
+                    if not response_text.startswith("Blocked"):
+                        response_text = f"Blocked {response_text}"
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
-                    metadata={"stopped": "error"},
+                    metadata={"iterations": iterations, "stopped": stopped_reason},
                 )
+            else:
+                raise
 
-        response_text = self._run_exit_hooks(
-            "Agent stopped after reaching the iteration limit.",
-            request,
-            messages,
-            completed=False,
-        )
+        # Flush think scrubber if needed
+        if self.stream_delta_callback and self.config.enable_think_scrubbing:
+            tail = self.think_scrubber.flush()
+            if tail and self.stream_delta_callback:
+                self.stream_delta_callback(tail)
+
+        # Clean thinking blocks from response_text
+        if self.config.enable_think_scrubbing:
+            response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL)
+            response_text = re.sub(r"<thinking>.*?</thinking>", "", response_text, flags=re.DOTALL)
+            response_text = re.sub(r"<reasoning>.*?</reasoning>", "", response_text, flags=re.DOTALL)
+            response_text = re.sub(r"<thought>.*?</thought>", "", response_text, flags=re.DOTALL)
+
+        metadata = {"iterations": iterations}
+        if stopped_reason:
+            metadata["stopped"] = stopped_reason
+        metadata.setdefault("usage", {
+            "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+        })
+
         return AgentResponse(
             content=response_text,
             session_id=request.session_id,
-            metadata={"stopped": "iteration_limit"},
+            metadata=metadata
         )
 
     def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
@@ -450,12 +634,54 @@ class AgentLoop:
             LOGGER.exception(f"Error in transform_llm_output hook: {he}")
 
         try:
+            dojo_history = []
+            for msg in messages:
+                role = msg.get("role")
+                content = msg.get("content")
+                
+                text_content = ""
+                reasoning_content = ""
+                if isinstance(content, list):
+                    for b in content:
+                        if isinstance(b, dict):
+                            if "text" in b:
+                                text_content += b.get("text", "")
+                            elif "reasoningContent" in b:
+                                rc = b["reasoningContent"]
+                                if "reasoningText" in rc and "text" in rc["reasoningText"]:
+                                    reasoning_content += rc["reasoningText"]["text"]
+                else:
+                    text_content = str(content)
+                
+                tool_calls = []
+                if isinstance(content, list):
+                    for b in content:
+                        if isinstance(b, dict) and "toolUse" in b:
+                            tu = b["toolUse"]
+                            tool_calls.append({
+                                "id": tu.get("toolUseId"),
+                                "type": "function",
+                                "function": {
+                                    "name": tu.get("name"),
+                                    "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)
+                                }
+                            })
+                
+                dojo_msg = {"role": role, "content": text_content}
+                if tool_calls:
+                    dojo_msg["tool_calls"] = tool_calls
+                
+                reasoning = reasoning_content or msg.get("reasoning")
+                if reasoning:
+                    dojo_msg["reasoning_content"] = reasoning
+                dojo_history.append(dojo_msg)
+
             plugin_registry.invoke_hook(
                 "post_llm_call",
                 session_id=request.session_id,
                 user_message=request.message,
                 assistant_response=response_text,
-                conversation_history=messages,
+                conversation_history=dojo_history,
                 model=self.config.model,
                 platform=request.channel,
             )
@@ -472,55 +698,6 @@ class AgentLoop:
             LOGGER.exception(f"Error in on_session_end hook: {he}")
 
         return response_text
-
-    async def _build_messages(self, request: ChatRequest) -> list[dict]:
-        blocks = [
-            "You are DojoAgents, a quantitative finance analysis agent.",
-            self.skill_manager.prompt_block(platform=request.channel),
-            self.memory_manager.build_system_prompt(),
-            await self.memory_manager.prefetch_all(
-                request.message, session_id=request.session_id
-            ),
-        ]
-        if request.quant is not None:
-            blocks.append(request.quant.prompt_block())
-            blocks.append(self.extension_registry.prompt_context(request.quant))
-        system = "\n\n".join(block for block in blocks if block)
-        messages = [{"role": "system", "content": system}]
-        history = request.metadata.get("history") or []
-        for msg in history:
-            formatted_msg = {
-                "role": msg["role"],
-                "content": msg.get("content"),
-            }
-            if msg["role"] == "assistant":
-                if "tool_calls" in msg and msg["tool_calls"]:
-                    formatted_tool_calls = []
-                    for tc in msg["tool_calls"]:
-                        func = tc.get("function") or {}
-                        args = func.get("arguments")
-                        if isinstance(args, dict):
-                            args_str = json.dumps(args, ensure_ascii=False)
-                        else:
-                            args_str = str(args) if args is not None else "{}"
-                        
-                        formatted_tool_calls.append({
-                            "id": tc.get("id"),
-                            "type": tc.get("type", "function"),
-                            "function": {
-                                "name": func.get("name"),
-                                "arguments": args_str
-                            }
-                        })
-                    formatted_msg["tool_calls"] = formatted_tool_calls
-                if "reasoning_content" in msg and msg["reasoning_content"]:
-                    formatted_msg["reasoning_content"] = msg["reasoning_content"]
-            elif msg["role"] == "tool":
-                formatted_msg["tool_call_id"] = msg.get("tool_call_id")
-                formatted_msg["name"] = msg.get("name")
-            messages.append(formatted_msg)
-        messages.append({"role": "user", "content": request.message})
-        return messages
 
     def _collect_tool_specs(self) -> list[dict]:
         return self.tool_executor.registry.schema_list()

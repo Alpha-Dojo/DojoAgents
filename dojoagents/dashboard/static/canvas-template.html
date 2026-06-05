@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canvas Sandbox</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    #chart-container { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="chart-container"></div>
+  <script>
+    (function () {
+      var container = document.getElementById('chart-container');
+      var chart = null;
+
+      window.addEventListener('message', function (event) {
+        var msg = event.data;
+        if (!msg || msg.type !== 'RENDER') return;
+
+        try {
+          if (!chart) {
+            chart = echarts.init(container);
+          }
+          chart.clear();
+
+          // Execute the render script with data available
+          var data = msg.data;
+          var script = msg.script;
+          if (script) {
+            var fn = new Function('chart', 'data', 'echarts', script);
+            fn(chart, data, echarts);
+          }
+
+          window.parent.postMessage({ type: 'RENDER_COMPLETE' }, '*');
+        } catch (err) {
+          container.innerHTML = '<pre style="color:red;padding:16px;">' + err.message + '</pre>';
+          window.parent.postMessage({ type: 'RENDER_ERROR', error: err.message }, '*');
+        }
+      });
+
+      // Notify parent that sandbox is ready
+      window.parent.postMessage({ type: 'SANDBOX_READY' }, '*');
+    })();
+  </script>
+</body>
+</html>

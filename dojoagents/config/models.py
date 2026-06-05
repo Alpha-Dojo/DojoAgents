@@ -65,6 +65,7 @@ class SkillsConfig:
     external_dirs: list[str] = field(default_factory=list)
     disabled: list[str] = field(default_factory=list)
     platform_disabled: dict[str, list[str]] = field(default_factory=dict)
+    read_claude_skills: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ class DashboardConfig:
 @dataclass(frozen=True)
 class DojoExtensionsConfig:
     enabled: list[str] = field(
-        default_factory=lambda: ["dojo_market_data", "dojo_research"]
+        default_factory=lambda: ["dojo_research"]
     )
 
 
@@ -98,6 +99,14 @@ class LoggingConfig:
     level: str = "INFO"
     format: str = DEFAULT_LOG_FORMAT
     date_format: str = DEFAULT_LOG_DATE_FORMAT
+
+
+@dataclass(frozen=True)
+class DojoSDKConfig:
+    api_key: str | None = None
+    base_url: str | None = None
+    timeout: float = 60.0
+    max_retries: int = 1
 
 
 @dataclass(frozen=True)
@@ -114,3 +123,4 @@ class AgentsConfig:
     dojo_extensions: DojoExtensionsConfig = field(default_factory=DojoExtensionsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     mcp_servers: dict[str, Any] = field(default_factory=dict)
+    dojosdk: DojoSDKConfig = field(default_factory=DojoSDKConfig)
