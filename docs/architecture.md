@@ -135,7 +135,6 @@ dojoagents/
   dojo_extensions/
     registry.py             # DojoExtension registry
     base.py                 # extension protocol
-    quant_data.py           # design facade only
     research.py             # analysis workflow facade only
   quant/
     context.py              # market universe/timeframe/asset class context
@@ -478,7 +477,6 @@ dashboard:
 
 dojo_extensions:
   enabled:
-    - dojo_market_data
     - dojo_research
 ```
 

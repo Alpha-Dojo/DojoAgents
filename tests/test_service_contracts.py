@@ -47,7 +47,6 @@ def test_dashboard_exposes_health_jobs_extensions_and_chat(tmp_path):
     from dojoagents.agent.models import AgentResponse
     from dojoagents.cron.jobs import JobStore, ScheduledJob
     from dojoagents.dashboard.server import create_app
-    from dojoagents.dojo_extensions.quant_data import DojoMarketDataExtension
     from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 
     class FakeAgent:
@@ -66,15 +65,16 @@ def test_dashboard_exposes_health_jobs_extensions_and_chat(tmp_path):
                     prompt="Run job",
                 )
             )
+            from dojoagents.dojo_extensions.research import DojoResearchExtension
             self.extensions = DojoExtensionRegistry()
-            self.extensions.register(DojoMarketDataExtension())
+            self.extensions.register(DojoResearchExtension())
             self.config_store = None
 
     client = TestClient(create_app(FakeRuntime()))
 
     assert client.get("/api/health").json()["ok"] is True
     assert client.get("/api/jobs").json()[0]["id"] == "job-1"
-    assert client.get("/api/extensions").json()[0]["name"] == "dojo_market_data"
+    assert client.get("/api/extensions").json()[0]["name"] == "dojo_research"
     response = client.post(
         "/api/chat",
         json={"message": "hi", "user_id": "u", "session_id": "s", "channel": "dashboard"},
@@ -125,4 +125,4 @@ agent:
 
     assert runtime.config.agent.max_iterations == 2
     assert runtime.agent.config.model == "test-model"
-    assert runtime.extensions.status()[0]["name"] == "dojo_market_data"
+    assert runtime.extensions.status()[0]["name"] == "dojo_research"

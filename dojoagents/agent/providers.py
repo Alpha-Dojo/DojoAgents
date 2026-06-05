@@ -196,3 +196,89 @@ class OpenAICompatibleProvider:
                     "reasoning_content": reasoning_content or "",
                 }
             )
+
+
+def get_strands_model(provider_name: str, config: Any) -> Any:
+    """Factory to load strands models natively."""
+    import os
+    from strands.models.openai import OpenAIModel
+    from strands.models.gemini import GeminiModel
+    from strands.models.bedrock import BedrockModel
+    from strands.models.anthropic import AnthropicModel
+    from strands.models.ollama import OllamaModel
+
+    provider_name = provider_name.lower()
+    
+    if isinstance(config, dict):
+        api_key = config.get("api_key")
+        api_key_env = config.get("api_key_env")
+        base_url = config.get("base_url")
+        model = config.get("model")
+    else:
+        api_key = getattr(config, "api_key", None)
+        api_key_env = getattr(config, "api_key_env", None)
+        base_url = getattr(config, "base_url", None)
+        model = getattr(config, "model", None)
+
+    if not api_key and api_key_env:
+        api_key = os.getenv(api_key_env)
+
+    # 1. OpenAI, DeepSeek, Qwen, Moonshot, etc.
+    if provider_name == "openai":
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url,
+            },
+            model_id=model or "gpt-4o"
+        )
+    elif provider_name == "deepseek":
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url or "https://api.deepseek.com",
+            },
+            model_id=model or "deepseek-chat"
+        )
+    elif provider_name in ("qwen", "dashscope"):
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            },
+            model_id=model or "qwen-max"
+        )
+    elif provider_name in ("kimi", "moonshot"):
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url or "https://api.moonshot.cn/v1",
+            },
+            model_id=model or "moonshot-v1-8k"
+        )
+    # 2. Gemini
+    elif provider_name == "gemini":
+        return GeminiModel(
+            client_args={"api_key": api_key},
+            model_id=model or "gemini-2.5-flash"
+        )
+    # 3. Anthropic
+    elif provider_name == "anthropic":
+        return AnthropicModel(
+            api_key=api_key,
+            model_id=model or "claude-3-5-sonnet"
+        )
+    # 4. Bedrock
+    elif provider_name == "bedrock":
+        return BedrockModel(
+            model_id=model or "us.amazon.nova-pro-v1:0"
+        )
+    # 5. Ollama
+    elif provider_name == "ollama":
+        return OllamaModel(
+            host=base_url or "http://localhost:11434",
+            model_id=model or "llama3"
+        )
+    else:
+        raise ValueError(f"Unsupported model provider: {provider_name}")
+

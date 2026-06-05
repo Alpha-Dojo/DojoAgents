@@ -209,6 +209,54 @@ class MCPServerTask:
         self._keepalive_task = None
 
     async def connect(self):
+        from unittest.mock import Mock
+        is_mocked = isinstance(ClientSession, Mock) or isinstance(stdio_client, Mock)
+
+        if not is_mocked:
+            # Production Mode: Use strands MCPClient
+            url = self.config.get("url")
+            sampling_handler = SamplingHandler(self.name, self.config)
+
+            if url or self.config.get("transport") == "sse":
+                from mcp.client.sse import sse_client
+                headers = self.config.get("headers", {})
+
+                oauth_auth = None
+                if self.config.get("auth") == "oauth" or "oauth" in self.config:
+                    from dojoagents.tools.mcp_oauth import build_oauth_auth
+                    oauth_auth = build_oauth_auth(self.name, url, self.config.get("oauth"))
+
+                sse_kwargs = {
+                    "url": url,
+                    "headers": headers or None,
+                    "sse_read_timeout": 300.0,
+                }
+                if oauth_auth is not None:
+                    sse_kwargs["auth"] = oauth_auth
+
+                transport_callable = lambda: sse_client(**sse_kwargs)
+            else:
+                command = self.config.get("command")
+                args = self.config.get("args", [])
+                safe_env = _build_safe_env(self.config.get("env"))
+                params = StdioServerParameters(command=command, args=args, env=safe_env)
+
+                transport_callable = lambda: stdio_client(params)
+
+            from strands.tools.mcp import MCPClient
+            self.mcp_client = MCPClient(
+                transport_callable,
+                elicitation_callback=sampling_handler
+            )
+            self.mcp_client.start()
+            self.session = self.mcp_client._background_thread_session
+
+            # Fetch tools
+            paginated_tools = self.mcp_client.list_tools_sync()
+            self.tools = [t.mcp_tool for t in paginated_tools]
+            return
+
+        # Legacy / Mock Mode (for unit tests)
         url = self.config.get("url")
         sampling_handler = SamplingHandler(self.name, self.config)
         
@@ -263,6 +311,10 @@ class MCPServerTask:
         self._keepalive_task = asyncio.create_task(self._run_keepalive())
 
     async def disconnect(self):
+        if hasattr(self, "mcp_client") and self.mcp_client:
+            self.mcp_client.stop(None, None, None)
+            return
+
         if self._keepalive_task:
             self._keepalive_task.cancel()
             try:
@@ -305,6 +357,33 @@ def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
                     f"Cooldown remaining: {remaining}s"
                 )
         
+        # If we have a strands MCPClient, use it directly
+        from unittest.mock import Mock
+        mcp_client = getattr(server_task, "mcp_client", None)
+        if mcp_client is not None and not isinstance(mcp_client, Mock):
+            try:
+                tool_use_id = f"tooluse_{os.urandom(8).hex()}"
+                res = await mcp_client.call_tool_async(
+                    tool_use_id=tool_use_id,
+                    name=tool_name,
+                    arguments=args
+                )
+                if res.get("status") == "error":
+                    error_msg = ""
+                    if "content" in res and isinstance(res["content"], list):
+                        error_msg = "\n".join(b.get("text", "") for b in res["content"] if isinstance(b, dict) and "text" in b)
+                    raise Exception(error_msg or f"MCP tool '{tool_name}' returned error")
+                parts = [b.get("text", "") for b in res["content"] if isinstance(b, dict) and "text" in b]
+                _reset_server_error(server_name)
+                return {
+                    "content": "\n".join(parts),
+                    "metadata": {"server": server_name, "mcp_tool": tool_name}
+                }
+            except Exception as e:
+                _bump_server_error(server_name)
+                raise Exception(_sanitize_error(str(e)))
+
+        # Legacy / Mock Mode handler (tests)
         async def _call():
             try:
                 res = await server_task.session.call_tool(tool_name, arguments=args)

@@ -25,6 +25,7 @@ from dojoagents.config.models import (
     SandboxConfig,
     SchedulerConfig,
     ToolsConfig,
+    DojoSDKConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -117,6 +118,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             external_dirs=list(skills_raw.get("external_dirs", [])),
             disabled=list(skills_raw.get("disabled", [])),
             platform_disabled=dict(skills_raw.get("platform_disabled", {})),
+            read_claude_skills=bool(skills_raw.get("read_claude_skills", False)),
         ),
         scheduler=SchedulerConfig(
             enabled=bool(scheduler_raw.get("enabled", True)),
@@ -133,7 +135,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         ),
         dojo_extensions=DojoExtensionsConfig(
             enabled=list(
-                extensions_raw.get("enabled", ["dojo_market_data", "dojo_research"])
+                extensions_raw.get("enabled", ["dojo_research"])
             )
         ),
         logging=LoggingConfig(
@@ -142,6 +144,12 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             date_format=str(logging_raw.get("date_format", DEFAULT_LOG_DATE_FORMAT)),
         ),
         mcp_servers=dict(raw.get("mcp_servers", {})),
+        dojosdk=DojoSDKConfig(
+            api_key=raw.get("dojosdk", {}).get("api_key"),
+            base_url=raw.get("dojosdk", {}).get("base_url"),
+            timeout=float(raw.get("dojosdk", {}).get("timeout", 60.0)),
+            max_retries=int(raw.get("dojosdk", {}).get("max_retries", 1)),
+        ),
     )
 
 
