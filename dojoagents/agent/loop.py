@@ -43,11 +43,7 @@ class GuardrailHaltException(Exception):
 from strands.types.tools import AgentTool, ToolSpec as StrandsToolSpec, ToolUse
 from strands.types._events import ToolResultEvent
 
-from dojoagents.plugins.built_in.structured_streaming import (
-    graph_payload,
-    tool_completed_payload,
-    tool_started_payload,
-)
+from dojoagents.agent.stream_events import graph_payload, tool_completed_payload, tool_started_payload
 
 StreamEventCallback = Callable[[dict[str, Any]], None]
 
