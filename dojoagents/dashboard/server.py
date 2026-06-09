@@ -17,7 +17,7 @@ from dojoagents.agent.models import (
     ChatCompletionResponse,
     ChatRequest,
 )
-from dojoagents.dashboard.sse import make_stream_delta_callback, stream_completion_chunks
+from dojoagents.dashboard.sse import make_stream_delta_callback, make_stream_event_callback, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 
 
@@ -163,11 +163,14 @@ def create_app(runtime: Any) -> FastAPI:
             # SSE streaming mode
             queue: asyncio.Queue = asyncio.Queue()
             callback = make_stream_delta_callback(queue)
+            event_callback = make_stream_event_callback(queue)
 
             # Attach callback to agent loop dynamically
             agent_loop = runtime.agent
             prev_callback = getattr(agent_loop, "stream_delta_callback", None)
+            prev_event_callback = getattr(agent_loop, "stream_event_callback", None)
             agent_loop.stream_delta_callback = callback
+            agent_loop.stream_event_callback = event_callback
 
             async def _stream_and_restore():
                 try:
@@ -191,6 +194,8 @@ def create_app(runtime: Any) -> FastAPI:
                 finally:
                     # Restore previous callback
                     agent_loop.stream_delta_callback = prev_callback
+                    if hasattr(agent_loop, "stream_event_callback"):
+                        agent_loop.stream_event_callback = prev_event_callback
                     # Ensure task is done
                     if not task.done():
                         await task

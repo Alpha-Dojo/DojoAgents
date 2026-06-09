@@ -24,6 +24,19 @@ def make_stream_delta_callback(queue: asyncio.Queue) -> Callable[[str], None]:
     return callback
 
 
+def make_stream_event_callback(queue: asyncio.Queue) -> Callable[[dict[str, Any]], None]:
+    """Return a sync callable that puts structured Dojo events on an asyncio.Queue."""
+
+    def callback(event: dict[str, Any]) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+        except RuntimeError:
+            pass
+
+    return callback
+
+
 def _make_chunk_line(
     completion_id: str,
     created: int,
@@ -56,7 +69,7 @@ async def stream_completion_chunks(
 
     The queue receives items from ``make_stream_delta_callback``:
     - ``str``   → text content delta
-    - ``dict``  → tool_calls delta (passed through to choices[0].delta)
+    - ``dict``  → structured Dojo event or tool_calls delta
     - ``None``  → sentinel: stop streaming
     - ``Exception`` → re-raised
     """
@@ -82,6 +95,8 @@ async def stream_completion_chunks(
                 {"delta": {"content": item}, "finish_reason": None},
             )
         elif isinstance(item, dict):
+            if {"type", "run_id", "session_id", "time", "payload"}.issubset(item):
+                item = {"dojo_event": item}
             yield _make_chunk_line(
                 completion_id, created, model,
                 {"delta": item, "finish_reason": None},

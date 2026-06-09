@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import re
 import time
+import uuid
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
 T = TypeVar("T")
-from dataclasses import asdict
 from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.models import AgentResponse, ChatRequest, LLMResult, ToolCall
@@ -42,6 +42,31 @@ class GuardrailHaltException(Exception):
 
 from strands.types.tools import AgentTool, ToolSpec as StrandsToolSpec, ToolUse
 from strands.types._events import ToolResultEvent
+
+from dojoagents.plugins.built_in.structured_streaming import (
+    graph_payload,
+    tool_completed_payload,
+    tool_started_payload,
+)
+
+StreamEventCallback = Callable[[dict[str, Any]], None]
+
+
+def _emit_stream_event(
+    callback: StreamEventCallback | None,
+    event_type: str,
+    *,
+    run_id: str,
+    session_id: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    get_plugin_registry().emit_stream_event(
+        callback,
+        event_type,
+        run_id=run_id,
+        session_id=session_id,
+        payload=payload,
+    )
 
 class DojoBridgedTool(AgentTool):
     def __init__(self, dojo_spec_or_name: Any, tool_executor_inst: Any, sess_id: str):
@@ -81,23 +106,73 @@ class DojoBridgedTool(AgentTool):
     async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any):
         from dojoagents.agent.models import ToolCall as DojoToolCall
         from unittest.mock import AsyncMock
+        run_id = str(invocation_state.get("run_id") or "")
+        session_id = str(invocation_state.get("session_id") or self.sess_id)
+        stream_event_callback = invocation_state.get("stream_event_callback")
         dojo_call = DojoToolCall(
             id=tool_use["toolUseId"],
             name=self.dojo_name,
             arguments=tool_use["input"]
         )
-        if hasattr(self.tool_executor, "execute_many") and (
-            isinstance(self.tool_executor, AsyncMock) or
-            hasattr(self.tool_executor.execute_many, "assert_called") or
-            not hasattr(self.tool_executor, "execute_one")
-        ):
-            results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
-            res = results[0]
-        else:
-            res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+        _emit_stream_event(
+            stream_event_callback,
+            "tool_call_started",
+            run_id=run_id,
+            session_id=session_id,
+            payload=tool_started_payload(self.dojo_name, dojo_call.id, dojo_call.arguments),
+        )
+        started_at = time.time()
+        res = None
+        try:
+            if hasattr(self.tool_executor, "execute_many") and (
+                isinstance(self.tool_executor, AsyncMock) or
+                not hasattr(self.tool_executor, "execute_one")
+            ):
+                results = await self.tool_executor.execute_many([dojo_call], session_id=session_id)
+                res = results[0]
+            else:
+                res = await self.tool_executor.execute_one(dojo_call, session_id=session_id)
+        except Exception as exc:
+            _emit_stream_event(
+                stream_event_callback,
+                "tool_call_completed",
+                run_id=run_id,
+                session_id=session_id,
+                payload=tool_completed_payload(
+                    self.dojo_name,
+                    dojo_call.id,
+                    "error",
+                    int((time.time() - started_at) * 1000),
+                    {"error": str(exc)},
+                ),
+            )
+            raise
             
         status = "success" if res.ok else "error"
         content_text = res.content if res.ok else res.error
+        metadata = dict(getattr(res, "metadata", {}) or {})
+        _emit_stream_event(
+            stream_event_callback,
+            "tool_call_completed",
+            run_id=run_id,
+            session_id=session_id,
+            payload=tool_completed_payload(
+                self.dojo_name,
+                dojo_call.id,
+                status,
+                int((time.time() - started_at) * 1000),
+                metadata,
+            ),
+        )
+        graph_event_payload = graph_payload(self.dojo_name, dojo_call.id, metadata)
+        if graph_event_payload is not None:
+            _emit_stream_event(
+                stream_event_callback,
+                "graph_payload",
+                run_id=run_id,
+                session_id=session_id,
+                payload=graph_event_payload,
+            )
         result = {
             "status": status,
             "toolUseId": tool_use["toolUseId"],
@@ -312,6 +387,7 @@ class AgentLoop:
         extension_registry: DojoExtensionRegistry,
         config: AgentConfig,
         stream_delta_callback: Callable[[str], None] | None = None,
+        stream_event_callback: StreamEventCallback | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -320,6 +396,7 @@ class AgentLoop:
         self.extension_registry = extension_registry
         self.config = config
         self.stream_delta_callback = stream_delta_callback
+        self.stream_event_callback = stream_event_callback
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -331,6 +408,17 @@ class AgentLoop:
 
     async def run(self, request: ChatRequest) -> AgentResponse:
         plugin_registry = get_plugin_registry()
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        _emit_stream_event(
+            self.stream_event_callback,
+            "run_started",
+            run_id=run_id,
+            session_id=request.session_id,
+            payload={
+                "channel": request.channel,
+                "model": self.config.model,
+            },
+        )
 
         # 1. Build the system prompt
         blocks = [
@@ -525,16 +613,30 @@ class AgentLoop:
         
         limits = Limits(turns=self.config.max_iterations)
         
+        def emit_content_delta(delta: str) -> None:
+            if not delta:
+                return
+            if active_text_callback:
+                active_text_callback(delta)
+            _emit_stream_event(
+                self.stream_event_callback,
+                "content_delta",
+                run_id=run_id,
+                session_id=request.session_id,
+                payload={"delta": delta},
+            )
+
+        active_text_callback = self.stream_delta_callback
         # Setup callback handler for streaming delta and think scrubbing
-        if self.stream_delta_callback and self.config.enable_think_scrubbing:
+        if (self.stream_delta_callback or self.stream_event_callback) and self.config.enable_think_scrubbing:
             self.think_scrubber.reset()
             def wrapped_callback(delta: str) -> None:
                 scrubbed = self.think_scrubber.feed(delta)
-                if scrubbed and self.stream_delta_callback:
-                    self.stream_delta_callback(scrubbed)
+                if scrubbed:
+                    emit_content_delta(scrubbed)
             active_callback = wrapped_callback
         else:
-            active_callback = self.stream_delta_callback
+            active_callback = emit_content_delta if (self.stream_delta_callback or self.stream_event_callback) else None
         
         def callback_handler(**kwargs_cb: Any) -> None:
             data = kwargs_cb.get("data", "")
@@ -552,7 +654,12 @@ class AgentLoop:
         )
         
         # 7. Run Agent
-        invocation_state = {"session_id": request.session_id, "channel": request.channel}
+        invocation_state = {
+            "session_id": request.session_id,
+            "channel": request.channel,
+            "run_id": run_id,
+            "stream_event_callback": self.stream_event_callback,
+        }
         
         try:
             result = await agent.invoke_async(
@@ -582,15 +689,32 @@ class AgentLoop:
                     agent.messages,
                     completed=False
                 )
+                _emit_stream_event(
+                    self.stream_event_callback,
+                    "run_failed",
+                    run_id=run_id,
+                    session_id=request.session_id,
+                    payload={
+                        "error": response_text,
+                        "stopped": stopped_reason,
+                    },
+                )
                 if stopped_reason == "guardrail_halt":
                     if not response_text.startswith("Blocked"):
                         response_text = f"Blocked {response_text}"
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
-                    metadata={"iterations": iterations, "stopped": stopped_reason},
+                    metadata={"iterations": iterations, "stopped": stopped_reason, "run_id": run_id},
                 )
             else:
+                _emit_stream_event(
+                    self.stream_event_callback,
+                    "run_failed",
+                    run_id=run_id,
+                    session_id=request.session_id,
+                    payload={"error": str(target_exc)},
+                )
                 raise
 
         # Flush think scrubber if needed
@@ -609,9 +733,22 @@ class AgentLoop:
         metadata = {"iterations": iterations}
         if stopped_reason:
             metadata["stopped"] = stopped_reason
+        metadata["run_id"] = run_id
         metadata.setdefault("usage", {
             "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
         })
+
+        _emit_stream_event(
+            self.stream_event_callback,
+            "run_completed",
+            run_id=run_id,
+            session_id=request.session_id,
+            payload={
+                "iterations": iterations,
+                "stopped": stopped_reason,
+                "usage": metadata.get("usage", {}),
+            },
+        )
 
         return AgentResponse(
             content=response_text,

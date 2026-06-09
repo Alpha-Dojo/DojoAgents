@@ -66,6 +66,10 @@ class DojoPluginContext:
         self._registry._tools.append(spec)
         LOGGER.info(f"Registered tool '{name}' from plugin '{self.manifest.name}'")
 
+    def register_stream_event_emitter(self, callback: Callable[..., Any]) -> None:
+        self._registry._stream_event_emitters.append(callback)
+        LOGGER.info(f"Registered stream event emitter from plugin '{self.manifest.name}'")
+
 
 class DojoPluginRegistry:
     """独立的插件注册表与管理器"""
@@ -78,6 +82,7 @@ class DojoPluginRegistry:
         self._mcp_configs: Dict[str, Dict[str, Any]] = {}
         self._agent_configs: List[Dict[str, Any]] = []
         self._manifests: Dict[str, PluginManifest] = {}
+        self._stream_event_emitters: List[Callable[..., Any]] = []
         self._discovered = False
 
     def _resolve_manifest_paths(self, data: Any, root_path: str) -> Any:
@@ -105,6 +110,7 @@ class DojoPluginRegistry:
             self._mcp_configs.clear()
             self._agent_configs.clear()
             self._manifests.clear()
+            self._stream_event_emitters.clear()
 
         # 1. 扫描并加载内置插件 (dojoagents/plugins/built_in)
         built_in_dir = Path(__file__).resolve().parent / "built_in"
@@ -488,6 +494,32 @@ class DojoPluginRegistry:
                 LOGGER.error(f"Error in declarative hook '{hook_name}' in plugin '{hook['plugin_name']}': {e}", exc_info=True)
                 
         return results
+
+    def emit_stream_event(
+        self,
+        callback: Callable[[dict[str, Any]], None] | None,
+        event_type: str,
+        *,
+        run_id: str,
+        session_id: str,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any] | None:
+        for emitter in self._stream_event_emitters:
+            try:
+                event = emitter(
+                    callback=callback,
+                    event_type=event_type,
+                    run_id=run_id,
+                    session_id=session_id,
+                    payload=payload or {},
+                    **kwargs,
+                )
+                if isinstance(event, dict):
+                    return event
+            except Exception as e:
+                LOGGER.error(f"Error in stream event emitter: {e}", exc_info=True)
+        return None
 
     def as_strands_plugin(self) -> DojoPluginBridge:
         return DojoPluginBridge(self)
