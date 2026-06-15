@@ -10,7 +10,7 @@ Runtime dependencies are listed in both `pyproject.toml` and
 `requirements.txt`.
 
 ```bash
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 For local development with `uv`:
@@ -32,6 +32,9 @@ Main commands:
 ```bash
 dojoagents chat "Analyze BTC market structure" --market crypto --symbols BTC-USD --timeframe 1d
 dojoagents dashboard --host 127.0.0.1 --port 8765
+
+uv run dojoagents/cli/main.py dashboard --host 127.0.0.1 --port 8765
+
 dojoagents gateway setup all
 dojoagents gateway --host 127.0.0.1 --port 8766
 dojoagents scheduler
