@@ -6,6 +6,7 @@ cscope.*
 .idea
 .vscode
 .history
+.venv
 
 # build
 dist/
