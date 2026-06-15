@@ -97,6 +97,45 @@ class Runtime:
         from dojoagents.tools.tools_list_tool import ToolsListTool
         tool_registry.register(ToolsListTool(tool_registry).get_tool_spec())
 
+        # Multi-Agent setup
+        pool = None
+        if config.multi_agent.enabled:
+            from dojoagents.multi_agent.pool import AgentPool
+            from dojoagents.multi_agent.models import AgentSpec, AgentRole
+            from dojoagents.multi_agent.tools import get_delegation_tool_spec
+            from dojoagents.multi_agent.orchestrator import Orchestrator
+
+            # Two-phase init: create pool with None runtime, set later
+            pool = AgentPool.__new__(AgentPool)
+            pool._runtime = None
+            pool._agents = {}
+            pool._specs = {}
+
+            for agent_def in config.multi_agent.default_agents:
+                spec = AgentSpec(
+                    role=AgentRole(agent_def["role"]),
+                    name=agent_def["name"],
+                    model=agent_def.get("model"),
+                )
+                pool.register_agent(spec)
+
+            # Register delegation tool
+            tool_registry.register(get_delegation_tool_spec(pool))
+
+        # Plan setup
+        plan_hook = None
+        if config.planning.enabled:
+            from dojoagents.planning.store import PlanStateStore
+            from dojoagents.planning.engine import PlanExecutionEngine
+            from dojoagents.planning.tools import get_plan_tools
+            from dojoagents.planning.triggers import PlanActivationHook
+
+            store = PlanStateStore(config.planning.plan_store_path)
+            plan_engine = PlanExecutionEngine(pool, store)
+            for spec in get_plan_tools(plan_engine):
+                tool_registry.register(spec)
+            plan_hook = PlanActivationHook()
+
         from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
         if plugin_registry._mcp_configs:
@@ -132,7 +171,33 @@ class Runtime:
             memory_manager=memory,
             extension_registry=extensions,
             config=config.agent,
+            plan_activation_hook=plan_hook,
         )
+
+        # Wire pool runtime reference after agent creation
+        if pool is not None:
+            pool._runtime = type('RuntimeRef', (), {'agent': agent, 'config': config})()
+            from dojoagents.multi_agent.automation import MultiAgentAutoDispatcher
+            # Instantiate to register with event_bus
+            _dispatcher = MultiAgentAutoDispatcher(pool)
+
+        if config.planning.enabled:
+            from dojoagents.planning.automation import AutoPlanManager
+            # Instantiate to register with event_bus
+            _plan_manager = AutoPlanManager(
+                llm_provider=provider,
+                model=config.agent.model,
+                plan_engine=plan_engine
+            )
+
+        # Register multi-agent trigger hooks in plugin system
+        if config.multi_agent.enabled:
+            from dojoagents.multi_agent.triggers import MultiAgentTriggerHook
+            from dojoagents.multi_agent.orchestrator import Orchestrator
+            orchestrator = Orchestrator()
+            trigger_hook = MultiAgentTriggerHook(orchestrator)
+            plugin_registry._hooks.setdefault("pre_llm_call", []).append(trigger_hook.on_pre_llm_call)
+            plugin_registry._hooks.setdefault("post_tool_call", []).append(trigger_hook.on_post_tool_call)
 
         return cls(
             config=config,

@@ -312,6 +312,7 @@ class AgentLoop:
         extension_registry: DojoExtensionRegistry,
         config: AgentConfig,
         stream_delta_callback: Callable[[str], None] | None = None,
+        plan_activation_hook: Any | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -320,6 +321,7 @@ class AgentLoop:
         self.extension_registry = extension_registry
         self.config = config
         self.stream_delta_callback = stream_delta_callback
+        self._plan_activation_hook = plan_activation_hook
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -331,6 +333,8 @@ class AgentLoop:
 
     async def run(self, request: ChatRequest) -> AgentResponse:
         plugin_registry = get_plugin_registry()
+        used_tokens = 0
+        remaining_tokens = getattr(self.config, "session_max_tokens", 100000)
 
         # 1. Build the system prompt
         blocks = [
@@ -349,6 +353,15 @@ class AgentLoop:
             from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
             blocks.append(DASHBOARD_CANVAS_PROTOCOL)
         system = "\n\n".join(block for block in blocks if block)
+
+        # Plan activation check
+        if self._plan_activation_hook and self._plan_activation_hook.should_create_plan(request):
+            from dojoagents.utils.event_bus import event_bus
+            plan_results = await event_bus.publish("TaskComplexityHigh", {"request": request})
+            if plan_results:
+                return plan_results[0]
+            plan_prompt = self._plan_activation_hook.get_plan_prompt()
+            system = system + "\n\n" + plan_prompt
 
         # 2. Build model bridge
         model = DojoStrandsModelBridge(self.llm_provider, self.config.model)
@@ -410,6 +423,45 @@ class AgentLoop:
                 })
             else:
                 history_msgs.append({"role": role, "content": content_blocks})
+
+        # Context Token Tracking & Memory Consolidation Trigger
+        from dojoagents.agent.compressor import _estimate_tokens_rough
+        
+        session_max_tokens = getattr(self.config, "session_max_tokens", 100000)
+        threshold_ratio = getattr(self.config, "threshold_ratio", 0.9)
+        self.compressor.threshold_tokens = int(session_max_tokens * threshold_ratio)
+
+        temp_messages = [{"role": "system", "content": system}]
+        temp_messages.extend(history_msgs)
+        temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
+        
+        used_tokens = _estimate_tokens_rough(temp_with_prompt)
+        
+        if self.config.enable_context_compression and used_tokens >= self.compressor.threshold_tokens:
+            # Trigger compression & pluggable memory consolidation
+            compressed_temp = await self.compressor.compress(
+                temp_messages,
+                self.llm_provider,
+                self.config.model,
+                memory_manager=self.memory_manager,
+                session_id=request.session_id
+            )
+            # Re-split system prompt and history
+            if compressed_temp:
+                first_msg = compressed_temp[0]
+                if first_msg.get("role") == "system":
+                    system = first_msg.get("content") or ""
+                    history_msgs = compressed_temp[1:]
+                else:
+                    history_msgs = compressed_temp
+            
+            # Recalculate
+            temp_messages = [{"role": "system", "content": system}]
+            temp_messages.extend(history_msgs)
+            temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
+            used_tokens = _estimate_tokens_rough(temp_with_prompt)
+
+        remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
         tool_specs = self._collect_tool_specs()
@@ -494,17 +546,45 @@ class AgentLoop:
 
         # Define after tool call hook for guardrails
         async def check_guardrails_after(event: AfterToolCallEvent) -> None:
+            if not event.tool_use or not event.result:
+                return
+            tool_name = event.tool_use.get("name")
+            args = event.tool_use.get("input") or {}
+            
+            raw_result = ""
+            content = event.result.get("content", [])
+            raw_result = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
+            
+            is_failed = event.result.get("status") == "error" or "error" in raw_result.lower()
+            
+            # 1. Event trigger check for failure
+            if is_failed:
+                from dojoagents.utils.event_bus import event_bus
+                failure_results = await event_bus.publish("ToolExecutionFailed", {
+                    "tool_name": tool_name,
+                    "args": args,
+                    "error": raw_result,
+                    "session_id": request.session_id
+                })
+                if failure_results and failure_results[0]:
+                    # Update result with auto-fixed output
+                    event.result["status"] = "success"
+                    event.result["content"] = [{"type": "text", "text": failure_results[0]}]
+                    raw_result = failure_results[0]
+                    is_failed = False
+            
+            # 2. Event trigger check for large data volume
+            if len(raw_result) > 5000:
+                from dojoagents.utils.event_bus import event_bus
+                data_results = await event_bus.publish("DataVolumeLarge", {
+                    "data_summary": raw_result[:2000] + "\n... [TRUNCATED] ...\n" + raw_result[-1000:],
+                    "session_id": request.session_id
+                })
+                if data_results and data_results[0]:
+                    # Replace result with analyst summary
+                    event.result["content"] = [{"type": "text", "text": data_results[0]}]
+            
             if self.config.enable_guardrails:
-                if not event.tool_use or not event.result:
-                    return
-                tool_name = event.tool_use.get("name")
-                args = event.tool_use.get("input") or {}
-                
-                raw_result = ""
-                content = event.result.get("content", [])
-                raw_result = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
-                
-                is_failed = event.result.get("status") == "error" or "error" in raw_result.lower()
                 decision = self.guardrails.after_call(
                     tool_name,
                     args,
@@ -588,7 +668,12 @@ class AgentLoop:
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
-                    metadata={"iterations": iterations, "stopped": stopped_reason},
+                    metadata={
+                        "iterations": iterations,
+                        "stopped": stopped_reason,
+                        "used_tokens": used_tokens,
+                        "remaining_tokens": remaining_tokens
+                    },
                 )
             else:
                 raise
@@ -612,6 +697,8 @@ class AgentLoop:
         metadata.setdefault("usage", {
             "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
         })
+        metadata["used_tokens"] = used_tokens
+        metadata["remaining_tokens"] = remaining_tokens
 
         return AgentResponse(
             content=response_text,

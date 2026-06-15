@@ -176,7 +176,12 @@ class ContextCompressor:
         return result
 
     async def compress(
-        self, messages: List[Dict[str, Any]], llm_provider: Any, model: str
+        self,
+        messages: List[Dict[str, Any]],
+        llm_provider: Any,
+        model: str,
+        memory_manager: Any = None,
+        session_id: str = "",
     ) -> List[Dict[str, Any]]:
         """Check if history exceeds token budget. Compress middle turns using LLM if it does."""
         # 1. Cheap pre-pass pruning first
@@ -204,10 +209,15 @@ class ContextCompressor:
 
         # 4. Generate summary of middle turns
         middle_prompt = (
-            "You are a context compression assistant. Summarize the following dialogue sequence. "
-            "Focus on: (1) what goals were achieved, (2) what quantitative parameters or files were written/read, "
-            "(3) what is the active pending task, and (4) any key constraints discovered. "
-            "Write the summary clearly, keeping it compact to fit within a small token budget.\n\n"
+            "You are a context compression assistant. Analyze the dialogue sequence below and extract two things:\n"
+            "1. A compact dialogue summary of the middle turns for immediate context continuation.\n"
+            "2. Key long-term facts, preferences, user habits, and general workflows that should be saved in the agent's long-term memory.\n\n"
+            "Format your output exactly like this:\n"
+            "[CONSOLIDATION SUMMARY]\n"
+            "<compact summary of dialogue sequence>\n"
+            "[LONG-TERM FACTS]\n"
+            "<extracted long-term facts and workflows>\n\n"
+            "Conversation history to compact:\n"
         )
         if self._previous_summary:
             middle_prompt += f"Previous compaction summary:\n{self._previous_summary}\n\n"
@@ -227,8 +237,19 @@ class ContextCompressor:
                 tools=[],
                 model=model,
             )
-            summary_content = summary_result.content
+            content = summary_result.content
+            if "[LONG-TERM FACTS]" in content:
+                parts = content.split("[LONG-TERM FACTS]")
+                summary_content = parts[0].replace("[CONSOLIDATION SUMMARY]", "").strip()
+                facts_part = parts[1].strip()
+            else:
+                summary_content = content.replace("[CONSOLIDATION SUMMARY]", "").strip()
+                facts_part = ""
+
             self._previous_summary = summary_content
+
+            if facts_part and memory_manager and session_id:
+                await memory_manager.save_memory(session_id, facts_part)
         except Exception as e:
             LOGGER.exception(f"Failed to generate compaction summary: {e}")
             # Fallback to simple dropping without summary on failure
