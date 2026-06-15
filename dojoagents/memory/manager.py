@@ -56,6 +56,20 @@ class MemoryManager:
         for provider in self._providers:
             await provider.shutdown()
 
+    async def save_memory(self, session_id: str, content: str, metadata: dict = None) -> None:
+        for provider in self._providers:
+            if hasattr(provider, "save_memory"):
+                await provider.save_memory(session_id, content, metadata)
+
+    async def retrieve_memory(self, session_id: str, query: str) -> str:
+        results = []
+        for provider in self._providers:
+            if hasattr(provider, "retrieve_memory"):
+                res = await provider.retrieve_memory(session_id, query)
+                if res:
+                    results.append(res)
+        return "\n\n".join(results)
+
     def as_hook_provider(self) -> MemoryHookProvider:
         return MemoryHookProvider(self)
 
