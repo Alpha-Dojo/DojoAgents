@@ -1,0 +1,22 @@
+:root {
+  --panel-title-size: 12px;
+  --panel-title-weight: 700;
+  --panel-title-spacing: 0.02em;
+}
+
+/* Shared section / card titles across DojoMesh, DojoSphere, and DojoCore */
+.mesh-sector-block__title,
+.core-card__title,
+.folio-card__title,
+.folio-overview__title,
+.core-kline__topbar-title,
+.sphere-card__title,
+.sphere-level-risk__title,
+.sphere-metric-panel__title,
+.sphere-level-card__title,
+.sphere-bottom-panel__tab {
+  font-family: var(--font-sans);
+  font-size: var(--panel-title-size, 12px);
+  font-weight: var(--panel-title-weight, 700);
+  letter-spacing: var(--panel-title-spacing, 0.02em);
+}

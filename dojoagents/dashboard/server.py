@@ -210,17 +210,26 @@ def create_app(runtime: Any) -> FastAPI:
         body["session_id"] = response.session_id
         return body
 
-    # Serve built frontend SPA from static/ directory
-    static_dir = Path(__file__).parent / "static"
+    # Serve built frontend SPA from dashboard/web/dist if present; otherwise fall back to static/
+    static_dir = Path(__file__).parent / "web" / "dist"
+    if not static_dir.is_dir():
+        static_dir = Path(__file__).parent / "static"
+
     if static_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="static-assets")
+        assets_dir = static_dir / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
 
-        @app.get("/canvas-template.html")
-        async def serve_canvas_template():
-            return FileResponse(static_dir / "canvas-template.html")
+        canvas_template_path = static_dir / "canvas-template.html"
+        if canvas_template_path.is_file():
+            @app.get("/canvas-template.html")
+            async def serve_canvas_template():
+                return FileResponse(canvas_template_path)
 
-        @app.get("/")
-        async def serve_spa():
-            return FileResponse(static_dir / "index.html")
+        index_path = static_dir / "index.html"
+        if index_path.is_file():
+            @app.get("/")
+            async def serve_spa():
+                return FileResponse(index_path)
 
     return app

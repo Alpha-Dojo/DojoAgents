@@ -1,0 +1,37 @@
+.sphere-level-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: calc(8px * var(--sphere-scale, 1));
+}
+
+.sphere-level-filter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sphere-level-filter__label {
+  font-size: calc(10px * var(--sphere-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  line-height: 1.1;
+}
+
+.sphere-level-filter__select {
+  width: 100%;
+  height: calc(26px * var(--sphere-scale, 1));
+  padding: 0 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(12px * var(--sphere-scale, 1));
+}
+
+.sphere-level-filter__select:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}

@@ -53,12 +53,12 @@ The Dashboard provides a Vue 3 SPA frontend with OpenAI-compatible chat API, SSE
 ### Build Frontend
 
 ```bash
-cd dojoagents/dashboard/frontend
+cd dojoagents/dashboard/web
 npm install
 npm run build
 ```
 
-This compiles the Vue 3 SPA and outputs to `dojoagents/dashboard/static/`, which is served by the FastAPI backend.
+This compiles the React SPA and outputs to `dojoagents/dashboard/web/dist/`, which is served by the FastAPI backend.
 
 ### Start Dashboard Server
 
@@ -84,13 +84,38 @@ Then open [http://127.0.0.1:8765/](http://127.0.0.1:8765/) in your browser.
 For frontend development with hot-reload:
 
 ```bash
-cd dojoagents/dashboard/frontend
+cd dojoagents/dashboard/web
 npm run dev
 ```
 
-This starts Vite dev server on `http://localhost:5173` with a proxy to the backend at `http://127.0.0.1:8765/api`.
+This starts the Vite dev server on `http://localhost:5173` with a proxy to the
+backend at `http://127.0.0.1:8765/api`.
 
 Make sure the backend is running first:
+
+```bash
+dojoagents dashboard --host 127.0.0.1 --port 8765
+```
+
+To run the frontend with mock data enabled, keep the dashboard command above
+running, then start the frontend in another terminal:
+
+```bash
+cd dojoagents/dashboard/web
+VITE_USE_MOCKS=true npm run dev
+```
+
+Then open [http://localhost:5173/](http://localhost:5173/) in your browser.
+
+If you want `dojoagents dashboard --host 127.0.0.1 --port 8765` itself to serve
+the mock-data frontend, build the frontend with mocks enabled first:
+
+```bash
+cd dojoagents/dashboard/web
+VITE_USE_MOCKS=true npm run build
+```
+
+Then start the dashboard normally:
 
 ```bash
 dojoagents dashboard --host 127.0.0.1 --port 8765

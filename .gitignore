@@ -6,6 +6,7 @@ cscope.*
 .idea
 .vscode
 .history
+.venv
 
 # build
 dist/
@@ -49,3 +50,6 @@ docs/superpowers/
 docs/hermes/
 .superpowers/
 .qoder/
+
+# front
+*node_modules/

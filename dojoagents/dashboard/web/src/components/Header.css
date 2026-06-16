@@ -1,0 +1,60 @@
+.app-header__session {
+  justify-self: end;
+}
+
+.header-util {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.header-util__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border-dim);
+  flex-shrink: 0;
+}
+
+.header-util__agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.header-util__agent:hover {
+  color: var(--text-primary);
+  background: rgba(30, 58, 95, 0.35);
+}
+
+.header-util__agent--active {
+  color: var(--cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.header-util__agent-icon {
+  display: inline-flex;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.header-util__agent--active .header-util__agent-icon {
+  opacity: 1;
+}
