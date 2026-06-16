@@ -1,0 +1,71 @@
+/**
+ * Unified date typography for DojoMesh, DojoSphere, and DojoCore.
+ */
+
+/* Chart axis / footer dates */
+.market-hero__chart-axis-tick,
+.sphere-level-sparkline__axis-tick,
+.sphere-performance__axis-date,
+.core-kline__time-tick,
+.core-kline__axis-tick {
+  font-family: var(--font-mono);
+  font-size: var(--chart-date-size);
+  font-weight: var(--chart-date-weight);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: var(--chart-date-color);
+  white-space: nowrap;
+}
+
+.market-hero__chart-axis-tick--active,
+.sphere-level-sparkline__axis-tick--active.sphere-level-sparkline__axis-tick--visible,
+.core-kline__time-tick--active,
+.core-kline__axis-tick--active,
+.sphere-performance__axis-date--active.sphere-performance__axis-date--visible {
+  color: var(--chart-date-color-active);
+  font-weight: var(--chart-date-weight-active);
+}
+
+/* Chart toolbar hover dates */
+.market-hero__chart-head-date,
+.core-kline__field--date b {
+  font-family: var(--font-mono);
+  font-size: var(--chart-date-size-head);
+  font-weight: var(--chart-date-weight-active);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: var(--chart-date-color-active);
+  white-space: nowrap;
+}
+
+/* Compact dates (MM-DD in market chips) */
+.sphere-level-sparkline__inline-date {
+  font-family: var(--font-mono);
+  font-size: var(--chart-date-size-compact);
+  font-weight: var(--chart-date-weight);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: var(--chart-date-color);
+  white-space: nowrap;
+}
+
+.sphere-level-sparkline__inline-date--closed {
+  opacity: 0.72;
+}
+
+/* List / tooltip dates */
+.core-events__date,
+.core-risk__insider-date,
+.sphere-performance__tooltip-date {
+  font-family: var(--font-mono);
+  font-size: var(--chart-date-size);
+  font-weight: var(--chart-date-weight);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: var(--chart-date-color);
+  white-space: nowrap;
+}

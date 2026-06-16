@@ -50,3 +50,6 @@ docs/superpowers/
 docs/hermes/
 .superpowers/
 .qoder/
+
+# front
+*node_modules/
