@@ -3,13 +3,13 @@ import type { CoreIncomeDistributionItem, CoreIncomeMainopType } from '../types/
 export const INCOME_MAINOP_TYPES: CoreIncomeMainopType[] = ['1', '2', '3'];
 
 export const INCOME_SLICE_COLORS = [
-  '#00e5ff',
-  '#00e676',
-  '#ff9800',
-  '#5c6bc0',
-  '#26c6da',
-  '#ab47bc',
-  '#78909c',
+  'var(--color-accent-primary)',
+  'var(--color-action-link)',
+  'var(--color-status-warning)',
+  '#8b5cf6',
+  'var(--color-accent-float)',
+  'var(--color-text-secondary)',
+  'var(--color-text-tertiary)',
 ] as const;
 
 const MAX_VISIBLE_SLICES = 5;

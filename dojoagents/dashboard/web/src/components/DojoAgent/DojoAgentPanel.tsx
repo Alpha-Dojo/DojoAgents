@@ -318,7 +318,7 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
           <AgentModelSwitcher variant="composer" />
           <button
             type="button"
-            className="dojo-agent-panel__send"
+            className="action-button dojo-agent-panel__send"
             disabled={!canSend}
             aria-label={t('agent.send')}
             onClick={() => void handleSend()}

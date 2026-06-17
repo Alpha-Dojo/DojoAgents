@@ -68,7 +68,7 @@ export function CoreAddToFolioButton({ ticker, market }: CoreAddToFolioButtonPro
     <div className="core-add-folio" ref={rootRef}>
       <button
         type="button"
-        className="core-add-folio__trigger"
+        className="action-button core-add-folio__trigger"
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={open ? listId : undefined}

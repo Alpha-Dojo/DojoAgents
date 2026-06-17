@@ -57,8 +57,8 @@
 }
 
 .mesh-market-column-wrap--drop-target {
-  box-shadow: inset 0 0 0 2px rgba(0, 229, 255, 0.45);
-  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px rgba(2, 175, 127, 0.45);
+  border-radius: 8px;
 }
 
 .mesh-market-add {
@@ -87,9 +87,9 @@
 }
 
 .mesh-market-add:hover {
-  color: var(--cyan);
-  border-color: rgba(0, 229, 255, 0.45);
-  background: rgba(0, 229, 255, 0.06);
+  color: var(--color-accent-primary);
+  border-color: rgba(2, 175, 127, 0.45);
+  background: rgba(2, 175, 127, 0.06);
 }
 
 .mesh-add-market-dialog {
@@ -115,8 +115,10 @@
   width: min(420px, 100%);
   padding: 20px 22px 18px;
   border: 1px solid var(--border-accent);
-  border-radius: 10px;
-  background: linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
+  border-radius: 8px;
+  background:
+    linear-gradient(360deg, rgb(255 255 255 / 2%) 0%, rgb(255 255 255 / 0.2%) 100%),
+    var(--bg-panel);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
 
@@ -140,8 +142,8 @@
   padding: 7px 14px;
   border: 1px solid var(--border-accent);
   border-radius: 6px;
-  background: rgba(0, 229, 255, 0.08);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.08);
+  color: var(--color-accent-primary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -151,8 +153,8 @@
 }
 
 .mesh-add-market-dialog__action:hover {
-  background: rgba(0, 229, 255, 0.14);
-  border-color: rgba(0, 229, 255, 0.45);
+  background: rgba(2, 175, 127, 0.14);
+  border-color: rgba(2, 175, 127, 0.45);
 }
 
 @media (max-width: 1100px) {
@@ -195,13 +197,7 @@
 /* Merged market hero card */
 .market-hero {
   padding: 12px 14px 10px;
-  border: 1px solid var(--border-accent);
-  border-radius: 8px;
-  background: linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
-  display: flex;
-  flex-direction: column;
   gap: 10px;
-  min-width: 0;
   flex-shrink: 0;
   container-type: inline-size;
 }
@@ -237,7 +233,7 @@
 }
 
 .market-hero__brand--draggable:hover {
-  background: rgba(30, 58, 95, 0.28);
+  background: var(--color-surface-muted);
 }
 
 .market-hero__brand--draggable:active {
@@ -335,7 +331,7 @@
 }
 
 .market-hero__chart-wrap--hover {
-  border-color: rgba(0, 229, 255, 0.22);
+  border-color: rgba(2, 175, 127, 0.22);
 }
 
 .market-hero__chart-head {
@@ -350,8 +346,8 @@
 }
 
 .market-hero__chart-head--hover {
-  background: rgba(0, 229, 255, 0.06);
-  border-bottom-color: rgba(0, 229, 255, 0.18);
+  background: rgba(2, 175, 127, 0.06);
+  border-bottom-color: rgba(2, 175, 127, 0.18);
 }
 
 .market-hero__chart-head-select {
@@ -416,7 +412,7 @@
 }
 
 .market-hero__chart-wrap--zoomed {
-  border-color: rgba(0, 229, 255, 0.14);
+  border-color: rgba(2, 175, 127, 0.14);
 }
 
 .market-hero__chart {
@@ -470,7 +466,7 @@
 }
 
 .market-hero__hover-dot {
-  fill: var(--bg-panel, #0c1828);
+  fill: var(--bg-panel);
   stroke: rgba(255, 255, 255, 0.72);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
@@ -509,7 +505,7 @@
 }
 
 .market-hero__index-select:focus-visible {
-  outline: 1px solid var(--cyan);
+  outline: 1px solid var(--color-accent-primary);
   outline-offset: 1px;
 }
 
@@ -668,8 +664,8 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(0, 229, 255, 0.3) 15%,
-    rgba(0, 229, 255, 0.3) 85%,
+    rgba(2, 175, 127, 0.3) 15%,
+    rgba(2, 175, 127, 0.3) 85%,
     transparent
   );
 }
@@ -707,20 +703,20 @@
 }
 
 .mesh-sector-row--linked {
-  border-left-color: var(--cyan);
-  background: linear-gradient(90deg, rgba(0, 229, 255, 0.08) 0%, var(--bg-elevated) 48%);
-  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-left-color: var(--color-accent-primary);
+  background: linear-gradient(90deg, rgba(2, 175, 127, 0.08) 0%, var(--bg-elevated) 48%);
+  box-shadow: inset 0 0 0 1px rgba(2, 175, 127, 0.12);
 }
 
 .mesh-sector-row--selected {
-  border-color: var(--cyan);
-  box-shadow: inset 0 0 20px rgba(0, 229, 255, 0.08);
+  border-color: var(--color-accent-primary);
+  box-shadow: inset 0 0 20px rgba(2, 175, 127, 0.08);
 }
 
 .mesh-sector-row--linked.mesh-sector-row--selected {
   box-shadow:
-    inset 0 0 20px rgba(0, 229, 255, 0.1),
-    inset 0 0 0 1px rgba(0, 229, 255, 0.2);
+    inset 0 0 20px rgba(2, 175, 127, 0.1),
+    inset 0 0 0 1px rgba(2, 175, 127, 0.2);
 }
 
 .mesh-sector-row--expanded {
@@ -728,7 +724,7 @@
 }
 
 .mesh-sector-row--missing {
-  border-left-color: rgba(0, 229, 255, 0.45);
+  border-left-color: rgba(2, 175, 127, 0.45);
   opacity: 0.82;
 }
 
@@ -798,19 +794,19 @@
 }
 
 .mesh-sector-row__action:hover {
-  color: var(--cyan);
-  border-color: rgba(0, 229, 255, 0.35);
-  background: rgba(0, 229, 255, 0.08);
+  color: var(--color-accent-primary);
+  border-color: rgba(2, 175, 127, 0.35);
+  background: rgba(2, 175, 127, 0.08);
 }
 
 .mesh-sector-row__action--active {
-  color: var(--cyan);
-  border-color: rgba(0, 229, 255, 0.4);
-  background: rgba(0, 229, 255, 0.12);
+  color: var(--color-accent-primary);
+  border-color: rgba(2, 175, 127, 0.4);
+  background: rgba(2, 175, 127, 0.12);
 }
 
 .mesh-sector-row__action--jump:hover {
-  color: var(--cyan-dim);
+  color: var(--color-accent-float);
 }
 
 .mesh-sector-row__icon {
@@ -846,9 +842,9 @@
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.12);
-  border: 1px solid rgba(0, 229, 255, 0.25);
+  color: var(--color-accent-primary);
+  background: rgba(2, 175, 127, 0.12);
+  border: 1px solid rgba(2, 175, 127, 0.25);
   vertical-align: middle;
 }
 
@@ -971,7 +967,7 @@
 }
 
 .mesh-member-sort-btn--active {
-  color: var(--cyan);
+  color: var(--color-accent-primary);
 }
 
 .mesh-member-sort-btn__icon {
@@ -1051,13 +1047,13 @@
 }
 
 .mesh-sector-row__member-ticker--link:hover {
-  color: var(--cyan);
+  color: var(--color-accent-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .mesh-sector-row__member-ticker--link:focus-visible {
-  outline: 2px solid rgba(79, 195, 247, 0.45);
+  outline: 2px solid rgba(2, 175, 127, 0.45);
   outline-offset: 1px;
   border-radius: 2px;
 }

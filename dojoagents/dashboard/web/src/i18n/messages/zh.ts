@@ -46,6 +46,21 @@ export const zhMessages = {
   header: {
     agent: 'Agent',
     openAgent: '打开 DojoAgent',
+    settings: '设置',
+    openSettings: '打开设置',
+  },
+  settings: {
+    eyebrow: 'SYSTEM',
+    title: '系统设置',
+    loading: '加载配置中…',
+    loadFailed: '配置加载失败',
+    retry: '重试',
+    close: '关闭设置',
+    cancel: '取消',
+    save: '保存配置',
+    saving: '保存中…',
+    saveSuccess: '配置已保存。',
+    saveFailed: '配置保存失败。',
   },
   agentModel: {
     label: '模型',
@@ -355,6 +370,7 @@ export type MessageTree = {
   market: Record<keyof typeof zhMessages.market, string>;
   mesh: Record<keyof typeof zhMessages.mesh, string>;
   header: Record<keyof typeof zhMessages.header, string>;
+  settings: Record<keyof typeof zhMessages.settings, string>;
   agentModel: Record<keyof typeof zhMessages.agentModel, string>;
   agent: Record<keyof typeof zhMessages.agent, string>;
   sphere: Record<keyof typeof zhMessages.sphere, string>;

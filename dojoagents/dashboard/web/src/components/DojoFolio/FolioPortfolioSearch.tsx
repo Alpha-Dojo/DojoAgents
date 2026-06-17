@@ -1,18 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { searchFolioPortfolios } from '../../api/dojoFolio';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPortfolioListItem } from '../../hooks/useFolioPortfolios';
 import type { FolioPortfolioHoldingsPreview, FolioPortfolioSearchHit } from '../../utils/folioPortfolioSearch';
 import { searchPortfoliosClient } from '../../utils/folioPortfolioSearch';
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
+import { SearchComboboxShell } from '../SearchComboboxShell';
 
 interface FolioPortfolioSearchProps {
   portfolios: FolioPortfolioListItem[];
@@ -95,29 +88,25 @@ export function FolioPortfolioSearch({
   };
 
   return (
-    <div className="folio-portfolio-search" ref={rootRef}>
-      <span className="folio-portfolio-search__icon" aria-hidden>
-        ⌕
-      </span>
-      <input
-        ref={inputRef}
-        type="search"
-        className="folio-portfolio-search__input"
-        value={query}
-        placeholder={t('folio.searchPlaceholder')}
-        aria-controls={panelOpen ? listId : undefined}
-        aria-expanded={panelOpen}
-        aria-haspopup="listbox"
-        onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setFocused(true)}
-      />
-
+    <SearchComboboxShell
+      className="folio-portfolio-search"
+      rootRef={rootRef}
+      inputRef={inputRef}
+      iconClassName="folio-portfolio-search__icon"
+      inputClassName="folio-portfolio-search__input"
+      value={query}
+      placeholder={t('folio.searchPlaceholder')}
+      controlsId={panelOpen ? listId : undefined}
+      expanded={panelOpen}
+      onChange={(event) => setQuery(event.target.value)}
+      onFocus={() => setFocused(true)}
+    >
       {panelOpen ? (
-        <div className="folio-portfolio-search__panel">
-          <ul id={listId} className="folio-portfolio-search__list" role="listbox">
-            {loading ? <li className="folio-portfolio-search__status">{t('folio.searching')}</li> : null}
+        <div className="search-combobox__panel folio-portfolio-search__panel">
+          <ul id={listId} className="search-combobox__list folio-portfolio-search__list" role="listbox">
+            {loading ? <li className="search-combobox__status folio-portfolio-search__status">{t('folio.searching')}</li> : null}
             {!loading && hits.length === 0 ? (
-              <li className="folio-portfolio-search__status">{t('folio.noSearchResults')}</li>
+              <li className="search-combobox__status folio-portfolio-search__status">{t('folio.noSearchResults')}</li>
             ) : null}
             {!loading
               ? hits.map((hit) => {
@@ -127,7 +116,7 @@ export function FolioPortfolioSearch({
                     <li key={`${hit.portfolioId}:${hit.matchType}:${hit.matchedLabel ?? ''}`}>
                       <button
                         type="button"
-                        className="folio-portfolio-search__option"
+                        className="search-combobox__option folio-portfolio-search__option"
                         role="option"
                         onClick={() => handlePick(hit.portfolioId)}
                       >
@@ -145,6 +134,6 @@ export function FolioPortfolioSearch({
           </ul>
         </div>
       ) : null}
-    </div>
+    </SearchComboboxShell>
   );
 }
