@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../hooks/useTranslation';
 import type { AppLocale } from '../i18n/locale';
+import { DropdownMenu } from './DropdownMenu';
 import './LanguageSwitcher.css';
 
 const OPTIONS: AppLocale[] = ['zh', 'en'];
@@ -49,58 +49,45 @@ function ChevronIcon() {
 
 export function LanguageSwitcher() {
   const { locale, setLocale, t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener('mousedown', handlePointerDown);
-    return () => window.removeEventListener('mousedown', handlePointerDown);
-  }, [open]);
-
-  const selectLocale = (code: AppLocale) => {
-    setLocale(code);
-    setOpen(false);
-  };
 
   return (
-    <div className="lang-menu" ref={rootRef}>
-      <button
-        type="button"
-        className={`lang-menu__trigger ${open ? 'lang-menu__trigger--open' : ''}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={t('language.label')}
-        onClick={() => setOpen((prev) => !prev)}
-      >
-        <GlobeIcon />
-        <span className="lang-menu__value">{t(`language.${locale}`)}</span>
-        <ChevronIcon />
-      </button>
-      {open && (
-        <ul className="lang-menu__dropdown" role="listbox" aria-label={t('language.label')}>
-          {OPTIONS.map((code) => (
-            <li key={code} role="presentation">
-              <button
-                type="button"
-                role="option"
-                aria-selected={locale === code}
-                className={`lang-menu__option ${locale === code ? 'lang-menu__option--active' : ''}`}
-                onClick={() => selectLocale(code)}
-              >
-                {t(`language.${code}`)}
-              </button>
-            </li>
-          ))}
-        </ul>
+    <DropdownMenu className="lang-menu">
+      {({ close, open, toggle }) => (
+        <>
+          <button
+            type="button"
+            className={`lang-menu__trigger ${open ? 'lang-menu__trigger--open' : ''}`}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            aria-label={t('language.label')}
+            onClick={toggle}
+          >
+            <GlobeIcon />
+            <span className="lang-menu__value">{t(`language.${locale}`)}</span>
+            <ChevronIcon />
+          </button>
+          {open && (
+            <ul className="lang-menu__dropdown" role="listbox" aria-label={t('language.label')}>
+              {OPTIONS.map((code) => (
+                <li key={code} role="presentation">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={locale === code}
+                    className={`lang-menu__option ${locale === code ? 'lang-menu__option--active' : ''}`}
+                    onClick={() => {
+                      setLocale(code);
+                      close();
+                    }}
+                  >
+                    {t(`language.${code}`)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
-    </div>
+    </DropdownMenu>
   );
 }

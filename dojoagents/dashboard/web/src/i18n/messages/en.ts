@@ -48,6 +48,21 @@ export const enMessages: MessageTree = {
   header: {
     agent: 'Agent',
     openAgent: 'Open DojoAgent',
+    settings: 'Settings',
+    openSettings: 'Open settings',
+  },
+  settings: {
+    eyebrow: 'SYSTEM',
+    title: 'System Settings',
+    loading: 'Loading configuration…',
+    loadFailed: 'Failed to load configuration',
+    retry: 'Retry',
+    close: 'Close settings',
+    cancel: 'Cancel',
+    save: 'Save Configuration',
+    saving: 'Saving…',
+    saveSuccess: 'Configuration saved.',
+    saveFailed: 'Failed to save configuration.',
   },
   agentModel: {
     label: 'Model',

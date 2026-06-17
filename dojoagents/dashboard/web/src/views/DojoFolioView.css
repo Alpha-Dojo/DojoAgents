@@ -7,9 +7,7 @@
   flex-direction: column;
   overflow: hidden;
   padding: 8px 12px 10px;
-  background:
-    radial-gradient(ellipse 70% 40% at 50% -20%, rgba(0, 229, 255, 0.05), transparent 60%),
-    var(--bg-deep);
+  background: var(--bg-deep);
 }
 
 .dojo-folio-view--empty {
@@ -24,17 +22,6 @@
   display: grid;
   grid-template-columns: 168px minmax(0, 1.5fr) minmax(260px, 0.95fr);
   gap: 8px;
-}
-
-.folio-card {
-  border: 1px solid var(--border-dim);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .folio-card__head {
@@ -63,8 +50,8 @@
   color: var(--red);
 }
 
-.folio-tone--cyan {
-  color: var(--cyan);
+.folio-tone--accent {
+  color: var(--color-accent-primary);
 }
 
 .folio-tone--muted {
@@ -92,10 +79,10 @@
 .folio-sidebar__create {
   width: 100%;
   padding: 6px 8px;
-  border: 1px dashed rgba(0, 229, 255, 0.35);
+  border: 1px dashed rgba(2, 175, 127, 0.35);
   border-radius: 6px;
-  background: rgba(0, 229, 255, 0.05);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.05);
+  color: var(--color-accent-primary);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -105,91 +92,31 @@
 }
 
 .folio-sidebar__create:hover {
-  background: rgba(0, 229, 255, 0.1);
-  border-color: rgba(0, 229, 255, 0.55);
-}
-
-.folio-portfolio-search {
-  position: relative;
-}
-
-.folio-portfolio-search__icon {
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--text-dim);
-  pointer-events: none;
+  background: rgba(2, 175, 127, 0.1);
+  border-color: rgba(2, 175, 127, 0.55);
 }
 
 .folio-portfolio-search__input {
-  width: 100%;
   padding: 6px 8px 6px 24px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 11px;
-}
-
-.folio-portfolio-search__input::placeholder {
-  color: var(--text-dim);
 }
 
 .folio-portfolio-search__input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.35);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-color: rgba(2, 175, 127, 0.35);
+  box-shadow: 0 0 0 1px rgba(2, 175, 127, 0.12);
 }
 
 .folio-portfolio-search__panel {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
   max-height: 220px;
-  overflow: auto;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: rgba(8, 14, 24, 0.98);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.folio-portfolio-search__list {
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-}
-
-.folio-portfolio-search__status {
-  padding: 8px 10px;
-  font-size: 11px;
-  color: var(--text-dim);
 }
 
 .folio-portfolio-search__option {
-  display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  width: 100%;
   padding: 7px 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.folio-portfolio-search__option:hover,
-.folio-portfolio-search__option:focus-visible {
-  background: rgba(0, 229, 255, 0.08);
-  outline: none;
 }
 
 .folio-portfolio-search__option-name {
@@ -225,14 +152,14 @@
 }
 
 .folio-sidebar__item:hover {
-  border-color: rgba(0, 229, 255, 0.22);
-  background: rgba(0, 229, 255, 0.04);
+  border-color: rgba(2, 175, 127, 0.22);
+  background: rgba(2, 175, 127, 0.04);
 }
 
 .folio-sidebar__item--active {
-  border-color: rgba(0, 229, 255, 0.45);
-  background: rgba(0, 229, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-color: rgba(2, 175, 127, 0.45);
+  background: rgba(2, 175, 127, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(2, 175, 127, 0.12);
 }
 
 .folio-sidebar__item-main {
@@ -266,13 +193,13 @@
 }
 
 .folio-sidebar__name-button:hover {
-  color: var(--cyan);
+  color: var(--color-accent-primary);
 }
 
 .folio-sidebar__name-input {
   width: 100%;
   padding: 2px 4px;
-  border: 1px solid rgba(0, 229, 255, 0.35);
+  border: 1px solid rgba(2, 175, 127, 0.35);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.25);
   color: var(--text-primary);
@@ -297,9 +224,9 @@
 .folio-sidebar__badge {
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid rgba(124, 108, 255, 0.35);
-  background: rgba(124, 108, 255, 0.12);
-  color: #b8adff;
+  border: 1px solid rgb(34 107 208 / 35%);
+  background: rgb(34 107 208 / 10%);
+  color: var(--color-action-link);
   font-size: 10px;
   font-weight: 600;
 }
@@ -372,10 +299,10 @@
 
 .folio-config__apply {
   padding: 6px 10px;
-  border: 1px solid rgba(0, 229, 255, 0.35);
+  border: 1px solid rgba(2, 175, 127, 0.35);
   border-radius: 4px;
-  background: rgba(0, 229, 255, 0.1);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.1);
+  color: var(--color-accent-primary);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -401,9 +328,9 @@
 }
 
 .folio-sidebar__delete:hover {
-  color: #ff8a8a;
-  border-color: rgba(255, 120, 120, 0.35);
-  background: rgba(255, 80, 80, 0.08);
+  color: var(--color-status-danger);
+  border-color: var(--color-border-danger);
+  background: rgb(187 41 52 / 10%);
 }
 
 .folio-dialog {
@@ -428,7 +355,7 @@
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  background: #0d1522;
+  background: var(--bg-panel);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 }
 
@@ -466,9 +393,9 @@
 }
 
 .folio-dialog__button--danger {
-  border: 1px solid rgba(255, 120, 120, 0.35);
-  background: rgba(255, 80, 80, 0.12);
-  color: #ff9f9f;
+  border: 1px solid var(--color-border-danger);
+  background: rgb(187 41 52 / 10%);
+  color: var(--color-status-danger);
 }
 
 .folio-config__select {
@@ -580,9 +507,9 @@
 }
 
 .folio-range-tabs__tab--active {
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.22);
+  color: var(--color-accent-primary);
+  background: rgba(2, 175, 127, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(2, 175, 127, 0.22);
 }
 
 .folio-kpi-grid {
@@ -614,7 +541,7 @@
 
 .folio-kpi__hint {
   font-size: 10px;
-  color: var(--cyan-dim, var(--cyan));
+  color: var(--color-accent-float);
 }
 
 .folio-performance,
@@ -648,7 +575,7 @@
 }
 
 .folio-performance__legend-item--benchmark::before {
-  background: #4da3ff;
+  background: var(--color-action-link);
 }
 
 .folio-performance__chart-wrap {
@@ -677,7 +604,7 @@
 }
 
 .folio-performance__line--benchmark {
-  stroke: #4da3ff;
+  stroke: var(--color-action-link);
   opacity: 0.9;
 }
 
@@ -953,10 +880,10 @@
 
 .folio-holdings__auto-allocate {
   padding: 3px 8px;
-  border: 1px solid rgba(0, 229, 255, 0.28);
+  border: 1px solid rgba(2, 175, 127, 0.28);
   border-radius: 4px;
-  background: rgba(0, 229, 255, 0.06);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.06);
+  color: var(--color-accent-primary);
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
@@ -964,7 +891,7 @@
 }
 
 .folio-holdings__auto-allocate:hover:not(:disabled) {
-  background: rgba(0, 229, 255, 0.12);
+  background: rgba(2, 175, 127, 0.12);
 }
 
 .folio-holdings__auto-allocate:disabled {
@@ -973,7 +900,7 @@
 }
 
 .folio-table__row--manual .folio-table__shares-input {
-  border-color: rgba(255, 204, 128, 0.45);
+  border-color: var(--color-border-warning);
 }
 
 .folio-holdings__market-empty {
@@ -989,55 +916,30 @@
 .folio-add-holding__trigger {
   width: 100%;
   padding: 6px 8px;
-  border: 1px dashed rgba(0, 229, 255, 0.28);
+  border: 1px dashed rgba(2, 175, 127, 0.28);
   border-radius: 4px;
-  background: rgba(0, 229, 255, 0.04);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.04);
   font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .folio-add-holding__trigger:hover:not(:disabled) {
-  background: rgba(0, 229, 255, 0.08);
-  border-color: rgba(0, 229, 255, 0.42);
-}
-
-.folio-add-holding__trigger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: rgba(2, 175, 127, 0.08);
+  border-color: rgba(2, 175, 127, 0.42);
 }
 
 .folio-add-holding__search {
   position: relative;
 }
 
-.folio-add-holding__icon {
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--text-dim);
-  pointer-events: none;
-}
-
 .folio-add-holding__input {
-  width: 100%;
-  box-sizing: border-box;
   padding: 6px 28px 6px 24px;
-  border: 1px solid rgba(0, 229, 255, 0.22);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 11px;
+  border: 1px solid rgba(2, 175, 127, 0.22);
 }
 
 .folio-add-holding__input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.4);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-color: rgba(2, 175, 127, 0.4);
+  box-shadow: 0 0 0 1px rgba(2, 175, 127, 0.12);
 }
 
 .folio-add-holding__cancel {
@@ -1061,60 +963,23 @@
 }
 
 .folio-add-holding__panel {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
   max-height: 180px;
-  margin: 0;
-  padding: 4px;
-  overflow: auto;
-  list-style: none;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: rgba(8, 14, 24, 0.98);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.folio-add-holding__status {
-  padding: 8px;
   font-size: 10px;
-  color: var(--text-dim);
 }
 
 .folio-add-holding__option {
-  display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  width: 100%;
   padding: 6px 8px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.folio-add-holding__option:hover,
-.folio-add-holding__option:focus-visible {
-  background: rgba(0, 229, 255, 0.08);
-  outline: none;
-}
-
-.folio-add-holding__option:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .folio-add-holding__option-ticker {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
-  color: var(--cyan);
+  color: var(--color-accent-primary);
 }
 
 .folio-add-holding__option-name {
@@ -1166,7 +1031,7 @@
 
 .folio-table__date-input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.35);
+  border-color: rgba(2, 175, 127, 0.35);
 }
 
 .folio-table {
@@ -1205,7 +1070,7 @@
 .folio-table__ticker {
   font-family: var(--font-mono);
   font-weight: 700;
-  color: var(--cyan);
+  color: var(--color-accent-primary);
   letter-spacing: 0.03em;
 }
 
@@ -1219,10 +1084,10 @@
 
 .folio-holdings__confirm {
   padding: 4px 10px;
-  border: 1px solid rgba(0, 229, 255, 0.35);
+  border: 1px solid rgba(2, 175, 127, 0.35);
   border-radius: 4px;
-  background: rgba(0, 229, 255, 0.08);
-  color: var(--cyan);
+  background: rgba(2, 175, 127, 0.08);
+  color: var(--color-accent-primary);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -1237,7 +1102,7 @@
   margin: 0;
   padding: 0 10px 8px;
   font-size: 10px;
-  color: var(--cyan-dim, var(--cyan));
+  color: var(--color-accent-float);
 }
 
 .folio-table__market-row td {

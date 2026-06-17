@@ -1,12 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { fetchCoreTickerSearch } from '../../api/dojoCore';
 import { fetchSectorConstituents } from '../../api/dojoSphere';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { CoreTickerSearchItem } from '../../types/dojoCore';
 import type { SectorPathSelection } from '../../types/sectorTaxonomy';
 import { MARKET_FLAG } from '../../utils/marketDisplay';
 import { sortCoreTickerItems } from '../../utils/coreTickerSort';
+import { SearchComboboxShell } from '../SearchComboboxShell';
 
 const MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
 const SEARCH_LIMIT = 30;
@@ -16,15 +18,6 @@ interface CoreTickerSearchProps {
   market: MarketCode;
   selection: SectorPathSelection | null;
   onSelect: (item: CoreTickerSearchItem) => void;
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
 }
 
 function toSearchItem(item: {
@@ -131,36 +124,32 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
   };
 
   return (
-    <div className="core-ticker-search" ref={rootRef}>
-      <span className="core-ticker-search__icon" aria-hidden>
-        ⌕
-      </span>
-      <input
-        ref={inputRef}
-        type="search"
-        className="core-ticker-search__input"
-        value={query}
-        placeholder={t('core.tickerSearchPlaceholder')}
-        aria-controls={panelOpen ? listId : undefined}
-        aria-expanded={panelOpen}
-        aria-haspopup="listbox"
-        onChange={(event) => setQuery(event.target.value)}
-        onFocus={() => setFocused(true)}
-      />
-
+    <SearchComboboxShell
+      className="core-ticker-search"
+      rootRef={rootRef}
+      inputRef={inputRef}
+      iconClassName="core-ticker-search__icon"
+      inputClassName="core-ticker-search__input"
+      value={query}
+      placeholder={t('core.tickerSearchPlaceholder')}
+      controlsId={panelOpen ? listId : undefined}
+      expanded={panelOpen}
+      onChange={(event) => setQuery(event.target.value)}
+      onFocus={() => setFocused(true)}
+    >
       {panelOpen ? (
-        <div className="core-ticker-search__panel">
-          <ul id={listId} className="core-ticker-search__list" role="listbox">
-            {loading ? <li className="core-ticker-search__status">{t('core.searching')}</li> : null}
+        <div className="search-combobox__panel core-ticker-search__panel">
+          <ul id={listId} className="search-combobox__list core-ticker-search__list" role="listbox">
+            {loading ? <li className="search-combobox__status core-ticker-search__status">{t('core.searching')}</li> : null}
             {!loading && visibleItems.length === 0 ? (
-              <li className="core-ticker-search__status">{t('core.noSearchResults')}</li>
+              <li className="search-combobox__status core-ticker-search__status">{t('core.noSearchResults')}</li>
             ) : null}
             {!loading
               ? visibleItems.map((item) => (
                   <li key={`${item.market}:${item.ticker}`}>
                     <button
                       type="button"
-                      className="core-ticker-search__option"
+                      className="search-combobox__option core-ticker-search__option"
                       role="option"
                       aria-selected={item.ticker === ticker && item.market === market}
                       onClick={() => handlePick(item)}
@@ -181,6 +170,6 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
           </ul>
         </div>
       ) : null}
-    </div>
+    </SearchComboboxShell>
   );
 }

@@ -5,7 +5,7 @@
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(circle at top left, rgba(0, 229, 255, 0.04), transparent 40%),
+    radial-gradient(circle at top left, rgba(2, 175, 127, 0.04), transparent 40%),
     var(--bg-deep);
 }
 
@@ -21,7 +21,7 @@
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 700;
-  color: var(--cyan);
+  color: var(--color-accent-primary);
   letter-spacing: 0.04em;
 }
 

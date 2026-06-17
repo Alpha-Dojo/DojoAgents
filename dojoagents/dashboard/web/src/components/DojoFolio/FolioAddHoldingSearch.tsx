@@ -1,8 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { fetchCoreTickerSearch } from '../../api/dojoCore';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { CoreTickerSearchItem } from '../../types/dojoCore';
+import { SearchComboboxShell } from '../SearchComboboxShell';
 
 const SEARCH_LIMIT = 20;
 
@@ -11,15 +13,6 @@ interface FolioAddHoldingSearchProps {
   existingTickers: Set<string>;
   onAdd: (ticker: string, market: MarketCode) => void;
   adding?: boolean;
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
 }
 
 export function FolioAddHoldingSearch({
@@ -105,28 +98,24 @@ export function FolioAddHoldingSearch({
       {!open ? (
         <button
           type="button"
-          className="folio-add-holding__trigger"
+          className="action-button folio-add-holding__trigger"
           disabled={adding}
           onClick={() => setOpen(true)}
         >
           {t('folio.addHolding')}
         </button>
       ) : (
-        <div className="folio-add-holding__search">
-          <span className="folio-add-holding__icon" aria-hidden>
-            ⌕
-          </span>
-          <input
-            ref={inputRef}
-            type="search"
-            className="folio-add-holding__input"
-            value={query}
-            placeholder={t('folio.addHoldingPlaceholder')}
-            aria-controls={listId}
-            aria-expanded
-            aria-haspopup="listbox"
-            onChange={(event) => setQuery(event.target.value)}
-          />
+        <SearchComboboxShell
+          className="folio-add-holding__search"
+          inputRef={inputRef}
+          iconClassName="folio-add-holding__icon"
+          inputClassName="folio-add-holding__input"
+          value={query}
+          placeholder={t('folio.addHoldingPlaceholder')}
+          controlsId={listId}
+          expanded
+          onChange={(event) => setQuery(event.target.value)}
+        >
           <button
             type="button"
             className="folio-add-holding__cancel"
@@ -136,17 +125,17 @@ export function FolioAddHoldingSearch({
             ×
           </button>
           {debouncedQuery ? (
-            <ul id={listId} className="folio-add-holding__panel" role="listbox">
-              {loading ? <li className="folio-add-holding__status">{t('folio.searching')}</li> : null}
+            <ul id={listId} className="search-combobox__panel search-combobox__list folio-add-holding__panel" role="listbox">
+              {loading ? <li className="search-combobox__status folio-add-holding__status">{t('folio.searching')}</li> : null}
               {!loading && visibleItems.length === 0 ? (
-                <li className="folio-add-holding__status">{t('folio.noSearchResults')}</li>
+                <li className="search-combobox__status folio-add-holding__status">{t('folio.noSearchResults')}</li>
               ) : null}
               {!loading
                 ? visibleItems.map((item) => (
                     <li key={item.ticker}>
                       <button
                         type="button"
-                        className="folio-add-holding__option"
+                        className="search-combobox__option folio-add-holding__option"
                         role="option"
                         disabled={adding}
                         onClick={() => handlePick(item)}
@@ -163,7 +152,7 @@ export function FolioAddHoldingSearch({
                 : null}
             </ul>
           ) : null}
-        </div>
+        </SearchComboboxShell>
       )}
     </div>
   );

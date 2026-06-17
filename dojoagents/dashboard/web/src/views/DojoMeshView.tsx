@@ -128,7 +128,9 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
 
   const handleSectorJump = useCallback(
     (sector: SectorItem, market: MarketCode) => {
+      console.log('Jumping to sector', sector.name, sector.concept_code, market);
       const linkKey = sectorLinkKey(sector.concept_code);
+      console.log('Link key', linkKey);
       if (!linkKey) return;
 
       saveSphereSectorContext({

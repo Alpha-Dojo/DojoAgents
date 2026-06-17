@@ -3,6 +3,7 @@ import './App.css';
 import { AgentModelProvider } from './agent/AgentModelContext';
 import { Header } from './components/Header';
 import { DojoAgentPanel } from './components/DojoAgent/DojoAgentPanel';
+import { SettingsModal } from './components/settings/SettingsModal';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { useAppTab } from './hooks/useAppTab';
 import type { AppTab } from './navigation/appTab';
@@ -44,6 +45,7 @@ function MainView({
 export default function App() {
   const { tab, setTab } = useAppTab('mesh');
   const [agentOpen, setAgentOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <LocaleProvider>
@@ -54,6 +56,8 @@ export default function App() {
             onTabChange={setTab}
             agentOpen={agentOpen}
             onAgentToggle={() => setAgentOpen((open) => !open)}
+            settingsOpen={settingsOpen}
+            onSettingsOpen={() => setSettingsOpen(true)}
           />
           <main className="app-main" aria-label={tab}>
             <div className="app-main__content">
@@ -61,6 +65,7 @@ export default function App() {
             </div>
             <DojoAgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
           </main>
+          <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
       </AgentModelProvider>
     </LocaleProvider>

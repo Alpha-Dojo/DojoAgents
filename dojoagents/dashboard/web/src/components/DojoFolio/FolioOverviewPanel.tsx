@@ -156,7 +156,7 @@ export function FolioOverviewPanel({
                   : metric.key === 'maxDrawdown'
                     ? 'folio-tone--down'
                     : metric.key === 'sharpe'
-                      ? 'folio-tone--cyan'
+                      ? 'folio-tone--accent'
                       : 'folio-tone--up'
               }`}
             >
