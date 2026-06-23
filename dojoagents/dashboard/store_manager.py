@@ -18,7 +18,6 @@ from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
 from dojoagents.dashboard.services.dojo_sphere_service import DojoSphereService
 from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
-from dojoagents.dashboard.services.sector_performance_cache import SectorPerformanceCache
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ class GlobalStores:
         from dojoagents.dashboard.services.forex_store import ForexStore
 
         cls.forex_store = ForexStore(data_root, cls.gateway)
-        cls.portfolio_store = PortfolioStore(data_root)
+        cls.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
         cls.portfolio_service = PortfolioService(
             store=cls.portfolio_store,
             stock_store=cls.stock_store,
@@ -94,10 +93,10 @@ class GlobalStores:
             benchmark_store=cls.benchmark_store,
         )
         cls.dojo_sphere_service = DojoSphereService(
-            SectorPerformanceCache(data_root, schema_version=1),
             SectorMetricsStore(data_root, schema_version=1),
         )
         cls.sector_precomputed_store = SectorPrecomputedStore(data_root)
+        cls.kline_store.sector_precomputed_store = cls.sector_precomputed_store
 
         if preload:
             await cls.preload()

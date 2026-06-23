@@ -84,7 +84,9 @@ async def test_global_stores_share_one_gateway_and_explicit_data_root(tmp_path) 
     assert IsolatedStores.stock_fin_indicators_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.stock_income_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.forex_store.gateway is IsolatedStores.gateway
-    assert IsolatedStores.portfolio_store.root == tmp_path / "portfolio"
+    from pathlib import Path
+
+    assert IsolatedStores.portfolio_store.root == Path("~/.dojo/data/portfolio").expanduser()
     assert IsolatedStores.kline_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.kline_store.working_set.root == (tmp_path / "working-set" / "stock-kline").resolve()
 

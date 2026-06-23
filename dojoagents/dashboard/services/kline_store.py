@@ -94,6 +94,7 @@ class KlineStore:
         client: AsyncDojo,
         stock_store: StockStore,
         stock_sector_store: StockSectorStore,
+        sector_precomputed_store: Any = None,
         *,
         data_root: Path | None = None,
         schema_version: int = 1,
@@ -103,6 +104,7 @@ class KlineStore:
         self.gateway = client if callable(gateway_method) else DojoDataGateway(client)
         self.stock_store = stock_store
         self.stock_sector_store = stock_sector_store
+        self.sector_precomputed_store = sector_precomputed_store
         self.raw_by_symbol: Dict[str, List[dict]] = {}
         self.bars_by_symbol: Dict[str, List[StockKlineBar]] = {}
         self.working_set = (
@@ -238,6 +240,24 @@ class KlineStore:
         as_of = visible[-1].bar_time if visible else None
         return StockKlineResponse(symbol=normalized, as_of=as_of, bars=visible)
 
+    @staticmethod
+    def _covers_window(
+        rows: List[dict],
+        *,
+        start_time: str | None,
+        end_time: str | None,
+        limit: int,
+    ) -> bool:
+        if not rows:
+            return False
+        first_day = str(rows[0].get("bar_time") or rows[0].get("date") or "")[:10]
+        last_day = str(rows[-1].get("bar_time") or rows[-1].get("date") or "")[:10]
+        if start_time and first_day and first_day > start_time[:10]:
+            return False
+        if end_time and last_day and last_day < end_time[:10]:
+            return False
+        return True
+
     async def _load_symbol_from_disk(self, symbol: str, market_code: str) -> None:
         if self.working_set is None or symbol in self.raw_by_symbol:
             return
@@ -278,7 +298,7 @@ class KlineStore:
             await self._load_symbol_from_disk(symbol, market_code)
             rows = self.raw_by_symbol.get(symbol, [])
 
-        if rows and not refresh:
+        if rows and not refresh and self._covers_window(rows, start_time=start_time, end_time=end_time, limit=limit):
             cached = self._response_for_symbol(
                 symbol,
                 start_time=start_time,
@@ -324,6 +344,14 @@ class KlineStore:
                 )
                 return cached
             return None
+
+    def get_local_kline(self, symbol: str, limit: int = 252) -> Optional[List[StockKlineBar]]:
+        bars = self.bars_by_symbol.get(symbol)
+        if not bars:
+            return None
+        if limit > 0:
+            return bars[-limit:]
+        return bars
 
     async def get_kline(self, symbol: str, limit: int = 252) -> Optional[StockKlineResponse]:
         return await self.get_or_fetch_kline(symbol, limit=limit)
@@ -424,8 +452,7 @@ class KlineStore:
         market: str | None = None,
     ) -> SectorConstituentKlineResponse:
         scopes_raw = collect_sector_scope_tickers(
-            self.stock_store,
-            self.stock_sector_store,
+            self.sector_precomputed_store,
             path,
             market=market,
         )
@@ -461,8 +488,7 @@ class KlineStore:
     async def prioritize_sector_path(self, path: ResolvedSectorPath, market: Optional[str] = None) -> None:
         """Prefetch klines for a given sector path."""
         scopes_raw = collect_sector_scope_tickers(
-            self.stock_store,
-            self.stock_sector_store,
+            self.sector_precomputed_store,
             path,
             market=market,
         )

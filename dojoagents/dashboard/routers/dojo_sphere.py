@@ -7,17 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from dojoagents.dashboard.deps import (
     get_kline_store,
     get_sector_store,
-    get_stock_sector_store,
+    get_sector_precomputed_store,
     get_stock_store,
     get_dojo_sphere_service,
-    get_sector_precomputed_store,
 )
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_constituents_list import list_sector_constituents
 from dojoagents.dashboard.services.sector_scope_performance import compute_sector_scope_performance
 from dojoagents.dashboard.services.sector_scope_stats import compute_sector_scope_metrics
 from dojoagents.dashboard.services.sector_store import SectorStore
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.dojo_sphere_service import DojoSphereService
 from dojoagents.dashboard.schemas.dojo_sphere import (
@@ -42,7 +40,7 @@ async def sector_scope_metrics(
     level3_id: str = Query(..., min_length=1),
     sector_store: SectorStore = Depends(get_sector_store),
     stock_store: StockStore = Depends(get_stock_store),
-    stock_sector_store: StockSectorStore = Depends(get_stock_sector_store),
+    sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
     sphere_service: DojoSphereService = Depends(get_dojo_sphere_service),
 ) -> SectorScopeMetricsResponse:
     """L1/L2/L3 total market cap and weighted PE by market (us, sh, hk)."""
@@ -54,7 +52,7 @@ async def sector_scope_metrics(
         )
 
     async def compute() -> dict:
-        result = await compute_sector_scope_metrics(stock_store, stock_sector_store, path)
+        result = await compute_sector_scope_metrics(stock_store, sector_precomputed_store, path)
         return result.model_dump()
 
     cached = await sphere_service.metrics(f"{level1_id}/{level2_id}/{level3_id}", compute)
@@ -77,7 +75,6 @@ async def sector_constituents(
     ),
     sector_store: SectorStore = Depends(get_sector_store),
     stock_store: StockStore = Depends(get_stock_store),
-    stock_sector_store: StockSectorStore = Depends(get_stock_sector_store),
     kline_store: KlineStore = Depends(get_kline_store),
     sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
 ) -> SectorConstituentsResponse:
@@ -90,7 +87,6 @@ async def sector_constituents(
         )
     return await list_sector_constituents(
         stock_store,
-        stock_sector_store,
         kline_store,
         sector_precomputed_store,
         path,
@@ -110,7 +106,6 @@ async def sector_scope_performance(
     ),
     sector_store: SectorStore = Depends(get_sector_store),
     stock_store: StockStore = Depends(get_stock_store),
-    stock_sector_store: StockSectorStore = Depends(get_stock_sector_store),
     kline_store: KlineStore = Depends(get_kline_store),
     sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
     sphere_service: DojoSphereService = Depends(get_dojo_sphere_service),
@@ -127,7 +122,6 @@ async def sector_scope_performance(
         await kline_store.prioritize_sector_path(path, market=None)
         result = await compute_sector_scope_performance(
             stock_store,
-            stock_sector_store,
             kline_store,
             sector_precomputed_store,
             path,

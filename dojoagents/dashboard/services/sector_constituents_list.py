@@ -7,7 +7,6 @@ from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_na
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_sphere import SectorConstituentItem, SectorConstituentsResponse
 
@@ -23,7 +22,6 @@ def _display_ratio(value: float | None) -> float | None:
 
 async def list_sector_constituents(
     stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
     kline_store: KlineStore,
     sector_precomputed_store: Any,
     path: ResolvedSectorPath,

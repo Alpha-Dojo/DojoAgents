@@ -16,41 +16,24 @@ logger = logging.getLogger(__name__)
 
 async def _precompute_sector_performance(store_registry: Any) -> None:
     from dojoagents.dashboard.services.precompute_sector_daily import build_sector_precomputed
-    import asyncio
-    from dojo.client.async_client import AsyncDojo
-    from dojoagents.dashboard.config.settings import FinancialDashboardConfig
 
-    data_root = FinancialDashboardConfig.dashboard_data_root
-    logger.info("Executing build_sector_precomputed in background thread.")
+    data_root = getattr(store_registry, "data_root", None)
+    if data_root is None:
+        raise RuntimeError("store_registry.data_root is required for sector precompute")
 
-    # Generate the parquet files locally
-    _ = await asyncio.to_thread(
-        build_sector_precomputed,
+    logger.info("Executing build_sector_precomputed.")
+    manifest = await build_sector_precomputed(
         data_root=data_root,
-        sector_store=store_registry.stock_sector_store,
+        sector_store=store_registry.sector_store,
+        stock_sector_store=store_registry.stock_sector_store,
         stock_store=store_registry.stock_store,
         kline_store=store_registry.kline_store,
+        upload_client=getattr(store_registry, "client", None),
     )
+    logger.info("Sector precompute completed: %s", manifest.get("published_dir"))
 
-    out_dir = data_root / "dojo_sector_precomputed"
-
-    # Upload to SDK
-    logger.info("Uploading dojo_sector_precomputed dataset via SDK.")
-    client = AsyncDojo()
-    try:
-        await client.upload_dataset("dojo_sector_precomputed", str(out_dir))
-        logger.info("Successfully uploaded sector precomputed data.")
-    except Exception as e:
-        logger.error(f"Failed to upload precomputed sector data: {e}")
-        raise
-
-    # Reload offline data so this instance itself has the latest
-    try:
-        await client.preload_offline_data(
-            ["/api/qdata/v1/sector/precomputed/sector_daily", "/api/qdata/v1/sector/precomputed/ticker_daily", "/api/qdata/v1/sector/precomputed/constituents"]
-        )
-    except Exception as e:
-        logger.error(f"Failed to preload offline data: {e}")
+    if store_registry.sector_precomputed_store is not None:
+        store_registry.sector_precomputed_store.reload(Path(manifest["published_dir"]))
 
 
 async def _snapshot_market_leads(store_registry: Any, market: str) -> None:

@@ -182,6 +182,34 @@ async def test_load_prefills_symbol_cache_and_skips_repeat_fetch(tmp_path) -> No
 
 
 @pytest.mark.asyncio
+async def test_fetches_again_when_cached_window_does_not_cover_requested_start(tmp_path) -> None:
+    gateway = KlineGateway(
+        [
+            [{"symbol": "AAPL", "bar_time": "2026-06-20", "close": 100}],
+            [
+                {"symbol": "AAPL", "bar_time": "2025-01-01", "close": 80},
+                {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 100},
+            ],
+        ]
+    )
+    store = _store(gateway, tmp_path)
+
+    first = await store.get_or_fetch_kline("AAPL", market="us", limit=1)
+    second = await store.get_or_fetch_kline(
+        "AAPL",
+        market="us",
+        start_time="2025-01-01",
+        end_time="2026-06-20",
+        limit=0,
+    )
+
+    assert first is not None
+    assert second is not None
+    assert [bar.bar_time for bar in second.bars] == ["2025-01-01", "2026-06-20"]
+    assert len(gateway.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_get_klines_uses_single_batch_gateway_call(tmp_path) -> None:
     gateway = KlineGateway(
         [

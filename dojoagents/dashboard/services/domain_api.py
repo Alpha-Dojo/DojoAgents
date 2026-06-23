@@ -220,13 +220,17 @@ async def build_sector_movers(
             sorted_members = sorted(members, key=lambda item: item["change_percent"], reverse=True)
             top_by_abs = sorted(members, key=lambda item: abs(item["change_percent"]), reverse=True)[:3]
 
-            from dojoagents.dashboard.services.stock_sector_store import SectorBucketMeta
-
-            meta = SectorBucketMeta(level="L3", zh=s["level3_id"], en=s["level3_id"])
+            path = registry.sector_store.find_resolved_path(
+                s["level1_id"],
+                s["level2_id"],
+                s["level3_id"],
+            )
+            if path is None:
+                continue
 
             item = SectorItem(
-                concept_code=concept_code_for(internal_market, meta),
-                name=BilingualText(zh=s["level3_id"], en=s["level3_id"]),
+                concept_code=concept_code_for(internal_market, path.level3_zh, path.level3_en, "L3"),
+                name=BilingualText(zh=path.level3_zh, en=path.level3_en),
                 change_percent=round(s.get("daily_return_pct", 0), 2),
                 avg_market_cap=(total_market_cap / s.get("member_count", 1)) if s.get("member_count") else 0.0,
                 strength=0.0,
@@ -263,11 +267,13 @@ async def build_sector_analysis(
     async def compute_metrics_payload() -> dict[str, Any]:
         result = await compute_sector_scope_metrics(
             registry.stock_store,
-            registry.stock_sector_store,
+            registry.sector_precomputed_store,
             path,
         )
         return result.model_dump()
 
+    if getattr(registry, "kline_store", None) is not None and getattr(registry.kline_store, "sector_precomputed_store", None) is None:
+        registry.kline_store.sector_precomputed_store = registry.sector_precomputed_store
     await registry.kline_store.prioritize_sector_path(path, market=None)
     metrics = await registry.dojo_sphere_service.metrics(
         f"{level1_id}/{level2_id}/{level3_id}",
@@ -281,7 +287,6 @@ async def build_sector_analysis(
         async def compute_performance_payload(current_scope: str = current_scope) -> dict[str, Any]:
             result = await compute_sector_scope_performance(
                 registry.stock_store,
-                registry.stock_sector_store,
                 registry.kline_store,
                 registry.sector_precomputed_store,
                 path,
@@ -293,15 +298,16 @@ async def build_sector_analysis(
             _sector_scope_cache_key(level1_id, level2_id, level3_id, current_scope),
             compute_performance_payload,
         )
-        performance = cached_performance["payload"]
+        performance = cached_performance.get("payload", cached_performance)
         scopes[current_scope] = SectorAnalysisScope(
             scope=current_scope,
             metrics=metrics,
             performance=performance,
         )
-        if cached_performance.get("source"):
+        if isinstance(cached_performance, dict) and cached_performance.get("source"):
             sources.add(cached_performance["source"])
-        stale = stale or bool(cached_performance.get("stale"))
+        if isinstance(cached_performance, dict):
+            stale = stale or bool(cached_performance.get("stale"))
     selected = scopes.get(scope) or scopes["L3"]
     return SectorAnalysisResponse(
         level1_id=level1_id,
@@ -328,22 +334,15 @@ async def build_sector_constituents_v1(
     path = registry.sector_store.find_resolved_path(level1_id, level2_id, level3_id)
     if path is None:
         raise ValueError(f"unknown sector path: {level1_id}/{level2_id}/{level3_id}")
-    window_start = None
-    cached_scope = await registry.dojo_sphere_service.performance_cache.get(_sector_scope_cache_key(level1_id, level2_id, level3_id, scope))
-    if cached_scope is not None:
-        payload = cached_scope.get("payload") if isinstance(cached_scope, dict) else None
-        if isinstance(payload, dict):
-            window_start = payload.get("window_start")
+    # Removed performance_cache usage
     response = await list_sector_constituents(
         registry.stock_store,
-        registry.stock_sector_store,
         registry.kline_store,
         registry.sector_precomputed_store,
         path,
         scope=scope,
         market=normalize_market_code(market),
         days=days,
-        window_start=window_start,
     )
     native_market = to_native_market_code(response.market) if response.market else None
     items = [item.model_copy(update={"market": to_native_market_code(item.market) or item.market}) for item in response.items]

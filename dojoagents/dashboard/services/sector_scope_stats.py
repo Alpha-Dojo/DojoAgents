@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Any
 
 from dojoagents.dashboard.services.market_stats import compute_market_stats
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel, collect_sector_scope_tickers
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_sphere import SectorScopeMarketStats, SectorScopeMetricsResponse
 from dojoagents.dashboard.schemas.market import MarketStats
@@ -33,7 +32,7 @@ def _stats_for_tickers(
 
 async def compute_sector_scope_metrics(
     stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
+    sector_precomputed_store: Any,
     path: ResolvedSectorPath,
 ) -> SectorScopeMetricsResponse:
     """Total market cap and weighted PE for L1/L2/L3 scopes in each market."""
@@ -41,8 +40,7 @@ async def compute_sector_scope_metrics(
 
     for market in MARKETS:
         grouped = collect_sector_scope_tickers(
-            stock_store,
-            stock_sector_store,
+            sector_precomputed_store,
             path,
             market=market,
         )

@@ -9,7 +9,7 @@ RECENT_VOLUME_LOOKBACK = 20
 
 
 def _quote_has_trading_activity(stock: Stock) -> bool:
-    quote = stock.quote
+    quote = stock.stock_quote
     if quote is None:
         return False
     if quote.volume > 0:
@@ -21,17 +21,24 @@ def _quote_has_trading_activity(stock: Stock) -> bool:
     return False
 
 
-def is_sector_constituent_eligible(
+async def is_sector_constituent_eligible(
     stock: Stock | None,
     kline_store: KlineStore,
 ) -> bool:
     """Sector index constituents must have daily klines and recent trading volume."""
-    if stock is None or stock.quote is None:
+    if stock is None or stock.stock_quote is None:
         return False
-    if stock.quote.market_cap <= 0:
+    if stock.stock_quote.market_cap <= 0:
         return False
 
-    bars = kline_store.get_stock_kline(stock.ticker, limit=RECENT_VOLUME_LOOKBACK)
+    response = await kline_store.get_or_fetch_kline(
+        stock.ticker,
+        market=stock.market,
+        limit=RECENT_VOLUME_LOOKBACK,
+    )
+    if response is None:
+        return False
+    bars = response.bars
     if not bars or bars[-1].close <= 0:
         return False
     if _quote_has_trading_activity(stock):
@@ -46,13 +53,13 @@ class ConstituentEligibilityChecker:
         self._kline_store = kline_store
         self._cache: dict[tuple[str, str], bool] = {}
 
-    def is_eligible(self, stock: Stock | None) -> bool:
+    async def is_eligible(self, stock: Stock | None) -> bool:
         if stock is None:
             return False
         key = (stock.market, stock.ticker)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        eligible = is_sector_constituent_eligible(stock, self._kline_store)
+        eligible = await is_sector_constituent_eligible(stock, self._kline_store)
         self._cache[key] = eligible
         return eligible
