@@ -1,19 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List
+from typing import List, Any
 
-from dojoagents.dashboard.services.stock_quote_filter import passes_ticker_market_cap_min, stock_has_quote_volume
-from dojoagents.dashboard.services.stock_sector_store import (
-    SectorBucket,
-    SectorBucketMeta,
-    SectorMember,
-    StockSectorStore,
-    iter_level_3_metas,
-)
-from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.stock import Stock
-from dojoagents.dashboard.schemas.stock_sector import StockSectorLabel, SectorLevelPath, BilingualLabel
+from dojoagents.dashboard.services.sector_store import SectorStore
 from dojoagents.dashboard.schemas.dojo_mesh import (
     BilingualText,
     DojoMeshSectorsResponse,
@@ -23,27 +14,12 @@ from dojoagents.dashboard.schemas.dojo_mesh import (
 )
 
 MAX_SECTOR_MEMBERS = 40
-
 MARKETS = ("sh", "hk", "us")
-
-
-def link_key_from_concept_code(concept_code: str) -> str | None:
-    match = re.search(r"\.L3\.(.+)$", concept_code, re.IGNORECASE)
-    return match.group(1) if match else None
 
 
 def slugify(text: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.lower()).strip("-")
     return slug or "unknown"
-
-
-def concept_code_for(market: str, meta: SectorBucketMeta) -> str:
-    slug = slugify(meta.en or meta.zh)
-    return f"{market.upper()}.{meta.level.upper()}.{slug}"
-
-
-def _bucket_key(meta: SectorBucketMeta) -> str:
-    return f"{meta.level}|{meta.zh}|{meta.en}"
 
 
 def _stock_bilingual_name(stock: Stock) -> BilingualText:
@@ -56,120 +32,102 @@ def _stock_bilingual_name(stock: Stock) -> BilingualText:
     return BilingualText(zh=zh, en=en)
 
 
-def _sector_avg_market_cap(members: List[SectorMember]) -> float:
-    if not members:
-        return 0.0
-    return sum(m.market_cap for m in members) / len(members)
+def concept_code_for(market: str, name_zh: str, name_en: str, level: str) -> str:
+    slug = slugify(name_en or name_zh)
+    return f"{market.upper()}.{level.upper()}.{slug}"
+
+
+def link_key_from_concept_code(concept_code: str) -> str | None:
+    match = re.search(r"\.L3\.(.+)$", concept_code, re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def _sector_lead_sort_score(avg_market_cap: float, change_percent: float) -> float:
     return avg_market_cap * change_percent
 
 
-def _market_cap_weighted_change(members: List[SectorMember]) -> float:
-    total_cap = sum(m.market_cap for m in members)
-    if total_cap <= 0:
-        return sum(m.change_percent for m in members) / len(members)
-    return sum(m.change_percent * m.market_cap for m in members) / total_cap
+def build_market_sectors(
+    market: str,
+    sector_store: SectorStore,
+    sector_precomputed_store: Any,
+) -> List[SectorItem]:
+    # 1. Fetch 1-day movers for L3 sectors in this market
+    movers = sector_precomputed_store.get_sector_movers_by_window(days=1)
 
+    sectors: List[SectorItem] = []
 
-def _weighting_members(market: str, members: List[SectorMember]) -> List[SectorMember]:
-    return [m for m in members if passes_ticker_market_cap_min(market, m.market_cap)]
-
-
-def _build_buckets(market: str, stocks: List[Stock], sector_store: StockSectorStore) -> Dict[str, SectorBucket]:
-    buckets: Dict[str, SectorBucket] = {}
-
-    for stock in stocks:
-        quote = stock.stock_quote
-        if quote is None or not stock_has_quote_volume(stock):
+    for row in movers:
+        if row.get("market") != market or row.get("scope") != "L3":
             continue
 
-        sector_zh = stock.sector or ""
-        industry_zh = stock.industry or ""
-        if not sector_zh and not industry_zh:
+        level1_id = row.get("level1_id")
+        level2_id = row.get("level2_id")
+        level3_id = row.get("level3_id")
+
+        path = sector_store.find_resolved_path(level1_id, level2_id, level3_id)
+        if not path:
             continue
 
-        label = StockSectorLabel(
-            ticker=stock.ticker,
+        change_percent = float(row.get("daily_return_pct") or 0.0)
+        avg_market_cap = float(row.get("avg_market_cap") or 0.0)
+        member_count = int(row.get("member_count") or 0)
+
+        # 2. Fetch sample members
+        constituents = sector_precomputed_store.get_sector_constituents(
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
             market=market,
-            primary=SectorLevelPath(
-                level_1=BilingualLabel(zh="Market", en="Market"), level_2=BilingualLabel(zh=sector_zh, en=sector_zh), level_3=BilingualLabel(zh=industry_zh, en=industry_zh)
-            ),
-            secondary=[],
+        )
+        tickers = [c["ticker"] for c in constituents]
+
+        ticker_daily = sector_precomputed_store.get_ticker_daily_by_window(days=1, tickers=tickers)
+        # Create a lookup for fast access
+        td_lookup = {td["ticker"]: td for td in ticker_daily}
+
+        member_items: List[SectorMemberItem] = []
+        for c in constituents:
+            ticker = c["ticker"]
+            td = td_lookup.get(ticker, {})
+
+            # Use basic data
+            member_items.append(
+                SectorMemberItem(
+                    ticker=ticker,
+                    name=BilingualText(zh=ticker, en=ticker),  # Placeholder
+                    last_price=float(td.get("close") or 0.0),
+                    market_cap=float(c.get("market_cap") or 0.0),
+                    change_percent=float(td.get("daily_return_pct") or 0.0),
+                )
+            )
+
+        # Sort members by change_percent
+        sorted_members = sorted(
+            member_items,
+            key=lambda m: m.change_percent,
+            reverse=True,
         )
 
-        names = _stock_bilingual_name(stock)
-        member = SectorMember(
-            ticker=stock.ticker,
-            name_zh=names.zh,
-            name_en=names.en,
-            last_price=quote.last_price,
-            change_percent=quote.change_percent,
-            market_cap=quote.market_cap,
-            pe=quote.pe,
+        top_by_abs = sorted(
+            member_items,
+            key=lambda m: abs(m.change_percent),
+            reverse=True,
+        )[:3]
+        sample_tickers = [m.ticker for m in top_by_abs]
+
+        item = SectorItem(
+            concept_code=concept_code_for(market, path.level3_zh, path.level3_en, "L3"),
+            name=BilingualText(zh=path.level3_zh, en=path.level3_en),
+            change_percent=round(change_percent, 2),
+            avg_market_cap=avg_market_cap,
+            strength=0.0,
+            sample_tickers=sample_tickers,
+            member_count=member_count,
+            members=sorted_members[:MAX_SECTOR_MEMBERS],
         )
+        sectors.append(item)
 
-        for meta in iter_level_3_metas(label):
-            key = _bucket_key(meta)
-            bucket = buckets.get(key)
-            if bucket is None:
-                bucket = SectorBucket(meta=meta)
-                buckets[key] = bucket
-            if any(existing.ticker == member.ticker for existing in bucket.members):
-                continue
-            bucket.members.append(member)
-
-    return buckets
-
-
-def _aggregate_bucket(market: str, bucket: SectorBucket) -> SectorItem | None:
-    if not bucket.members:
-        return None
-
-    weighted_members = _weighting_members(market, bucket.members)
-    if weighted_members:
-        weighted_change = _market_cap_weighted_change(weighted_members)
-        avg_market_cap = _sector_avg_market_cap(weighted_members)
-        display_members = weighted_members
-    else:
-        weighted_change = 0.0
-        avg_market_cap = 0.0
-        display_members = []
-
-    sorted_members = sorted(
-        display_members,
-        key=lambda m: m.change_percent,
-        reverse=True,
-    )
-    top_by_abs = sorted(
-        display_members,
-        key=lambda m: abs(m.change_percent),
-        reverse=True,
-    )[:3]
-    sample_tickers = [m.ticker for m in top_by_abs]
-    member_items = [
-        SectorMemberItem(
-            ticker=m.ticker,
-            name=BilingualText(zh=m.name_zh, en=m.name_en),
-            last_price=round(m.last_price, 4),
-            market_cap=m.market_cap,
-            change_percent=round(m.change_percent, 2),
-        )
-        for m in sorted_members[:MAX_SECTOR_MEMBERS]
-    ]
-
-    item = SectorItem(
-        concept_code=concept_code_for(market, bucket.meta),
-        name=BilingualText(zh=bucket.meta.zh, en=bucket.meta.en),
-        change_percent=round(weighted_change, 2),
-        avg_market_cap=avg_market_cap,
-        strength=0.0,
-        sample_tickers=sample_tickers,
-        member_count=len(display_members),
-        members=member_items,
-    )
-    return item
+    return sectors
 
 
 def _apply_strength(items: List[SectorItem]) -> List[SectorItem]:
@@ -189,30 +147,14 @@ def _apply_strength(items: List[SectorItem]) -> List[SectorItem]:
     ]
 
 
-def build_market_sectors(
-    market: str,
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
-) -> List[SectorItem]:
-    stocks = stock_store.list_market(market)
-    buckets = _build_buckets(market, stocks, sector_store)
-    sectors: List[SectorItem] = []
-    for bucket in buckets.values():
-        item = _aggregate_bucket(market, bucket)
-        if item is None:
-            continue
-        sectors.append(item)
-    return sectors
-
-
 def lookup_sector_by_link_key(
     market: str,
     link_key: str,
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
+    sector_store: SectorStore,
+    sector_precomputed_store: Any,
 ) -> SectorItem | None:
     needle = link_key.lower()
-    for item in build_market_sectors(market, stock_store, sector_store):
+    for item in build_market_sectors(market, sector_store, sector_precomputed_store):
         item_key = link_key_from_concept_code(item.concept_code)
         if item_key and item_key.lower() == needle:
             return item
@@ -221,20 +163,20 @@ def lookup_sector_by_link_key(
 
 def lookup_cross_market_sectors(
     link_key: str,
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
+    sector_store: SectorStore,
+    sector_precomputed_store: Any,
 ) -> dict[str, SectorItem | None]:
-    return {market: lookup_sector_by_link_key(market, link_key, stock_store, sector_store) for market in MARKETS}
+    return {market: lookup_sector_by_link_key(market, link_key, sector_store, sector_precomputed_store) for market in MARKETS}
 
 
 def compute_market_sector_lead(
     market: str,
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
+    sector_store: SectorStore,
+    sector_precomputed_store: Any,
     *,
     limit: int = 5,
 ) -> MarketSectorLead:
-    sectors = build_market_sectors(market, stock_store, sector_store)
+    sectors = build_market_sectors(market, sector_store, sector_precomputed_store)
 
     gainers = _apply_strength(
         sorted(
@@ -253,26 +195,10 @@ def compute_market_sector_lead(
 
 
 def compute_all_market_sector_leads(
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
+    sector_store: SectorStore,
+    sector_precomputed_store: Any,
     *,
     limit: int = 5,
 ) -> DojoMeshSectorsResponse:
-    markets = {market: compute_market_sector_lead(market, stock_store, sector_store, limit=limit) for market in MARKETS}
+    markets = {market: compute_market_sector_lead(market, sector_store, sector_precomputed_store, limit=limit) for market in MARKETS}
     return DojoMeshSectorsResponse(markets=markets)
-
-
-def collect_eligible_constituent_tickers(
-    stock_store: StockStore,
-    sector_store: StockSectorStore,
-) -> set[str]:
-    """Tickers eligible for L3 sector buckets (primary/secondary labels + quote + market cap)."""
-    tickers: set[str] = set()
-    for market in MARKETS:
-        stocks = stock_store.list_market(market)
-        buckets = _build_buckets(market, stocks, sector_store)
-        for bucket in buckets.values():
-            for member in bucket.members:
-                if member.ticker and stock_store.is_ticker_market_cap_eligible(member.ticker):
-                    tickers.add(member.ticker)
-    return tickers

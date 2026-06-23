@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.sector_constituents import collect_sector_scope_tickers
 from dojoagents.dashboard.services.sector_store import SectorStore
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_core import CoreTickerSearchItem
 from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
@@ -54,8 +53,7 @@ def _match_score(stock: Stock, query: str) -> Optional[int]:
 
 
 def _sector_scope_tickers(
-    stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
+    sector_precomputed_store: Any,
     sector_store: SectorStore,
     *,
     level1_id: str,
@@ -67,8 +65,7 @@ def _sector_scope_tickers(
     if path is None:
         return None
     scopes = collect_sector_scope_tickers(
-        stock_store,
-        stock_sector_store,
+        sector_precomputed_store,
         path,
         market=market,
     )
@@ -77,7 +74,7 @@ def _sector_scope_tickers(
 
 def search_core_tickers(
     stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
+    sector_precomputed_store: Any,
     sector_store: SectorStore,
     query: str,
     *,
@@ -98,8 +95,7 @@ def search_core_tickers(
     scope_tickers: Optional[set[str]] = None
     if level1_id and level2_id and level3_id:
         scope_tickers = _sector_scope_tickers(
-            stock_store,
-            stock_sector_store,
+            sector_precomputed_store,
             sector_store,
             level1_id=level1_id,
             level2_id=level2_id,

@@ -12,7 +12,6 @@ from dojoagents.dashboard.services.sector_earnings_index import (
     filter_cap_weighted_tickers,
 )
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_scope_performance_stats import compute_market_performance_stats
 from dojoagents.dashboard.schemas.dojo_sphere import (
@@ -146,7 +145,6 @@ def _clip_series_to_window(
 
 async def resolve_scope_unified_window_start(
     stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
     kline_store: KlineStore,
     sector_precomputed_store: Any,
     path: ResolvedSectorPath,
@@ -154,7 +152,7 @@ async def resolve_scope_unified_window_start(
     scope: SectorLevel = "L3",
 ) -> str:
     """Unified 1Y window start used by sector performance curves."""
-    scopes = collect_sector_scope_tickers(stock_store, stock_sector_store, path)
+    scopes = collect_sector_scope_tickers(sector_precomputed_store, path)
     scope_tickers = scopes.get(scope) or set()
 
     by_market: Dict[str, List[Tuple[str, float]]] = {}
@@ -187,7 +185,6 @@ async def resolve_scope_unified_window_start(
 
 async def compute_sector_scope_performance(
     stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
     kline_store: KlineStore,
     sector_precomputed_store: Any,
     path: ResolvedSectorPath,
@@ -198,7 +195,7 @@ async def compute_sector_scope_performance(
     if scope not in ("L1", "L2", "L3"):
         scope = "L3"
 
-    scopes = collect_sector_scope_tickers(stock_store, stock_sector_store, path)
+    scopes = collect_sector_scope_tickers(sector_precomputed_store, path)
     scope_tickers = scopes.get(scope) or set()
 
     by_market: Dict[str, List[Tuple[str, float]]] = {}

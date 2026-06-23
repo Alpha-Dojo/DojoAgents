@@ -12,6 +12,7 @@ from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker
 from dojoagents.dashboard.schemas.market import MarketStats
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
+from dojoagents.dashboard.services.domain_utils import normalize_market_code
 
 MARKETS = ("sh", "hk", "us")
 
@@ -95,16 +96,22 @@ class StockStore:
         self.gateway = client if callable(gateway_method) else DojoDataGateway(client)
         self.by_market: Dict[str, List[Stock]] = {market: [] for market in MARKETS}
         self.by_ticker: Dict[str, Stock] = {}
+        self._markets_by_ticker: Dict[str, List[str]] = {}
         self.loaded: bool = False
         self.last_quote_refresh_at: Optional[datetime] = None
 
     @staticmethod
     def _key(market: str, ticker: str) -> str:
-        return f"{market}:{ticker}"
+        return f"{market}:{ticker.strip().upper()}"
+
+    @staticmethod
+    def _normalize_ticker(ticker: str) -> str:
+        return ticker.strip().upper()
 
     async def load(self) -> None:
         self.by_market = {market: [] for market in MARKETS}
         self.by_ticker = {}
+        self._markets_by_ticker = {}
         total_loaded = 0
 
         for market in MARKETS:
@@ -112,20 +119,24 @@ class StockStore:
             result = await self.gateway.stocks(market=market)
             candidates = [Stock(**item) for item in result.data if isinstance(item, dict)]
 
-            # 2. Fetch quotes for all (batched)
             if candidates:
                 tickers = [s.ticker for s in candidates]
-                quote_result = await self.gateway.stock_quotes(market, tickers)
-                quote_map = {
-                    str(item.get("symbol") or item.get("ticker")): item for item in quote_result.data if isinstance(item, dict) and (item.get("symbol") or item.get("ticker"))
-                }
+                quote_result_data = []
+                chunk_size = 200
+                for i in range(0, len(tickers), chunk_size):
+                    chunk = tickers[i : i + chunk_size]
+                    res = await self.gateway.stock_quotes(market, chunk)
+                    quote_result_data.extend([item for item in res.data if isinstance(item, dict)])
+                quote_map = {str(item.get("symbol") or item.get("ticker")): item for item in quote_result_data if (item.get("symbol") or item.get("ticker"))}
                 stocks = attach_quotes(candidates, quote_map)
             else:
                 stocks = []
 
             self.by_market[market] = stocks
             for stock in stocks:
-                self.by_ticker[self._key(market, stock.ticker)] = stock
+                normalized_ticker = self._normalize_ticker(stock.ticker)
+                self.by_ticker[self._key(market, normalized_ticker)] = stock.model_copy(update={"ticker": normalized_ticker, "market": market})
+                self._markets_by_ticker.setdefault(normalized_ticker, []).append(market)
 
             total_loaded += len(stocks)
             LOGGER.info(f"[StockStore][{market}] loaded={len(stocks)}")
@@ -137,26 +148,31 @@ class StockStore:
         self.last_quote_refresh_at = datetime.now(timezone.utc)
 
     def get(self, market: str, ticker: str) -> Optional[Stock]:
-        return self.by_ticker.get(self._key(market, ticker))
+        normalized_market = normalize_market_code(market) or market.strip().lower()
+        return self.by_ticker.get(self._key(normalized_market, self._normalize_ticker(ticker)))
+
+    def markets_for_ticker(self, ticker: str) -> List[str]:
+        return list(self._markets_by_ticker.get(self._normalize_ticker(ticker), []))
+
+    def resolve(self, ticker: str, market: str | None = None) -> Optional[Stock]:
+        normalized_ticker = self._normalize_ticker(ticker)
+        if market is not None:
+            return self.get(market, normalized_ticker)
+        markets = self._markets_by_ticker.get(normalized_ticker) or []
+        if not markets:
+            return None
+        return self.get(markets[0], normalized_ticker)
 
     def find_market(self, ticker: str) -> Optional[str]:
-        for market in MARKETS:
-            if self.get(market, ticker) is not None:
-                return market
-        return None
+        markets = self._markets_by_ticker.get(self._normalize_ticker(ticker)) or []
+        return markets[0] if markets else None
 
-    def has_quote(self, ticker: str) -> bool:
-        market = self.find_market(ticker)
-        if market is None:
-            return False
-        stock = self.get(market, ticker)
+    def has_quote(self, ticker: str, market: str | None = None) -> bool:
+        stock = self.resolve(ticker, market=market)
         return stock is not None and stock.stock_quote is not None
 
-    def is_ticker_market_cap_eligible(self, ticker: str) -> bool:
-        market = self.find_market(ticker)
-        if market is None:
-            return False
-        stock = self.get(market, ticker)
+    def is_ticker_market_cap_eligible(self, ticker: str, market: str | None = None) -> bool:
+        stock = self.resolve(ticker, market=market)
         if stock is None:
             return False
         return stock_passes_ticker_market_cap_min(stock)

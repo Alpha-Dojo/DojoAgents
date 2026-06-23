@@ -3,6 +3,7 @@ from dojoagents.logging import LOGGER
 
 import argparse
 import asyncio
+from pathlib import Path
 
 import uvicorn
 
@@ -64,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_parser = sub.add_parser("mcp")
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
     _ = mcp_sub.add_parser("serve")
+
+    precompute = sub.add_parser("precompute-sector", help="Precompute sector daily metrics and returns")
+    precompute.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
+    precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
+    precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
+
     return parser
 
 
@@ -162,6 +169,10 @@ def main(argv: list[str] | None = None) -> int:
 
             run_server()
             return 0
+    if args.command == "precompute-sector":
+        from dojoagents.cli.precompute_sector import run_precompute_sector
+
+        return asyncio.run(run_precompute_sector(args))
     return 2
 
 

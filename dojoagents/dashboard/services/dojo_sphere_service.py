@@ -4,16 +4,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
-from dojoagents.dashboard.services.sector_performance_cache import SectorPerformanceCache
 
 
 class DojoSphereService:
     def __init__(
         self,
-        performance_cache: SectorPerformanceCache,
         metrics_store: SectorMetricsStore,
     ) -> None:
-        self.performance_cache = performance_cache
         self.metrics_store = metrics_store
 
     async def performance(
@@ -23,17 +20,17 @@ class DojoSphereService:
         *,
         refresh: bool = False,
     ) -> dict[str, Any]:
-        cached = await self.performance_cache.get(key)
-        if cached is not None and not refresh:
-            return cached
+        del key, refresh
         try:
             payload = await compute()
         except Exception:
-            if cached is None:
-                raise
-            return {**cached, "source": "dashboard_cache", "stale": True}
-        as_of = payload.get("as_of") if isinstance(payload, dict) else None
-        return await self.performance_cache.put(key, payload, as_of=as_of, source="computed")
+            raise
+        return {
+            "payload": payload,
+            "as_of": payload.get("as_of"),
+            "source": "computed",
+            "stale": bool(payload.get("stale", False)),
+        }
 
     async def metrics(
         self,

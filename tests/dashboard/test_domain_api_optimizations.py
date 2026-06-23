@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import dojoagents.dashboard.services.domain_api as domain_api
+from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
 from dojoagents.dashboard.schemas.dojo_sphere import (
     SectorConstituentsResponse,
     SectorPerformanceResponse,
@@ -112,3 +113,90 @@ async def test_build_sector_constituents_reuses_cached_window_start(tmp_path, mo
 
     assert response.scope == "L2"
     assert captured["window_start"] == "2025-06-20"
+
+
+@pytest.mark.asyncio
+async def test_build_sector_movers_uses_resolved_sector_names() -> None:
+    registry = SimpleNamespace(
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")),
+        stock_store=SimpleNamespace(
+            get=lambda market, ticker: SimpleNamespace(
+                ticker=ticker,
+                short_name=ticker,
+                long_name=ticker,
+                stock_quote=SimpleNamespace(last_price=10.0),
+            )
+        ),
+        sector_precomputed_store=SimpleNamespace(
+            get_sector_movers_by_window=lambda days: [
+                {
+                    "market": "us",
+                    "scope": "L3",
+                    "level1_id": "1",
+                    "level2_id": "2",
+                    "level3_id": "3",
+                    "daily_return_pct": 1.23,
+                    "total_market_cap": 200.0,
+                    "member_count": 2,
+                }
+            ],
+            get_sector_constituents=lambda **_kwargs: [
+                {"ticker": "NVDA", "market_cap": 100.0},
+                {"ticker": "AMD", "market_cap": 100.0},
+            ],
+            get_ticker_daily_by_window=lambda days, tickers: [
+                {"ticker": "NVDA", "daily_return_pct": 2.0},
+                {"ticker": "AMD", "daily_return_pct": 1.0},
+            ],
+        ),
+    )
+
+    response = await domain_api.build_sector_movers(
+        registry,
+        days=1,
+        limit=5,
+        market="us",
+    )
+
+    item = response.markets["us"].gainers[0]
+    assert item.name == BilingualText(zh="半导体", en="Semiconductors")
+    assert item.concept_code == "US.L3.semiconductors"
+
+
+@pytest.mark.asyncio
+async def test_build_sector_analysis_backfills_kline_precomputed_store(tmp_path, monkeypatch) -> None:
+    registry, calls = _registry(tmp_path)
+    registry.sector_precomputed_store = object()
+    registry.kline_store = SimpleNamespace(
+        sector_precomputed_store=None,
+        prioritize_sector_path=registry.kline_store.prioritize_sector_path,
+    )
+
+    async def fake_metrics(*_args, **_kwargs):
+        return SectorScopeMetricsResponse(level1_id="1", level2_id="2", level3_id="3")
+
+    async def fake_performance(*_args, scope: str, **_kwargs):
+        return SectorPerformanceResponse(
+            level1_id="1",
+            level2_id="2",
+            level3_id="3",
+            scope=scope,
+            as_of=f"2026-06-{scope[-1]}0",
+            window_start="2025-06-20",
+            window_end="2026-06-20",
+        )
+
+    monkeypatch.setattr(domain_api, "compute_sector_scope_metrics", fake_metrics)
+    monkeypatch.setattr(domain_api, "compute_sector_scope_performance", fake_performance)
+
+    response = await domain_api.build_sector_analysis(
+        registry,
+        level1_id="1",
+        level2_id="2",
+        level3_id="3",
+        scope="L3",
+    )
+
+    assert response.scope == "L3"
+    assert registry.kline_store.sector_precomputed_store is registry.sector_precomputed_store
+    assert calls["prioritize"] == 1

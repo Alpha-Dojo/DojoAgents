@@ -119,6 +119,9 @@ class SectorStore:
         self.nodes: List[SectorNode] = []
         self.paths: List[SectorPath] = []
         self.nodes_by_id: Dict[str, SectorNode] = {}
+        self._resolved_paths: List[ResolvedSectorPath] = []
+        self._path_by_ids: Dict[tuple[str, str, str], ResolvedSectorPath] = {}
+        self._paths_by_level3_label: Dict[tuple[str, str], List[ResolvedSectorPath]] = {}
         self.loaded: bool = False
         self._tree_data = None
 
@@ -134,6 +137,12 @@ class SectorStore:
             self.nodes = nodes
             self.paths = paths
             self.nodes_by_id = {node.sector_id: node for node in nodes}
+            self._resolved_paths = [ResolvedSectorPath.from_path(path) for path in paths]
+            self._path_by_ids = {(path.level1_id, path.level2_id, path.level3_id): path for path in self._resolved_paths}
+            self._paths_by_level3_label = {}
+            for path in self._resolved_paths:
+                key = (path.level3_zh.strip().lower(), path.level3_en.strip().lower())
+                self._paths_by_level3_label.setdefault(key, []).append(path)
             self.loaded = True
             LOGGER.info("[SectorStore] Successfully loaded sector tree data via dojosdk.")
         except Exception as e:
@@ -147,8 +156,7 @@ class SectorStore:
         return self.nodes_by_id.get(sector_id)
 
     def iter_resolved_paths(self) -> Iterator[ResolvedSectorPath]:
-        for path in self.paths:
-            yield ResolvedSectorPath.from_path(path)
+        yield from self._resolved_paths
 
     def find_resolved_path(
         self,
@@ -156,10 +164,7 @@ class SectorStore:
         level2_id: str,
         level3_id: str,
     ) -> Optional[ResolvedSectorPath]:
-        for path in self.paths:
-            if path.sector_level_1.sector_id == level1_id and path.sector_level_2.sector_id == level2_id and path.sector_level_3.sector_id == level3_id:
-                return ResolvedSectorPath.from_path(path)
-        return None
+        return self._path_by_ids.get((level1_id, level2_id, level3_id))
 
     @staticmethod
     def _label_matches(
@@ -185,7 +190,8 @@ class SectorStore:
         level_3_en: str = "",
     ) -> Optional[ResolvedSectorPath]:
         """Match stock sector labels to cached taxonomy paths."""
-        candidates = list(self.iter_resolved_paths())
+        level3_key = (level_3_zh.strip().lower(), level_3_en.strip().lower())
+        candidates = self._paths_by_level3_label.get(level3_key) or list(self.iter_resolved_paths())
         if not candidates:
             return None
 

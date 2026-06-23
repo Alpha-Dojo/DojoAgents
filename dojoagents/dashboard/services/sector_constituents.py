@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Literal, Set, Tuple
+from typing import Dict, Literal, Set, Tuple, Any
 
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore, iter_classification_branches
@@ -69,8 +69,7 @@ def label_matches_sector_level(
 
 
 def collect_sector_scope_tickers(
-    stock_store: StockStore,
-    stock_sector_store: StockSectorStore,
+    sector_precomputed_store: Any,
     path: ResolvedSectorPath,
     *,
     markets: Tuple[str, ...] = MARKETS,
@@ -85,25 +84,25 @@ def collect_sector_scope_tickers(
         active_markets = markets
 
     scopes: Dict[SectorLevel, Set[str]] = {"L1": set(), "L2": set(), "L3": set()}
-    kwargs = {
-        "level1_zh": path.level1_zh,
-        "level1_en": path.level1_en,
-        "level2_zh": path.level2_zh,
-        "level2_en": path.level2_en,
-        "level3_zh": path.level3_zh,
-        "level3_en": path.level3_en,
-    }
 
     for market_code in active_markets:
-        for stock in stock_store.list_market(market_code):
-            if not stock_store.is_ticker_market_cap_eligible(stock.ticker):
-                continue
-            label = stock_sector_store.get(market_code, stock.ticker)
-            if label is None:
-                continue
-            for level in ("L3", "L2", "L1"):
-                if label_matches_sector_level(label, max_level=level, **kwargs):
-                    scopes[level].add(stock.ticker)
+        # Load constituents from precomputed store
+        rows = sector_precomputed_store.get_sector_constituents(
+            level1_id=path.level1_id,
+            level2_id="",  # we want all under L1 to determine scope
+            level3_id="",
+            market=market_code,
+        )
+        for row in rows:
+            ticker = row["ticker"]
+            # Check which scopes this belongs to
+            if row.get("level1_id") == path.level1_id:
+                scopes["L1"].add(ticker)
+                if path.level2_id and row.get("level2_id") == path.level2_id:
+                    scopes["L2"].add(ticker)
+                    if path.level3_id and row.get("level3_id") == path.level3_id:
+                        scopes["L3"].add(ticker)
+
     return scopes
 
 
@@ -135,8 +134,7 @@ async def build_l3_sector_symbol_order(
     for path in sector_store.iter_resolved_paths():
         l3_tickers = (
             collect_sector_scope_tickers(
-                stock_store,
-                stock_sector_store,
+                sector_store.sector_precomputed_store,  # assume sector_store provides this or we fetch it
                 path,
                 markets=markets,
             )

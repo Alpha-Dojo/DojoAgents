@@ -14,7 +14,6 @@ from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.portfolio_service import PortfolioService
 from dojoagents.dashboard.services.portfolio_store import PortfolioStore
 from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
-from dojoagents.dashboard.services.sector_performance_cache import SectorPerformanceCache
 from dojoagents.dashboard.services.sector_store import SectorStore
 from dojoagents.dashboard.services.stock_event_store import StockEventStore
 from dojoagents.dashboard.services.stock_fin_indicators_store import StockFinIndicatorsStore
@@ -49,6 +48,7 @@ class FinancialDomainRegistry:
     def __init__(self) -> None:
         self.client: Optional[AsyncDojo] = None
         self.gateway: Optional[DojoDataGateway] = None
+        self.data_root: Optional[Path] = None
         self.sector_store: Optional[SectorStore] = None
         self.stock_store: Optional[StockStore] = None
         self.benchmark_store: Optional[BenchmarkStore] = None
@@ -73,6 +73,7 @@ class FinancialDomainRegistry:
     ) -> None:
         self.client = client
         self.gateway = DojoDataGateway(client)
+        self.data_root = data_root.expanduser().resolve()
         self.sector_store = SectorStore(self.gateway)
         self.stock_store = StockStore(self.gateway)
         self.benchmark_store = BenchmarkStore(self.gateway)
@@ -81,7 +82,7 @@ class FinancialDomainRegistry:
             self.gateway,
             self.stock_store,
             self.stock_sector_store,
-            data_root=data_root,
+            data_root=self.data_root,
         )
         self.stock_fin_indicators_store = StockFinIndicatorsStore(self.gateway)
         self.stock_event_store = StockEventStore(self.gateway)
@@ -90,7 +91,7 @@ class FinancialDomainRegistry:
         from dojoagents.dashboard.services.forex_store import ForexStore
 
         self.forex_store = ForexStore(data_root, self.gateway)
-        self.portfolio_store = PortfolioStore(data_root)
+        self.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
         self.portfolio_service = PortfolioService(
             store=self.portfolio_store,
             stock_store=self.stock_store,
@@ -99,10 +100,10 @@ class FinancialDomainRegistry:
             benchmark_store=self.benchmark_store,
         )
         self.dojo_sphere_service = DojoSphereService(
-            SectorPerformanceCache(data_root, schema_version=1),
             SectorMetricsStore(data_root, schema_version=1),
         )
-        self.sector_precomputed_store = SectorPrecomputedStore(data_root)
+        self.sector_precomputed_store = SectorPrecomputedStore(self.data_root)
+        self.kline_store.sector_precomputed_store = self.sector_precomputed_store
 
         if preload:
             await self.preload()
@@ -131,6 +132,7 @@ class FinancialDomainRegistry:
         for name in (
             "client",
             "gateway",
+            "data_root",
             "sector_store",
             "stock_store",
             "benchmark_store",

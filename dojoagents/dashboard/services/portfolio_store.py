@@ -33,11 +33,11 @@ def _default_config() -> dict[str, Any]:
 
 
 class PortfolioStore:
-    """Persist portfolios under data/portfolio/.
+    """Persist portfolios under ~/.dojo/data/portfolio/.
 
     Layout:
-      data/portfolio/index.json       — catalog of portfolio ids + list metadata
-      data/portfolio/{portfolio_id}.json — full portfolio document
+      ~/.dojo/data/portfolio/index.json       — catalog of portfolio ids + list metadata
+      ~/.dojo/data/portfolio/{portfolio_id}.json — full portfolio document
 
     Each portfolio document stores user-editable config and raw holdings. Quote/KPI
     enrichment happens in PortfolioService on read.
