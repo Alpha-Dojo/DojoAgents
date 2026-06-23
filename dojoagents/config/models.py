@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-DEFAULT_LOG_FORMAT = (
-    "%(asctime)s %(process)d %(thread)d %(levelname)s %(name)s "
-    "%(filename)s:%(lineno)d - %(message)s"
-)
+DEFAULT_LOG_FORMAT = "%(asctime)s %(process)d %(thread)d %(levelname)s %(name)s " "%(filename)s:%(lineno)d - %(message)s"
 DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -21,9 +19,7 @@ class LLMProviderConfig:
 @dataclass(frozen=True)
 class LLMConfig:
     default: str = "openai"
-    providers: dict[str, LLMProviderConfig] = field(
-        default_factory=lambda: {"openai": LLMProviderConfig()}
-    )
+    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {"openai": LLMProviderConfig()})
 
 
 @dataclass(frozen=True)
@@ -84,16 +80,44 @@ class GatewayConfig:
 
 
 @dataclass(frozen=True)
+class ProfilerConfig:
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
+class FinancialDashboardConfig:
+    enabled: bool = True
+    sdk_cache_dir: str = "~/.cache/dojo"
+    dashboard_data_root: str = "~/.dojo/dashboard-data"
+    stock_quote_refresh_seconds: int = 15
+    constituent_kline_post_close_poll_seconds: int = 300
+    constituent_kline_max_concurrent: int = 8
+    ticker_market_cap_min_sh: float = 1_000_000_000.0
+    ticker_market_cap_min_us: float = 1_000_000_000.0
+    ticker_market_cap_min_hk: float = 1_000_000_000.0
+    derived_cache_schema_version: int = 1
+    market_calendar_provider: str = "exchange_calendars"
+
+    @property
+    def sdk_cache_path(self) -> Path:
+        return Path(self.sdk_cache_dir).expanduser()
+
+    @property
+    def dashboard_data_path(self) -> Path:
+        return Path(self.dashboard_data_root).expanduser()
+
+
+@dataclass(frozen=True)
 class DashboardConfig:
     host: str = "127.0.0.1"
     port: int = 8765
+    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
+    financial: FinancialDashboardConfig = field(default_factory=FinancialDashboardConfig)
 
 
 @dataclass(frozen=True)
 class DojoExtensionsConfig:
-    enabled: list[str] = field(
-        default_factory=lambda: ["dojo_research"]
-    )
+    enabled: list[str] = field(default_factory=lambda: ["dojo_research"])
 
 
 @dataclass(frozen=True)
@@ -115,11 +139,13 @@ class DojoSDKConfig:
 class MultiAgentConfig:
     enabled: bool = False
     max_workers: int = 3
-    default_agents: list[dict[str, Any]] = field(default_factory=lambda: [
-        {"role": "analyst", "name": "analyst"},
-        {"role": "implementer", "name": "implementer"},
-        {"role": "reviewer", "name": "reviewer"},
-    ])
+    default_agents: list[dict[str, Any]] = field(
+        default_factory=lambda: [
+            {"role": "analyst", "name": "analyst"},
+            {"role": "implementer", "name": "implementer"},
+            {"role": "reviewer", "name": "reviewer"},
+        ]
+    )
 
 
 @dataclass(frozen=True)

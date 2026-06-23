@@ -7,6 +7,7 @@ import {
   fetchFolioPortfolioDetail,
   fetchFolioPortfolios,
   type FolioPortfolioDetail,
+  removeFolioHolding,
   updateFolioPortfolio,
 } from '../api/dojoFolio';
 import { ApiError } from '../api/http';
@@ -74,6 +75,7 @@ export function useFolioPortfolios() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [addingTicker, setAddingTicker] = useState(false);
+  const [removingTicker, setRemovingTicker] = useState<string | null>(null);
   const [holdingsByPortfolioId, setHoldingsByPortfolioId] = useState<
     Record<string, FolioPortfolioHoldingsPreview[]>
   >({});
@@ -344,6 +346,30 @@ export function useFolioPortfolios() {
     [],
   );
 
+  const removeHolding = useCallback(
+    async (id: string, ticker: string, market: MarketCode) => {
+      setRemovingTicker(ticker);
+      try {
+        const updated = await removeFolioHolding(id, { ticker, market });
+        invalidateCache(cacheKeys.folioPortfolio(id));
+        setDetail(updated);
+        setHoldingsByPortfolioId((prev) => ({
+          ...prev,
+          [id]: updated.holdings.map((holding) => ({
+            ticker: holding.ticker,
+            name: holding.name,
+          })),
+        }));
+        setDetailError(null);
+      } catch (err: unknown) {
+        setDetailError(err instanceof Error ? err.message : 'Failed to remove holding');
+      } finally {
+        setRemovingTicker(null);
+      }
+    },
+    [],
+  );
+
   const autoAllocate = useCallback(async (id: string, market?: MarketCode) => {
     setDetailLoading(true);
     try {
@@ -372,6 +398,7 @@ export function useFolioPortfolios() {
     detailLoading,
     detailError,
     addingTicker,
+    removingTicker,
     renamePortfolio,
     applyPortfolioConfig,
     applyShareOverrides,
@@ -379,6 +406,7 @@ export function useFolioPortfolios() {
     createPortfolio,
     deletePortfolio,
     addHolding,
+    removeHolding,
     autoAllocate,
   };
 }

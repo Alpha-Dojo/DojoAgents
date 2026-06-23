@@ -21,8 +21,11 @@ dependencies = [
     "pandas>=2.2.0,<3",
     "qrcode>=7.3.1,<8",
     "mcp>=1.26.0,<2",
+    "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
+    "dojosdk",
+    "exchange-calendars>=4,<5",
 ]
 
 
@@ -30,6 +33,7 @@ dependencies = [
 dojoagents = "dojoagents.cli.main:main"
 
 [tool.uv.sources]
+dojosdk = { path = "../DojoSDK" }
 
 [tool.setuptools.packages.find]
 include = ["dojoagents*"]

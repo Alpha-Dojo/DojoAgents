@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorScopePerformance } from '../api/dojoSphere';
+import { fetchSectorAnalysis } from '../api/dojoSphere';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
@@ -8,10 +8,16 @@ import type { SectorLevelKey, SectorPerformanceResponse } from '../types/dojoSph
 const LEVELS: SectorLevelKey[] = ['L1', 'L2', 'L3'];
 
 export function useSectorScopePerformanceAll(selection: SectorPathSelection | null) {
-  const cacheKey = selection ? cacheKeys.sectorScopePerformanceAll(selection) : null;
+  const cacheKey = selection ? cacheKeys.sectorAnalysis(selection) : null;
   const [performanceByLevel, setPerformanceByLevel] = useState<
     Partial<Record<SectorLevelKey, SectorPerformanceResponse>>
-  >(() => (cacheKey ? getCached<Partial<Record<SectorLevelKey, SectorPerformanceResponse>>>(cacheKey) ?? {} : {}));
+  >(() => {
+    const cached = cacheKey ? getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey) : null;
+    if (!cached) return {};
+    return Object.fromEntries(
+      LEVELS.flatMap((scope) => (cached.scopes[scope]?.performance ? [[scope, cached.scopes[scope]!.performance]] : [])),
+    ) as Partial<Record<SectorLevelKey, SectorPerformanceResponse>>;
+  });
   const [loading, setLoading] = useState(() => (cacheKey ? !getCached(cacheKey) : false));
   const [error, setError] = useState<string | null>(null);
 
@@ -24,9 +30,14 @@ export function useSectorScopePerformanceAll(selection: SectorPathSelection | nu
     }
 
     let cancelled = false;
-    const cached = getCached<Partial<Record<SectorLevelKey, SectorPerformanceResponse>>>(cacheKey);
-    if (cached) {
-      setPerformanceByLevel(cached);
+    const cached = getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey);
+    const cachedPerformance = cached
+      ? (Object.fromEntries(
+          LEVELS.flatMap((scope) => (cached.scopes[scope]?.performance ? [[scope, cached.scopes[scope]!.performance]] : [])),
+        ) as Partial<Record<SectorLevelKey, SectorPerformanceResponse>>)
+      : null;
+    if (cachedPerformance) {
+      setPerformanceByLevel(cachedPerformance);
       setLoading(false);
     } else {
       setLoading(true);
@@ -34,23 +45,23 @@ export function useSectorScopePerformanceAll(selection: SectorPathSelection | nu
     setError(null);
 
     fetchCached(cacheKey, () =>
-      Promise.all(
-        LEVELS.map((scope) =>
-          fetchSectorScopePerformance({
-            level1Id: selection.level1Id,
-            level2Id: selection.level2Id,
-            level3Id: selection.level3Id,
-            scope,
-          }).then((data) => [scope, data] as const),
-        ),
-      ).then((entries) => Object.fromEntries(entries)),
+      fetchSectorAnalysis({
+        level1Id: selection.level1Id,
+        level2Id: selection.level2Id,
+        level3Id: selection.level3Id,
+      }),
     )
       .then((data) => {
-        if (!cancelled) setPerformanceByLevel(data);
+        if (cancelled) return;
+        setPerformanceByLevel(
+          Object.fromEntries(
+            LEVELS.flatMap((scope) => (data.scopes[scope]?.performance ? [[scope, data.scopes[scope]!.performance]] : [])),
+          ) as Partial<Record<SectorLevelKey, SectorPerformanceResponse>>,
+        );
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          if (!cached) setPerformanceByLevel({});
+          if (!cachedPerformance) setPerformanceByLevel({});
           setError(err instanceof Error ? err.message : 'Failed to load sector performance');
         }
       })

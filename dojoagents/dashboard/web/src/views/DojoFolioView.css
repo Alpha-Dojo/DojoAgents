@@ -20,7 +20,7 @@
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: 168px minmax(0, 1.5fr) minmax(260px, 0.95fr);
+  grid-template-columns: 168px minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -1123,9 +1123,77 @@
   text-align: right;
 }
 
+.folio-overview {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.folio-detail-tabs__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.folio-detail-tabs__tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.folio-detail-tabs__tab {
+  padding: 6px 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.folio-detail-tabs__tab--active {
+  color: var(--text-primary);
+  border-color: rgba(2, 175, 127, 0.45);
+  background: rgba(2, 175, 127, 0.08);
+}
+
+.folio-detail-tabs__body {
+  padding: 8px 10px 10px;
+}
+
+.folio-holdings--embedded,
+.folio-sector--embedded {
+  width: 100%;
+}
+
+.folio-holdings__market-head-leading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.folio-holdings__remove {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.folio-holdings__remove:hover:not(:disabled) {
+  color: var(--color-status-danger);
+  border-color: rgba(187, 41, 52, 0.35);
+  background: rgba(187, 41, 52, 0.08);
+}
+
 @media (max-width: 1280px) {
   .dojo-folio-view__layout {
-    grid-template-columns: 156px minmax(0, 1.2fr) minmax(240px, 0.88fr);
+    grid-template-columns: 156px minmax(0, 1fr);
   }
 
   .folio-kpi-grid {

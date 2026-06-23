@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AgentModelProvider } from './agent/AgentModelContext';
 import { Header } from './components/Header';
@@ -18,16 +18,16 @@ import './styles/panelTitle.css';
 function MainView({
   tab,
   onNavigateTab,
-  agentOpen,
+  agentVisible,
 }: {
   tab: string;
   onNavigateTab: (tab: AppTab) => void;
-  agentOpen: boolean;
+  agentVisible: boolean;
 }) {
   return (
     <>
       <div className="app-main__pane" hidden={tab !== 'mesh'} aria-hidden={tab !== 'mesh'}>
-        <DojoMeshView onNavigateTab={onNavigateTab} agentOpen={agentOpen} />
+        <DojoMeshView onNavigateTab={onNavigateTab} agentOpen={agentVisible} />
       </div>
       <div className="app-main__pane" hidden={tab !== 'sphere'} aria-hidden={tab !== 'sphere'}>
         <DojoSphereView onNavigateTab={onNavigateTab} />
@@ -44,8 +44,36 @@ function MainView({
 
 export default function App() {
   const { tab, setTab } = useAppTab('mesh');
-  const [agentOpen, setAgentOpen] = useState(false);
+  const [userAgentOpen, setUserAgentOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const agentPinned = tab === 'folio';
+  const agentVisible = agentPinned || userAgentOpen;
+
+  const navigateTab = useCallback(
+    (next: AppTab) => {
+      if (next !== 'folio') {
+        setUserAgentOpen(false);
+      }
+      setTab(next);
+    },
+    [setTab],
+  );
+
+  useEffect(() => {
+    if (tab !== 'folio') {
+      setUserAgentOpen(false);
+    }
+  }, [tab]);
+
+  const handleAgentToggle = () => {
+    if (agentPinned) return;
+    setUserAgentOpen((open) => !open);
+  };
+
+  const handleAgentClose = () => {
+    if (agentPinned) return;
+    setUserAgentOpen(false);
+  };
 
   return (
     <LocaleProvider>
@@ -53,17 +81,25 @@ export default function App() {
         <div className="app">
           <Header
             activeTab={tab}
-            onTabChange={setTab}
-            agentOpen={agentOpen}
-            onAgentToggle={() => setAgentOpen((open) => !open)}
+            onTabChange={navigateTab}
+            agentOpen={agentVisible}
+            agentPinned={agentPinned}
+            onAgentToggle={handleAgentToggle}
             settingsOpen={settingsOpen}
             onSettingsOpen={() => setSettingsOpen(true)}
           />
           <main className="app-main" aria-label={tab}>
             <div className="app-main__content">
-              <MainView tab={tab} onNavigateTab={setTab} agentOpen={agentOpen} />
+              <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
             </div>
-            <DojoAgentPanel open={agentOpen} onClose={() => setAgentOpen(false)} />
+            {agentVisible ? (
+              <DojoAgentPanel
+                open
+                pinned={agentPinned}
+                interactive={!agentPinned}
+                onClose={handleAgentClose}
+              />
+            ) : null}
           </main>
           <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>

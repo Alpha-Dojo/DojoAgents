@@ -1,14 +1,13 @@
-import json
 import time
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
 from dojoagents.gateway.pairing import PairingStore
 from dojoagents.gateway.runner import GatewayRunner
 from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
 from dojoagents.gateway.registry import GatewayRegistry
 from dojoagents.gateway.registry import PlatformEntry
+
 
 def test_pairing_store_lifecycle(tmp_path):
     store_file = tmp_path / "pairing.json"
@@ -22,7 +21,7 @@ def test_pairing_store_lifecycle(tmp_path):
     code = store.generate_code("slack", "user_1", "User One")
     assert len(code) == 8
     assert isinstance(code, str)
-    
+
     pending = store.list_pending("slack")
     assert len(pending) == 1
     assert pending[0]["user_id"] == "user_1"
@@ -37,6 +36,7 @@ def test_pairing_store_lifecycle(tmp_path):
     # Test persistence by reload
     store2 = PairingStore(filepath=str(store_file))
     assert store2.is_approved("slack", "user_1")
+
 
 def test_pairing_store_rate_limit(tmp_path):
     store_file = tmp_path / "pairing.json"
@@ -58,6 +58,7 @@ def test_pairing_store_rate_limit(tmp_path):
     finally:
         time.time = original_time
 
+
 def test_pairing_store_brute_force_lockout(tmp_path):
     store_file = tmp_path / "pairing.json"
     store = PairingStore(filepath=str(store_file))
@@ -77,21 +78,26 @@ def test_pairing_store_brute_force_lockout(tmp_path):
     with pytest.raises(ValueError, match="Lockout"):
         store.approve_code("slack", code)
 
+
 @pytest.mark.asyncio
 async def test_gateway_unauthorized_user_pairing_dm(tmp_path):
     # Setup PairingStore
     store_file = tmp_path / "pairing.json"
-    
+
     # Mock platform adapter
     class FakeAdapter:
         platform = "test"
+
         def __init__(self, config):
             self.config = config
             self.sent = []
+
         async def start(self):
             pass
+
         async def stop(self):
             pass
+
         def normalize_message(self, payload):
             return GatewayEvent(
                 platform="test",
@@ -99,15 +105,14 @@ async def test_gateway_unauthorized_user_pairing_dm(tmp_path):
                 target=payload.get("target", "U-bad"),
                 user_id=payload.get("user_id", "U-bad"),
             )
+
         async def send(self, target, message, thread_id=None):
             self.sent.append((target, message))
             return GatewaySendResult(success=True, message_id="msg_123")
 
     registry = GatewayRegistry()
-    registry.register(
-        PlatformEntry(name="test", label="Test", adapter_factory=lambda config: FakeAdapter(config))
-    )
-    
+    registry.register(PlatformEntry(name="test", label="Test", adapter_factory=lambda config: FakeAdapter(config)))
+
     # Setup runner with specific pairing store filepath and unauthorized settings
     runner = GatewayRunner(
         runtime=MagicMock(),
@@ -118,26 +123,27 @@ async def test_gateway_unauthorized_user_pairing_dm(tmp_path):
             "hooks": {
                 "test": {
                     "enabled": True,
-                    "allow_from": ["U-admin"], # Static allowed
+                    "allow_from": ["U-admin"],  # Static allowed
                 }
-            }
-        }
+            },
+        },
     )
     await runner.start()
 
     # Unauthorized DM (target matches user_id meaning DM)
     result = await runner.handle_webhook("test", {"user_id": "U-bad", "target": "U-bad", "text": "hello"})
     assert result == {"accepted": False, "reason": "unauthorized"}
-    
+
     # Check that a pairing code was generated and sent
     adapter = runner.adapters["test"]
     assert len(adapter.sent) == 1
     target, msg = adapter.sent[0]
     assert target == "U-bad"
     assert "pairing code" in msg.lower()
-    
+
     # Retrieve the code from the message
     import re
+
     match = re.search(r"code:\s*([A-Za-z0-9]{8})", msg)
     assert match is not None
     code = match.group(1)
@@ -152,6 +158,7 @@ async def test_gateway_unauthorized_user_pairing_dm(tmp_path):
     # Since they are authorized now, the webhook proceeds to agent execution. Let's make sure it didn't return unauthorized.
     assert result2 != {"accepted": False, "reason": "unauthorized"}
 
+
 def test_cli_pairing_commands(tmp_path, capsys):
     import yaml
     from dojoagents.cli.main import main
@@ -160,17 +167,14 @@ def test_cli_pairing_commands(tmp_path, capsys):
     pairing_file = tmp_path / "pairing.json"
 
     # Write config file pointing to the pairing file
-    config_data = {
-        "gateway": {
-            "pairing_store": str(pairing_file)
-        }
-    }
+    config_data = {"gateway": {"pairing_store": str(pairing_file)}}
     config_path.write_text(yaml.safe_dump(config_data), encoding="utf-8")
 
     # Initially, list should print "no pending pairing requests"
     code = main(["gateway", "pairing", "list", "--config", str(config_path)])
     assert code == 0
-    out, _ = capsys.readouterr()
+    out, err = capsys.readouterr()
+    out = out + err
     assert "no pending pairing requests" in out.lower()
 
     # Generate a code manually to test CLI approve/deny
@@ -180,14 +184,16 @@ def test_cli_pairing_commands(tmp_path, capsys):
     # List should now show the pending request
     code = main(["gateway", "pairing", "list", "--config", str(config_path)])
     assert code == 0
-    out, _ = capsys.readouterr()
+    out, err = capsys.readouterr()
+    out = out + err
     assert "user_1" in out
     assert p_code in out
 
     # Approve via CLI
     code = main(["gateway", "pairing", "approve", "slack", p_code, "--config", str(config_path)])
     assert code == 0
-    out, _ = capsys.readouterr()
+    out, err = capsys.readouterr()
+    out = out + err
     assert "successfully approved" in out.lower()
 
     # Verify approved in store
@@ -197,14 +203,16 @@ def test_cli_pairing_commands(tmp_path, capsys):
     # Try denying a non-existent code
     code = main(["gateway", "pairing", "deny", "slack", "NOTEXIST", "--config", str(config_path)])
     assert code == 1
-    out, _ = capsys.readouterr()
+    out, err = capsys.readouterr()
+    out = out + err
     assert "failed to deny" in out.lower()
 
     # Generate another code for deny
     p_code2 = store.generate_code("slack", "user_2", "User Two")
     code = main(["gateway", "pairing", "deny", "slack", p_code2, "--config", str(config_path)])
     assert code == 0
-    out, _ = capsys.readouterr()
+    out, err = capsys.readouterr()
+    out = out + err
     assert "successfully denied" in out.lower()
 
     # Verify not pending and not approved

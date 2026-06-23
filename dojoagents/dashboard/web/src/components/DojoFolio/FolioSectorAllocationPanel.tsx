@@ -13,6 +13,7 @@ import {
 import { FolioMarketLabel } from './FolioMarketLabel';
 
 interface FolioSectorAllocationPanelProps {
+  embedded?: boolean;
   holdings: FolioHolding[];
   loading?: boolean;
 }
@@ -131,25 +132,32 @@ function MarketSectorChart({ market, holdings }: MarketSectorChartProps) {
 }
 
 export function FolioSectorAllocationPanel({
+  embedded = false,
   holdings,
   loading = false,
 }: FolioSectorAllocationPanelProps) {
   const { t } = useTranslation();
+
+  const body = loading ? (
+    <p className="folio-sector__loading">{t('folio.loading')}</p>
+  ) : (
+    <div className="folio-sector__grid">
+      {FOLIO_MARKETS.map((market) => (
+        <MarketSectorChart key={market} market={market} holdings={holdings} />
+      ))}
+    </div>
+  );
+
+  if (embedded) {
+    return <div className="folio-sector folio-sector--embedded">{body}</div>;
+  }
 
   return (
     <article className="folio-card folio-sector">
       <header className="folio-card__head">
         <h3 className="folio-card__title">{t('folio.allocationTitle')}</h3>
       </header>
-      {loading ? (
-        <p className="folio-sector__loading">{t('folio.loading')}</p>
-      ) : (
-        <div className="folio-sector__grid">
-          {FOLIO_MARKETS.map((market) => (
-            <MarketSectorChart key={market} market={market} holdings={holdings} />
-          ))}
-        </div>
-      )}
+      {body}
     </article>
   );
 }

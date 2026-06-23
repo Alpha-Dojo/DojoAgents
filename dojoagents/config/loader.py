@@ -15,6 +15,7 @@ from dojoagents.config.models import (
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
     DashboardConfig,
+    FinancialDashboardConfig,
     DojoExtensionsConfig,
     GatewayConfig,
     LLMConfig,
@@ -28,6 +29,7 @@ from dojoagents.config.models import (
     SchedulerConfig,
     ToolsConfig,
     DojoSDKConfig,
+    ProfilerConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -67,10 +69,7 @@ def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
 
 
 def _to_config(raw: dict[str, Any]) -> AgentsConfig:
-    providers = {
-        name: _provider_config(value or {})
-        for name, value in raw.get("llm_provider", {}).get("providers", {}).items()
-    }
+    providers = {name: _provider_config(value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
     if not providers:
         providers = {"openai": LLMProviderConfig(api_key=os.getenv("OPENAI_API_KEY"))}
     llm = LLMConfig(
@@ -99,6 +98,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     scheduler_raw = raw.get("scheduler", {})
     gateway_raw = raw.get("gateway", {})
     dashboard_raw = raw.get("dashboard", {})
+    financial_raw = dashboard_raw.get("financial", {})
     extensions_raw = raw.get("dojo_extensions", {})
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
@@ -110,15 +110,11 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         tools=tools,
         memory=MemoryConfig(
             provider=memory_raw.get("provider", "skill_summary"),
-            generated_skill_dir=memory_raw.get(
-                "generated_skill_dir", "~/.dojo/skills/generated"
-            ),
+            generated_skill_dir=memory_raw.get("generated_skill_dir", "~/.dojo/skills/generated"),
         ),
         skills=SkillsConfig(
             dir=skills_raw.get("dir", "~/.dojo/skills"),
-            generated_skill_dir=skills_raw.get(
-                "generated_skill_dir", "~/.dojo/skills/generated"
-            ),
+            generated_skill_dir=skills_raw.get("generated_skill_dir", "~/.dojo/skills/generated"),
             external_dirs=list(skills_raw.get("external_dirs", [])),
             disabled=list(skills_raw.get("disabled", [])),
             platform_disabled=dict(skills_raw.get("platform_disabled", {})),
@@ -136,12 +132,22 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         dashboard=DashboardConfig(
             host=dashboard_raw.get("host", "127.0.0.1"),
             port=int(dashboard_raw.get("port", 8765)),
+            profiler=ProfilerConfig(enabled=bool(dashboard_raw.get("profiler", {}).get("enabled", False))),
+            financial=FinancialDashboardConfig(
+                enabled=bool(financial_raw.get("enabled", True)),
+                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/dojo")),
+                dashboard_data_root=str(financial_raw.get("dashboard_data_root", "~/.dojo/dashboard-data")),
+                stock_quote_refresh_seconds=int(financial_raw.get("stock_quote_refresh_seconds", 15)),
+                constituent_kline_post_close_poll_seconds=int(financial_raw.get("constituent_kline_post_close_poll_seconds", 300)),
+                constituent_kline_max_concurrent=int(financial_raw.get("constituent_kline_max_concurrent", 8)),
+                ticker_market_cap_min_sh=float(financial_raw.get("ticker_market_cap_min_sh", 1_000_000_000.0)),
+                ticker_market_cap_min_us=float(financial_raw.get("ticker_market_cap_min_us", 1_000_000_000.0)),
+                ticker_market_cap_min_hk=float(financial_raw.get("ticker_market_cap_min_hk", 1_000_000_000.0)),
+                derived_cache_schema_version=int(financial_raw.get("derived_cache_schema_version", 1)),
+                market_calendar_provider=str(financial_raw.get("market_calendar_provider", "exchange_calendars")),
+            ),
         ),
-        dojo_extensions=DojoExtensionsConfig(
-            enabled=list(
-                extensions_raw.get("enabled", ["dojo_research"])
-            )
-        ),
+        dojo_extensions=DojoExtensionsConfig(enabled=list(extensions_raw.get("enabled", ["dojo_research"]))),
         logging=LoggingConfig(
             level=str(logging_raw.get("level", "INFO")),
             format=str(logging_raw.get("format", DEFAULT_LOG_FORMAT)),
