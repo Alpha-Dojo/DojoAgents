@@ -18,6 +18,11 @@
   border-left-color: var(--border-dim);
 }
 
+.dojo-agent-panel--pinned {
+  width: min(420px, 36vw);
+  border-left-color: var(--border-dim);
+}
+
 .dojo-agent-panel__head {
   display: flex;
   align-items: flex-start;
@@ -217,7 +222,6 @@
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
@@ -231,6 +235,11 @@
   background: var(--color-surface-muted);
   border: 1px solid var(--border-dim);
   color: var(--text-muted);
+}
+
+.dojo-agent-panel__user-text {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .dojo-agent-panel__bubble--pending {
@@ -318,4 +327,102 @@
   padding: 7px 14px;
   border-radius: 6px;
   letter-spacing: 0.04em;
+}
+
+.dojo-agent-md {
+  color: var(--text-primary);
+}
+
+.dojo-agent-md > :first-child {
+  margin-top: 0;
+}
+
+.dojo-agent-md > :last-child {
+  margin-bottom: 0;
+}
+
+.dojo-agent-md p,
+.dojo-agent-md ul,
+.dojo-agent-md ol,
+.dojo-agent-md pre,
+.dojo-agent-md table,
+.dojo-agent-md blockquote {
+  margin: 0 0 10px;
+}
+
+.dojo-agent-md code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dojo-agent-md pre {
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid var(--border-dim);
+}
+
+.dojo-agent-md table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dojo-agent-md th,
+.dojo-agent-md td {
+  padding: 6px 8px;
+  border: 1px solid var(--border-dim);
+  text-align: left;
+}
+
+.dojo-agent-tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-tool-activity__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-tool-activity__row--done {
+  color: var(--color-accent-primary);
+}
+
+.dojo-agent-tool-activity__row--error {
+  color: var(--color-status-danger);
+}
+
+.dojo-agent-tool-activity__icon {
+  width: 14px;
+  text-align: center;
+}
+
+.dojo-agent-tool-activity__label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dojo-agent-tool-activity__meta {
+  color: inherit;
+}
+
+.dojo-agent-tool-activity__spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(2, 175, 127, 0.25);
+  border-top-color: var(--color-accent-primary);
+  border-radius: 50%;
+  animation: dojo-agent-spin 0.9s linear infinite;
+}
+
+@keyframes dojo-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

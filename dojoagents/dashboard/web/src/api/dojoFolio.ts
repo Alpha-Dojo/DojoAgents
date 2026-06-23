@@ -1,4 +1,4 @@
-import { fetchJson, ApiError } from './http';
+import { fetchJson } from './http';
 import {
   addMockFolioHolding,
   autoAllocateMockFolioPortfolio,
@@ -132,7 +132,8 @@ export type FolioPortfolioDetail = ReturnType<typeof mapFolioPortfolioDetail>;
 
 export async function fetchFolioPortfolios(): Promise<FolioPortfolioSummaryResponse[]> {
   if (USE_INTERACTIVE_MOCKS) return fetchMockFolioPortfolios();
-  return fetchJson<FolioPortfolioSummaryResponse[]>(`${API_PREFIX}/dojo-folio/portfolios`);
+  const raw = await fetchJson<{ items: FolioPortfolioSummaryResponse[] }>(`${API_PREFIX}/portfolio`);
+  return raw.items;
 }
 
 export async function searchFolioPortfolios(query: string): Promise<FolioPortfolioSearchHit[]> {
@@ -160,22 +161,22 @@ export async function fetchFolioPortfolioDetail(portfolioId: string): Promise<Fo
   if (USE_INTERACTIVE_MOCKS) {
     return mapFolioPortfolioDetail(await fetchMockFolioPortfolioDetail(portfolioId));
   }
-  const raw = await fetchJson<FolioPortfolioDetailResponse>(
-    `${API_PREFIX}/dojo-folio/portfolios/${encodeURIComponent(portfolioId)}`,
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(
+    `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis`,
   );
-  return mapFolioPortfolioDetail(raw);
+  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function createFolioPortfolio(name: string): Promise<FolioPortfolioDetail> {
   if (USE_INTERACTIVE_MOCKS) {
     return mapFolioPortfolioDetail(await createMockFolioPortfolio(name));
   }
-  const raw = await fetchJson<FolioPortfolioDetailResponse>(`${API_PREFIX}/dojo-folio/portfolios`, {
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/manage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ action: 'create', name }),
   });
-  return mapFolioPortfolioDetail(raw);
+  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function updateFolioPortfolio(
@@ -191,27 +192,21 @@ export async function updateFolioPortfolio(
   if (USE_INTERACTIVE_MOCKS) {
     return mapFolioPortfolioDetail(await updateMockFolioPortfolio(portfolioId, payload));
   }
-  const raw = await fetchJson<FolioPortfolioDetailResponse>(
-    `${API_PREFIX}/dojo-folio/portfolios/${encodeURIComponent(portfolioId)}`,
-    {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: payload.name,
-        config: payload.config
-          ? {
-              start_date: payload.config.startDate,
-              cost_date: payload.config.startDate,
-              capital_by_market: payload.config.capitalByMarket,
-            }
-          : undefined,
-        shares_by_ticker: payload.shares_by_ticker,
-        manual_shares_by_ticker: payload.manual_shares_by_ticker,
-        open_date_by_ticker: payload.open_date_by_ticker,
-      }),
-    },
-  );
-  return mapFolioPortfolioDetail(raw);
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'update',
+      portfolio_id: portfolioId,
+      name: payload.name,
+      start_date: payload.config?.startDate,
+      capital_by_market: payload.config?.capitalByMarket,
+      shares_by_ticker: payload.shares_by_ticker,
+      manual_shares_by_ticker: payload.manual_shares_by_ticker,
+      open_date_by_ticker: payload.open_date_by_ticker,
+    }),
+  });
+  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function deleteFolioPortfolio(portfolioId: string): Promise<void> {
@@ -219,23 +214,11 @@ export async function deleteFolioPortfolio(portfolioId: string): Promise<void> {
     await deleteMockFolioPortfolio(portfolioId);
     return;
   }
-  const res = await fetch(
-    `${API_PREFIX}/dojo-folio/portfolios/${encodeURIComponent(portfolioId)}`,
-    {
-      method: 'DELETE',
-      headers: { Accept: 'application/json' },
-    },
-  );
-  if (!res.ok) {
-    const text = await res.text();
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      // keep raw text
-    }
-    throw new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status, body);
-  }
+  await fetchJson(`${API_PREFIX}/portfolio/manage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'delete', portfolio_id: portfolioId }),
+  });
 }
 
 export async function addFolioHolding(
@@ -245,19 +228,34 @@ export async function addFolioHolding(
   if (USE_INTERACTIVE_MOCKS) {
     return mapFolioPortfolioDetail(await addMockFolioHolding(portfolioId, payload));
   }
-  const raw = await fetchJson<FolioPortfolioDetailResponse>(
-    `${API_PREFIX}/dojo-folio/portfolios/${encodeURIComponent(portfolioId)}/holdings`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ticker: payload.ticker,
-        market: payload.market,
-        shares: payload.shares,
-      }),
-    },
-  );
-  return mapFolioPortfolioDetail(raw);
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/holdings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio_id: portfolioId,
+      ticker: payload.ticker,
+      market: payload.market === 'sh' ? 'cn' : payload.market,
+      shares: payload.shares,
+    }),
+  });
+  return mapFolioPortfolioDetail(raw.detail);
+}
+
+export async function removeFolioHolding(
+  portfolioId: string,
+  payload: { ticker: string; market?: MarketCode },
+): Promise<FolioPortfolioDetail> {
+  const market = payload.market === 'sh' ? 'cn' : payload.market;
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/holdings`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio_id: portfolioId,
+      ticker: payload.ticker,
+      market,
+    }),
+  });
+  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function autoAllocateFolioPortfolio(
@@ -267,13 +265,13 @@ export async function autoAllocateFolioPortfolio(
   if (USE_INTERACTIVE_MOCKS) {
     return mapFolioPortfolioDetail(await autoAllocateMockFolioPortfolio(portfolioId, market));
   }
-  const raw = await fetchJson<FolioPortfolioDetailResponse>(
-    `${API_PREFIX}/dojo-folio/portfolios/${encodeURIComponent(portfolioId)}/allocate`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ market }),
-    },
-  );
-  return mapFolioPortfolioDetail(raw);
+  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/allocate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio_id: portfolioId,
+      market: market === 'sh' ? 'cn' : market,
+    }),
+  });
+  return mapFolioPortfolioDetail(raw.detail);
 }

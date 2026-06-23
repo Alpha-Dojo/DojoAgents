@@ -1,9 +1,9 @@
 from __future__ import annotations
+from dojoagents.logging import LOGGER
 
-import os
 import sqlite3
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +25,10 @@ class GatewaySessionStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
         self.sessions: dict[str, GatewaySession] = {}
-        
+
         # Ensure parent directory exists
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize DB and schema
         self._init_db()
         self.load()
@@ -48,8 +48,7 @@ class GatewaySessionStore:
         conn = self._get_conn()
         try:
             with conn:
-                conn.execute(
-                    """
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS sessions (
                         key TEXT PRIMARY KEY,
                         platform TEXT NOT NULL,
@@ -61,10 +60,8 @@ class GatewaySessionStore:
                         resume_pending INTEGER NOT NULL DEFAULT 0,
                         updated_at REAL NOT NULL
                     )
-                    """
-                )
-                conn.execute(
-                    """
+                    """)
+                conn.execute("""
                     CREATE TABLE IF NOT EXISTS transcripts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         session_key TEXT NOT NULL,
@@ -73,8 +70,7 @@ class GatewaySessionStore:
                         timestamp REAL NOT NULL,
                         FOREIGN KEY (session_key) REFERENCES sessions(key) ON DELETE CASCADE
                     )
-                    """
-                )
+                    """)
         finally:
             conn.close()
 
@@ -107,7 +103,7 @@ class GatewaySessionStore:
                     conn.execute(
                         """
                         INSERT INTO sessions (
-                            key, platform, target, user_id, status, 
+                            key, platform, target, user_id, status,
                             model_override, reasoning_override, resume_pending, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(key) DO UPDATE SET
@@ -135,7 +131,7 @@ class GatewaySessionStore:
     def get(self, key: str) -> GatewaySession:
         return self.sessions[key]
 
-    def ensure(self, event: GatewayEvent) -> GatewaySession:
+    def ensure(self, event: Any) -> GatewaySession:
         session = self.sessions.get(event.session_key)
         if session is None:
             session = GatewaySession(
@@ -174,13 +170,13 @@ class GatewaySessionStore:
 
     def add_transcript(self, session_key: str, role: str, content: str) -> None:
         """Add a conversation message (user or assistant role) to transcripts table."""
-        print(f"DEBUG: add_transcript called with session_key={session_key}, role={role}, content={content}")
+        LOGGER.info(f"DEBUG: add_transcript called with session_key={session_key}, role={role}, content={content}")
         conn = self._get_conn()
         try:
             # Check if session exists in DB
             has_session = conn.execute("SELECT count(*) FROM sessions WHERE key = ?", (session_key,)).fetchone()[0]
-            print(f"DEBUG: Before insert, session exists in DB: {has_session}")
-            
+            LOGGER.info(f"DEBUG: Before insert, session exists in DB: {has_session}")
+
             with conn:
                 conn.execute(
                     """
@@ -189,13 +185,13 @@ class GatewaySessionStore:
                     """,
                     (session_key, role, content, time.time()),
                 )
-            print("DEBUG: INSERT successful!")
-            
+            LOGGER.info("DEBUG: INSERT successful!")
+
             # Check if transcripts row is visible immediately in the same connection
             count = conn.execute("SELECT count(*) FROM transcripts WHERE session_key = ?", (session_key,)).fetchone()[0]
-            print(f"DEBUG: Immediately after insert, transcripts count for this session: {count}")
+            LOGGER.info(f"DEBUG: Immediately after insert, transcripts count for this session: {count}")
         except Exception as e:
-            print(f"DEBUG: INSERT FAILED: {e}")
+            LOGGER.info(f"DEBUG: INSERT FAILED: {e}")
             raise
         finally:
             conn.close()

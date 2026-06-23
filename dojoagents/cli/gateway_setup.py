@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dojoagents.logging import LOGGER
 
 import asyncio
 import inspect
@@ -10,7 +11,6 @@ from typing import Any, Awaitable, Protocol
 import httpx
 
 from dojoagents.config.loader import ConfigStore
-
 
 ILINK_BASE_URL = "https://ilinkai.weixin.qq.com"
 ILINK_APP_ID = "bot"
@@ -119,37 +119,30 @@ class WeChatQRLoginClient:
     async def login(self) -> dict[str, str]:
         qr = await self._fetch_qr()
         qrcode = qr.get("qrcode") or qr.get("qr_code") or qr.get("uuid")
-        qr_url = (
-            qr.get("qrcode_img_content")
-            or qr.get("qrcode_url")
-            or qr.get("url")
-            or qrcode
-        )
+        qr_url = qr.get("qrcode_img_content") or qr.get("qrcode_url") or qr.get("url") or qrcode
         if not qrcode or not qr_url:
             raise RuntimeError("iLink did not return a usable WeChat QR code.")
 
-        print("\n请使用微信扫描以下二维码：")
-        print(f"\033[4;34m{qr_url}\033[0m\n")
+        LOGGER.info("\n请使用微信扫描以下二维码：")
+        LOGGER.info(f"\033[4;34m{qr_url}\033[0m\n")
 
         try:
             import qrcode as qr_mod
+
             qr_renderer = qr_mod.QRCode()
             qr_renderer.add_data(qr_url)
             qr_renderer.make(fit=True)
             qr_renderer.print_ascii(invert=True)
         except Exception as exc:
-            print(f"（终端二维码渲染失败: {exc}，请直接打开上面的二维码链接进行扫描）\n")
+            LOGGER.info(f"（终端二维码渲染失败: {exc}，请直接打开上面的二维码链接进行扫描）\n")
 
-        print("Scan the QR code or open the URL above with WeChat, then confirm login.")
-
+        LOGGER.info("Scan the QR code or open the URL above with WeChat, then confirm login.")
 
         current_base_url = self.base_url
         refresh_count = 0
         for _ in range(self.max_attempts):
             status = await self._fetch_status(str(qrcode), base_url=current_base_url)
-            status_name = str(
-                status.get("status") or status.get("qrcode_status") or "wait"
-            ).lower()
+            status_name = str(status.get("status") or status.get("qrcode_status") or "wait").lower()
             if status_name in {"confirmed", "confirm", "success"}:
                 credentials = self._extract_credentials(status)
                 if credentials:
@@ -163,20 +156,15 @@ class WeChatQRLoginClient:
                 refresh_count += 1
                 if refresh_count > 3:
                     raise RuntimeError("WeChat QR login expired before confirmation.")
-                print(f"WeChat QR code expired; refreshing ({refresh_count}/3)...")
+                LOGGER.info(f"WeChat QR code expired; refreshing ({refresh_count}/3)...")
                 qr = await self._fetch_qr()
                 qrcode = qr.get("qrcode") or qr.get("qr_code") or qr.get("uuid")
-                qr_url = (
-                    qr.get("qrcode_img_content")
-                    or qr.get("qrcode_url")
-                    or qr.get("url")
-                    or qrcode
-                )
+                qr_url = qr.get("qrcode_img_content") or qr.get("qrcode_url") or qr.get("url") or qrcode
                 if not qrcode or not qr_url:
                     raise RuntimeError("iLink did not return a usable WeChat QR code.")
-                print("WeChat QR login URL: " + str(qr_url))
+                LOGGER.info("WeChat QR login URL: " + str(qr_url))
             if status_name in {"scaned", "scanned", "scaned_but_redirect"}:
-                print("WeChat scan detected; waiting for phone confirmation...")
+                LOGGER.info("WeChat scan detected; waiting for phone confirmation...")
             await asyncio.sleep(self.poll_interval_seconds)
 
         raise RuntimeError("Timed out waiting for WeChat QR login confirmation.")
@@ -184,9 +172,7 @@ class WeChatQRLoginClient:
     async def _fetch_qr(self) -> dict[str, Any]:
         return await self._get_json(EP_GET_BOT_QR, {"bot_type": self.bot_type})
 
-    async def _fetch_status(
-        self, qrcode: str, *, base_url: str | None = None
-    ) -> dict[str, Any]:
+    async def _fetch_status(self, qrcode: str, *, base_url: str | None = None) -> dict[str, Any]:
         return await self._get_json(
             EP_GET_QR_STATUS,
             {"qrcode": qrcode},
@@ -262,8 +248,8 @@ def configure_gateway_adapters(
 ) -> int:
     selected = list(ADAPTER_SETUP_SPECS) if adapter == "all" else [_SPECS_BY_NAME.get(adapter)]
     if not selected or selected[0] is None:
-        print(f"Unknown adapter: {adapter}")
-        print(f"Available adapters: {', '.join(adapter_names())}, all")
+        LOGGER.info(f"Unknown adapter: {adapter}")
+        LOGGER.info(f"Available adapters: {', '.join(adapter_names())}, all")
         return 2
 
     store = ConfigStore(config_path)
@@ -272,8 +258,8 @@ def configure_gateway_adapters(
     gateway["enabled"] = True
     hooks = gateway.setdefault("hooks", {})
 
-    print("DojoAgents Gateway Setup")
-    print(f"Config: {store.path}")
+    LOGGER.info("DojoAgents Gateway Setup")
+    LOGGER.info(f"Config: {store.path}")
     for spec in selected:
         assert spec is not None
         if spec.name == "wechat":
@@ -283,11 +269,11 @@ def configure_gateway_adapters(
             )
         else:
             hooks[spec.name] = _prompt_for_adapter(spec, hooks.get(spec.name, {}))
-            print(f"{spec.label} configured")
+            LOGGER.info(f"{spec.label} configured")
 
     store.save_raw(raw)
-    print(f"Saved gateway configuration to {store.path}")
-    print("Start the gateway with: dojoagents gateway")
+    LOGGER.info(f"Saved gateway configuration to {store.path}")
+    LOGGER.info("Start the gateway with: dojoagents gateway")
     return 0
 
 
@@ -308,23 +294,23 @@ def _prompt_for_wechat(
     existing: dict[str, Any],
     qr_client: WeChatQRClient,
 ) -> dict[str, Any]:
-    print("\n\033[1;36m◆ Messaging Platforms\033[0m")
-    print("\n\033[1;34m—— 💬 Weixin / WeChat Setup ——\033[0m\n")
-    print("  1. DojoAgents will open Tencent iLink QR login in this terminal.")
+    LOGGER.info("\n\033[1;36m◆ Messaging Platforms\033[0m")
+    LOGGER.info("\n\033[1;34m—— 💬 Weixin / WeChat Setup ——\033[0m\n")
+    LOGGER.info("  1. DojoAgents will open Tencent iLink QR login in this terminal.")
 
-    print("  2. Use WeChat to scan and confirm the QR code.")
-    print("  3. DojoAgents will store the returned account_id/token in agents.yaml.")
-    print("  4. This adapter supports native text, image, video, and document delivery.\n")
+    LOGGER.info("  2. Use WeChat to scan and confirm the QR code.")
+    LOGGER.info("  3. DojoAgents will store the returned account_id/token in agents.yaml.")
+    LOGGER.info("  4. This adapter supports native text, image, video, and document delivery.\n")
 
     if existing.get("enabled") and (existing.get("token") or existing.get("bot_token")):
-        print("\033[1;32m✓ Weixin is already configured.\033[0m")
+        LOGGER.info("\033[1;32m✓ Weixin is already configured.\033[0m")
         reconfig = _prompt_choice("Reconfigure Weixin?", ("y", "n"), "y")
         if reconfig == "n":
             return existing
 
     start = _prompt_choice("Start QR login now?", ("y", "n"), "y")
     if start == "n":
-        print("WeChat configuration skipped")
+        LOGGER.info("WeChat configuration skipped")
         return {**existing, "enabled": bool(existing.get("enabled", False))}
 
     credentials = _run_async(qr_client.login())
@@ -380,7 +366,7 @@ def _prompt_for_wechat(
             existing.get("group_allow_from", []),
         )
 
-    print("WeChat configured via QR login")
+    LOGGER.info("WeChat configured via QR login")
     return values
 
 
@@ -401,7 +387,7 @@ def _prompt_choice(prompt: str, choices: tuple[str, ...], default: str) -> str:
         value = answer or default
         if value in choices:
             return value
-        print(f"Please choose one of: {choices_text}")
+        LOGGER.info(f"Please choose one of: {choices_text}")
 
 
 def _prompt_value(prompt: str, default: str = "") -> str:

@@ -1,4 +1,5 @@
 """SSE streaming module for OpenAI-compatible chat completion chunks."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,14 +8,14 @@ import uuid
 from typing import Any, AsyncGenerator, Callable
 
 
-def make_stream_delta_callback(queue: asyncio.Queue) -> Callable[[str], None]:
+def make_stream_delta_callback(queue: asyncio.Queue) -> Callable[[Any], None]:
     """Return a sync callable that puts text deltas on an asyncio.Queue.
 
     Thread-safe: uses ``loop.call_soon_threadsafe`` when called from a
     different thread than the running event loop.
     """
 
-    def callback(delta: str) -> None:
+    def callback(delta: Any) -> None:
         try:
             loop = asyncio.get_running_loop()
             loop.call_soon_threadsafe(queue.put_nowait, delta)
@@ -37,10 +38,12 @@ def _make_chunk_line(
         object="chat.completion.chunk",
         created=created,
         model=model,
-        choices=[{
-            "index": 0,
-            **choice_delta,
-        }],
+        choices=[
+            {
+                "index": 0,
+                **choice_delta,
+            }
+        ],
     )
     return chunk.to_sse_line()
 
@@ -65,7 +68,9 @@ async def stream_completion_chunks(
 
     # 1. message_start
     yield _make_chunk_line(
-        completion_id, created, model,
+        completion_id,
+        created,
+        model,
         {"delta": {"role": "assistant", "content": ""}, "finish_reason": None},
     )
 
@@ -78,21 +83,28 @@ async def stream_completion_chunks(
             raise item
         if isinstance(item, str):
             yield _make_chunk_line(
-                completion_id, created, model,
+                completion_id,
+                created,
+                model,
                 {"delta": {"content": item}, "finish_reason": None},
             )
         elif isinstance(item, dict):
             yield _make_chunk_line(
-                completion_id, created, model,
+                completion_id,
+                created,
+                model,
                 {"delta": item, "finish_reason": None},
             )
 
     # 3. message_end
     yield _make_chunk_line(
-        completion_id, created, model,
+        completion_id,
+        created,
+        model,
         {"delta": {}, "finish_reason": "stop"},
     )
 
     # 4. [DONE] sentinel
     from dojoagents.agent.models import ChatCompletionChunk
+
     yield ChatCompletionChunk.done_sentinel()

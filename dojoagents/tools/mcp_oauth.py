@@ -1,3 +1,4 @@
+from dojoagents.logging import LOGGER
 import asyncio
 import json
 import logging
@@ -26,6 +27,7 @@ try:
         OAuthMetadata,
         OAuthToken,
     )
+
     _OAUTH_AVAILABLE = True
 except ImportError:
     pass
@@ -35,28 +37,35 @@ try:
 except ImportError:
     AnyUrl = None
 
+
 class OAuthNonInteractiveError(RuntimeError):
     pass
 
+
 _oauth_port: int | None = None
+
 
 def _get_token_dir() -> Path:
     base = Path.home() / ".dojo"
     return base / "mcp-tokens"
 
+
 def _safe_filename(name: str) -> str:
     return re.sub(r"[^\w\-]", "_", name).strip("_")[:128] or "default"
+
 
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
+
 def _is_interactive() -> bool:
     try:
         return sys.stdin.isatty()
     except (AttributeError, ValueError):
         return False
+
 
 def _can_open_browser() -> bool:
     if os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY"):
@@ -72,6 +81,7 @@ def _can_open_browser() -> bool:
         return True
     return False
 
+
 def _read_json(path: Path) -> dict | None:
     if not path.exists():
         return None
@@ -80,6 +90,7 @@ def _read_json(path: Path) -> dict | None:
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning(f"Failed to read {path}: {exc}")
         return None
+
 
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,6 +112,7 @@ def _write_json(path: Path, data: dict) -> None:
         except OSError:
             pass
         raise
+
 
 class DojoTokenStorage:
     def __init__(self, server_name: str):
@@ -171,6 +183,7 @@ class DojoTokenStorage:
     def has_cached_tokens(self) -> bool:
         return self._tokens_path().exists()
 
+
 def _make_callback_handler() -> tuple[type, dict]:
     result: dict[str, Any] = {"auth_code": None, "state": None, "error": None}
 
@@ -186,11 +199,9 @@ def _make_callback_handler() -> tuple[type, dict]:
             result["error"] = error
 
             body = (
-                "<html><body><h2>Authorization Successful</h2>"
-                "<p>You can close this tab and return to DojoAgents.</p></body></html>"
-            ) if code else (
-                "<html><body><h2>Authorization Failed</h2>"
-                f"<p>Error: {error or 'unknown'}</p></body></html>"
+                ("<html><body><h2>Authorization Successful</h2>" "<p>You can close this tab and return to DojoAgents.</p></body></html>")
+                if code
+                else ("<html><body><h2>Authorization Failed</h2>" f"<p>Error: {error or 'unknown'}</p></body></html>")
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -202,13 +213,10 @@ def _make_callback_handler() -> tuple[type, dict]:
 
     return _Handler, result
 
+
 async def _redirect_handler(authorization_url: str) -> None:
-    msg = (
-        f"\n  MCP OAuth: authorization required.\n"
-        f"  Open this URL in your browser:\n\n"
-        f"    {authorization_url}\n"
-    )
-    print(msg, file=sys.stderr)
+    msg = f"\n  MCP OAuth: authorization required.\n" f"  Open this URL in your browser:\n\n" f"    {authorization_url}\n"
+    LOGGER.info(msg, file=sys.stderr)
 
     if _can_open_browser():
         try:
@@ -216,8 +224,8 @@ async def _redirect_handler(authorization_url: str) -> None:
         except Exception:
             pass
 
+
 async def _wait_for_callback() -> tuple[str, Optional[str]]:
-    global _oauth_port
     if _oauth_port is None:
         raise RuntimeError("OAuth callback port not set")
 
@@ -226,9 +234,7 @@ async def _wait_for_callback() -> tuple[str, Optional[str]]:
     try:
         server = HTTPServer(("127.0.0.1", _oauth_port), handler_cls)
     except OSError:
-        raise OAuthNonInteractiveError(
-            "OAuth callback timed out — could not bind callback port."
-        )
+        raise OAuthNonInteractiveError("OAuth callback timed out — could not bind callback port.")
 
     server_thread = threading.Thread(target=server.handle_request, daemon=True)
     server_thread.start()
@@ -251,6 +257,7 @@ async def _wait_for_callback() -> tuple[str, Optional[str]]:
         raise OAuthNonInteractiveError("OAuth callback timed out")
 
     return result["auth_code"], result["state"]
+
 
 def build_oauth_auth(
     server_name: str,

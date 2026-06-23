@@ -12,6 +12,7 @@ interface HeaderProps {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   agentOpen: boolean;
+  agentPinned?: boolean;
   onAgentToggle: () => void;
   settingsOpen: boolean;
   onSettingsOpen: () => void;
@@ -21,6 +22,7 @@ export function Header({
   activeTab,
   onTabChange,
   agentOpen,
+  agentPinned = false,
   onAgentToggle,
   settingsOpen,
   onSettingsOpen,
@@ -71,19 +73,21 @@ export function Header({
             </svg>
           </button>
           <span className="header-util__sep" aria-hidden />
-          <button
-            type="button"
-            className={`header-util__agent ${agentOpen ? "header-util__agent--active" : ""}`}
-            aria-expanded={agentOpen}
-            aria-controls="dojo-agent-panel"
-            aria-label={t("header.openAgent")}
-            onClick={onAgentToggle}
-          >
-            <span className="header-util__agent-icon" aria-hidden>
-              ✦
-            </span>
-            {t("header.agent")}
-          </button>
+          {!agentPinned ? (
+            <button
+              type="button"
+              className={`header-util__agent ${agentOpen ? "header-util__agent--active" : ""}`}
+              aria-expanded={agentOpen}
+              aria-controls="dojo-agent-panel"
+              aria-label={t("header.openAgent")}
+              onClick={onAgentToggle}
+            >
+              <span className="header-util__agent-icon" aria-hidden>
+                ✦
+              </span>
+              {t("header.agent")}
+            </button>
+          ) : null}
         </div>
       </div>
     </header>

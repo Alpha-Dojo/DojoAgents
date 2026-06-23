@@ -7,6 +7,7 @@ pyyaml>=6.0.1,<7
 apscheduler>=3.10.0,<4
 pandas>=2.2.0,<3
 qrcode>=7.3.1,<8
+pyinstrument
 strands-agents
 strands-agents-tools
 # Development and test dependencies
