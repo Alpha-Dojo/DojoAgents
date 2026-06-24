@@ -2,7 +2,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioMarketSnapshot } from '../../utils/folioPortfolioSnapshot';
 import { marketsWithSnapshots } from '../../utils/folioPortfolioSnapshot';
 import { formatCompactAmount, formatSignedPercent } from '../../utils/folioFormat';
-import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import type { MarketCode } from '../../types/dojoMesh';
 
 const MARKET_LABEL: Record<MarketCode, string> = {
@@ -45,9 +45,7 @@ export function FolioPortfolioMarketStats({ snapshots }: FolioPortfolioMarketSta
           return (
             <tr key={market}>
               <th scope="row" className="folio-sidebar__stats-market">
-                <span className="folio-sidebar__stats-flag" aria-hidden>
-                  {MARKET_FLAG[market]}
-                </span>
+                <img className="folio-sidebar__stats-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
                 <span className="folio-sidebar__stats-market-label">{MARKET_LABEL[market]}</span>
               </th>
               <td className="folio-sidebar__stats-count-cell">{snap.holdingCount}</td>

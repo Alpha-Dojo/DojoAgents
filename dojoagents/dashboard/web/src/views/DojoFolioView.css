@@ -426,9 +426,10 @@
 
 .folio-sidebar__stats-flag {
   display: inline-block;
+  width: 11px;
+  height: 11px;
   margin-right: 1px;
-  font-size: 11px;
-  line-height: 1;
+  object-fit: contain;
   vertical-align: middle;
 }
 
@@ -1046,8 +1047,10 @@
 }
 
 .folio-performance__inline-flag {
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
+  flex-shrink: 0;
   opacity: 0.92;
 }
 
@@ -1299,7 +1302,10 @@
 }
 
 .folio-risk__market-flag {
-  font-size: 10px;
+  width: 10px;
+  height: 10px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .folio-risk__market-code {
@@ -1730,8 +1736,10 @@
 }
 
 .folio-market-label__flag {
-  font-size: 12px;
-  line-height: 1;
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .folio-market-label__code {

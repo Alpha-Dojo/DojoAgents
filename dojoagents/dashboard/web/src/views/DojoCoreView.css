@@ -524,7 +524,9 @@
 
 .core-ticker-search__option-flag {
   flex-shrink: 0;
-  font-size: 12px;
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
 }
 
 /* Snapshot — head row + metrics */
@@ -661,8 +663,9 @@
 
 .core-snapshot__market {
   flex-shrink: 0;
-  font-size: 13px;
-  line-height: 1;
+  width: 13px;
+  height: 13px;
+  object-fit: contain;
 }
 
 .core-snapshot__ticker {
@@ -1457,8 +1460,10 @@
 }
 
 .core-pe-band__sector-pe-flag {
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .core-pe-band__sector-pe-code {

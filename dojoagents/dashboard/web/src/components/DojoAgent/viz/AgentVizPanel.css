@@ -41,8 +41,10 @@
 }
 
 .agent-market-badge__flag {
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .agent-viz-block {
