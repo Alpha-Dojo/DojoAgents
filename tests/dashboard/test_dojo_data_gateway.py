@@ -42,14 +42,10 @@ async def test_stock_catalog_profile_and_quote_use_sdk_contracts() -> None:
 async def test_stock_all_klines_accepts_symbols_filter() -> None:
     client = FakeDojo(
         stocks={
-            "get_all_klines": {
-                "AAPL": [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                ],
-                "MSFT": [
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ],
-            }
+            "get_all_klines": [
+                {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+            ]
         }
     )
     gateway = DojoDataGateway(client)
@@ -64,12 +60,10 @@ async def test_stock_all_klines_accepts_symbols_filter() -> None:
 async def test_stock_all_klines_uses_sdk_contract() -> None:
     client = FakeDojo(
         stocks={
-            "get_all_klines": {
-                "klines": [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ]
-            }
+            "get_all_klines": [
+                {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+            ]
         }
     )
     gateway = DojoDataGateway(client)
@@ -82,8 +76,8 @@ async def test_stock_all_klines_uses_sdk_contract() -> None:
 
 @pytest.mark.asyncio
 async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
-    def klines(symbols: list, **_: object) -> dict:
-        return {"data": [{"symbol": symbol, "bar_time": "2026-06-20", "close": 10.0} for symbol in symbols]}
+    def klines(symbols: list, **_: object) -> list:
+        return [{"symbol": symbol, "bar_time": "2026-06-20", "close": 10.0} for symbol in symbols]
 
     client = FakeDojo(stocks={"get_all_klines": klines})
     gateway = DojoDataGateway(client)

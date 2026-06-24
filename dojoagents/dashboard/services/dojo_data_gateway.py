@@ -161,13 +161,6 @@ class DojoDataGateway:
                 "stock_klines",
                 self.client.stocks.get_all_klines(symbols=[_canonical_symbol(s) for s in symbols]),
             )
-            if isinstance(payload, dict) and "klines" not in payload:
-                for grouped_rows in payload.values():
-                    if not isinstance(grouped_rows, list):
-                        continue
-                    for row in grouped_rows:
-                        rows.append(row.model_dump() if hasattr(row, "model_dump") else row)
-                return GatewayResult(_map_market_back(rows), None, "sdk_snapshot", False)
             result = _list_result(payload, "stock_klines", "klines")
             return result
         except Exception:
@@ -203,14 +196,6 @@ class DojoDataGateway:
             "stock_all_klines",
             self.client.stocks.get_all_klines(**kwargs),
         )
-        if isinstance(payload, dict) and "klines" not in payload:
-            rows: list[dict[str, Any]] = []
-            for grouped_rows in payload.values():
-                if not isinstance(grouped_rows, list):
-                    continue
-                for row in grouped_rows:
-                    rows.append(row.model_dump() if hasattr(row, "model_dump") else row)
-            return GatewayResult(_map_market_back(rows), None, "sdk_snapshot", False)
         return _list_result(payload, "stock_all_klines", "klines")
 
     async def stock_events(
