@@ -40,46 +40,62 @@ async def test_stock_catalog_profile_and_quote_use_sdk_contracts() -> None:
 
 @pytest.mark.asyncio
 async def test_stock_all_klines_accepts_symbols_filter() -> None:
+    import pandas as pd
+
     client = FakeDojo(
         stocks={
-            "get_all_klines": [
-                {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-            ]
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+                ]
+            )
         }
     )
     gateway = DojoDataGateway(client)
 
     result = await gateway.stock_all_klines(symbols=[" aapl ", "MSFT"])
 
-    assert [row["symbol"] for row in result.data] == ["AAPL", "MSFT"]
-    assert client.stocks.calls == [("get_all_klines", {"symbols": ["AAPL", "MSFT"]})]
+    assert list(result.data["symbol"]) == ["AAPL", "MSFT"]
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
 
 
 @pytest.mark.asyncio
 async def test_stock_all_klines_uses_sdk_contract() -> None:
+    import pandas as pd
+
     client = FakeDojo(
         stocks={
-            "get_all_klines": [
-                {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-            ]
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+                ]
+            )
         }
     )
     gateway = DojoDataGateway(client)
 
     result = await gateway.stock_all_klines()
 
-    assert [row["symbol"] for row in result.data] == ["AAPL", "MSFT"]
-    assert client.stocks.calls == [("get_all_klines", {})]
+    assert list(result.data["symbol"]) == ["AAPL", "MSFT"]
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
 
 
 @pytest.mark.asyncio
 async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
-    def klines(symbols: list, **_: object) -> list:
-        return [{"symbol": symbol, "bar_time": "2026-06-20", "close": 10.0} for symbol in symbols]
+    import pandas as pd
 
-    client = FakeDojo(stocks={"get_all_klines": klines})
+    client = FakeDojo(
+        stocks={
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "600000", "bar_time": "2026-06-20", "close": 10.0},
+                    {"symbol": "000001", "bar_time": "2026-06-20", "close": 10.0},
+                ]
+            )
+        }
+    )
     gateway = DojoDataGateway(client)
 
     result = await gateway.stock_klines(
@@ -90,15 +106,8 @@ async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
         limit=100,
     )
 
-    assert [row["symbol"] for row in result.data] == ["600000", "000001"]
-    assert client.stocks.calls == [
-        (
-            "get_all_klines",
-            {
-                "symbols": ["600000", "000001"],
-            },
-        )
-    ]
+    assert list(result.data["symbol"]) == ["600000", "000001"]
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
 
 
 @pytest.mark.asyncio

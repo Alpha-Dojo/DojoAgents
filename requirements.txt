@@ -19,4 +19,5 @@ mock>=5.2.0
 pip>=25.2
 yfinance
 openpyxl
-dojosdk
+dojosdk==0.1.1
+portalocker
