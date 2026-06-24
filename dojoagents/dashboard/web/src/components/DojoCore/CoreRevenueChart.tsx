@@ -148,7 +148,7 @@ export function CoreRevenueChart({
                   const y = chartY(f.revenueYoY, chart.yoyMin, chart.yoyMax, YOY_H, YOY_PAD_Y);
                   return (
                     <circle
-                      key={`${f.year}-${i}-yoy-dot`}
+                      key={`${f.reportDate || f.year}-yoy-dot`}
                       cx={x}
                       cy={y}
                       r="2.6"
@@ -164,7 +164,7 @@ export function CoreRevenueChart({
                   if (!hasYoY(f.revenueYoY)) return null;
                   return (
                     <span
-                      key={`${f.year}-${i}-yoy-label`}
+                      key={`${f.reportDate || f.year}-yoy-label`}
                       className={`core-revenue__yoy-label core-revenue__yoy-label--${
                         f.revenueYoY >= 0 ? 'up' : 'down'
                       }`}
@@ -179,11 +179,11 @@ export function CoreRevenueChart({
             </div>
 
             <div className="core-revenue__columns">
-              {financials.map((f, i) => {
+              {financials.map((f) => {
                 const revPct = Math.max(4, (f.revenue / chart.barMax) * 100);
                 const profitPct = Math.max(4, (f.netProfit / chart.barMax) * 100);
                 return (
-                  <div key={`${f.year}-${i}`} className="core-revenue__col" title={f.year}>
+                  <div key={f.reportDate || f.year} className="core-revenue__col" title={f.year}>
                     <div className="core-revenue__figures">
                       <span className="core-revenue__figure core-revenue__figure--revenue">
                         {formatFinancialAmount(f.revenue, locale)}

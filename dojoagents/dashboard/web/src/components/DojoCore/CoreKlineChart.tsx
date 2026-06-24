@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { CoreChartEvent, CoreKlineBar } from '../../types/dojoCore';
@@ -33,6 +33,8 @@ const MIN_PLOT_W = 180;
 interface CoreKlineChartProps {
   bars: CoreKlineBar[];
   loading?: boolean;
+  /** Reset zoom/pan and layout when the active ticker changes. */
+  chartKey?: string;
   chartEvents?: CoreChartEvent[];
   linkedHoverDate?: string | null;
   onLinkedHoverDateChange?: (date: string | null) => void;
@@ -119,6 +121,7 @@ function buildMaPath(
 export function CoreKlineChart({
   bars,
   loading = false,
+  chartKey = '',
   chartEvents = [],
   linkedHoverDate = null,
   onLinkedHoverDateChange,
@@ -138,13 +141,17 @@ export function CoreKlineChart({
     null,
   );
 
-  useEffect(() => {
+  const showChartShell = loading || bars.length > 0;
+
+  useLayoutEffect(() => {
+    if (bars.length <= 0) return;
     setViewWindow(buildDefaultWindow(bars.length));
     setHover(null);
     setPlotPointerInside(false);
-  }, [bars]);
+  }, [chartKey, bars.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!showChartShell) return;
     const el = mainPlotRef.current;
     if (!el) return;
 
@@ -162,7 +169,7 @@ export function CoreKlineChart({
     const observer = new ResizeObserver(() => updateSize());
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [showChartShell]);
 
   const normalizedWindow = useMemo(
     () => normalizeViewWindow(bars.length, viewWindow),
@@ -506,14 +513,11 @@ export function CoreKlineChart({
 
   return (
     <CoreCard className="core-card--kline">
-      {loading && !bars.length ? (
-        <p className="core-chart-stage__status">{t('core.klineLoading')}</p>
-      ) : null}
-      {!loading && !bars.length ? (
+      {!showChartShell ? (
         <p className="core-chart-stage__status">{t('core.klineEmpty')}</p>
       ) : null}
 
-      {bars.length ? (
+      {showChartShell ? (
         <div className={`core-chart-shell${isHovering ? ' core-chart-shell--hover' : ''}`}>
           <div className={`core-kline__topbar${isHovering ? ' core-kline__topbar--hover' : ''}`}>
             <span className="core-kline__topbar-title">{t('core.klineTitle')}</span>

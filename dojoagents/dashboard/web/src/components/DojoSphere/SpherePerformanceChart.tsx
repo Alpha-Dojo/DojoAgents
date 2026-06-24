@@ -21,22 +21,22 @@ type ChartSeriesKey = MarketCode | 'benchmark';
 interface ChartPoint {
   date: string;
   us?: number | null;
-  sh?: number | null;
+  cn?: number | null;
   hk?: number | null;
   benchmark?: number | null;
 }
 
-const MARKET_OPTIONS: MarketCode[] = ['us', 'sh', 'hk'];
+const MARKET_OPTIONS: MarketCode[] = ['us', 'cn', 'hk'];
 
 const MARKET_CLASS: Record<MarketCode, string> = {
   us: 'us',
-  sh: 'cn',
+  cn: 'cn',
   hk: 'hk',
 };
 
 const MARKET_LABEL: Record<MarketCode, string> = {
   us: 'US',
-  sh: 'CN',
+  cn: 'CN',
   hk: 'HK',
 };
 

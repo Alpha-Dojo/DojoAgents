@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import { fetchBenchmarkCatalog, type BenchmarkCatalogResponse } from '../../api/dojoMesh';
 import { useTranslation } from '../../hooks/useTranslation';
+import type { AppTab } from '../../navigation/appTab';
 import type { FolioPortfolioDetail } from '../../api/dojoFolio';
 import type { MarketCode } from '../../types/dojoMesh';
-import type { FolioKpiMetric, FolioPortfolioConfig } from '../../types/dojoFolio';
+import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../../types/dojoFolio';
 import { DEFAULT_FOLIO_CONFIG, FOLIO_MARKETS } from '../../types/dojoFolio';
-import { buildLinePath } from '../../utils/folioFormat';
-import { formatMarketNetValue } from '../../utils/folioCompute';
 import { FolioDetailTabs } from './FolioDetailTabs';
-import { FolioMarketLabel } from './FolioMarketLabel';
+import { FolioMarketCapitalLabel } from './FolioMarketCapitalLabel';
+import { FolioNavCurveSection } from './FolioNavCurveChart';
+import { FolioRiskMetrics } from './FolioRiskMetrics';
 import { FolioStartDatePicker } from './FolioStartDatePicker';
+import { useFolioDetailSplit } from '../../hooks/useFolioDetailSplit';
 
 interface FolioOverviewPanelProps {
   portfolio: FolioPortfolioDetail;
@@ -16,36 +19,37 @@ interface FolioOverviewPanelProps {
   addingTicker?: boolean;
   removingTicker?: string | null;
   allocating?: boolean;
+  benchmarkSymbol: string | null;
+  onBenchmarkChange: (symbol: string | null) => void;
   onApplyConfig: (config: FolioPortfolioConfig) => void;
-  onApplyShares: (
-    sharesByTicker: Record<string, number>,
-    manualSharesByTicker: Record<string, boolean>,
-  ) => void;
+  onNavigateTab?: (tab: AppTab) => void;
+  onApplyShares: (sharesByTicker: Record<string, number>) => void;
+  onToggleSharesLock: (ticker: string, locked: boolean) => void;
+  onToggleOpenDateLock: (ticker: string, locked: boolean) => void;
+  onToggleCostLock: (ticker: string, locked: boolean) => void;
+  onApplyCost: (ticker: string, cost: number | null) => void;
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
-  onAutoAllocate: (market: MarketCode) => void;
+  onAutoAllocate: (market: MarketCode, strategy: FolioAllocationStrategy) => void;
 }
 
-const KPI_LABEL_KEYS: Record<
-  FolioKpiMetric['key'],
-  'folio.kpiNetValue' | 'folio.kpiCumulativeReturn' | 'folio.kpiSharpe' | 'folio.kpiMaxDrawdown'
-> = {
-  netValue: 'folio.kpiNetValue',
-  cumulativeReturn: 'folio.kpiCumulativeReturn',
-  sharpe: 'folio.kpiSharpe',
-  maxDrawdown: 'folio.kpiMaxDrawdown',
-};
-
-const KPI_KEYS: FolioKpiMetric['key'][] = ['netValue', 'cumulativeReturn', 'sharpe', 'maxDrawdown'];
-
-const CHART_W = 640;
-const CHART_H = 180;
-
-const EMPTY_KPI: FolioKpiMetric[] = KPI_KEYS.map((key) => ({
-  key,
-  value: '—',
-}));
+function flattenBenchmarkOptions(catalog: BenchmarkCatalogResponse | null) {
+  if (!catalog) return [] as Array<{ market: MarketCode; symbol: string; label: string }>;
+  const options: Array<{ market: MarketCode; symbol: string; label: string }> = [];
+  for (const market of FOLIO_MARKETS) {
+    const group = catalog.markets[market];
+    if (!group) continue;
+    for (const item of group.benchmarks) {
+      const label =
+        typeof item.name === 'string'
+          ? item.name
+          : item.name?.zh || item.name?.en || item.symbol;
+      options.push({ market, symbol: item.symbol, label });
+    }
+  }
+  return options;
+}
 
 export function FolioOverviewPanel({
   portfolio,
@@ -53,44 +57,63 @@ export function FolioOverviewPanel({
   addingTicker = false,
   removingTicker = null,
   allocating = false,
+  benchmarkSymbol,
+  onBenchmarkChange,
   onApplyConfig,
+  onNavigateTab,
   onApplyShares,
+  onToggleSharesLock,
+  onToggleOpenDateLock,
+  onToggleCostLock,
+  onApplyCost,
   onApplyOpenDate,
   onAddHolding,
   onRemoveHolding,
   onAutoAllocate,
 }: FolioOverviewPanelProps) {
-  const { t } = useTranslation();
+  const { t, text } = useTranslation();
+  const { splitRef, ratio, resizing, onResizeStart } = useFolioDetailSplit();
   const config = portfolio.config ?? DEFAULT_FOLIO_CONFIG;
   const [draftConfig, setDraftConfig] = useState(config);
+  const [benchmarkCatalog, setBenchmarkCatalog] = useState<BenchmarkCatalogResponse | null>(null);
 
   useEffect(() => {
     setDraftConfig(portfolio.config ?? DEFAULT_FOLIO_CONFIG);
   }, [portfolio.config, portfolio.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchBenchmarkCatalog()
+      .then((response) => {
+        if (!cancelled) setBenchmarkCatalog(response);
+      })
+      .catch(() => {
+        if (!cancelled) setBenchmarkCatalog(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const configDirty = useMemo(
     () => JSON.stringify(draftConfig) !== JSON.stringify(portfolio.config ?? DEFAULT_FOLIO_CONFIG),
     [draftConfig, portfolio.config],
   );
 
-  const chart = useMemo(() => {
-    const performance = portfolio.performance;
-    if (!performance?.portfolio.length || !performance.benchmark.length) {
-      return null;
-    }
-    const values = [...performance.portfolio, ...performance.benchmark];
-    const min = Math.min(...values) - 2;
-    const max = Math.max(...values) + 2;
-    return {
-      min,
-      max,
-      portfolioPath: buildLinePath(performance.portfolio, CHART_W, CHART_H, min, max),
-      benchmarkPath: buildLinePath(performance.benchmark, CHART_W, CHART_H, min, max),
-      dates: performance.dates,
-    };
-  }, [portfolio.performance]);
+  const benchmarkOptions = useMemo(
+    () => flattenBenchmarkOptions(benchmarkCatalog),
+    [benchmarkCatalog],
+  );
 
-  const kpis = portfolio.kpis?.length ? portfolio.kpis : EMPTY_KPI;
+  const selectedBenchmark =
+    benchmarkSymbol ??
+    portfolio.performance?.benchmarkSymbolByMarket?.us ??
+    benchmarkOptions[0]?.symbol ??
+    '';
+
+  const selectedBenchmarkLabel =
+    benchmarkOptions.find((option) => option.symbol === selectedBenchmark)?.label ??
+    selectedBenchmark;
 
   const updateCapital = (market: MarketCode, value: string) => {
     const parsed = Number(value.replace(/,/g, ''));
@@ -103,8 +126,6 @@ export function FolioOverviewPanel({
     }));
   };
 
-  const earliestDataDate = portfolio.performance?.dates?.[0] ?? null;
-
   return (
     <section className="folio-overview">
       <article className="folio-card folio-config">
@@ -113,7 +134,6 @@ export function FolioOverviewPanel({
             <span className="folio-config__label">{t('folio.openDate')}</span>
             <FolioStartDatePicker
               value={draftConfig.startDate}
-              earliestDataDate={earliestDataDate}
               onChange={(openDate) =>
                 setDraftConfig((prev) => ({
                   ...prev,
@@ -126,7 +146,7 @@ export function FolioOverviewPanel({
           {FOLIO_MARKETS.map((market) => (
             <label key={market} className="folio-config__field">
               <span className="folio-config__label">
-                <FolioMarketLabel market={market} />
+                <FolioMarketCapitalLabel market={market} />
               </span>
               <input
                 type="number"
@@ -147,108 +167,83 @@ export function FolioOverviewPanel({
             {t('folio.applyConfig')}
           </button>
         </div>
-        <div className="folio-config__markets-row">
-          <div className="folio-config__markets">
-            {FOLIO_MARKETS.map((market) => (
-              <span key={market} className="folio-config__market-pill">
-                <FolioMarketLabel market={market} />
-                <span className="folio-config__market-value">
-                  {portfolio.netValueByMarket[market] > 0
-                    ? formatMarketNetValue(market, portfolio.netValueByMarket[market])
-                    : '—'}
-                </span>
-              </span>
-            ))}
-          </div>
-          <p className="folio-config__hint">{t('folio.configHint')}</p>
-        </div>
+        <p className="folio-config__hint">{t('folio.configHint')}</p>
       </article>
 
-      <div className="folio-kpi-grid">
-        {kpis.map((metric) => (
-          <article key={metric.key} className="folio-kpi folio-card">
-            <span className="folio-kpi__label">{t(KPI_LABEL_KEYS[metric.key])}</span>
-            <strong
-              className={`folio-kpi__value ${
-                metric.value === '—'
-                  ? 'folio-tone--muted'
-                  : metric.key === 'maxDrawdown'
-                    ? 'folio-tone--down'
-                    : metric.key === 'sharpe'
-                      ? 'folio-tone--accent'
-                      : 'folio-tone--up'
-              }`}
-            >
-              {metric.value}
-            </strong>
-            {metric.delta ? (
-              <span
-                className={`folio-kpi__delta folio-tone--${
-                  metric.deltaTone === 'negative'
-                    ? 'down'
-                    : metric.deltaTone === 'positive'
-                      ? 'up'
-                      : 'muted'
-                }`}
-              >
-                {metric.delta}
-              </span>
-            ) : null}
-            {metric.hint ? (
-              <span className="folio-kpi__hint">{t('folio.mediumRisk')}</span>
-            ) : null}
-          </article>
-        ))}
+      <div
+        ref={splitRef}
+        className={`folio-overview__split${resizing ? ' folio-overview__split--resizing' : ''}`}
+      >
+        <article
+          className="folio-card folio-performance folio-overview__performance"
+          style={{ flexBasis: `${ratio * 100}%` }}
+        >
+          <div className="folio-performance__chart-block">
+            <FolioNavCurveSection
+              performance={portfolio.performance}
+              loading={loading}
+              benchmarkSymbol={selectedBenchmark}
+              benchmarkControl={
+                <div className="folio-performance__controls">
+                  <label className="folio-performance__benchmark">
+                    <span className="folio-performance__benchmark-label">{t('sphere.benchmarkLabel')}</span>
+                    <select
+                      className="folio-performance__benchmark-select"
+                      value={selectedBenchmark}
+                      onChange={(event) => onBenchmarkChange(event.target.value || null)}
+                    >
+                      {benchmarkOptions.map((option) => (
+                        <option key={`${option.market}-${option.symbol}`} value={option.symbol}>
+                          {text({ zh: option.label, en: option.label })}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              }
+            />
+          </div>
+          <div className="folio-performance__metrics-block">
+            <FolioRiskMetrics
+              performance={portfolio.performance}
+              loading={loading}
+              benchmarkSymbol={selectedBenchmark}
+              benchmarkLabel={selectedBenchmarkLabel}
+            />
+          </div>
+        </article>
+
+        <div
+          className="folio-overview__resize-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t('folio.resizeDetail')}
+          title={t('folio.resizeDetail')}
+          onPointerDown={onResizeStart}
+        />
+
+        <div className="folio-overview__detail">
+          <FolioDetailTabs
+            portfolio={portfolio}
+            loading={loading}
+            addingTicker={addingTicker}
+            removingTicker={removingTicker}
+            allocating={allocating}
+            benchmarkSymbol={selectedBenchmark}
+            benchmarkLabel={selectedBenchmarkLabel}
+            onNavigateTab={onNavigateTab}
+            onApplyShares={onApplyShares}
+            onToggleSharesLock={onToggleSharesLock}
+            onToggleOpenDateLock={onToggleOpenDateLock}
+            onToggleCostLock={onToggleCostLock}
+            onApplyCost={onApplyCost}
+            onApplyOpenDate={onApplyOpenDate}
+            onAddHolding={onAddHolding}
+            onRemoveHolding={onRemoveHolding}
+            onAutoAllocate={onAutoAllocate}
+          />
+        </div>
       </div>
-
-      <article className="folio-card folio-performance">
-        <header className="folio-card__head">
-          <h3 className="folio-card__title">{t('folio.performanceChart')}</h3>
-          <div className="folio-performance__legend">
-            <span className="folio-performance__legend-item folio-performance__legend-item--portfolio">
-              {t('folio.performanceLegendPortfolio')}
-            </span>
-            <span className="folio-performance__legend-item folio-performance__legend-item--benchmark">
-              {t('folio.performanceLegendBenchmark')}
-            </span>
-          </div>
-        </header>
-        <div className="folio-performance__chart-wrap">
-          {chart ? (
-            <>
-              <svg
-                className="folio-performance__chart"
-                viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                <path d={chart.benchmarkPath} className="folio-performance__line folio-performance__line--benchmark" />
-                <path d={chart.portfolioPath} className="folio-performance__line folio-performance__line--portfolio" />
-              </svg>
-              <div className="folio-performance__axis">
-                {chart.dates.map((date) => (
-                  <span key={date}>{date}</span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="folio-performance__empty">{t('folio.noPerformanceData')}</p>
-          )}
-        </div>
-      </article>
-
-      <FolioDetailTabs
-        portfolio={portfolio}
-        loading={loading}
-        addingTicker={addingTicker}
-        removingTicker={removingTicker}
-        allocating={allocating}
-        onApplyShares={onApplyShares}
-        onApplyOpenDate={onApplyOpenDate}
-        onAddHolding={onAddHolding}
-        onRemoveHolding={onRemoveHolding}
-        onAutoAllocate={onAutoAllocate}
-      />
     </section>
   );
 }

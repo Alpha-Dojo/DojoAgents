@@ -8,7 +8,7 @@ interface SphereLevelRiskMetricsProps {
   loading: boolean;
 }
 
-const MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 
 type MetricKey =
   | 'cumulative_return_pct'

@@ -25,7 +25,7 @@ interface SphereSectorMetricsProps {
   onSelectLevel: (level: SectorLevelKey) => void;
 }
 
-const MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 const LEVELS: SectorLevelKey[] = ['L1', 'L2', 'L3'];
 
 interface ColumnModel {

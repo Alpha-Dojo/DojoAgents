@@ -55,6 +55,6 @@ async def test_build_market_overview_passes_days_to_benchmark_store() -> None:
     )
 
     assert captured["days"] == 5
-    assert response.markets["us"].default_benchmark == "^SPX"
-    assert response.markets["us"].window_start == "2026-06-19"
-    assert response.markets["us"].window_end == "2026-06-20"
+    assert response.benchmarks["us"][0].symbol == "^SPX"
+    assert response.window_start == "2026-06-19"
+    assert response.window_end == "2026-06-20"

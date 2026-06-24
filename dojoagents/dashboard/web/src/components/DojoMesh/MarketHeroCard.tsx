@@ -20,7 +20,7 @@ interface MarketHeroCardProps {
 
 function capLabelKey(market: MarketCode): 'marketCapUs' | 'marketCapSh' | 'marketCapHk' {
   if (market === 'us') return 'marketCapUs';
-  if (market === 'sh') return 'marketCapSh';
+  if (market === 'cn') return 'marketCapSh';
   return 'marketCapHk';
 }
 
