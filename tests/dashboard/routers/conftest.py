@@ -133,7 +133,8 @@ class SectorStore:
 
 
 class BenchmarkStore:
-    async def get_benchmarks(self):
+    async def get_benchmarks(self, *, days=1):
+        _ = days
         return DojoMeshBenchmarksResponse()
 
 

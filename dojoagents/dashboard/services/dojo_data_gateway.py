@@ -305,6 +305,13 @@ class DojoDataGateway:
         )
         return _list_result(payload, "benchmark_klines", "klines")
 
+    async def benchmark_catalog(self) -> GatewayResult[list[dict[str, Any]]]:
+        payload = await self._call(
+            "benchmark_catalog",
+            self.client.benchmark.get_catalog(),
+        )
+        return _list_result(payload, "benchmark_catalog", "data")
+
     async def forex(self, symbol: str, **window: Any) -> GatewayResult[list[Any]]:
         kwargs = {"symbol": _canonical_symbol(symbol), **window}
         resource = self.client.forex

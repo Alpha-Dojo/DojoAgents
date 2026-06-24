@@ -126,14 +126,6 @@ class KlineStore:
     def load_all(self, symbol: str) -> List[dict]:
         return list(self.raw_by_symbol.get(symbol.strip().upper(), []))
 
-    def _lock_for_symbol(self, symbol: str) -> asyncio.Lock:
-        normalized = symbol.strip().upper()
-        lock = self._symbol_locks.get(normalized)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._symbol_locks[normalized] = lock
-        return lock
-
     @staticmethod
     def _working_key(
         market: str,
@@ -250,6 +242,8 @@ class KlineStore:
     ) -> bool:
         if not rows:
             return False
+        if limit > 0 and len(rows) < limit and start_time is None and end_time is None:
+            return False
         first_day = str(rows[0].get("bar_time") or rows[0].get("date") or "")[:10]
         last_day = str(rows[-1].get("bar_time") or rows[-1].get("date") or "")[:10]
         if start_time and first_day and first_day > start_time[:10]:
@@ -261,21 +255,20 @@ class KlineStore:
     async def _load_symbol_from_disk(self, symbol: str, market_code: str) -> None:
         if self.working_set is None or symbol in self.raw_by_symbol:
             return
-        async with self._lock_for_symbol(symbol):
-            if symbol in self.raw_by_symbol or self.working_set is None:
-                return
-            key = self._working_key(market_code, symbol, None, None)
-            try:
-                async with self._disk_read_semaphore:
-                    disk_rows = await self.working_set.read(key)
-            except FileStoreError as exc:
-                LOGGER.warning("Invalid kline working set %s: %s", key, exc)
-                await self.working_set.invalidate(key)
-                return
-            if isinstance(disk_rows, list):
-                rows = [row for row in disk_rows if isinstance(row, dict)]
-                if rows:
-                    self._set_symbol_rows(symbol, rows)
+        if symbol in self.raw_by_symbol or self.working_set is None:
+            return
+        key = self._working_key(market_code, symbol, None, None)
+        try:
+            async with self._disk_read_semaphore:
+                disk_rows = await self.working_set.read(key)
+        except FileStoreError as exc:
+            LOGGER.warning("Invalid kline working set %s: %s", key, exc)
+            await self.working_set.invalidate(key)
+            return
+        if isinstance(disk_rows, list):
+            rows = [row for row in disk_rows if isinstance(row, dict)]
+            if rows:
+                self._set_symbol_rows(symbol, rows)
 
     async def get_or_fetch_kline(
         self,

@@ -72,12 +72,12 @@ class AtomicJsonStore:
     def path_for(self, key: str) -> Path:
         return _safe_key_path(self.root, key, self.suffix)
 
-    def _lock_for(self, key: str) -> asyncio.Lock:
-        lock = self._locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[key] = lock
-        return lock
+    # def _lock_for(self, key: str) -> asyncio.Lock:
+    #     lock = self._locks.get(key)
+    #     if lock is None:
+    #         lock = asyncio.Lock()
+    #         self._locks[key] = lock
+    #     return lock
 
     def _serialize(self, data: Any) -> str:
         return (
@@ -105,29 +105,33 @@ class AtomicJsonStore:
 
     async def write(self, key: str, data: Any) -> None:
         path = self.path_for(key)
-        content = self._serialize(data)
-        async with self._lock_for(key):
-            await asyncio.to_thread(_atomic_write_text, path, content)
+        self._write_sync(path, data)
 
     async def read(self, key: str) -> Any:
         path = self.path_for(key)
-        async with self._lock_for(key):
-            if not path.exists():
-                return None
-            try:
-                text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-            except OSError as exc:
-                raise CorruptStoreError(f"{key}: unable to read store") from exc
-        return self._deserialize(text, key)
+        return self._read_sync(path, key)
 
     async def invalidate(self, key: str) -> Path:
         path = self.path_for(key)
-        async with self._lock_for(key):
-            if not path.exists():
-                return path
-            invalid = path.with_name(f"{path.name}.invalid-{time.time_ns()}")
-            await asyncio.to_thread(os.replace, path, invalid)
+        exists = path.exists()
+        if not exists:
+            return path
+        invalid = path.with_name(f"{path.name}.invalid-{time.time_ns()}")
+        os.replace(path, invalid)
         return invalid
+
+    def _write_sync(self, path: Path, data: Any) -> None:
+        content = self._serialize(data)
+        _atomic_write_text(path, content)
+
+    def _read_sync(self, path: Path, key: str) -> Any:
+        if not path.exists():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CorruptStoreError(f"{key}: unable to read store") from exc
+        return self._deserialize(text, key)
 
 
 class AtomicJsonlStore(AtomicJsonStore):

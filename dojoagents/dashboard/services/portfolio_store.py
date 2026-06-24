@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import uuid
-import asyncio
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
@@ -56,7 +55,7 @@ class PortfolioStore:
         return root / f"{safe}.json"
 
     async def load(self) -> None:
-        await asyncio.to_thread(self._load_sync)
+        self._load_sync()
 
     def _load_sync(self) -> None:
         if self.index_path.is_file():

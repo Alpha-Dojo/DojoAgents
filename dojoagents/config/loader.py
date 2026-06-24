@@ -208,7 +208,7 @@ class ConfigStore:
         if self._snapshot is None or fingerprint != self._fingerprint:
             self._snapshot = self._load_and_validate()
             self._fingerprint = fingerprint
-        return copy.deepcopy(self._snapshot)
+        return self._snapshot
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self.snapshot())

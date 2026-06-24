@@ -260,7 +260,7 @@ def create_app(
         # Deep-merge payload into existing raw config, then save
         from dojoagents.config.loader import _deep_merge
 
-        current_raw = store.raw()
+        current_raw = store.raw
         merged = _deep_merge(current_raw, payload)
         store.save_raw(merged)
         return store.redacted()

@@ -6,7 +6,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse
 from pyinstrument import Profiler
 from dojoagents.logging import LOGGER
-from dojoagents.config.loader import ConfigStore
 
 
 class PyInstrumentProfilerMiddleware(BaseHTTPMiddleware):
@@ -17,10 +16,9 @@ class PyInstrumentProfilerMiddleware(BaseHTTPMiddleware):
 
         # 2. Determine if triggered globally
         trigger_global = False
-        config_store = ConfigStore()
+        config_store = getattr(request.app.state, "config_store", None)
         if config_store:
             try:
-                # Read from agents.yaml snapshot
                 snapshot = config_store.snapshot()
                 if hasattr(snapshot, "dashboard") and hasattr(snapshot.dashboard, "profiler"):
                     trigger_global = getattr(snapshot.dashboard.profiler, "enabled", False)
