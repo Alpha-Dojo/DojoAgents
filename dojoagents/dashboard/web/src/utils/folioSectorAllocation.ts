@@ -2,6 +2,8 @@ import type { MarketCode } from '../types/dojoMesh';
 import type { FolioHolding } from '../types/dojoFolio';
 import { INCOME_SLICE_COLORS } from './coreIncomeDistribution';
 
+export type FolioSectorLevel = 'L1' | 'L2' | 'L3';
+
 export interface FolioSectorSlice {
   key: string;
   name: string;
@@ -11,18 +13,33 @@ export interface FolioSectorSlice {
   returnPercent: number;
 }
 
+const OTHER_SECTOR = '其他';
+
+function sectorNameForLevel(holding: FolioHolding, level: FolioSectorLevel): string {
+  const raw =
+    level === 'L1'
+      ? holding.sectorL1 ?? holding.sector
+      : level === 'L2'
+        ? holding.sectorL2 ?? holding.sector
+        : holding.sectorL3 ?? holding.sector;
+  const trimmed = raw?.trim();
+  return trimmed || OTHER_SECTOR;
+}
+
 export function prepareFolioSectorSlices(
   holdings: FolioHolding[],
   market: MarketCode,
+  level: FolioSectorLevel = 'L1',
 ): FolioSectorSlice[] {
   const marketHoldings = holdings.filter((row) => row.market === market && row.marketValue > 0);
   if (!marketHoldings.length) return [];
 
   const bySector = new Map<string, FolioHolding[]>();
   for (const row of marketHoldings) {
-    const bucket = bySector.get(row.sector) ?? [];
+    const name = sectorNameForLevel(row, level);
+    const bucket = bySector.get(name) ?? [];
     bucket.push(row);
-    bySector.set(row.sector, bucket);
+    bySector.set(name, bucket);
   }
 
   const totalValue = marketHoldings.reduce((sum, row) => sum + row.marketValue, 0);
@@ -38,7 +55,7 @@ export function prepareFolioSectorSlices(
     .sort((a, b) => b.value - a.value);
 
   return rows.map((row, index) => ({
-    key: `${market}:${row.name}:${index}`,
+    key: `${market}:${level}:${row.name}:${index}`,
     name: row.name,
     value: row.value,
     color: INCOME_SLICE_COLORS[index % INCOME_SLICE_COLORS.length],

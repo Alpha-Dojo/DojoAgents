@@ -62,17 +62,21 @@ export function CoreAssetSnapshot({
     <header className="core-snapshot">
       <div className="core-snapshot__head">
         <div className="core-snapshot__lead">
-          <span className="core-snapshot__market" aria-hidden>
-            {MARKET_FLAG[market]}
-          </span>
-          <span className="core-snapshot__ticker">{ticker}</span>
-          <h1 className="core-snapshot__name">{text(asset.name)}</h1>
-          <span className={`core-snapshot__price ${positive ? 'core-snapshot__price--up' : 'core-snapshot__price--down'}`}>
-            {formatCompactNumber(quote.price)}
-          </span>
-          <span className={`core-snapshot__change ${positive ? 'core-snapshot__change--up' : 'core-snapshot__change--down'}`}>
-            {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
-          </span>
+          <div className="core-snapshot__identity">
+            <span className="core-snapshot__market" aria-hidden>
+              {MARKET_FLAG[market]}
+            </span>
+            <span className="core-snapshot__ticker">{ticker}</span>
+            <h1 className="core-snapshot__name">{text(asset.name)}</h1>
+          </div>
+          <div className="core-snapshot__quote">
+            <span className={`core-snapshot__price ${positive ? 'core-snapshot__price--up' : 'core-snapshot__price--down'}`}>
+              {formatCompactNumber(quote.price)}
+            </span>
+            <span className={`core-snapshot__change ${positive ? 'core-snapshot__change--up' : 'core-snapshot__change--down'}`}>
+              {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
+            </span>
+          </div>
           <CoreAddToFolioButton ticker={ticker} market={market} />
         </div>
 

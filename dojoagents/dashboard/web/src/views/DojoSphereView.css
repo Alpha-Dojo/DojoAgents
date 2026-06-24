@@ -7,7 +7,9 @@
   flex-direction: column;
   overflow: hidden;
   padding: 6px 10px 8px;
-  background: var(--bg-deep);
+  background:
+    radial-gradient(ellipse 70% 40% at 50% -20%, rgba(0, 229, 255, 0.05), transparent 60%),
+    var(--bg-deep);
 }
 
 .dojo-sphere-view--loading,
@@ -92,7 +94,7 @@
 .sphere-bottom-panel__tab--active {
   color: var(--color-accent-primary);
   border-bottom-color: var(--color-accent-primary);
-  background: rgba(2, 175, 127, 0.06);
+  background: rgb(2 175 127 / 8%);
   font-weight: var(--panel-title-weight, 700);
 }
 
@@ -152,7 +154,15 @@
 }
 
 .sphere-card {
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%);
   padding: var(--sphere-card-pad, 7px);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .sphere-card__title {
@@ -170,9 +180,9 @@
   align-items: center;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid rgba(2, 175, 127, 0.22);
-  background: rgba(2, 175, 127, 0.07);
-  color: var(--color-accent-float);
+  border: 1px solid rgba(0, 229, 255, 0.22);
+  background: rgba(0, 229, 255, 0.07);
+  color: var(--cyan-dim);
   font-size: var(--sphere-body-size, 10px);
   font-weight: 600;
   line-height: 1.35;
@@ -276,19 +286,19 @@
 }
 
 .sphere-level-card:hover {
-  border-color: rgba(2, 175, 127, 0.28);
-  background: rgb(2 175 127 / 8%);
+  border-color: rgba(79, 195, 247, 0.28);
+  background: rgba(14, 40, 62, 0.28);
 }
 
 .sphere-level-card:focus-visible {
-  outline: 2px solid rgba(2, 175, 127, 0.45);
+  outline: 2px solid rgba(79, 195, 247, 0.45);
   outline-offset: 1px;
 }
 
 .sphere-level-card--current {
-  border-color: rgba(2, 175, 127, 0.45);
-  box-shadow: inset 0 0 0 1px rgba(2, 175, 127, 0.12);
-  background: rgb(2 175 127 / 10%);
+  border-color: rgba(79, 195, 247, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(79, 195, 247, 0.12);
+  background: linear-gradient(180deg, rgba(14, 40, 62, 0.55) 0%, rgba(0, 0, 0, 0.18) 100%);
 }
 
 .sphere-level-card__head {
@@ -324,7 +334,7 @@
 }
 
 .sphere-level-card__level {
-  color: var(--color-accent-primary);
+  color: var(--cyan);
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -344,7 +354,7 @@
 
 .sphere-level-card__sector-picker:hover,
 .sphere-level-card__sector-picker:focus-within {
-  background: rgba(2, 175, 127, 0.08);
+  background: rgba(79, 195, 247, 0.08);
 }
 
 .sphere-level-card__sector-select-sizer,
@@ -386,7 +396,7 @@
 }
 
 .sphere-level-card__sector-select:focus-visible {
-  outline: 2px solid rgba(2, 175, 127, 0.45);
+  outline: 2px solid rgba(79, 195, 247, 0.45);
   outline-offset: 1px;
 }
 
@@ -405,7 +415,7 @@
 
 .sphere-level-card__sector-picker:hover::after,
 .sphere-level-card__sector-picker:focus-within::after {
-  color: var(--color-accent-primary);
+  color: var(--cyan);
 }
 
 .sphere-level-card__sector-picker .sr-only {
@@ -439,7 +449,7 @@
   color: var(--market-us-label);
 }
 
-.sphere-level-card__count--sh {
+.sphere-level-card__count--cn {
   color: var(--market-cn-label);
 }
 
@@ -450,8 +460,8 @@
 .sphere-level-card__badge {
   padding: 0 5px;
   border-radius: 3px;
-  background: rgba(2, 175, 127, 0.1);
-  color: var(--color-accent-float);
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan-dim);
   font-size: calc(10px * var(--sphere-scale, 1));
   font-weight: 600;
   line-height: 1.35;
@@ -493,11 +503,11 @@
 }
 
 .sphere-level-card__module--performance {
-  background: var(--color-surface-subtle);
+  background: linear-gradient(180deg, rgba(8, 18, 28, 0.55) 0%, rgba(0, 0, 0, 0.22) 100%);
 }
 
 .sphere-level-card__module--risk {
-  background: var(--color-surface-subtle);
+  background: linear-gradient(180deg, rgba(6, 14, 22, 0.5) 0%, rgba(0, 0, 0, 0.2) 100%);
 }
 
 .sphere-level-risk {
@@ -590,7 +600,7 @@
   color: var(--market-us-label);
 }
 
-.sphere-level-risk__market-row--sh .sphere-level-risk__market-code {
+.sphere-level-risk__market-row--cn .sphere-level-risk__market-code {
   color: var(--market-cn-label);
 }
 
@@ -801,21 +811,16 @@
 .sphere-level-sparkline__line--us {
   stroke: var(--market-us-line);
   stroke-width: 2.25;
-  opacity: 1;
 }
 
 .sphere-level-sparkline__line--cn {
   stroke: var(--market-cn-line);
   stroke-width: 2;
-  stroke-dasharray: 4 2.5;
-  opacity: 0.9;
 }
 
 .sphere-level-sparkline__line--hk {
   stroke: var(--market-hk-line);
   stroke-width: 2;
-  stroke-dasharray: 1.5 2.5;
-  opacity: 0.85;
 }
 
 .sphere-level-sparkline__status {
@@ -906,7 +911,7 @@
   color: var(--market-us-label);
 }
 
-.sphere-metric-panel__slot--sh .sphere-metric-panel__code {
+.sphere-metric-panel__slot--cn .sphere-metric-panel__code {
   color: var(--market-cn-label);
 }
 
@@ -952,7 +957,7 @@
   box-shadow: inset 0 2px 0 var(--market-us-line);
 }
 
-.sphere-metric-panel__bar--sh {
+.sphere-metric-panel__bar--cn {
   background: linear-gradient(180deg, var(--market-cn-fill-top) 0%, var(--market-cn-fill-bottom) 100%);
   box-shadow: inset 0 2px 0 var(--market-cn-line);
 }
@@ -1047,9 +1052,9 @@
 }
 
 .sphere-performance__markets-trigger--open {
-  color: var(--color-accent-primary);
-  border-color: rgba(2, 175, 127, 0.35);
-  background: rgba(2, 175, 127, 0.08);
+  color: var(--cyan);
+  border-color: rgba(0, 229, 255, 0.35);
+  background: rgba(0, 229, 255, 0.08);
 }
 
 .sphere-performance__chevron {
@@ -1096,7 +1101,7 @@
 .sphere-performance__markets-check {
   width: 0.75rem;
   font-size: calc(10px * var(--sphere-scale, 1));
-  color: var(--color-accent-primary);
+  color: var(--cyan);
 }
 
 .sphere-performance__markets-option--us {
@@ -1225,21 +1230,16 @@
 .sphere-performance__line--us {
   stroke: var(--market-us-line);
   stroke-width: 2;
-  opacity: 1;
 }
 
 .sphere-performance__line--cn {
   stroke: var(--market-cn-line);
-  stroke-width: 1.8;
-  stroke-dasharray: 4 2.5;
-  opacity: 0.9;
+  stroke-width: 2;
 }
 
 .sphere-performance__line--hk {
   stroke: var(--market-hk-line);
-  stroke-width: 1.8;
-  stroke-dasharray: 1.5 2.5;
-  opacity: 0.85;
+  stroke-width: 2;
 }
 
 .sphere-performance__line--benchmark {
@@ -1258,9 +1258,9 @@
   left: 40%;
   padding: 2px 6px;
   border-radius: 4px;
-  border: 1px solid rgba(220, 148, 0, 0.4);
-  background: rgba(220, 148, 0, 0.1);
-  color: var(--color-status-warning);
+  border: 1px solid rgba(255, 183, 77, 0.4);
+  background: rgba(255, 183, 77, 0.1);
+  color: #ffcc80;
   font-size: calc(10px * var(--sphere-scale, 1));
   white-space: nowrap;
   pointer-events: none;
@@ -1313,7 +1313,6 @@
 
 .sphere-performance__legend-item--cn {
   color: var(--market-cn-label);
-  opacity: 0.88;
 }
 
 .sphere-performance__legend-item--cn::before {
@@ -1322,7 +1321,6 @@
 
 .sphere-performance__legend-item--hk {
   color: var(--market-hk-label);
-  opacity: 0.76;
 }
 
 .sphere-performance__legend-item--hk::before {
@@ -1356,8 +1354,8 @@
 }
 
 .sphere-fundamentals__radar-shape {
-  fill: rgba(2, 175, 127, 0.16);
-  stroke: var(--color-accent-primary);
+  fill: rgba(0, 229, 255, 0.16);
+  stroke: var(--cyan);
   stroke-width: 1.2;
 }
 
@@ -1405,13 +1403,13 @@
 .sphere-fundamentals__bar-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(2, 175, 127, 0.35), rgba(2, 175, 127, 0.85));
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.35), rgba(0, 229, 255, 0.85));
 }
 
 .sphere-fundamentals__risk-track {
   height: 5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--green), var(--color-status-warning), var(--red));
+  background: linear-gradient(90deg, var(--green), #ffd54f, var(--red));
   position: relative;
   overflow: hidden;
 }
@@ -1644,13 +1642,13 @@
 }
 
 .sphere-table__ticker-link:hover {
-  color: var(--color-accent-primary);
+  color: var(--cyan);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .sphere-table__ticker-link:focus-visible {
-  outline: 2px solid rgba(2, 175, 127, 0.45);
+  outline: 2px solid rgba(79, 195, 247, 0.45);
   outline-offset: 1px;
   border-radius: 2px;
 }
@@ -1672,7 +1670,7 @@
 
 .sphere-table__name-text:focus-visible {
   border-radius: 2px;
-  outline: 2px solid rgba(2, 175, 127, 0.45);
+  outline: 2px solid rgba(79, 195, 247, 0.45);
   outline-offset: 1px;
 }
 
@@ -1721,7 +1719,7 @@
 }
 
 .sphere-table-sort--active {
-  color: var(--color-accent-primary);
+  color: var(--cyan);
 }
 
 .sphere-table-sort__icon {
@@ -1735,6 +1733,6 @@
 }
 
 .sphere-table__ratio--negative {
-  color: var(--color-status-warning);
+  color: #ffb74d;
   font-style: italic;
 }

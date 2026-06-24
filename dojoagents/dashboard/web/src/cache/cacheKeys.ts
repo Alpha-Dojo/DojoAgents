@@ -12,23 +12,27 @@ function tickerKey(market: string | undefined, ticker: string): string {
 
 export const cacheKeys = {
   sectorTaxonomy: () => 'sector-taxonomy',
-  sectorAnalysis: (selection: SectorPathSelection) =>
-    `sector-analysis:${selectionKey(selection)}`,
   sectorScopeMetrics: (selection: SectorPathSelection) =>
     `sector-scope-metrics:${selectionKey(selection)}`,
+  sectorAnalysisBundle: (selection: SectorPathSelection) =>
+    `sector-analysis-bundle:${selectionKey(selection)}`,
   sectorScopePerformanceAll: (selection: SectorPathSelection) =>
     `sector-scope-performance-all:${selectionKey(selection)}`,
   sectorConstituents: (selection: SectorPathSelection, scope: SectorLevelKey) =>
-    `sector-constituents:${selectionKey(selection)}:${scope}`,
-  dojoMeshOverview: (sectorLimit: number) => `dojo-mesh-overview:${sectorLimit}`,
+    `sector-constituents:v3:${selectionKey(selection)}:${scope}`,
+  dojoMeshOverview: (
+    sectorLimit: number,
+    days: number,
+    minCapKey: string,
+  ) => `dojo-mesh-overview:v2:${sectorLimit}:${days}:${minCapKey}`,
   coreTickerQuote: (market: string | undefined, ticker: string) =>
     `core-ticker-quote:${tickerKey(market, ticker)}`,
   coreTickerKline: (market: string | undefined, ticker: string, interval: string) =>
     `core-ticker-kline:${tickerKey(market, ticker)}:${interval}`,
   coreTickerPeBand: (market: string | undefined, ticker: string) =>
     `core-ticker-pe-band:${tickerKey(market, ticker)}`,
-  coreTickerFinIndicators: (market: string | undefined, ticker: string, limit: number) =>
-    `core-ticker-fin-indicators:v2:${tickerKey(market, ticker)}:${limit}`,
+  coreTickerFinIndicators: (market: string | undefined, ticker: string) =>
+    `core-ticker-fin-indicators:v5:${tickerKey(market, ticker)}`,
   coreTickerSector: (market: string | undefined, ticker: string) =>
     `core-ticker-sector:${tickerKey(market, ticker)}`,
   coreTickerEvents: (market: string | undefined, ticker: string, pageSize: number) =>
@@ -38,7 +42,9 @@ export const cacheKeys = {
   coreTickerIncome: (market: string | undefined, ticker: string) =>
     `core-ticker-income:${tickerKey(market, ticker)}`,
   folioPortfolios: () => 'folio-portfolios',
-  folioPortfolio: (portfolioId: string) => `folio-portfolio:${portfolioId}`,
+  folioPortfolioLite: (portfolioId: string) => `folio-portfolio-lite:${portfolioId}`,
+  folioPortfolio: (portfolioId: string, benchmark?: string | null) =>
+    `folio-portfolio:${portfolioId}:${benchmark ?? 'default'}`,
 };
 
 export type ConstituentsByMarket = Record<MarketCode, import('../types/dojoSphere').SectorConstituentItem[]>;

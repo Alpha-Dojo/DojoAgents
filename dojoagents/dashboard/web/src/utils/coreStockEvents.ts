@@ -34,7 +34,7 @@ export function resolveEventTypeLabel(row: StockEventRow): string {
 }
 
 export function resolveEventContent(row: StockEventRow): string {
-  for (const key of ['level1_content', 'title', 'content', 'event_content', 'level2_content'] as const) {
+  for (const key of ['content', 'event_content', 'level1_content', 'level2_content', 'title'] as const) {
     const value = row[key as keyof StockEventRow];
     if (value != null && String(value).trim()) {
       return String(value).trim();

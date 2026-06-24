@@ -1,10 +1,16 @@
 import type { MarketCode } from '../types/dojoMesh';
 
 const STORAGE_KEY = 'alphadojo-market-order';
-export const DEFAULT_MARKET_ORDER: MarketCode[] = ['us', 'sh', 'hk'];
+export const DEFAULT_MARKET_ORDER: MarketCode[] = ['us', 'cn', 'hk'];
+export type MarketDropSide = 'left' | 'right';
 
 export function isMarketCode(value: unknown): value is MarketCode {
-  return value === 'us' || value === 'sh' || value === 'hk';
+  return value === 'us' || value === 'cn' || value === 'hk';
+}
+
+function coerceMarketCode(value: unknown): MarketCode | null {
+  if (value === 'sh') return 'cn';
+  return isMarketCode(value) ? value : null;
 }
 
 export function normalizeMarketOrder(stored: unknown): MarketCode[] {
@@ -14,9 +20,10 @@ export function normalizeMarketOrder(stored: unknown): MarketCode[] {
   const ordered: MarketCode[] = [];
 
   for (const item of stored) {
-    if (!isMarketCode(item) || seen.has(item)) continue;
-    seen.add(item);
-    ordered.push(item);
+    const code = coerceMarketCode(item);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    ordered.push(code);
   }
 
   for (const code of DEFAULT_MARKET_ORDER) {
@@ -48,11 +55,12 @@ export function reorderMarkets(
   order: MarketCode[],
   from: MarketCode,
   to: MarketCode,
+  side: MarketDropSide = 'left',
 ): MarketCode[] {
   if (from === to) return order;
   const next = order.filter((code) => code !== from);
   const toIndex = next.indexOf(to);
   if (toIndex === -1) return order;
-  next.splice(toIndex, 0, from);
+  next.splice(side === 'right' ? toIndex + 1 : toIndex, 0, from);
   return normalizeMarketOrder(next);
 }

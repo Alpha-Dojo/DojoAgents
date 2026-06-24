@@ -1,4 +1,4 @@
-import fcntl
+import portalocker
 import shutil
 import subprocess
 import logging
@@ -27,7 +27,7 @@ def setup_frontend_static_files(source_dir: Path, target_dir: Path) -> None:
     with open(lock_file, "w") as f:
         try:
             # Acquire exclusive lock
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            portalocker.lock(f.fileno(), portalocker.LOCK_EX)
 
             # Double check inside the lock
             if target_dir.exists() and index_file.exists():
@@ -74,4 +74,4 @@ def setup_frontend_static_files(source_dir: Path, target_dir: Path) -> None:
             logger.info("Frontend build and deployment completed successfully.")
 
         finally:
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            portalocker.lock(f.fileno(), portalocker.LOCK_UN)

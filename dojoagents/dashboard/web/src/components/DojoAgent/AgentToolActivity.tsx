@@ -1,89 +1,117 @@
+import { useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { AgentPhase, AgentToolActivityItem } from '../../types/agent';
+import type { AgentToolActivityItem } from '../../types/agent';
+import type { AgentVizBlock } from '../../types/agentViz';
+import { agentToolLabel } from '../../utils/agentToolLabels';
+import { formatToolArguments } from '../../utils/agentToolDetail';
+import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
+import { AgentVizBlockView } from './viz/AgentVizPanel';
 
 interface AgentToolActivityProps {
   items: AgentToolActivityItem[];
   thinking?: boolean;
-  phase?: AgentPhase;
-  retries?: string[];
-  evalHints?: string[];
 }
 
-function toolLabel(name: string): string {
-  return name
-    .replace(/^portfolio_/, 'portfolio ')
-    .replace(/^dojo_sdk_/, 'dojo sdk ')
-    .replace(/_/g, ' ')
-    .trim();
+function ToolStepResults({
+  blocks,
+  running,
+}: {
+  blocks: AgentVizBlock[];
+  running: boolean;
+}) {
+  const { t, locale } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  if (!blocks.length || running) return null;
+
+  const localizedBlocks = localizeAgentVizBlocks(blocks, t, locale);
+
+  return (
+    <div className="dojo-agent-tool-activity__results">
+      <button
+        type="button"
+        className="dojo-agent-tool-activity__results-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        {expanded ? t('agent.hideResults') : t('agent.viewResults')}
+      </button>
+      {expanded ? (
+        <div className="dojo-agent-tool-activity__results-body">
+          {localizedBlocks.map((block) => (
+            <AgentVizBlockView key={block.id} block={block} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
-function phaseLabel(phase: AgentPhase | undefined, t: (key: string) => string): string {
-  if (!phase) return t('agent.thinking');
-  if (phase === 'planning') return t('agent.phasePlanning');
-  if (phase === 'tools') return t('agent.phaseTools');
-  return t('agent.phaseAnswering');
-}
+export function AgentToolActivity({ items, thinking = false }: AgentToolActivityProps) {
+  const { t, locale } = useTranslation();
+  const uiLocale = locale === 'zh' ? 'zh' : 'en';
 
-export function AgentToolActivity({
-  items,
-  thinking = false,
-  phase,
-  retries = [],
-  evalHints = [],
-}: AgentToolActivityProps) {
-  const { t } = useTranslation();
-
-  if (!thinking && items.length === 0 && retries.length === 0 && evalHints.length === 0 && !phase) {
-    return null;
-  }
+  if (!thinking && items.length === 0) return null;
 
   return (
     <div className="dojo-agent-tool-activity" aria-live="polite">
-      {thinking || phase ? (
+      {thinking && (
         <div className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--thinking">
           <span className="dojo-agent-tool-activity__spinner" aria-hidden />
-          <span>{phaseLabel(phase, t)}</span>
+          <span>{t('agent.thinking')}</span>
         </div>
-      ) : null}
-      {retries.map((retry, index) => (
-        <div key={`retry-${index}`} className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--thinking">
-          <span className="dojo-agent-tool-activity__icon" aria-hidden>
-            ↻
-          </span>
-          <span className="dojo-agent-tool-activity__label">{retry}</span>
-        </div>
-      ))}
-      {evalHints.map((hint, index) => (
-        <div key={`hint-${index}`} className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--error">
-          <span className="dojo-agent-tool-activity__icon" aria-hidden>
-            !
-          </span>
-          <span className="dojo-agent-tool-activity__label">{hint}</span>
-        </div>
-      ))}
-      {items.map((item, index) => (
-        <div
-          key={`${item.id}-${index}`}
-          className={`dojo-agent-tool-activity__row dojo-agent-tool-activity__row--${item.status}`}
-        >
-          <span className="dojo-agent-tool-activity__icon" aria-hidden>
-            {item.status === 'running' ? '◌' : item.status === 'error' ? '✕' : '✓'}
-          </span>
-          <span className="dojo-agent-tool-activity__label">{toolLabel(item.tool)}</span>
-          <span className="dojo-agent-tool-activity__meta">
-            {item.status === 'running'
-              ? t('agent.toolRunning')
-              : item.status === 'error'
-                ? item.error || t('agent.toolFailed')
-                : item.latencyMs
-                  ? `${t('agent.toolDone')} · ${item.latencyMs}ms`
-                  : t('agent.toolDone')}
-          </span>
-          {item.result ? (
-            <span className="dojo-agent-tool-activity__meta">{item.result}</span>
-          ) : null}
-        </div>
-      ))}
+      )}
+      {items.map((item, index) => {
+        const argDetail =
+          item.arguments != null
+            ? formatToolArguments(item.tool, item.arguments, uiLocale)
+            : null;
+        const resultDetail = item.resultSummary ?? null;
+        const vizBlocks = item.vizBlocks ?? [];
+        return (
+          <div
+            key={`${item.tool}-${index}`}
+            className={`dojo-agent-tool-activity__step dojo-agent-tool-activity__step--${item.status}`}
+          >
+            <div
+              className={`dojo-agent-tool-activity__row dojo-agent-tool-activity__row--${item.status}`}
+            >
+              <span className="dojo-agent-tool-activity__icon" aria-hidden>
+                {item.status === 'running' ? '◌' : item.status === 'error' ? '✕' : '✓'}
+              </span>
+              <div className="dojo-agent-tool-activity__main">
+                <div className="dojo-agent-tool-activity__headline">
+                  <span className="dojo-agent-tool-activity__label">
+                    {agentToolLabel(item.tool, uiLocale)}
+                  </span>
+                  {item.status === 'running' && (
+                    <span className="dojo-agent-tool-activity__meta">{t('agent.toolRunning')}</span>
+                  )}
+                  {item.status === 'done' && item.latencyMs != null && (
+                    <span className="dojo-agent-tool-activity__meta">
+                      {t('agent.toolDone', { ms: Math.round(item.latencyMs) })}
+                    </span>
+                  )}
+                  {item.status === 'error' && item.error && (
+                    <span className="dojo-agent-tool-activity__meta dojo-agent-tool-activity__meta--error">
+                      {item.error}
+                    </span>
+                  )}
+                </div>
+                {argDetail ? (
+                  <p className="dojo-agent-tool-activity__detail">{argDetail}</p>
+                ) : null}
+                {resultDetail && item.status === 'done' ? (
+                  <p className="dojo-agent-tool-activity__detail dojo-agent-tool-activity__detail--result">
+                    {resultDetail}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <ToolStepResults blocks={vizBlocks} running={item.status === 'running'} />
+          </div>
+        );
+      })}
     </div>
   );
 }

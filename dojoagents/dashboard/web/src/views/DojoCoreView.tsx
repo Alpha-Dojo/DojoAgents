@@ -22,7 +22,7 @@ import { useSectorScopeMetrics } from '../hooks/useSectorScopeMetrics';
 import { useSectorTaxonomy } from '../hooks/useSectorTaxonomy';
 import { useTranslation } from '../hooks/useTranslation';
 import type { AppTab } from '../navigation/appTab';
-import { readCoreTickerContext, saveCoreTickerContext } from '../navigation/coreContext';
+import { readCoreTickerContext, resolveCoreTickerContext, saveCoreTickerContext } from '../navigation/coreContext';
 import { openSphereFromCoreCrumb } from '../navigation/openSphereSector';
 import type { CoreKlineInterval, CoreTickerSearchItem } from '../types/dojoCore';
 import type { MarketCode } from '../types/dojoMesh';
@@ -33,15 +33,19 @@ import {
   selectionFromSectorOption,
 } from '../utils/coreSectorOptions';
 import {
-  DEFAULT_REVENUE_CHART_YEARS,
   mapFinIndicatorsToFinancials,
 } from '../utils/coreFinIndicators';
 import { buildCoreKeyMetrics } from '../utils/coreKeyMetrics';
 import { mapStockEventsToCoreItems } from '../utils/coreStockEvents';
 import { mapStockNewsToCoreItems } from '../utils/coreStockNews';
 import { buildEarningsEventsFromFinIndicators } from '../utils/coreChartEvents';
-import { mergeQuoteIntoDailyKline, resolveCoreDailyChartWindow, sliceCoreBarsToDateWindow } from '../utils/coreKline';
-import { mergeQuoteIntoPeBand, slicePePointsToDateWindow } from '../utils/corePeBand';
+import {
+  buildQuoteSnapshotFromKlineBars,
+  resolveCoreDailyChartWindow,
+  resolveLatestKlineAnchorDate,
+  sliceCoreBarsToDateWindow,
+} from '../utils/coreKline';
+import { slicePePointsToDateWindow } from '../utils/corePeBand';
 import { findSectorPathByIds, getDefaultSelection } from '../utils/sectorTaxonomy';
 import { scopeSectorName } from '../utils/sphereSectorTitle';
 import './DojoCoreView.css';
@@ -59,7 +63,7 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   const layoutVars = useCoreViewportLayout(viewRef);
   useSyncedChartSurfaceHeight(chartRowRef);
   const { taxonomy } = useSectorTaxonomy();
-  const [ctx, setCtx] = useState(readCoreTickerContext);
+  const [ctx, setCtx] = useState(resolveCoreTickerContext);
   const [selection, setSelection] = useState<SectorPathSelection | null>(null);
   const [klineInterval, setKlineInterval] = useState<CoreKlineInterval>('1D');
   const [sectorPeLevel, setSectorPeLevel] = useState<SectorLevelKey>('L3');
@@ -71,7 +75,7 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   const pendingCycleRef = useRef(false);
 
   useEffect(() => {
-    const refresh = () => setCtx(readCoreTickerContext());
+    const refresh = () => setCtx(readCoreTickerContext() ?? resolveCoreTickerContext());
     window.addEventListener('alphadojo-core-ticker', refresh);
     return () => window.removeEventListener('alphadojo-core-ticker', refresh);
   }, []);
@@ -82,10 +86,24 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   const { data: stockIncome, loading: stockIncomeLoading } = useCoreStockIncome(ctx);
   const { data: stockEvents, loading: stockEventsLoading } = useCoreStockEvents(ctx, 20);
   const { data: stockNews, loading: stockNewsLoading } = useCoreStockNews(ctx, 20);
-  const { quote: liveQuote, detail: quoteDetail } = useCoreQuote(ctx);
-  const { bars: klineBars, loading: klineLoading } = useCoreKline(ctx, klineInterval);
-  const { points: peBandPoints, loading: peBandLoading } = useCorePeBand(ctx);
+  const { bars: klineBars, loading: klineLoading, ready: klineReady, error: klineError } =
+    useCoreKline(ctx, klineInterval);
+  const { points: peBandPoints, loading: peBandLoading, ready: peBandReady, error: peBandError } =
+    useCorePeBand(ctx);
+  const { detail: quoteDetail, ready: quoteReady } = useCoreQuote(ctx);
   const tickerKey = ctx ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
+
+  useEffect(() => {
+    if (!quoteReady || !quoteDetail?.name) return;
+    const current = readCoreTickerContext();
+    if (!current) return;
+    const { zh, en } = quoteDetail.name;
+    if (!zh && !en) return;
+    if (current.name_zh === zh && current.name_en === en) return;
+    const next = { ...current, name_zh: zh || current.name_zh, name_en: en || current.name_en };
+    saveCoreTickerContext(next);
+    setCtx(next);
+  }, [quoteReady, quoteDetail, tickerKey]);
 
   useEffect(() => {
     initTickerKeyRef.current = '';
@@ -140,7 +158,7 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
     if (!scope) return {} as Partial<Record<MarketCode, number | null>>;
     return {
       us: scope.us?.weighted_pe ?? null,
-      sh: scope.sh?.weighted_pe ?? null,
+      cn: scope.cn?.weighted_pe ?? null,
       hk: scope.hk?.weighted_pe ?? null,
     };
   }, [sectorMetrics, sectorPeLevel]);
@@ -216,13 +234,15 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   );
 
   const handleTickerSelect = useCallback((item: CoreTickerSearchItem) => {
-    saveCoreTickerContext({
+    const next = {
       ticker: item.ticker,
       market: item.market,
       name_zh: item.name.zh,
       name_en: item.name.en,
-      sector_source: 'search',
-    });
+      sector_source: 'search' as const,
+    };
+    saveCoreTickerContext(next);
+    setCtx(next);
   }, []);
 
   const dailyChartWindow = useMemo(() => {
@@ -231,47 +251,46 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   }, [ctx?.market]);
 
   const klineDisplayBars = useMemo(() => {
+    if (!klineReady || !ctx?.ticker) return [];
     let bars = klineBars;
-    if (klineInterval === '1D' && quoteDetail && ctx?.market) {
-      bars = mergeQuoteIntoDailyKline(klineBars, quoteDetail, ctx.market);
-    }
     if (klineInterval === '1D' && dailyChartWindow) {
       bars = sliceCoreBarsToDateWindow(bars, dailyChartWindow);
     }
     return bars;
-  }, [klineBars, quoteDetail, klineInterval, ctx?.market, dailyChartWindow]);
+  }, [klineReady, klineBars, klineInterval, ctx?.ticker, dailyChartWindow]);
 
   const peBandDisplayPoints = useMemo(() => {
+    if (!peBandReady || !ctx?.ticker) return [];
     let points = peBandPoints;
-    if (quoteDetail && ctx?.market) {
-      points = mergeQuoteIntoPeBand(peBandPoints, klineBars, quoteDetail, ctx.market);
-    }
     if (dailyChartWindow) {
       points = slicePePointsToDateWindow(points, dailyChartWindow);
     }
     return points;
-  }, [peBandPoints, klineBars, quoteDetail, ctx?.market, dailyChartWindow]);
+  }, [peBandReady, peBandPoints, ctx?.ticker, dailyChartWindow]);
+
+  const chartAnchorDate = useMemo(
+    () => resolveLatestKlineAnchorDate(klineDisplayBars),
+    [klineDisplayBars],
+  );
 
   const metricRows = useMemo(
     () =>
       buildCoreKeyMetrics({
-        quote: quoteDetail,
         finRows: finIndicators?.items ?? [],
-        klineBars,
+        klineBars: klineDisplayBars,
         peBandPoints: peBandDisplayPoints,
-        chartAnchorDate: dailyChartWindow?.end ?? null,
+        chartAnchorDate,
         market: ctx?.market,
-        currency: liveQuote?.currency ?? quoteDetail?.currency,
         peLossLabel: t('valuation.peLoss'),
+        quoteDetail,
       }),
     [
-      quoteDetail,
       finIndicators?.items,
-      klineBars,
+      klineDisplayBars,
       peBandDisplayPoints,
-      dailyChartWindow?.end,
+      chartAnchorDate,
       ctx?.market,
-      liveQuote?.currency,
+      quoteDetail,
       t,
     ],
   );
@@ -279,27 +298,26 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   const asset = useMemo(() => {
     if (!ctx) return null;
     const mock = getMockCoreAsset(ctx);
-    const quote = liveQuote
+    const quote =
+      buildQuoteSnapshotFromKlineBars(klineDisplayBars, ctx.market) ?? mock.quote;
+    const name = quoteDetail?.name
       ? {
-          ...mock.quote,
-          price: liveQuote.price,
-          change: liveQuote.change,
-          changePercent: liveQuote.changePercent,
-          currency: liveQuote.currency || mock.quote.currency,
+          zh: quoteDetail.name.zh || mock.name.zh,
+          en: quoteDetail.name.en || mock.name.en,
         }
-      : mock.quote;
+      : mock.name;
 
     return {
       ...mock,
+      name,
       quote,
       metricRows,
     };
-  }, [ctx, liveQuote, metricRows]);
+  }, [ctx, klineDisplayBars, metricRows, quoteDetail?.name]);
 
   const financials = useMemo(() => {
     return mapFinIndicatorsToFinancials(
       finIndicators?.items ?? [],
-      DEFAULT_REVENUE_CHART_YEARS,
       finIndicators?.market,
     );
   }, [finIndicators?.items, finIndicators?.market]);
@@ -322,10 +340,10 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
   const incomeDistributions = stockIncome?.distributions ?? [];
   const incomeReportDate = stockIncome?.report_date ?? null;
 
-  if (!ctx || !asset) {
+  if (!asset) {
     return (
       <section className="dojo-core-view dojo-core-view--empty" aria-label="DojoCore">
-        <p className="dojo-core-view__hint">{t('core.selectTicker')}</p>
+        <p className="dojo-core-view__status">{t('core.selectTicker')}</p>
       </section>
     );
   }
@@ -352,8 +370,10 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
       <div className="dojo-core-view__grid">
         <div className="dojo-core-view__chart-row" ref={chartRowRef}>
           <CoreKlineChart
+            key={`kline:${tickerKey}`}
+            chartKey={tickerKey}
             bars={klineDisplayBars}
-            loading={klineLoading}
+            loading={klineLoading && !klineError && !klineReady}
             chartEvents={chartEvents}
             linkedHoverDate={linkedHover?.source === 'pe' ? linkedHover.date : null}
             onLinkedHoverDateChange={(date) =>
@@ -361,8 +381,9 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
             }
           />
           <CorePeBandChart
+            key={`pe:${tickerKey}`}
             points={peBandDisplayPoints}
-            loading={peBandLoading}
+            loading={peBandLoading && !peBandError && !peBandReady}
             sectorPeByMarket={sectorPeByMarket}
             sectorPeLoading={sectorMetricsLoading}
             sectorPeLevel={sectorPeLevel}
