@@ -45,20 +45,23 @@ def extract_news_publish_date(row: dict) -> str:
 def news_row_key(row: dict) -> str:
     for key in ("id", "news_id"):
         value = row.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-
+        if value is not None:
+            if isinstance(value,str):
+                return str(value).strip()
+            else:
+                return value
     date = extract_news_publish_date(row)
     title = str(row.get("title") or "").strip()
     return f"{date}|{title}"
 
 
 def _sort_datetime_key(text: str) -> str:
+    import pandas as pd
     if not text:
         return ""
     normalized = text.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(normalized).isoformat()
+        return pd.to_datetime(normalized).isoformat()
     except ValueError:
         return text
 
