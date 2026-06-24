@@ -84,9 +84,13 @@ export const enMessages: MessageTree = {
     noHistory: 'No past conversations',
     deleteSession: 'Delete conversation',
     thinking: 'Thinking or using tools…',
+    phasePlanning: 'Planning…',
+    phaseTools: 'Using tools…',
+    phaseAnswering: 'Writing the answer…',
     toolRunning: 'Running',
     toolDone: 'Done',
     toolFailed: 'Failed',
+    stop: 'Stop',
   },
   sphere: {
     loading: 'Loading DojoSphere…',

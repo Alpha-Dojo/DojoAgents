@@ -394,7 +394,7 @@ Backend API:
 
 - `GET /api/health`
 - `GET /api/config`
-- `PATCH /api/config`
+- `PUT /api/config`
 - `GET /api/jobs`
 - `POST /api/jobs/{id}/run`
 - `GET /api/job-runs`
@@ -402,6 +402,12 @@ Backend API:
 - `GET /api/extensions/{name}/cards`
 - `POST /api/chat`
 - `GET /api/sessions/{id}`
+
+`POST /api/chat` is the single agent entrypoint. It keeps OpenAI Chat Completions compatibility and additionally supports `metadata.event_format = "dojo.v2"` for richer typed agent events:
+
+- streaming: standard OpenAI chunk + optional top-level `dojo_event`
+- non-streaming: standard OpenAI response + optional top-level `dojo`
+- compatibility: clients that ignore Dojo fields can continue reading only `choices[0]`
 
 Frontend views:
 

@@ -82,9 +82,13 @@ export const zhMessages = {
     noHistory: '暂无历史会话',
     deleteSession: '删除会话',
     thinking: '正在思考或调用工具…',
+    phasePlanning: '正在规划…',
+    phaseTools: '正在调用工具…',
+    phaseAnswering: '正在整理回答…',
     toolRunning: '调用中',
     toolDone: '已完成',
     toolFailed: '调用失败',
+    stop: '停止',
   },
   sphere: {
     loading: '加载 DojoSphere…',

@@ -33,6 +33,12 @@ class ToolResult:
     ok: bool
     content: str = ""
     error: str = ""
+    latency_ms: int = 0
+    truncated: bool = False
+    data: Any = None
+    viz_blocks: list[dict[str, Any]] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    resource_changes: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_message(self) -> dict[str, Any]:
@@ -62,6 +68,7 @@ class AgentResponse:
     content: str
     session_id: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_results: list[ToolResult] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -72,6 +79,7 @@ class AgentResponse:
 @dataclass
 class ChatCompletionRequest:
     """OpenAI-compatible chat completion request."""
+
     model: str
     messages: list[dict[str, Any]]
     stream: bool = False
@@ -85,18 +93,27 @@ class ChatCompletionRequest:
 @dataclass
 class ChatCompletionResponse:
     """OpenAI-compatible chat completion response."""
+
     id: str
     object: str  # "chat.completion"
     created: int
     model: str
     choices: list[dict[str, Any]]
-    usage: dict[str, int] = field(default_factory=lambda: {
-        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-    })
+    usage: dict[str, int] = field(
+        default_factory=lambda: {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+    )
+    dojo: dict[str, Any] | None = None
 
     @classmethod
     def from_agent_response(
-        cls, response: AgentResponse, *, model: str,
+        cls,
+        response: AgentResponse,
+        *,
+        model: str,
     ) -> ChatCompletionResponse:
         usage_data = response.metadata.get("usage")
         usage = {
@@ -109,15 +126,18 @@ class ChatCompletionResponse:
             object="chat.completion",
             created=int(time.time()),
             model=model,
-            choices=[{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": response.content,
-                },
-                "finish_reason": "stop",
-            }],
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response.content,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
             usage=usage,
+            dojo=response.metadata.get("dojo"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -128,17 +148,20 @@ class ChatCompletionResponse:
             "model": self.model,
             "choices": self.choices,
             "usage": self.usage,
+            **({"dojo": self.dojo} if self.dojo is not None else {}),
         }
 
 
 @dataclass
 class ChatCompletionChunk:
     """OpenAI-compatible streaming chat completion chunk."""
+
     id: str
     object: str  # "chat.completion.chunk"
     created: int
     model: str
     choices: list[dict[str, Any]]
+    dojo_event: dict[str, Any] | None = None
 
     def to_sse_line(self) -> str:
         payload = {
@@ -148,6 +171,8 @@ class ChatCompletionChunk:
             "model": self.model,
             "choices": self.choices,
         }
+        if self.dojo_event is not None:
+            payload["dojo_event"] = self.dojo_event
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n"
 
     @staticmethod
