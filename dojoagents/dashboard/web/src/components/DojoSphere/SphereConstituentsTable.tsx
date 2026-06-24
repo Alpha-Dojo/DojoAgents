@@ -22,7 +22,7 @@ interface SphereConstituentsTableProps {
   onNavigateTab?: (tab: AppTab) => void;
 }
 
-const MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 
 const TABLE_COLGROUP = (
   <colgroup>

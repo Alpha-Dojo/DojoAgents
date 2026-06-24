@@ -12,6 +12,7 @@ export class ApiError extends Error {
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
+    signal: init?.signal ?? AbortSignal.timeout(60_000),
     headers: {
       Accept: 'application/json',
       ...init?.headers,

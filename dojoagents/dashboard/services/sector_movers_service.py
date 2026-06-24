@@ -11,7 +11,12 @@ from dojoagents.dashboard.schemas.dojo_mesh import (
     SectorItem,
     SectorMemberItem,
 )
-from dojoagents.dashboard.schemas.domain_api import SectorMoversMarket, SectorMoversResponse
+from dojoagents.dashboard.schemas.domain_api import (
+    MarketSectorMovers,
+    SectorMoverItem,
+    SectorMoverMember,
+    SectorMoversResponse,
+)
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _apply_strength,
@@ -63,7 +68,7 @@ class SectorMoversService:
         min_cap_by_market = min_cap_by_market or {}
         requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
         ticker_lookup = self._ticker_lookup(days)
-        payload: dict[str, SectorMoversMarket] = {}
+        payload: dict[str, MarketSectorMovers] = {}
 
         for internal_market in requested_markets:
             if internal_market is None:
@@ -83,14 +88,12 @@ class SectorMoversService:
                 key=lambda candidate: candidate.change_percent,
             )[:limit]
 
-            payload[to_native_market_code(internal_market) or internal_market] = SectorMoversMarket(
-                market=to_native_market_code(internal_market) or internal_market,
-                days=days,
-                gainers=_apply_strength([self._build_sector_item(candidate, ticker_lookup) for candidate in gainers]),
-                losers=_apply_strength([self._build_sector_item(candidate, ticker_lookup) for candidate in losers]),
+            payload[to_native_market_code(internal_market) or internal_market] = MarketSectorMovers(
+                gainers=[self._build_source_sector_item(candidate, ticker_lookup) for candidate in gainers],
+                losers=[self._build_source_sector_item(candidate, ticker_lookup) for candidate in losers],
             )
 
-        return SectorMoversResponse(days=days, markets=payload, as_of=None, source="computed", stale=False)
+        return SectorMoversResponse(days=days, markets=payload)
 
     def build_dojo_mesh_sectors_response(self, *, limit: int = 5) -> DojoMeshSectorsResponse:
         ticker_lookup = self._ticker_lookup(days=1)
@@ -220,4 +223,34 @@ class SectorMoversService:
             sample_tickers=[item.ticker for item in top_by_abs],
             member_count=candidate.member_count,
             members=sorted_members[:MAX_SECTOR_MEMBERS],
+        )
+
+    def _build_source_sector_item(
+        self,
+        candidate: _SectorCandidate,
+        ticker_lookup: dict[tuple[str, str], dict],
+    ) -> SectorMoverItem:
+        item = self._build_sector_item(candidate, ticker_lookup)
+        top_members = [
+            SectorMoverMember(
+                ticker=member.ticker,
+                name=member.name,
+                last_price=member.last_price,
+                market_cap=member.market_cap,
+                change_percent=member.change_percent,
+            )
+            for member in item.members
+        ]
+        return SectorMoverItem(
+            level1_id=candidate.level1_id,
+            level2_id=candidate.level2_id,
+            level3_id=candidate.level3_id,
+            concept_code=item.concept_code,
+            name=item.name,
+            change_percent=item.change_percent,
+            avg_market_cap=item.avg_market_cap,
+            total_market_cap=candidate.total_market_cap,
+            member_count=item.member_count,
+            sample_tickers=item.sample_tickers,
+            top_members=top_members,
         )

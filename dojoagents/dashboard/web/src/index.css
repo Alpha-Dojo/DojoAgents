@@ -1,26 +1,37 @@
 :root {
+  /* Accent primary and states */
   --color-accent-float: #00e0a2;
   --color-accent-primary: #02af7f;
   --color-accent-pressed: #03835f;
   --color-accent-disabled: #00513a;
+
+  /* Status and semantic colors */
   --color-status-danger: #bb2934;
   --color-status-warning: #dc9400;
   --color-action-link: #226bd0;
+
+  /* Text colors */
   --color-text-primary: #ffffff;
   --color-text-secondary: #94a3b8;
   --color-text-tertiary: #64748b;
   --color-text-disabled: #334155;
+
+  /* Background surfaces */
   --color-surface-page: #070f15;
   --color-surface-panel: rgb(7 16 26 / 95%);
   --color-surface-raised: #0b1824;
   --color-surface-subtle: rgb(0 0 0 / 10%);
   --color-surface-muted: rgb(255 255 255 / 4%);
+
+  /* Border colors */
   --color-border-default: rgb(255 255 255 / 10%);
   --color-border-muted: color-mix(in srgb, #334155 68%, transparent);
-  --color-border-accent: color-mix(in srgb, var(--color-action-link) 58%, #070f15);
+  --color-border-accent: color-mix(in srgb, #226BD0 58%, #070F15);
   --color-border-primary: rgb(2 175 127 / 35%);
   --color-border-warning: rgb(220 148 0 / 40%);
   --color-border-danger: rgb(187 41 52 / 40%);
+
+  /* Compatible Aliases */
   --bg-deep: var(--color-surface-page);
   --bg-panel: var(--color-surface-panel);
   --bg-elevated: var(--color-surface-raised);
@@ -31,34 +42,38 @@
   --text-dim: var(--color-text-tertiary);
   --green: var(--color-accent-primary);
   --red: var(--color-status-danger);
+
+  /* Market identity colors */
+  --market-us-line: #5eb8ff;
+  --market-cn-line: #ff9f6b;
+  --market-hk-line: #ffd166;
+  --market-us-fill-top: rgba(94, 184, 255, 0.72);
+  --market-us-fill-bottom: rgba(94, 184, 255, 0.22);
+  --market-cn-fill-top: rgba(255, 159, 107, 0.68);
+  --market-cn-fill-bottom: rgba(255, 159, 107, 0.2);
+  --market-hk-fill-top: rgba(255, 209, 102, 0.68);
+  --market-hk-fill-bottom: rgba(255, 209, 102, 0.2);
+  --market-us-label: #7ec8ff;
+  --market-cn-label: #ffb088;
+  --market-hk-label: #ffe08a;
+
+  /* Market up/down/gain/loss colors */
   --market-up-bg: rgb(2 175 127 / 10%);
   --market-down-bg: rgb(187 41 52 / 10%);
   --market-up-bg-emphasis: rgb(2 175 127 / 12%);
   --market-down-bg-emphasis: rgb(187 41 52 / 12%);
   --market-up-fill-soft: rgb(2 175 127 / 28%);
   --market-down-fill-soft: rgb(187 41 52 / 28%);
-  /* Muted market identity — distinguish US/CN/HK without competing with green/red */
-  --market-us-line: #6ec0e4;
-  --market-cn-line: #96a8bc;
-  --market-hk-line: #708498;
-  --market-us-fill-top: rgba(110, 192, 228, 0.72);
-  --market-us-fill-bottom: rgba(110, 192, 228, 0.24);
-  --market-cn-fill-top: rgba(150, 168, 188, 0.58);
-  --market-cn-fill-bottom: rgba(150, 168, 188, 0.18);
-  --market-hk-fill-top: rgba(112, 132, 152, 0.62);
-  --market-hk-fill-bottom: rgba(112, 132, 152, 0.2);
-  --market-us-label: #8ec4de;
-  --market-cn-label: #96a8bc;
-  --market-hk-label: #788ea2;
-  --scrollbar-size: 10px;
-  --scrollbar-track: rgb(7 15 21 / 54%);
-  --scrollbar-track-hover: rgb(11 24 36 / 82%);
-  --scrollbar-thumb: rgb(100 116 139 / 52%);
-  --scrollbar-thumb-hover: rgb(2 175 127 / 62%);
-  --scrollbar-thumb-active: rgb(2 175 127 / 82%);
-  --scrollbar-corner: rgb(7 15 21 / 72%);
+
+  /* Temporary compatibility for cyan */
+  --cyan: var(--color-accent-float);
+  --cyan-dim: var(--color-accent-primary);
+
+  /* Font settings */
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+
+  /* Chart Date settings */
   --chart-date-color: var(--text-muted);
   --chart-date-color-active: var(--color-accent-primary);
   --chart-date-size: 10px;
@@ -66,54 +81,21 @@
   --chart-date-size-compact: 9px;
   --chart-date-weight: 500;
   --chart-date-weight-active: 600;
+
+  /* Scrollbars */
+  --scrollbar-size: 10px;
+  --scrollbar-track: rgb(7 15 21 / 54%);
+  --scrollbar-track-hover: rgb(11 24 36 / 82%);
+  --scrollbar-thumb: rgb(100 116 139 / 52%);
+  --scrollbar-thumb-hover: rgb(2 175 127 / 62%);
+  --scrollbar-thumb-active: rgb(2 175 127 / 82%);
+  --scrollbar-corner: rgb(7 15 21 / 72%);
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-}
-
-*::-webkit-scrollbar {
-  width: var(--scrollbar-size);
-  height: var(--scrollbar-size);
-}
-
-*::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 999px;
-}
-
-*::-webkit-scrollbar-track:hover {
-  background: var(--scrollbar-track-hover);
-}
-
-*::-webkit-scrollbar-thumb {
-  min-height: 36px;
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background: var(--scrollbar-thumb) padding-box;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background:
-    linear-gradient(180deg, var(--scrollbar-thumb-active), var(--scrollbar-thumb-hover))
-      padding-box,
-    transparent border-box;
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 10%),
-    0 0 10px rgb(2 175 127 / 10%);
-}
-
-*::-webkit-scrollbar-thumb:active {
-  background: var(--scrollbar-thumb-active) padding-box;
-}
-
-*::-webkit-scrollbar-corner {
-  background: var(--scrollbar-corner);
 }
 
 html,
@@ -129,7 +111,6 @@ body {
   font-family: var(--font-sans);
   background: var(--bg-deep);
   color: var(--text-primary);
-  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -164,12 +145,51 @@ button {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  background: linear-gradient(90deg, var(--text-primary), var(--color-accent-primary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-
-.app-header__logo { 
-  height: 32px;
+.app-header__logo {
   width: auto;
+  height: 32px;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size, 10px);
+  height: var(--scrollbar-size, 10px);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-track:hover {
+  background: var(--scrollbar-track-hover);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-corner);
 }

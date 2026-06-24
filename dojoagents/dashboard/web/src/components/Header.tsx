@@ -1,12 +1,13 @@
-import { AppTabBar } from "./AppTabBar";
-import { LanguageSwitcher } from "./LanguageSwitcher";
-import { TradingClockSwitcher } from "./TradingClockSwitcher";
-import { useTranslation } from "../hooks/useTranslation";
-import type { AppTab } from "../navigation/appTab";
-import "./AppTabBar.css";
-import "./Header.css";
-import "./LanguageSwitcher.css";
-import "./TradingClockSwitcher.css";
+import { AppTabBar } from './AppTabBar';
+import { LanguageSwitcher } from './LanguageSwitcher';
+import { TradingClockSwitcher } from './TradingClockSwitcher';
+import { useTranslation } from '../hooks/useTranslation';
+import type { AppTab } from '../navigation/appTab';
+import './AppTabBar.css';
+import './Header.css';
+import './LanguageSwitcher.css';
+import './TradingClockSwitcher.css';
+import Logo from '../assets/images/logo.png';
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -32,11 +33,7 @@ export function Header({
   return (
     <header className="app-header">
       <div className="app-header__brand">
-        <img
-          src="/logo.png"
-          className="app-header__logo"
-          alt="Alpha Dojo"
-        />
+        <img src={Logo} alt="Alpha Dojo" className="app-header__logo" />
       </div>
       <div className="app-header__center">
         <AppTabBar active={activeTab} onChange={onTabChange} />
@@ -76,16 +73,16 @@ export function Header({
           {!agentPinned ? (
             <button
               type="button"
-              className={`header-util__agent ${agentOpen ? "header-util__agent--active" : ""}`}
+              className={`header-util__agent ${agentOpen ? 'header-util__agent--active' : ''}`}
               aria-expanded={agentOpen}
               aria-controls="dojo-agent-panel"
-              aria-label={t("header.openAgent")}
+              aria-label={t('header.openAgent')}
               onClick={onAgentToggle}
             >
               <span className="header-util__agent-icon" aria-hidden>
                 ✦
               </span>
-              {t("header.agent")}
+              {t('header.agent')}
             </button>
           ) : null}
         </div>

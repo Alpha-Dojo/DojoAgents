@@ -222,15 +222,21 @@ def create_app(
             if hasattr(client, "preload_offline_data"):
                 import logging
 
-                logging.getLogger(__name__).info("Preloading DojoSDK offline data (stocks klines)...")
-                await client.preload_offline_data(["/api/qdata/v1/stock/kline"])
-                logging.getLogger(__name__).info("Preload complete.")
+                logger = logging.getLogger(__name__)
 
+                logger.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
+                await client.preload_offline_data()
+                logger.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
+
+            import logging
+
+            logging.getLogger(__name__).info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
             await registry.init_and_load_all(
                 client,
                 data_root=resolved_data_root,
                 preload=True,
             )
+            logging.getLogger(__name__).info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry

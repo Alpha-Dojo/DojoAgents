@@ -5,16 +5,16 @@ import { fetchCached, getCached } from '../cache/queryCache';
 import type { CoreTickerContext } from '../navigation/coreContext';
 import type { CoreTickerFinIndicatorsResponse } from '../types/dojoCore';
 
-const DEFAULT_LIMIT = 20;
+import { REVENUE_CHART_YOY_BASELINE_START } from '../utils/coreFinIndicators';
 
 interface CoreFinIndicatorsCache {
   data: CoreTickerFinIndicatorsResponse;
   loadedKey: string;
 }
 
-export function useCoreFinIndicators(ctx: CoreTickerContext | null, limit = DEFAULT_LIMIT) {
+export function useCoreFinIndicators(ctx: CoreTickerContext | null) {
   const cacheKey =
-    ctx?.ticker ? cacheKeys.coreTickerFinIndicators(ctx.market, ctx.ticker, limit) : null;
+    ctx?.ticker ? cacheKeys.coreTickerFinIndicators(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
   const [data, setData] = useState<CoreTickerFinIndicatorsResponse | null>(() => {
@@ -54,7 +54,7 @@ export function useCoreFinIndicators(ctx: CoreTickerContext | null, limit = DEFA
       fetchCoreTickerFinIndicators({
         ticker: ctx.ticker,
         market: ctx.market,
-        limit,
+        startDate: REVENUE_CHART_YOY_BASELINE_START,
       }).then((response) => ({
         data: response,
         loadedKey: `${response.market}:${response.ticker}`,
@@ -80,7 +80,7 @@ export function useCoreFinIndicators(ctx: CoreTickerContext | null, limit = DEFA
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, limit, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, cacheKey]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 

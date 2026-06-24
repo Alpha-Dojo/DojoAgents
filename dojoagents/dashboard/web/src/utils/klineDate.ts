@@ -83,6 +83,9 @@ export function findKlineIndexForDate(
   return best;
 }
 
+export const DATA_START_DATE = '2025-01-01';
+
+/** @deprecated Rolling 1Y window; charts now anchor at {@link DATA_START_DATE}. */
 export const KLINE_WINDOW_DAYS = 365;
 
 export function subtractCalendarDays(isoDate: string, days: number): string {
@@ -108,7 +111,7 @@ export function resolveKlineYearWindow(
   const end = resolveLatestKlineDate(kline);
   if (!end) return null;
   return {
-    start: subtractCalendarDays(end, KLINE_WINDOW_DAYS),
+    start: DATA_START_DATE,
     end,
   };
 }
@@ -116,11 +119,7 @@ export function resolveKlineYearWindow(
 export type KlineYearWindow = { start: string; end: string };
 
 /**
- * Per-market 1Y windows with a unified start anchored to the leading market's latest day.
- *
- * Example (BJT already on 2026-06-09 while US last close is 2026-06-08):
- * - anchor = 2026-06-09 → start = 2025-06-09 for all markets
- * - us end = 2026-06-08, sh/hk end = 2026-06-09
+ * Per-market chart windows with a unified start at local data inception.
  */
 export function resolveAlignedKlineYearWindowsByMarket(
   latestEndByMarket: Partial<Record<string, string>>,
@@ -128,13 +127,10 @@ export function resolveAlignedKlineYearWindowsByMarket(
   const ends = Object.values(latestEndByMarket).filter(Boolean) as string[];
   if (ends.length === 0) return {};
 
-  const anchorEnd = ends.reduce((max, day) => (day > max ? day : max), ends[0]);
-  const unifiedStart = subtractCalendarDays(anchorEnd, KLINE_WINDOW_DAYS);
-
   const windows: Partial<Record<string, KlineYearWindow>> = {};
   for (const [market, end] of Object.entries(latestEndByMarket)) {
     if (!end) continue;
-    windows[market] = { start: unifiedStart, end };
+    windows[market] = { start: DATA_START_DATE, end };
   }
   return windows;
 }

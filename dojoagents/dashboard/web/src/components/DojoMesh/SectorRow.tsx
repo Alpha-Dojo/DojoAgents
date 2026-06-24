@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
+import { fetchSectorConstituents } from '../../api/dojoSphere';
+import { mapConstituentToMember } from '../../api/adapters/transforms';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { SectorItem, SectorMemberItem } from '../../types/dojoMesh';
-import { formatMarketCap, formatStockPrice } from '../../utils/marketStats';
+import type { MarketCode, SectorItem, SectorMemberItem } from '../../types/dojoMesh';
+import { formatMarketCap, formatSignedPercent, formatStockPrice, normalizePercent } from '../../utils/marketStats';
 
 interface SectorRowProps {
+  market: MarketCode;
   sector: SectorItem;
   variant: 'gain' | 'loss';
+  lookbackDays?: number;
   selected?: boolean;
-  linked?: boolean;
   missing?: boolean;
   onSelect?: () => void;
   onJump?: () => void;
@@ -24,11 +27,21 @@ function sortMembers(
 ): SectorMemberItem[] {
   const factor = dir === 'asc' ? 1 : -1;
   return [...members].sort((a, b) => {
-    const av = key === 'cap' ? a.market_cap ?? 0 : a.change_percent;
-    const bv = key === 'cap' ? b.market_cap ?? 0 : b.change_percent;
+    const av = key === 'cap' ? a.market_cap ?? 0 : normalizePercent(a.change_percent);
+    const bv = key === 'cap' ? b.market_cap ?? 0 : normalizePercent(b.change_percent);
     if (av === bv) return a.ticker.localeCompare(b.ticker);
     return (av - bv) * factor;
   });
+}
+
+function fallbackMembers(sector: SectorItem): SectorMemberItem[] {
+  return sector.sample_tickers.map((ticker) => ({
+    ticker,
+    name: { zh: ticker, en: ticker },
+    last_price: undefined,
+    market_cap: undefined,
+    change_percent: normalizePercent(sector.change_percent),
+  }));
 }
 
 function SortIndicator({ active, dir }: { active: boolean; dir: MemberSortDir }) {
@@ -83,10 +96,11 @@ function JumpIcon() {
 }
 
 export function SectorRow({
+  market,
   sector,
   variant,
+  lookbackDays = 1,
   selected,
-  linked,
   missing,
   onSelect,
   onJump,
@@ -96,28 +110,92 @@ export function SectorRow({
   const [expanded, setExpanded] = useState(false);
   const [sortKey, setSortKey] = useState<MemberSortKey>('cap');
   const [sortDir, setSortDir] = useState<MemberSortDir>('desc');
-  const positive = sector.change_percent >= 0;
-  const sign = positive ? '+' : '';
+  const [loadedMembers, setLoadedMembers] = useState<SectorMemberItem[] | null>(null);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
+
+  const changePercent = normalizePercent(sector.change_percent);
   const sectorLabel = text(sector.name);
-  const members = sector.members?.length
-    ? sector.members
-    : sector.sample_tickers.map((ticker) => ({
-        ticker,
-        name: { zh: ticker, en: ticker },
-        last_price: undefined,
-        market_cap: undefined,
-        change_percent: sector.change_percent,
-      }));
-  const memberCount = sector.member_count ?? members.length;
+
+  const embeddedMembers = sector.members?.length ? sector.members : null;
+  const memberCount = sector.member_count ?? embeddedMembers?.length ?? sector.sample_tickers.length;
+
+  useEffect(() => {
+    setLoadedMembers(null);
+    setMembersError(null);
+    setSortKey('cap');
+    setSortDir('desc');
+  }, [sector.concept_code, lookbackDays]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    const hasEmbedded =
+      lookbackDays <= 1 &&
+      (embeddedMembers?.length ?? 0) >= memberCount &&
+      memberCount > 0;
+    if (hasEmbedded) {
+      setLoadedMembers(null);
+      return;
+    }
+
+    if (!sector.level1_id || !sector.level2_id || !sector.level3_id) {
+      return;
+    }
+
+    let cancelled = false;
+    setMembersLoading(true);
+    setMembersError(null);
+
+    fetchSectorConstituents({
+      level1Id: sector.level1_id,
+      level2Id: sector.level2_id,
+      level3Id: sector.level3_id,
+      market,
+      scope: 'L3',
+      days: lookbackDays,
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setLoadedMembers(
+          response.items.map((item) => mapConstituentToMember(item, { lookbackDays })),
+        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setMembersError(err instanceof Error ? err.message : t('sector.membersLoadFailed'));
+        setLoadedMembers(null);
+      })
+      .finally(() => {
+        if (!cancelled) setMembersLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    embeddedMembers?.length,
+    expanded,
+    lookbackDays,
+    market,
+    memberCount,
+    sector.level1_id,
+    sector.level2_id,
+    sector.level3_id,
+    t,
+  ]);
+
+  const members = useMemo(() => {
+    if (loadedMembers?.length) return loadedMembers;
+    if (embeddedMembers?.length) return embeddedMembers;
+    if (sector.sample_tickers.length) return fallbackMembers(sector);
+    return [];
+  }, [embeddedMembers, loadedMembers, sector]);
+
   const sortedMembers = useMemo(
     () => sortMembers(members, sortKey, sortDir),
     [members, sortKey, sortDir],
   );
-
-  useEffect(() => {
-    setSortKey('cap');
-    setSortDir('desc');
-  }, [sector.concept_code]);
 
   const toggleSort = (key: MemberSortKey) => {
     if (sortKey === key) {
@@ -132,7 +210,6 @@ export function SectorRow({
     'mesh-sector-row',
     `mesh-sector-row--${variant}`,
     selected ? 'mesh-sector-row--selected' : '',
-    linked ? 'mesh-sector-row--linked' : '',
     missing ? 'mesh-sector-row--missing' : '',
     expanded ? 'mesh-sector-row--expanded' : '',
   ]
@@ -146,10 +223,7 @@ export function SectorRow({
           <div className="mesh-sector-row__main mesh-sector-row__main--static">
             <div className="mesh-sector-row__body">
               <div className="mesh-sector-row__name-row">
-                <span className="mesh-sector-row__name">
-                  {linked ? <span className="mesh-sector-row__link-badge">{t('sector.link')}</span> : null}
-                  {sectorLabel}
-                </span>
+                <span className="mesh-sector-row__name">{sectorLabel}</span>
               </div>
               <span className="mesh-sector-row__missing-hint">{t('sector.noSectorInMarket')}</span>
             </div>
@@ -163,13 +237,9 @@ export function SectorRow({
           >
             <div className="mesh-sector-row__body">
               <div className="mesh-sector-row__name-row">
-                <span className="mesh-sector-row__name">
-                  {linked ? <span className="mesh-sector-row__link-badge">{t('sector.link')}</span> : null}
-                  {sectorLabel}
-                </span>
+                <span className="mesh-sector-row__name">{sectorLabel}</span>
                 <span className={`mesh-sector-row__chg mesh-sector-row__chg--${variant}`}>
-                  {sign}
-                  {sector.change_percent.toFixed(2)}%
+                  {formatSignedPercent(changePercent)}
                 </span>
               </div>
               {!expanded && sector.sample_tickers.length > 0 ? (
@@ -235,54 +305,66 @@ export function SectorRow({
                 title={t('sector.sortByChange')}
                 onClick={() => toggleSort('change')}
               >
-                {t('sector.change')}
+                {lookbackDays > 1
+                  ? t('sector.changeWithDays', { days: lookbackDays })
+                  : t('sector.change')}
                 <SortIndicator active={sortKey === 'change'} dir={sortDir} />
               </button>
             </div>
-            <ul className="mesh-sector-row__members-list">
-            {sortedMembers.map((m) => {
-              const up = m.change_percent >= 0;
-              const displayName = m.name ? text(m.name) : m.ticker;
-              const showBracketName = m.name && displayName !== m.ticker;
-              return (
-                <li key={m.ticker} className="mesh-sector-row__member">
-                  <div
-                    className="mesh-sector-row__member-col mesh-sector-row__member-col--id"
-                    title={m.name ? `${m.ticker} ${text(m.name)}` : m.ticker}
-                  >
-                    <span className="mesh-sector-row__member-label">
-                      <button
-                        type="button"
-                        className="mesh-sector-row__member-ticker mesh-sector-row__member-ticker--link"
-                        title={t('sector.jumpCore')}
-                        aria-label={`${t('sector.jumpCore')}: ${m.ticker}`}
-                        onClick={() => onTickerClick?.(m, sector)}
+            {membersLoading ? (
+              <p className="mesh-sector-row__members-status">{t('sector.loadingMembers')}</p>
+            ) : membersError ? (
+              <p className="mesh-sector-row__members-status mesh-sector-row__members-status--error">
+                {membersError}
+              </p>
+            ) : sortedMembers.length === 0 ? (
+              <p className="mesh-sector-row__members-status">{t('sector.emptyMembers')}</p>
+            ) : (
+              <ul className="mesh-sector-row__members-list">
+                {sortedMembers.map((m) => {
+                  const memberChange = normalizePercent(m.change_percent);
+                  const up = memberChange >= 0;
+                  const displayName = m.name ? text(m.name) : m.ticker;
+                  const showBracketName = m.name && displayName !== m.ticker;
+                  return (
+                    <li key={m.ticker} className="mesh-sector-row__member">
+                      <div
+                        className="mesh-sector-row__member-col mesh-sector-row__member-col--id"
+                        title={m.name ? `${m.ticker} ${text(m.name)}` : m.ticker}
                       >
-                        {m.ticker}
-                      </button>
-                      {showBracketName ? (
-                        <span className="mesh-sector-row__member-name">[{displayName}]</span>
-                      ) : null}
-                    </span>
-                  </div>
-                    <span className="mesh-sector-row__member-col mesh-sector-row__member-col--price">
-                      {formatStockPrice(m.last_price)}
-                    </span>
-                    <span className="mesh-sector-row__member-col mesh-sector-row__member-col--cap">
-                      {m.market_cap != null && m.market_cap > 0
-                        ? formatMarketCap(m.market_cap)
-                        : '—'}
-                    </span>
-                    <span
-                      className={`mesh-sector-row__member-col mesh-sector-row__member-col--chg mesh-sector-row__member-chg ${up ? 'mesh-sector-row__member-chg--up' : 'mesh-sector-row__member-chg--down'}`}
-                    >
-                      {up ? '+' : ''}
-                      {m.change_percent.toFixed(2)}%
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                        <span className="mesh-sector-row__member-label">
+                          <button
+                            type="button"
+                            className="mesh-sector-row__member-ticker mesh-sector-row__member-ticker--link"
+                            title={t('sector.jumpCore')}
+                            aria-label={`${t('sector.jumpCore')}: ${m.ticker}`}
+                            onClick={() => onTickerClick?.(m, sector)}
+                          >
+                            {m.ticker}
+                          </button>
+                          {showBracketName ? (
+                            <span className="mesh-sector-row__member-name">[{displayName}]</span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <span className="mesh-sector-row__member-col mesh-sector-row__member-col--price">
+                        {formatStockPrice(m.last_price)}
+                      </span>
+                      <span className="mesh-sector-row__member-col mesh-sector-row__member-col--cap">
+                        {m.market_cap != null && m.market_cap > 0
+                          ? formatMarketCap(m.market_cap)
+                          : '—'}
+                      </span>
+                      <span
+                        className={`mesh-sector-row__member-col mesh-sector-row__member-col--chg mesh-sector-row__member-chg ${up ? 'mesh-sector-row__member-chg--up' : 'mesh-sector-row__member-chg--down'}`}
+                      >
+                        {formatSignedPercent(memberChange)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </div>
       ) : null}

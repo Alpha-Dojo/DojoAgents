@@ -30,7 +30,7 @@ const MIN_WINDOW = 16;
 const MIN_PLOT_H = 80;
 const MIN_PLOT_W = 180;
 
-const SECTOR_PE_MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+const SECTOR_PE_MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 const SECTOR_PE_LEVELS: SectorLevelKey[] = ['L3', 'L2', 'L1'];
 
 interface CorePeBandChartProps {

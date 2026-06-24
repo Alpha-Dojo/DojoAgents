@@ -112,18 +112,50 @@ class GlobalStores:
 
     @classmethod
     async def preload(cls, store_names: list[str] | None = None) -> list[Exception]:
+        from typing import Any
+
+        try:
+            from tqdm.asyncio import tqdm
+        except ImportError:
+            tqdm = None
+
         logger.info("Initializing and preloading store data...")
         phases = [store_names] if store_names is not None else PRELOAD_PHASES
         errors: list[Exception] = []
-        for phase in phases:
+        for phase_idx, phase in enumerate(phases, 1):
             tasks = []
+
+            async def _load_store(name: str, inst: Any) -> Any:
+                logger.info(f"开始加载 Store: {name} ...")
+                try:
+                    await inst.load()
+                    logger.info(f"Store {name} 加载完成。")
+                except Exception as e:
+                    logger.error(f"Store {name} 加载失败: {e}")
+                    raise
+
             for store_name in phase:
                 store_inst = getattr(cls, store_name)
                 if hasattr(store_inst, "load") and callable(store_inst.load):
-                    tasks.append(store_inst.load())
+                    tasks.append(_load_store(store_name, store_inst))
             if not tasks:
                 continue
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            if tqdm is not None:
+                pbar = tqdm(total=len(tasks), desc=f"Store Preload Phase {phase_idx}")
+
+                async def _wrap_task(task):
+                    try:
+                        return await task
+                    finally:
+                        pbar.update(1)
+
+                wrapped_tasks = [_wrap_task(t) for t in tasks]
+                results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+                pbar.close()
+            else:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
             for res in results:
                 if isinstance(res, Exception):
                     errors.append(res)

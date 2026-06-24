@@ -10,7 +10,9 @@ export function AgentMarkdown({ content, streaming = false }: AgentMarkdownProps
   if (!content.trim()) return null;
 
   return (
-    <div className={`dojo-agent-md ${streaming ? 'dojo-agent-md--streaming' : ''}`}>
+    <div
+      className={`dojo-agent-md ${streaming ? 'dojo-agent-md--streaming' : ''}`}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );

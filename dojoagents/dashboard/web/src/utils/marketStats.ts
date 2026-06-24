@@ -17,7 +17,7 @@ export interface MarketStats {
 
 export const MARKET_CAP_LABEL: Record<MarketCode, string> = {
   us: '市值(美元)',
-  sh: '市值(人民币)',
+  cn: '市值(人民币)',
   hk: '市值(港元)',
 };
 
@@ -101,4 +101,15 @@ export function formatStockPrice(value: number | null | undefined): string {
   if (value >= 1000) return value.toFixed(2);
   if (value >= 1) return value.toFixed(2);
   return value.toFixed(4);
+}
+
+export function formatSignedPercent(value: number | null | undefined, digits = 2): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(digits)}%`;
+}
+
+export function normalizePercent(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value)) return 0;
+  return value;
 }

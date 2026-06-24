@@ -82,17 +82,6 @@ class DojoSDKToolManager:
                 handler=self.get_ticker_handler,
             ),
             ToolSpec(
-                name="dojo.sdk.get_news",
-                description="Retrieve general financial news and event streams.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Max news items", "default": 10},
-                    },
-                },
-                handler=self.get_news_handler,
-            ),
-            ToolSpec(
                 name="dojo.sdk.get_stock_quote",
                 description="Retrieve current quote pricing (price, volume, etc.) for a list of stock symbols.",
                 parameters={
@@ -163,12 +152,6 @@ class DojoSDKToolManager:
             exchange=args["exchange"],
             bz_type=args["bz_type"],
             symbol=args["symbol"],
-        )
-        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
-
-    async def get_news_handler(self, args: dict[str, Any]) -> dict[str, Any]:
-        res = await self.client.news.get_news(
-            limit=args.get("limit", 10),
         )
         return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
