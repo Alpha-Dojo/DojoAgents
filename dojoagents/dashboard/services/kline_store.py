@@ -178,9 +178,8 @@ class KlineStore:
                     kwargs["price_adj_type"] = price_adj_type
 
                 result = await self.gateway.stock_klines(market_code, [symbol], **kwargs)
-                incoming = [row for row in result.data if isinstance(row, dict)]
-                if incoming:
-                    df_incoming = pd.DataFrame(incoming)
+                df_incoming = result.data
+                if not df_incoming.empty:
                     df_incoming["symbol"] = symbol
                     self._in_memory_updates[symbol] = pd.concat([self._in_memory_updates.get(symbol, pd.DataFrame()), df_incoming], ignore_index=True)
                     df = pd.concat([df, df_incoming], ignore_index=True)
@@ -241,11 +240,9 @@ class KlineStore:
                 if self.gateway.all_klines_calls[-1] == {"symbols": None}:
                     self.gateway.all_klines_calls[-1] = {}
 
-            rows = [row for row in result.data if isinstance(row, dict)]
-            if not rows:
+            df = result.data
+            if df.empty:
                 return
-
-            df = pd.DataFrame(rows)
             df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
             df = df[df["symbol"] != ""]
 
@@ -314,12 +311,10 @@ class KlineStore:
                         res = await self.gateway.stock_all_klines(symbols=syms)
                     else:
                         res = await self.gateway.stock_klines(m, syms, limit=limit)
-
-                    incoming = [row for row in res.data if isinstance(row, dict)]
-                    if incoming:
-                        df_in = pd.DataFrame(incoming)
-                        df_in["symbol"] = df_in["symbol"].str.strip().str.upper()
-                        for sym, group in df_in.groupby("symbol"):
+                    df_incoming = res.data
+                    if not df_incoming.empty:
+                        df_incoming["symbol"] = df_incoming["symbol"].astype(str).str.strip().str.upper()
+                        for sym, group in df_incoming.groupby("symbol"):
                             self._in_memory_updates[sym] = pd.concat([self._in_memory_updates.get(sym, pd.DataFrame()), group], ignore_index=True)
                 except Exception as e:
                     LOGGER.info(f"Failed to fetch batch klines for market {m}: {e}")

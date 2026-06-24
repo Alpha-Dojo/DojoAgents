@@ -78,18 +78,22 @@ def test_in_memory_stock_and_sector_getters_are_synchronous() -> None:
 
 @pytest.mark.asyncio
 async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
+    import pandas as pd
+
     client = FakeDojo(
         stocks={
-            "get_all_klines": [
-                {
-                    "symbol": "AAPL",
-                    "bar_time": "2026-06-20",
-                    "open": 99,
-                    "high": 101,
-                    "low": 98,
-                    "close": 100,
-                }
-            ]
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {
+                        "symbol": "AAPL",
+                        "bar_time": "2026-06-20",
+                        "open": 99,
+                        "high": 101,
+                        "low": 98,
+                        "close": 100,
+                    }
+                ]
+            )
         }
     )
     store = KlineStore(client, StockStore(client), StockSectorStore(client))
@@ -100,32 +104,36 @@ async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
     assert response.symbol == "AAPL"
     assert response.bars[0].close == 100
     assert store.load_all("AAPL")[0]["bar_time"] == "2026-06-20"
-    assert client.stocks.calls == [("get_all_klines", {"symbols": ["AAPL"]})]
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
 
 
 @pytest.mark.asyncio
 async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
-    def rows(symbols: list, **_: object) -> dict:
-        return [
-            {
-                "symbol": symbol,
-                "bar_time": "2026-06-20",
-                "open": 1,
-                "high": 2,
-                "low": 1,
-                "close": 2,
-            }
-            for symbol in symbols
-        ]
+    import pandas as pd
 
-    client = FakeDojo(stocks={"get_all_klines": rows})
+    def rows() -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "symbol": symbol,
+                    "bar_time": "2026-06-20",
+                    "open": 1,
+                    "high": 2,
+                    "low": 1,
+                    "close": 2,
+                }
+                for symbol in ["AAPL", "MSFT"]
+            ]
+        )
+
+    client = FakeDojo(stocks={"get_all_klines_with_df": rows})
     store = KlineStore(client, StockStore(client), StockSectorStore(client))
 
     result = await store.get_klines(["AAPL", "MSFT"], limit=15)
 
     assert set(result.items) == {"AAPL", "MSFT"}
     assert client.stocks.calls == [
-        ("get_all_klines", {"symbols": ["AAPL", "MSFT"]}),
+        ("get_all_klines_with_df", {}),
     ]
 
 

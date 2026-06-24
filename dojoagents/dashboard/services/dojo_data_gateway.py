@@ -1,10 +1,9 @@
 from __future__ import annotations
-
 import asyncio
 import inspect
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
-
+import pandas as pd
 import httpx
 
 from dojoagents.dashboard.schemas.freshness import DataSource
@@ -102,6 +101,12 @@ def _list_result(payload: Any, operation: str, *keys: str) -> GatewayResult[list
     return GatewayResult(_map_market_back(normalized), as_of, source, stale)
 
 
+def _df_result(df: "pd.DataFrame") -> GatewayResult["pd.DataFrame"]:
+    if not df.empty and "market" in df.columns:
+        df["market"] = df["market"].replace({"cn": "sh", "zh": "sh"})
+    return GatewayResult(df, None, "sdk_snapshot", False)
+
+
 class DojoDataGateway:
     def __init__(self, client: Any) -> None:
         self.client = client
@@ -149,20 +154,17 @@ class DojoDataGateway:
         market: str,
         symbols: list[str],
         **window: Any,
-    ) -> GatewayResult[list[dict[str, Any]]]:
+    ) -> GatewayResult["pd.DataFrame"]:
         del market
-        rows: list[dict[str, Any]] = []
-        latest_as_of: str | None = None
-        combined_source: DataSource = "sdk_online"
-        stale = False
         kwargs = {key: value for key, value in window.items() if value is not None}
         try:
-            payload = await self._call(
+            payload_df = await self._call(
                 "stock_klines",
-                self.client.stocks.get_all_klines(symbols=[_canonical_symbol(s) for s in symbols]),
+                self.client.stocks.get_all_klines_with_df(),
             )
-            result = _list_result(payload, "stock_klines", "klines")
-            return result
+            canonical_symbols = [_canonical_symbol(s) for s in symbols]
+            df = payload_df[payload_df["symbol"].isin(canonical_symbols)].copy()
+            return _df_result(df)
         except Exception:
             pass
 
@@ -174,21 +176,32 @@ class DojoDataGateway:
             return _list_result(payload, "stock_klines", "klines")
 
         results = await asyncio.gather(*(fetch_one(s) for s in symbols), return_exceptions=True)
+        rows: list[dict[str, Any]] = []
         for res in results:
             if isinstance(res, Exception):
                 continue
             rows.extend(res.data)
-            latest_as_of = max(filter(None, (latest_as_of, res.as_of)), default=None)
-            if res.source == "sdk_snapshot":
-                combined_source = "sdk_snapshot"
-            stale = stale or res.stale
-        return GatewayResult(rows, latest_as_of, combined_source, stale)
+        return _df_result(pd.DataFrame(rows))
 
     async def stock_all_klines(
         self,
         *,
         symbols: list[str] | None = None,
-    ) -> GatewayResult[list[dict[str, Any]]]:
+    ) -> GatewayResult["pd.DataFrame"]:
+        try:
+            import pandas as pd
+
+            payload_df = await self._call(
+                "stock_all_klines",
+                self.client.stocks.get_all_klines_with_df(),
+            )
+            if symbols is not None:
+                canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
+                payload_df = payload_df[payload_df["symbol"].isin(canonical_symbols)].copy()
+            return _df_result(payload_df)
+        except Exception:
+            pass
+
         kwargs: dict[str, Any] = {}
         if symbols is not None:
             kwargs["symbols"] = [_canonical_symbol(symbol) for symbol in symbols]
@@ -196,7 +209,9 @@ class DojoDataGateway:
             "stock_all_klines",
             self.client.stocks.get_all_klines(**kwargs),
         )
-        return _list_result(payload, "stock_all_klines", "klines")
+        res = _list_result(payload, "stock_all_klines", "klines")
+
+        return GatewayResult(pd.DataFrame(res.data), res.as_of, res.source, res.stale)
 
     async def stock_events(
         self,
