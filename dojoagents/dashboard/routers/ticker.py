@@ -19,10 +19,15 @@ from dojoagents.dashboard.services.domain_api import (
 )
 from dojoagents.dashboard.services.domain_utils import validate_date_range
 
-router = APIRouter(prefix="/ticker", tags=["ticker"])
+router = APIRouter(prefix="/ticker", tags=["ticker-scan"])
 
 
-@router.get("/quote", response_model=TickerQuoteResponseV1)
+@router.get(
+    "/quote",
+    response_model=TickerQuoteResponseV1,
+    operation_id="get_ticker_realtime_quote",
+    summary="Latest quote, valuation, and L1-L2-L3 sector paths",
+)
 async def ticker_quote(
     ticker: str = Query(..., min_length=1),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
@@ -34,7 +39,12 @@ async def ticker_quote(
     return response
 
 
-@router.get("/financials", response_model=TickerFinancialsResponseV1)
+@router.get(
+    "/financials",
+    response_model=TickerFinancialsResponseV1,
+    operation_id="get_ticker_financials",
+    summary="Financial indicators and revenue breakdown by business/region",
+)
 async def ticker_financials(
     ticker: str = Query(..., min_length=1),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
@@ -62,7 +72,12 @@ async def ticker_financials(
     return response
 
 
-@router.get("/news-events", response_model=TickerNewsEventsResponseV1)
+@router.get(
+    "/news-events",
+    response_model=TickerNewsEventsResponseV1,
+    operation_id="get_ticker_news_and_events",
+    summary="Recent news, ratings, and corporate events",
+)
 async def ticker_news_events(
     ticker: str = Query(..., min_length=1),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
@@ -88,7 +103,12 @@ async def ticker_news_events(
     return response
 
 
-@router.get("/price-trends", response_model=TickerPriceTrendsResponseV1)
+@router.get(
+    "/price-trends",
+    response_model=TickerPriceTrendsResponseV1,
+    operation_id="get_ticker_price_trends",
+    summary="Historical OHLCV bars and trailing P/E band",
+)
 async def ticker_price_trends(
     ticker: str = Query(..., min_length=1),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),

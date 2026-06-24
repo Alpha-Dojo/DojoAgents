@@ -1,16 +1,5 @@
 import { fetchJson } from './http';
-import {
-  fetchMockCoreTickerEvents,
-  fetchMockCoreTickerFinIndicators,
-  fetchMockCoreTickerIncome,
-  fetchMockCoreTickerKline,
-  fetchMockCoreTickerNews,
-  fetchMockCoreTickerPeBand,
-  fetchMockCoreTickerQuote,
-  fetchMockCoreTickerSearch,
-  fetchMockCoreTickerSector,
-  USE_INTERACTIVE_MOCKS,
-} from '../mocks/interactiveMockData';
+import { dedupeFetch } from './adapters/cache';
 import type { MarketCode } from '../types/dojoMesh';
 import type {
   CorePeBandPoint,
@@ -29,8 +18,15 @@ import type {
   StockNewsRow,
 } from '../types/dojoCore';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
+import { REVENUE_CHART_YOY_BASELINE_START } from '../utils/coreFinIndicators';
 
 const API_PREFIX = '/api/v1';
+
+const INCOME_DIMENSION_TO_MAINOP: Record<string, CoreIncomeMainopType> = {
+  industry: '1',
+  product: '2',
+  region: '3',
+};
 
 export interface CoreTickerSectorResponse {
   ticker: string;
@@ -70,32 +66,168 @@ function mapSectorOption(raw: {
   };
 }
 
+function mapSectorOptionFromQuotePath(raw: {
+  role: 'primary' | 'secondary';
+  level1_id: string;
+  level2_id: string;
+  level3_id: string;
+  labels: Record<string, { zh: string; en: string }>;
+}): CoreSectorOption {
+  return {
+    role: raw.role,
+    level1Id: raw.level1_id,
+    level2Id: raw.level2_id,
+    level3Id: raw.level3_id,
+    label: {
+      level1: raw.labels.L1 ?? raw.labels.level_1 ?? { zh: '', en: '' },
+      level2: raw.labels.L2 ?? raw.labels.level_2 ?? { zh: '', en: '' },
+      level3: raw.labels.L3 ?? raw.labels.level_3 ?? { zh: '', en: '' },
+    },
+  };
+}
+
+interface TickerFinancialsBundle {
+  ticker: string;
+  market: MarketCode;
+  report_type: string | null;
+  as_of: string | null;
+  indicators: Record<string, unknown>[];
+  income_distributions: Array<{
+    dimension: string;
+    report_date: string | null;
+    items: Record<string, unknown>[];
+  }>;
+}
+
+interface TickerNewsEventsBundle {
+  ticker: string;
+  market: MarketCode;
+  news: Array<{
+    title: string;
+    summary: string;
+    published_at: string | null;
+    source: string | null;
+    url: string | null;
+  }>;
+  events: Array<{
+    event_type: string;
+    title: string;
+    event_date: string | null;
+    description: string;
+  }>;
+}
+
+interface TickerPriceTrendsBundle {
+  ticker: string;
+  market: MarketCode;
+  interval: string;
+  as_of: string | null;
+  klines: Array<{
+    datetime: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume?: number | null;
+  }>;
+  pe_band: CorePeBandPoint[];
+}
+
+function financialsKey(
+  ticker: string,
+  market?: MarketCode,
+  startDate?: string,
+  endDate?: string,
+) {
+  return `fin:v2:${market ?? ''}:${ticker}:${startDate ?? ''}:${endDate ?? ''}`;
+}
+
+function newsEventsKey(ticker: string, market?: MarketCode, pageSize?: number) {
+  return `news:${market ?? ''}:${ticker}:${pageSize ?? 20}`;
+}
+
+function priceTrendsKey(
+  ticker: string,
+  market?: MarketCode,
+  startDate?: string,
+  endDate?: string,
+) {
+  return `price:v2:${market ?? ''}:${ticker}:${startDate ?? ''}:${endDate ?? ''}`;
+}
+
+function fetchFinancialsBundle(params: {
+  ticker: string;
+  market?: MarketCode;
+  limit?: number;
+  start_date?: string;
+  end_date?: string;
+}): Promise<TickerFinancialsBundle> {
+  const query = new URLSearchParams({ ticker: params.ticker });
+  if (params.market) query.set('market', params.market);
+  if (params.start_date) query.set('start_date', params.start_date);
+  if (params.end_date) query.set('end_date', params.end_date);
+  if (params.limit != null && !params.start_date) query.set('limit', String(params.limit));
+  return dedupeFetch(
+    financialsKey(params.ticker, params.market, params.start_date, params.end_date),
+    () => fetchJson<TickerFinancialsBundle>(`${API_PREFIX}/ticker/financials?${query}`),
+  );
+}
+
+function fetchNewsEventsBundle(params: {
+  ticker: string;
+  market?: MarketCode;
+  page_size?: number;
+}): Promise<TickerNewsEventsBundle> {
+  const query = new URLSearchParams({ ticker: params.ticker });
+  if (params.market) query.set('market', params.market);
+  if (params.page_size != null) query.set('page_size', String(params.page_size));
+  return dedupeFetch(newsEventsKey(params.ticker, params.market, params.page_size), () =>
+    fetchJson<TickerNewsEventsBundle>(`${API_PREFIX}/ticker/news-events?${query}`),
+  );
+}
+
+function fetchPriceTrendsBundle(params: {
+  ticker: string;
+  market?: MarketCode;
+  start_date?: string;
+  end_date?: string;
+  limit?: number;
+}): Promise<TickerPriceTrendsBundle> {
+  const query = new URLSearchParams({ ticker: params.ticker });
+  if (params.market) query.set('market', params.market);
+  if (params.start_date && params.end_date) {
+    query.set('start_date', params.start_date);
+    query.set('end_date', params.end_date);
+  } else if (params.limit != null) {
+    query.set('limit', String(params.limit));
+  }
+  return dedupeFetch(
+    priceTrendsKey(params.ticker, params.market, params.start_date, params.end_date),
+    () => fetchJson<TickerPriceTrendsBundle>(`${API_PREFIX}/ticker/price-trends?${query}`),
+  );
+}
+
 export async function fetchCoreTickerSector(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerSectorResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerSector(params);
   const query = new URLSearchParams({ ticker: params.ticker });
   if (params.market) query.set('market', params.market);
   const raw = await fetchJson<{
     ticker: string;
     market: MarketCode;
-    sector_options: Array<{
+    sector_paths: Array<{
       role: 'primary' | 'secondary';
       level1_id: string;
       level2_id: string;
       level3_id: string;
-      label: {
-        level_1: { zh: string; en: string };
-        level_2: { zh: string; en: string };
-        level_3: { zh: string; en: string };
-      };
+      labels: Record<string, { zh: string; en: string }>;
     }>;
-  }>(`${API_PREFIX}/dojo-core/ticker/sector?${query}`);
+  }>(`${API_PREFIX}/ticker/quote?${query}`);
   return {
     ticker: raw.ticker,
     market: raw.market,
-    sector_options: raw.sector_options.map(mapSectorOption),
+    sector_options: raw.sector_paths.map(mapSectorOptionFromQuotePath),
   };
 }
 
@@ -105,12 +237,9 @@ export async function fetchCoreTickerSearch(params: {
   selection?: SectorPathSelection | null;
   limit?: number;
 }): Promise<CoreTickerSearchItem[]> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerSearch(params);
+  void params.selection;
   const query = new URLSearchParams({ q: params.q });
   if (params.market) query.set('market', params.market);
-  if (params.selection?.level1Id) query.set('level1_id', params.selection.level1Id);
-  if (params.selection?.level2Id) query.set('level2_id', params.selection.level2Id);
-  if (params.selection?.level3Id) query.set('level3_id', params.selection.level3Id);
   if (params.limit != null) query.set('limit', String(params.limit));
   const raw = await fetchJson<{
     query: string;
@@ -120,7 +249,7 @@ export async function fetchCoreTickerSearch(params: {
       name: { zh: string; en: string };
       market_cap: number;
     }>;
-  }>(`${API_PREFIX}/dojo-core/tickers/search?${query}`);
+  }>(`${API_PREFIX}/utility/search/company-ticker?${query}`);
   return raw.items.map((item) => ({
     ticker: item.ticker,
     market: item.market,
@@ -134,6 +263,16 @@ function optionalNumber(raw: Record<string, unknown>, key: string): number | nul
   return value != null ? Number(value) : null;
 }
 
+function optionalNumberFirst(raw: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = raw[key];
+    if (value == null || value === '') continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function mapFinIndicatorRow(raw: Record<string, unknown>): StockFinIndicatorRow {
   return {
     symbol: String(raw.symbol ?? ''),
@@ -145,10 +284,10 @@ function mapFinIndicatorRow(raw: Record<string, unknown>): StockFinIndicatorRow 
     total_operating_revenue: optionalNumber(raw, 'total_operating_revenue'),
     total_operating_rev_yoy: optionalNumber(raw, 'total_operating_rev_yoy'),
     net_profit_attr_parent: optionalNumber(raw, 'net_profit_attr_parent'),
-    gross_margin: optionalNumber(raw, 'gross_margin'),
-    net_margin: optionalNumber(raw, 'net_margin'),
-    roe_weighted: optionalNumber(raw, 'roe_weighted'),
-    roa: optionalNumber(raw, 'roa'),
+    gross_margin: optionalNumberFirst(raw, 'gross_margin', 'gross_profit_ratio'),
+    net_margin: optionalNumberFirst(raw, 'net_margin', 'net_profit_ratio'),
+    roe_weighted: optionalNumberFirst(raw, 'roe_weighted', 'roe_diluted', 'roe'),
+    roa: optionalNumberFirst(raw, 'roa', 'jroa'),
     eps_basic: optionalNumber(raw, 'eps_basic'),
     eps_ttm: optionalNumber(raw, 'eps_ttm'),
     pe_ttm: optionalNumber(raw, 'pe_ttm'),
@@ -158,56 +297,59 @@ function mapFinIndicatorRow(raw: Record<string, unknown>): StockFinIndicatorRow 
     divi_ratio: optionalNumber(raw, 'divi_ratio'),
     total_market_cap: optionalNumber(raw, 'total_market_cap'),
     hksk_market_cap: optionalNumber(raw, 'hksk_market_cap'),
+    calendar_year: optionalNumber(raw, 'calendar_year'),
+    calendar_quarter: optionalNumber(raw, 'calendar_quarter'),
+    calendar_period_label:
+      raw.calendar_period_label != null ? String(raw.calendar_period_label) : null,
+    calendar_period_index: optionalNumber(raw, 'calendar_period_index'),
   };
 }
 
 export async function fetchCoreTickerFinIndicators(params: {
   ticker: string;
   market?: MarketCode;
-  limit?: number;
+  startDate?: string;
+  endDate?: string;
 }): Promise<CoreTickerFinIndicatorsResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerFinIndicators(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  if (params.limit != null) query.set('limit', String(params.limit));
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    report_type: string;
-    as_of: string | null;
-    source: 'local' | 'remote';
-    items: Record<string, unknown>[];
-  }>(`${API_PREFIX}/dojo-core/ticker/fin-indicators?${query}`);
+  const endDate = params.endDate ?? new Date().toISOString().slice(0, 10);
+  const startDate = params.startDate ?? REVENUE_CHART_YOY_BASELINE_START;
+  const raw = await fetchFinancialsBundle({
+    ticker: params.ticker,
+    market: params.market,
+    start_date: startDate,
+    end_date: endDate,
+  });
   return {
     ticker: raw.ticker,
     market: raw.market,
-    report_type: raw.report_type,
+    report_type: raw.report_type ?? '',
     as_of: raw.as_of,
-    source: raw.source,
-    items: raw.items.map(mapFinIndicatorRow),
+    source: 'local',
+    items: raw.indicators.map(mapFinIndicatorRow),
   };
 }
 
-function mapStockEventRow(raw: Record<string, unknown>): StockEventRow {
-  const optionalString = (key: string): string | null => {
-    const value = raw[key];
-    return value != null ? String(value) : null;
-  };
+function mapStockEventRow(raw: {
+  event_type: string;
+  title: string;
+  event_date: string | null;
+  description: string;
+}): StockEventRow {
   return {
-    id: optionalString('id'),
-    symbol: optionalString('symbol'),
-    event_date: optionalString('event_date'),
-    remind_date: optionalString('remind_date'),
-    notice_date: optionalString('notice_date'),
-    event_type: optionalString('event_type'),
-    specific_eventtype: optionalString('specific_eventtype'),
-    type_name: optionalString('type_name'),
-    event_type_name: optionalString('event_type_name'),
-    level1_content: optionalString('level1_content'),
-    level2_content: optionalString('level2_content'),
-    title: optionalString('title'),
-    content: optionalString('content'),
-    event_content: optionalString('event_content'),
+    id: null,
+    symbol: null,
+    event_date: raw.event_date,
+    remind_date: null,
+    notice_date: raw.event_date,
+    event_type: raw.event_type,
+    specific_eventtype: raw.title || null,
+    type_name: raw.event_type || null,
+    event_type_name: raw.event_type || null,
+    level1_content: raw.description || null,
+    level2_content: null,
+    title: raw.title,
+    content: raw.description,
+    event_content: raw.description,
   };
 }
 
@@ -216,38 +358,30 @@ export async function fetchCoreTickerEvents(params: {
   market?: MarketCode;
   page_size?: number;
 }): Promise<CoreTickerEventsResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerEvents(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  if (params.page_size != null) query.set('page_size', String(params.page_size));
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    as_of: string | null;
-    source: 'local' | 'remote';
-    items: Record<string, unknown>[];
-  }>(`${API_PREFIX}/dojo-core/ticker/events?${query}`);
+  const raw = await fetchNewsEventsBundle(params);
   return {
     ticker: raw.ticker,
     market: raw.market,
-    as_of: raw.as_of,
-    source: raw.source,
-    items: raw.items.map(mapStockEventRow),
+    as_of: null,
+    source: 'local',
+    items: raw.events.map(mapStockEventRow),
   };
 }
 
-function mapStockNewsRow(raw: Record<string, unknown>): StockNewsRow {
-  const optionalString = (key: string): string | null => {
-    const value = raw[key];
-    return value != null ? String(value) : null;
-  };
+function mapStockNewsRow(raw: {
+  title: string;
+  summary: string;
+  published_at: string | null;
+  source: string | null;
+  url: string | null;
+}): StockNewsRow {
   return {
-    id: optionalString('id'),
-    publish_date: optionalString('publish_date'),
-    title: optionalString('title'),
-    url: optionalString('url'),
-    description: optionalString('description'),
-    source: optionalString('source'),
+    id: null,
+    publish_date: raw.published_at,
+    title: raw.title,
+    url: raw.url,
+    description: raw.summary,
+    source: raw.source,
   };
 }
 
@@ -256,23 +390,13 @@ export async function fetchCoreTickerNews(params: {
   market?: MarketCode;
   page_size?: number;
 }): Promise<CoreTickerNewsResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerNews(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  if (params.page_size != null) query.set('page_size', String(params.page_size));
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    as_of: string | null;
-    source: 'local' | 'remote';
-    items: Record<string, unknown>[];
-  }>(`${API_PREFIX}/dojo-core/ticker/news?${query}`);
+  const raw = await fetchNewsEventsBundle(params);
   return {
     ticker: raw.ticker,
     market: raw.market,
-    as_of: raw.as_of,
-    source: raw.source,
-    items: raw.items.map(mapStockNewsRow),
+    as_of: null,
+    source: 'local',
+    items: raw.news.map(mapStockNewsRow),
   };
 }
 
@@ -297,6 +421,7 @@ export interface CoreTickerKlineResponse {
 export interface CoreTickerQuoteResponse {
   ticker: string;
   market: MarketCode;
+  name?: { zh: string; en: string };
   currency?: string | null;
   last_price: number;
   change: number;
@@ -313,6 +438,7 @@ export interface CoreTickerQuoteResponse {
   forward_pe?: number | null;
   pb: number;
   turn_rate: number;
+  dividend_yield?: number | null;
   exchange_name?: string | null;
   industry?: string | null;
   sector?: string | null;
@@ -323,57 +449,9 @@ export async function fetchCoreTickerQuote(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerQuoteResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerQuote(params);
   const query = new URLSearchParams({ ticker: params.ticker });
   if (params.market) query.set('market', params.market);
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    currency?: string | null;
-    last_price: number;
-    change: number;
-    change_percent: number;
-    pre_close: number;
-    open: number;
-    high: number;
-    low: number;
-    volume: number;
-    amount?: number | null;
-    total_shares?: number | null;
-    market_cap: number;
-    pe: number;
-    forward_pe?: number | null;
-    pb: number;
-    turn_rate: number;
-    exchange_name?: string | null;
-    industry?: string | null;
-    sector?: string | null;
-    country?: string | null;
-  }>(`${API_PREFIX}/dojo-core/ticker/quote?${query}`);
-  return {
-    ticker: raw.ticker,
-    market: raw.market,
-    currency: raw.currency,
-    last_price: raw.last_price,
-    change: raw.change,
-    change_percent: raw.change_percent,
-    pre_close: raw.pre_close,
-    open: raw.open,
-    high: raw.high,
-    low: raw.low,
-    volume: raw.volume,
-    amount: raw.amount,
-    total_shares: raw.total_shares,
-    market_cap: raw.market_cap,
-    pe: raw.pe,
-    forward_pe: raw.forward_pe,
-    pb: raw.pb,
-    turn_rate: raw.turn_rate,
-    exchange_name: raw.exchange_name,
-    industry: raw.industry,
-    sector: raw.sector,
-    country: raw.country,
-  };
+  return fetchJson<CoreTickerQuoteResponse>(`${API_PREFIX}/ticker/quote?${query}`);
 }
 
 export interface CoreTickerPeBandResponse {
@@ -387,41 +465,28 @@ export interface CoreTickerPeBandResponse {
 export async function fetchCoreTickerPeBand(params: {
   ticker: string;
   market?: MarketCode;
+  start_date?: string;
+  end_date?: string;
   limit?: number;
 }): Promise<CoreTickerPeBandResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerPeBand(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  if (params.limit != null) query.set('limit', String(params.limit));
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    as_of: string | null;
-    total_shares: number;
-    points: Array<{
-      date: string;
-      pe: number;
-      mean: number;
-      upper1: number;
-      lower1: number;
-      upper2: number;
-      lower2: number;
-    }>;
-  }>(`${API_PREFIX}/dojo-core/ticker/pe-band?${query}`);
+  const raw = await fetchPriceTrendsBundle(params);
+  const quoteQuery = new URLSearchParams({ ticker: params.ticker });
+  if (params.market) quoteQuery.set('market', params.market);
+  let totalShares = 0;
+  try {
+    const quote = await fetchJson<{ total_shares?: number | null }>(
+      `${API_PREFIX}/ticker/quote?${quoteQuery}`,
+    );
+    totalShares = quote.total_shares ?? 0;
+  } catch {
+    totalShares = 0;
+  }
   return {
     ticker: raw.ticker,
     market: raw.market,
     as_of: raw.as_of,
-    total_shares: raw.total_shares,
-    points: raw.points.map((point) => ({
-      date: point.date,
-      pe: point.pe,
-      mean: point.mean,
-      upper1: point.upper1,
-      lower1: point.lower1,
-      upper2: point.upper2,
-      lower2: point.lower2,
-    })),
+    total_shares: totalShares,
+    points: raw.pe_band,
   };
 }
 
@@ -429,41 +494,25 @@ export async function fetchCoreTickerKline(params: {
   ticker: string;
   market?: MarketCode;
   kline_t?: string;
+  start_date?: string;
+  end_date?: string;
   limit?: number;
 }): Promise<CoreTickerKlineResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerKline(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  if (params.kline_t) query.set('kline_t', params.kline_t);
-  if (params.limit != null) query.set('limit', String(params.limit));
-  const raw = await fetchJson<{
-    symbol: string;
-    as_of: string | null;
-    bars: Array<{
-      symbol: string;
-      kline_t: string;
-      bar_time: string;
-      open: number;
-      high: number;
-      low: number;
-      close: number;
-      vol: number;
-      amount: number;
-    }>;
-  }>(`${API_PREFIX}/dojo-core/ticker/kline?${query}`);
+  void params.kline_t;
+  const raw = await fetchPriceTrendsBundle(params);
   return {
-    symbol: raw.symbol,
+    symbol: raw.ticker,
     as_of: raw.as_of,
-    bars: raw.bars.map((bar) => ({
-      symbol: bar.symbol,
-      kline_t: bar.kline_t,
-      bar_time: bar.bar_time,
+    bars: raw.klines.map((bar) => ({
+      symbol: raw.ticker,
+      kline_t: raw.interval || '1D',
+      bar_time: bar.datetime,
       open: bar.open,
       high: bar.high,
       low: bar.low,
       close: bar.close,
-      vol: bar.vol,
-      amount: bar.amount ?? 0,
+      vol: bar.volume ?? 0,
+      amount: (bar.volume ?? 0) * bar.close,
     })),
   };
 }
@@ -476,15 +525,16 @@ function mapIncomeDistributionItem(raw: Record<string, unknown>): CoreIncomeDist
   };
 }
 
-function mapIncomeDistributionSlice(raw: Record<string, unknown>): CoreIncomeDistributionSlice {
-  const mainopType = String(raw.mainop_type ?? '') as CoreIncomeMainopType;
-  const items = Array.isArray(raw.items)
-    ? raw.items.map((item) => mapIncomeDistributionItem(item as Record<string, unknown>))
-    : [];
+function mapIncomeDistributionSlice(raw: {
+  dimension: string;
+  report_date: string | null;
+  items: Record<string, unknown>[];
+}): CoreIncomeDistributionSlice {
+  const mainopType = INCOME_DIMENSION_TO_MAINOP[raw.dimension] ?? '1';
   return {
     mainop_type: mainopType,
-    report_date: raw.report_date != null ? String(raw.report_date) : null,
-    items,
+    report_date: raw.report_date,
+    items: raw.items.map(mapIncomeDistributionItem),
   };
 }
 
@@ -492,19 +542,15 @@ export async function fetchCoreTickerIncome(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerIncomeResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockCoreTickerIncome(params);
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    report_date: string | null;
-    distributions: Record<string, unknown>[];
-  }>(`${API_PREFIX}/dojo-core/ticker/income?${query}`);
+  const raw = await fetchFinancialsBundle({ ...params, limit: 20 });
+  const reportDate =
+    raw.income_distributions.find((slice) => slice.report_date)?.report_date ?? raw.as_of;
   return {
     ticker: raw.ticker,
     market: raw.market,
-    report_date: raw.report_date,
-    distributions: raw.distributions.map(mapIncomeDistributionSlice),
+    report_date: reportDate,
+    distributions: raw.income_distributions.map(mapIncomeDistributionSlice),
   };
 }
+
+export { mapSectorOption };

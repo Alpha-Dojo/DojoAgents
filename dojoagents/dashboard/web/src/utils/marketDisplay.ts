@@ -2,13 +2,13 @@ import type { MarketCode } from '../types/dojoMesh';
 
 export const MARKET_FLAG: Record<MarketCode, string> = {
   us: '🇺🇸',
-  sh: '🇨🇳',
+  cn: '🇨🇳',
   hk: '🇭🇰',
 };
 
 export const MARKET_CODE: Record<MarketCode, string> = {
   us: 'US',
-  sh: 'CN',
+  cn: 'CN',
   hk: 'HK',
 };
 
@@ -20,6 +20,6 @@ export type MarketLegalCurrencyKey = 'currencyUs' | 'currencySh' | 'currencyHk';
 
 export const MARKET_LEGAL_CURRENCY_KEY: Record<MarketCode, MarketLegalCurrencyKey> = {
   us: 'currencyUs',
-  sh: 'currencySh',
+  cn: 'currencySh',
   hk: 'currencyHk',
 };

@@ -1,5 +1,5 @@
-/** Backend market codes (align with data/ paths: sh, hk, us). */
-export type MarketCode = 'us' | 'sh' | 'hk';
+/** Backend market codes: cn, hk, us. */
+export type MarketCode = 'us' | 'cn' | 'hk';
 
 export interface BilingualText {
   en: string;
@@ -47,6 +47,10 @@ export interface SectorItem {
   concept_code: string;
   name: BilingualText;
   change_percent: number;
+  /** Backend taxonomy path ids (numeric strings from API). */
+  level1_id?: string;
+  level2_id?: string;
+  level3_id?: string;
   /** Average market cap of constituents; used with change_percent for lead/lag ranking. */
   avg_market_cap?: number;
   /** 0–100, relative bar width within the same list. */
@@ -81,4 +85,8 @@ export interface DojoMeshOverview {
 export interface DojoMeshOverviewQuery {
   /** Max sectors per gain/loss list; default 5. */
   sector_limit?: number;
+  /** Lookback window in trading days for sector movers. */
+  days?: number;
+  /** Minimum total sector market cap per market (absolute currency units). */
+  min_cap_by_market?: Partial<Record<MarketCode, number>>;
 }

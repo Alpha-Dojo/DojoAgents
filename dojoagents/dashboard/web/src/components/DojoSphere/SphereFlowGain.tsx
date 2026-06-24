@@ -7,7 +7,7 @@ interface SphereFlowGainProps {
 
 const MARKET_LABEL: Record<SphereFlowGauge['market'], string> = {
   us: 'US',
-  sh: 'CN',
+  cn: 'CN',
   hk: 'HK',
 };
 

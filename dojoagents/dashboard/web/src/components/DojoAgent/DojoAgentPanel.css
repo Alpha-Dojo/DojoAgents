@@ -1,100 +1,227 @@
 .dojo-agent-panel {
+  position: relative;
   flex-shrink: 0;
   width: 0;
   min-width: 0;
   height: 100%;
   display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0c1828 0%, #0a1424 100%);
+  border-left: 1px solid transparent;
+  transition: none;
+}
+
+.dojo-agent-panel__inner {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-panel);
-  border-left: 1px solid transparent;
+}
+
+.dojo-agent-panel__resize-handle {
+  flex-shrink: 0;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  touch-action: none;
+  position: relative;
+  z-index: 2;
+}
+
+.dojo-agent-panel__resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.dojo-agent-panel__resize-handle:hover::after,
+.dojo-agent-panel--resizing .dojo-agent-panel__resize-handle::after {
+  background: rgba(0, 229, 255, 0.55);
+}
+
+.dojo-agent-panel--interactive {
   transition:
     width 0.2s ease,
     border-color 0.2s ease;
 }
 
-.dojo-agent-panel--open {
-  width: min(420px, 36vw);
-  border-left-color: var(--border-dim);
+.dojo-agent-panel--interactive.dojo-agent-panel--resizing {
+  transition: none;
+  user-select: none;
 }
 
-.dojo-agent-panel--pinned {
-  width: min(420px, 36vw);
+.dojo-agent-panel--open {
   border-left-color: var(--border-dim);
 }
 
 .dojo-agent-panel__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 16px 10px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border-dim);
   flex-shrink: 0;
-}
-
-.dojo-agent-panel__head-main {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
 }
 
 .dojo-agent-panel__head-actions {
   display: flex;
-  gap: 4px;
-  padding-top: 2px;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.dojo-agent-panel__icon-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-dim);
-  border-radius: 4px;
-  background: var(--bg-elevated);
+.dojo-agent-panel__toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1;
   cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s,
+    border-color 0.15s;
 }
 
-.dojo-agent-panel__icon-btn:hover,
-.dojo-agent-panel__icon-btn--active {
-  color: var(--color-accent-primary);
-  border-color: var(--color-border-primary);
-  background: rgb(2 175 127 / 10%);
+.dojo-agent-panel__toolbar-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-dim);
+}
+
+.dojo-agent-panel__toolbar-btn--active {
+  color: var(--cyan);
+  background: rgba(0, 229, 255, 0.08);
+  border-color: rgba(0, 229, 255, 0.28);
+}
+
+.dojo-agent-panel__toolbar-btn--close:hover {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.25);
 }
 
 .dojo-agent-panel__history {
   flex-shrink: 0;
-  max-height: 220px;
-  overflow-y: auto;
+  max-height: 260px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   border-bottom: 1px solid var(--border-dim);
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.22);
+  animation: dojo-agent-history-in 0.18s ease-out;
+}
+
+@keyframes dojo-agent-history-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dojo-agent-panel__history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px 8px;
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__history-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__history-count {
+  min-width: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .dojo-agent-panel__history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  padding: 14px 16px;
-  font-size: 12px;
+  padding: 20px 16px 24px;
   color: var(--text-dim);
+}
+
+.dojo-agent-panel__history-empty svg {
+  opacity: 0.35;
+}
+
+.dojo-agent-panel__history-empty p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .dojo-agent-panel__history-list {
   margin: 0;
-  padding: 6px;
+  padding: 0 8px 8px;
   list-style: none;
+  overflow-y: auto;
 }
 
 .dojo-agent-panel__history-item {
   display: flex;
   align-items: stretch;
-  gap: 4px;
-  border-radius: 6px;
+  gap: 2px;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.dojo-agent-panel__history-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.04);
 }
 
 .dojo-agent-panel__history-item--active {
-  background: rgba(2, 175, 127, 0.08);
+  background: rgba(0, 229, 255, 0.07);
+  border-color: rgba(0, 229, 255, 0.18);
+}
+
+.dojo-agent-panel__history-item--active .dojo-agent-panel__history-title {
+  color: var(--cyan);
+}
+
+.dojo-agent-panel__history-item--loading {
+  opacity: 0.65;
+  pointer-events: none;
 }
 
 .dojo-agent-panel__history-select {
@@ -103,18 +230,22 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 8px 10px;
+  gap: 3px;
+  padding: 9px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
   text-align: left;
   cursor: pointer;
 }
 
-.dojo-agent-panel__history-select:hover {
+.dojo-agent-panel__history-select:hover:not(:disabled) {
   color: var(--text-primary);
+}
+
+.dojo-agent-panel__history-select:disabled {
+  cursor: default;
 }
 
 .dojo-agent-panel__history-title {
@@ -122,60 +253,115 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1.35;
 }
 
 .dojo-agent-panel__history-meta {
-  font-size: 10px;
-  color: var(--text-dim);
-}
-
-.dojo-agent-panel__history-delete {
-  flex-shrink: 0;
-  width: 28px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  cursor: pointer;
-}
-
-.dojo-agent-panel__history-delete:hover {
-  color: var(--color-status-danger);
-  background: rgba(187, 41, 52, 0.08);
-}
-
-.dojo-agent-panel__title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--text-primary);
-}
-
-.dojo-agent-panel__sub {
-  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   color: var(--text-dim);
 }
 
-.dojo-agent-panel__close {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-dim);
-  border-radius: 4px;
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
+.dojo-agent-panel__history-meta-sep {
+  opacity: 0.6;
 }
 
-.dojo-agent-panel__close:hover {
-  color: var(--text-primary);
-  border-color: var(--color-border-primary);
+.dojo-agent-panel__history-delete {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  margin-right: 2px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s,
+    background 0.15s;
+}
+
+.dojo-agent-panel__history-item:hover .dojo-agent-panel__history-delete,
+.dojo-agent-panel__history-item--active .dojo-agent-panel__history-delete {
+  opacity: 1;
+}
+
+.dojo-agent-panel__history-delete:hover:not(:disabled) {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.dojo-agent-panel__storage {
+  margin: 8px 0 0;
+  padding: 8px 10px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__storage-label {
+  margin-right: 6px;
+  color: var(--text-muted);
+}
+
+.dojo-agent-panel__storage-key {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--cyan-dim, var(--cyan));
+  word-break: break-all;
+}
+
+.dojo-agent-panel__title {
+  margin: 0;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: linear-gradient(90deg, var(--text-primary), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dojo-agent-panel__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(10, 20, 36, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.dojo-agent-panel__loading p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(0, 229, 255, 0.18);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: dojo-agent-spin 0.75s linear infinite;
+}
+
+.dojo-agent-panel__messages--hidden {
+  visibility: hidden;
 }
 
 .dojo-agent-panel__body {
@@ -183,6 +369,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .dojo-agent-panel__messages {
@@ -195,13 +382,80 @@
   gap: 12px;
 }
 
+.dojo-agent-panel__empty-state {
+  margin: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .dojo-agent-panel__empty {
-  margin: auto 0;
-  padding: 24px 8px;
+  margin: 0;
+  padding: 8px 4px 0;
   text-align: center;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-dim);
+}
+
+.dojo-agent-panel__suggested {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dojo-agent-panel__suggested-hint {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dojo-agent-panel__suggested-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dojo-agent-panel__suggested-item {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+
+.dojo-agent-panel__suggested-item:hover {
+  border-color: rgba(0, 229, 255, 0.28);
+  background: rgba(0, 229, 255, 0.06);
+  color: var(--cyan);
+}
+
+.dojo-agent-panel__recovered {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fcd34d;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .dojo-agent-panel__message {
@@ -219,22 +473,10 @@
 .dojo-agent-panel__bubble {
   max-width: 92%;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 13px;
   line-height: 1.55;
   word-break: break-word;
-}
-
-.dojo-agent-panel__message--user .dojo-agent-panel__bubble {
-  background: rgba(2, 175, 127, 0.12);
-  border: 1px solid rgba(2, 175, 127, 0.22);
-  color: var(--text-primary);
-}
-
-.dojo-agent-panel__message--assistant .dojo-agent-panel__bubble {
-  background: var(--color-surface-muted);
-  border: 1px solid var(--border-dim);
-  color: var(--text-muted);
 }
 
 .dojo-agent-panel__user-text {
@@ -242,17 +484,393 @@
   white-space: pre-wrap;
 }
 
+.dojo-agent-panel__message--user .dojo-agent-panel__bubble {
+  background: rgb(2 175 127 / 10%);
+  border: 1px solid rgb(2 175 127 / 20%);
+  color: var(--text-primary);
+}
+
+.dojo-agent-panel__message--assistant .dojo-agent-panel__bubble {
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+}
+
 .dojo-agent-panel__bubble--pending {
   opacity: 0.75;
   font-style: italic;
 }
 
-.dojo-agent-panel__bubble--streaming::after {
+.dojo-agent-md {
+  color: var(--text-muted);
+}
+
+.dojo-agent-md > :first-child {
+  margin-top: 0;
+}
+
+.dojo-agent-md > :last-child {
+  margin-bottom: 0;
+}
+
+.dojo-agent-md h1,
+.dojo-agent-md h2,
+.dojo-agent-md h3,
+.dojo-agent-md h4 {
+  margin: 0.85em 0 0.4em;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.dojo-agent-md h3 {
+  font-size: 13px;
+}
+
+.dojo-agent-md p {
+  margin: 0.45em 0;
+}
+
+.dojo-agent-md ul,
+.dojo-agent-md ol {
+  margin: 0.45em 0;
+  padding-left: 1.2em;
+}
+
+.dojo-agent-md li {
+  margin: 0.25em 0;
+}
+
+.dojo-agent-md li > p {
+  margin: 0.15em 0;
+}
+
+.dojo-agent-md strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.dojo-agent-md code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.92em;
+}
+
+.dojo-agent-md pre {
+  margin: 0.6em 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.dojo-agent-md pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.dojo-agent-md blockquote {
+  margin: 0.6em 0;
+  padding-left: 10px;
+  border-left: 3px solid rgba(0, 229, 255, 0.35);
+  color: var(--text-dim);
+}
+
+.dojo-agent-md hr {
+  margin: 0.8em 0;
+  border: none;
+  border-top: 1px solid var(--border-dim);
+}
+
+.dojo-agent-md a {
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.dojo-agent-md a:hover {
+  text-decoration: underline;
+}
+
+.dojo-agent-md--streaming > :last-child::after {
   content: '▍';
   display: inline-block;
   margin-left: 2px;
-  color: var(--color-accent-primary);
+  color: var(--cyan);
   animation: dojo-agent-cursor 1s step-end infinite;
+}
+
+.dojo-agent-thinking {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-thinking__block {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.dojo-agent-thinking__block--live {
+  border-color: rgba(0, 229, 255, 0.22);
+}
+
+.dojo-agent-thinking__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dojo-agent-thinking__toggle:hover {
+  color: var(--text-primary);
+}
+
+.dojo-agent-thinking__toggle-icon {
+  flex-shrink: 0;
+  width: 10px;
+  color: var(--cyan);
+}
+
+.dojo-agent-thinking__toggle-label {
+  font-weight: 600;
+}
+
+.dojo-agent-thinking__toggle-meta {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-thinking__body {
+  margin: 0;
+  padding: 0 8px 8px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.dojo-agent-thinking__phase {
+  margin: 0;
+  padding: 4px 2px 0;
+  font-size: 11px;
+  color: var(--cyan);
+}
+
+.dojo-agent-thinking__phase--tools {
+  color: #86efac;
+}
+
+.dojo-agent-thinking__phase--answering {
+  color: #fcd34d;
+}
+
+.dojo-agent-thinking__phase--done {
+  color: #86efac;
+}
+
+.dojo-agent-thinking__retry {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  font-size: 11px;
+  color: #fcd34d;
+}
+
+.dojo-agent-panel__waiting {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.dojo-agent-tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dojo-agent-tool-activity:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.dojo-agent-tool-activity__step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dojo-agent-tool-activity__results {
+  margin: 0 0 0 16px;
+}
+
+.dojo-agent-tool-activity__results-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--cyan);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.dojo-agent-tool-activity__results-toggle:hover {
+  opacity: 0.85;
+}
+
+.dojo-agent-tool-activity__results-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.dojo-agent-tool-activity__results-body .agent-viz-panel {
+  margin: 0;
+}
+
+.dojo-agent-tool-activity__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.dojo-agent-tool-activity__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dojo-agent-tool-activity__headline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dojo-agent-tool-activity__detail {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.dojo-agent-tool-activity__detail--result {
+  color: #a5d8ff;
+}
+
+.dojo-agent-eval {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.dojo-agent-eval__title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fcd34d;
+}
+
+.dojo-agent-eval__list {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #fde68a;
+}
+
+.dojo-agent-eval__list li + li {
+  margin-top: 4px;
+}
+
+.dojo-agent-tool-activity__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.dojo-agent-tool-activity__row--thinking {
+  color: var(--cyan);
+}
+
+.dojo-agent-tool-activity__row--running {
+  color: var(--text-muted);
+}
+
+.dojo-agent-tool-activity__row--done {
+  color: #86efac;
+}
+
+.dojo-agent-tool-activity__row--error {
+  color: #fca5a5;
+}
+
+.dojo-agent-tool-activity__icon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  margin-top: 1px;
+}
+.dojo-agent-tool-activity__meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.dojo-agent-tool-activity__meta--error {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dojo-agent-tool-activity__spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(0, 229, 255, 0.25);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: dojo-agent-spin 0.8s linear infinite;
+}
+
+@keyframes dojo-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes dojo-agent-cursor {
@@ -280,7 +898,7 @@
 }
 
 .dojo-agent-panel__error {
-  color: var(--color-status-danger);
+  color: #f87171;
 }
 
 .dojo-agent-panel__input {
@@ -325,104 +943,48 @@
   flex-shrink: 0;
   min-width: 72px;
   padding: 7px 14px;
+  border: 1px solid rgba(0, 229, 255, 0.35);
   border-radius: 6px;
-  letter-spacing: 0.04em;
-}
-
-.dojo-agent-md {
-  color: var(--text-primary);
-}
-
-.dojo-agent-md > :first-child {
-  margin-top: 0;
-}
-
-.dojo-agent-md > :last-child {
-  margin-bottom: 0;
-}
-
-.dojo-agent-md p,
-.dojo-agent-md ul,
-.dojo-agent-md ol,
-.dojo-agent-md pre,
-.dojo-agent-md table,
-.dojo-agent-md blockquote {
-  margin: 0 0 10px;
-}
-
-.dojo-agent-md code {
-  font-family: var(--font-mono);
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
   font-size: 12px;
-}
-
-.dojo-agent-md pre {
-  overflow-x: auto;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.24);
-  border: 1px solid var(--border-dim);
-}
-
-.dojo-agent-md table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.dojo-agent-md th,
-.dojo-agent-md td {
-  padding: 6px 8px;
-  border: 1px solid var(--border-dim);
-  text-align: left;
-}
-
-.dojo-agent-tool-activity {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.dojo-agent-tool-activity__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.dojo-agent-tool-activity__row--done {
-  color: var(--color-accent-primary);
-}
-
-.dojo-agent-tool-activity__row--error {
-  color: var(--color-status-danger);
-}
-
-.dojo-agent-tool-activity__icon {
-  width: 14px;
-  text-align: center;
-}
-
-.dojo-agent-tool-activity__label {
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    opacity 0.15s;
 }
 
-.dojo-agent-tool-activity__meta {
-  color: inherit;
+.dojo-agent-panel__send:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.18);
+  border-color: rgba(0, 229, 255, 0.55);
 }
 
-.dojo-agent-tool-activity__spinner {
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgba(2, 175, 127, 0.25);
-  border-top-color: var(--color-accent-primary);
-  border-radius: 50%;
-  animation: dojo-agent-spin 0.9s linear infinite;
+.dojo-agent-panel__send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-@keyframes dojo-agent-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.dojo-agent-panel__stop {
+  flex-shrink: 0;
+  min-width: 72px;
+  padding: 7px 14px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 6px;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.dojo-agent-panel__stop:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: rgba(248, 113, 113, 0.65);
 }
