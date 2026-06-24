@@ -26,6 +26,7 @@ dependencies = [
     "strands-agents-tools",
     "dojosdk",
     "exchange-calendars>=4,<5",
+    "dojosdk",
 ]
 
 
