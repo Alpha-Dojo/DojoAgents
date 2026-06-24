@@ -6,6 +6,7 @@ from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
 from dojoagents.plugins import get_plugin_registry
 
+from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest, ToolCall
 from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
@@ -41,7 +42,13 @@ class GuardrailHaltException(Exception):
 
 
 class DojoBridgedTool(AgentTool):
-    def __init__(self, dojo_spec_or_name: Any, tool_executor_inst: Any, sess_id: str):
+    def __init__(
+        self,
+        dojo_spec_or_name: Any,
+        tool_executor_inst: Any,
+        sess_id: str,
+        event_sink: AgentEventSink | None = None,
+    ):
         super().__init__()
         if isinstance(dojo_spec_or_name, str):
             self.dojo_name = dojo_spec_or_name
@@ -51,6 +58,7 @@ class DojoBridgedTool(AgentTool):
             self.dojo_name = dojo_spec_or_name.name
         self.tool_executor = tool_executor_inst
         self.sess_id = sess_id
+        self.event_sink = event_sink
 
     @property
     def tool_name(self) -> str:
@@ -79,6 +87,21 @@ class DojoBridgedTool(AgentTool):
             res = results[0]
         else:
             res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+
+        if self.event_sink is not None:
+            self.event_sink.tool_result(
+                call_id=res.call_id,
+                tool=res.name,
+                ok=res.ok,
+                content=res.content,
+                error=res.error,
+                latency_ms=res.latency_ms,
+                truncated=res.truncated,
+                data=res.data,
+                viz_blocks=res.viz_blocks,
+                artifacts=res.artifacts,
+                resource_changes=res.resource_changes,
+            )
 
         status = "success" if res.ok else "error"
         content_text = res.content if res.ok else res.error
@@ -262,10 +285,54 @@ class AgentLoop:
         )
         self.guardrails = ToolCallGuardrailController()
 
-    async def run(self, request: ChatRequest) -> AgentResponse:
+    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
         remaining_tokens = getattr(self.config, "session_max_tokens", 100000)
+        active_phase = ""
+        tool_trace: list[dict[str, Any]] = []
+        saw_content_delta = False
+
+        def emit_phase(phase: str) -> None:
+            nonlocal active_phase
+            if event_sink is None or active_phase == phase:
+                return
+            active_phase = phase
+            event_sink.phase(phase)
+
+        def emit_text_delta(text: str) -> None:
+            nonlocal saw_content_delta
+            if not text:
+                return
+            saw_content_delta = True
+            if event_sink is not None:
+                event_sink.delta(text)
+                return
+            if self.stream_delta_callback:
+                self.stream_delta_callback(text)
+
+        def emit_tool_start(tool_name: str, args: dict[str, Any], tool_use_id: str) -> None:
+            if event_sink is not None:
+                emit_phase("tools")
+                event_sink.tool_start(call_id=tool_use_id, tool=tool_name, arguments=args)
+                return
+            if self.stream_delta_callback:
+                self.stream_delta_callback(
+                    {
+                        "tool_calls": [
+                            {
+                                "id": str(tool_use_id),
+                                "type": "function",
+                                "function": {
+                                    "name": str(tool_name or "tool"),
+                                    "arguments": json.dumps(args, ensure_ascii=False),
+                                },
+                            }
+                        ]
+                    }
+                )
+
+        emit_phase("planning")
 
         # 1. Build the system prompt
         blocks = [
@@ -380,7 +447,7 @@ class AgentLoop:
 
         strands_tools = []
         for spec in self.tool_executor.registry.all():
-            strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id))
+            strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id, event_sink=event_sink))
 
         # 5. Set up hooks (Memory Hook & Plugin Hook)
         hooks = []
@@ -437,7 +504,12 @@ class AgentLoop:
         async def check_guardrails_before(event: BeforeToolCallEvent) -> None:
             if not event.selected_tool and event.tool_use:
                 # Dynamically construct the tool!
-                event.selected_tool = DojoBridgedTool(event.tool_use["name"], self.tool_executor, request.session_id)
+                event.selected_tool = DojoBridgedTool(
+                    event.tool_use["name"],
+                    self.tool_executor,
+                    request.session_id,
+                    event_sink=event_sink,
+                )
             if self.config.enable_guardrails:
                 if not event.tool_use:
                     return
@@ -451,24 +523,11 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
-            if self.stream_delta_callback and event.tool_use:
+            if event.tool_use:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or tool_name or "tool"
-                self.stream_delta_callback(
-                    {
-                        "tool_calls": [
-                            {
-                                "id": str(tool_use_id),
-                                "type": "function",
-                                "function": {
-                                    "name": str(tool_name or "tool"),
-                                    "arguments": json.dumps(args, ensure_ascii=False),
-                                },
-                            }
-                        ]
-                    }
-                )
+                emit_tool_start(str(tool_name or "tool"), args, str(tool_use_id))
 
         # Define after tool call hook for guardrails
         async def check_guardrails_after(event: AfterToolCallEvent) -> None:
@@ -514,6 +573,15 @@ class AgentLoop:
                     warned_content = append_toolguard_guidance(raw_result, decision)
                     event.result["content"] = [{"type": "text", "text": warned_content}]
 
+            if event.tool_use:
+                tool_trace.append(
+                    {
+                        "call_id": event.tool_use.get("toolUseId") or event.tool_use.get("id"),
+                        "tool": tool_name,
+                        "ok": not is_failed,
+                    }
+                )
+
         hooks.append(check_guardrails_before)
         hooks.append(check_guardrails_after)
 
@@ -524,21 +592,22 @@ class AgentLoop:
         limits = Limits(turns=self.config.max_iterations)
 
         # Setup callback handler for streaming delta and think scrubbing
-        if self.stream_delta_callback and self.config.enable_think_scrubbing:
+        if (event_sink is not None or self.stream_delta_callback) and self.config.enable_think_scrubbing:
             self.think_scrubber.reset()
 
             def wrapped_callback(delta: str) -> None:
                 scrubbed = self.think_scrubber.feed(delta)
-                if scrubbed and self.stream_delta_callback:
-                    self.stream_delta_callback(scrubbed)
+                if scrubbed:
+                    emit_text_delta(scrubbed)
 
             active_callback = wrapped_callback
         else:
-            active_callback = self.stream_delta_callback
+            active_callback = emit_text_delta if (event_sink is not None or self.stream_delta_callback) else None
 
         def callback_handler(**kwargs_cb: Any) -> None:
             data = kwargs_cb.get("data", "")
             if data and active_callback:
+                emit_phase("answering")
                 active_callback(data)
 
         agent = Agent(
@@ -583,13 +652,15 @@ class AgentLoop:
                     metadata={"iterations": iterations, "stopped": stopped_reason, "used_tokens": used_tokens, "remaining_tokens": remaining_tokens},
                 )
             else:
+                if event_sink is not None:
+                    event_sink.error(str(target_exc))
                 raise
 
         # Flush think scrubber if needed
-        if self.stream_delta_callback and self.config.enable_think_scrubbing:
+        if (event_sink is not None or self.stream_delta_callback) and self.config.enable_think_scrubbing:
             tail = self.think_scrubber.flush()
-            if tail and self.stream_delta_callback:
-                self.stream_delta_callback(tail)
+            if tail:
+                emit_text_delta(tail)
 
         # Clean thinking blocks from response_text
         if self.config.enable_think_scrubbing:
@@ -597,6 +668,9 @@ class AgentLoop:
             response_text = re.sub(r"<thinking>.*?</thinking>", "", response_text, flags=re.DOTALL)
             response_text = re.sub(r"<reasoning>.*?</reasoning>", "", response_text, flags=re.DOTALL)
             response_text = re.sub(r"<thought>.*?</thought>", "", response_text, flags=re.DOTALL)
+        if event_sink is not None and response_text and not saw_content_delta:
+            emit_phase("answering")
+            emit_text_delta(response_text)
 
         metadata = {"iterations": iterations}
         if stopped_reason:
@@ -611,6 +685,10 @@ class AgentLoop:
         )
         metadata["used_tokens"] = used_tokens
         metadata["remaining_tokens"] = remaining_tokens
+        metadata["tool_trace"] = tool_trace
+
+        if event_sink is not None:
+            event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
 
         return AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata)
 

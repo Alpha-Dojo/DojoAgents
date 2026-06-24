@@ -6,6 +6,7 @@ import type {
   AgentStreamEvent,
   ChatCompletionChunk,
 } from '../types/agent';
+import { readStoredLocale } from '../i18n/locale';
 
 const API_URL = '/api/chat';
 
@@ -84,12 +85,16 @@ export async function* parseSSEStream(
           const chunk = JSON.parse(data) as ChatCompletionChunk;
           const delta = chunk.choices[0]?.delta;
           const finishReason = chunk.choices[0]?.finish_reason;
+          const dojoEvent = chunk.dojo_event;
 
           if (delta?.content) {
             yield { type: 'content_delta', content: delta.content, chunk };
           }
           if (delta?.tool_calls) {
             yield { type: 'tool_call_delta', chunk };
+          }
+          if (dojoEvent) {
+            yield { type: 'dojo_event', dojoEvent, chunk };
           }
           if (finishReason) {
             yield { type: 'message_end', chunk };
@@ -121,6 +126,11 @@ export async function streamAgentChat(
     body: JSON.stringify({
       ...body,
       stream: true,
+      metadata: {
+        ...(body.metadata ?? {}),
+        event_format: 'dojo.v2',
+        locale: (body.metadata?.locale as string | undefined) ?? readStoredLocale(),
+      },
     }),
     signal,
   });

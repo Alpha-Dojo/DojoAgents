@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
+from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -12,10 +14,9 @@ class ToolExecutor:
     def __init__(self, registry: ToolRegistry, sandbox: SandboxPolicy) -> None:
         self.registry = registry
         self.sandbox = sandbox
+        self.presenters = ToolResultPresenterRegistry()
 
-    async def execute_many(
-        self, tool_calls: list[ToolCall], *, session_id: str = ""
-    ) -> ToolResultList:
+    async def execute_many(self, tool_calls: list[ToolCall], *, session_id: str = "") -> ToolResultList:
         results = ToolResultList()
         if not tool_calls:
             return results
@@ -39,14 +40,17 @@ class ToolExecutor:
                 error=f"Tool '{call.name}' is not registered",
             )
         from dojoagents.tools.process_registry import active_session_id
+
         token = active_session_id.set(session_id)
         try:
             self.sandbox.check_tool(call.name)
+            started_at = time.perf_counter()
             raw = await asyncio.wait_for(
                 spec.handler(dict(call.arguments)),
                 timeout=self.sandbox.timeout_seconds,
             )
-            return self._coerce_result(call, raw, session_id=session_id)
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
+            return self._coerce_result(call, raw, session_id=session_id, latency_ms=latency_ms)
         except Exception as exc:
             return ToolResult(
                 call_id=call.id,
@@ -58,17 +62,27 @@ class ToolExecutor:
             active_session_id.reset(token)
 
     def _coerce_result(
-        self, call: ToolCall, raw: dict[str, Any] | str | None, *, session_id: str
+        self,
+        call: ToolCall,
+        raw: dict[str, Any] | str | None,
+        *,
+        session_id: str,
+        latency_ms: int = 0,
     ) -> ToolResult:
         if raw is None:
-            content = ""
-            metadata: dict[str, Any] = {}
+            normalized: dict[str, Any] = {}
         elif isinstance(raw, str):
-            content = raw
-            metadata = {}
+            normalized = {"content": raw}
         else:
-            content = str(raw.get("content", ""))
-            metadata = dict(raw.get("metadata", {}))
+            normalized = dict(raw)
+
+        normalized.setdefault("content", "")
+        normalized.setdefault("metadata", {})
+        normalized["arguments"] = dict(call.arguments)
+        normalized = self.presenters.normalize(call.name, normalized)
+
+        content = str(normalized.get("content", ""))
+        metadata = dict(normalized.get("metadata", {}))
         if session_id:
             metadata.setdefault("session_id", session_id)
         return ToolResult(
@@ -76,5 +90,11 @@ class ToolExecutor:
             name=call.name,
             ok=True,
             content=content,
+            latency_ms=latency_ms,
+            truncated=bool(normalized.get("truncated", False)),
+            data=normalized.get("data"),
+            viz_blocks=list(normalized.get("viz_blocks", [])),
+            artifacts=list(normalized.get("artifacts", [])),
+            resource_changes=list(normalized.get("resource_changes", [])),
             metadata=metadata,
         )
