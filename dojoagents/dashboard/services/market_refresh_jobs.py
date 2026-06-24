@@ -28,12 +28,15 @@ async def _precompute_sector_performance(store_registry: Any) -> None:
         stock_sector_store=store_registry.stock_sector_store,
         stock_store=store_registry.stock_store,
         kline_store=store_registry.kline_store,
-        upload_client=getattr(store_registry, "client", None),
+        # upload_client=getattr(store_registry, "client", None),
     )
     logger.info("Sector precompute completed: %s", manifest.get("published_dir"))
 
     if store_registry.sector_precomputed_store is not None:
-        store_registry.sector_precomputed_store.reload(Path(manifest["published_dir"]))
+        await store_registry.sector_precomputed_store.reload_async(Path(manifest["published_dir"]))
+    sector_movers_service = getattr(store_registry, "sector_movers_service", None)
+    if sector_movers_service is not None:
+        sector_movers_service.invalidate()
 
 
 async def _snapshot_market_leads(store_registry: Any, market: str) -> None:
@@ -58,7 +61,7 @@ async def run_market_refresh(market_group: str, target_date: datetime.date, stor
             logger.info("Refreshing market leads snapshot for %s", mkt)
             await _snapshot_market_leads(store_registry, mkt)
 
-        refresh_store.set_last_refresh_date(market_group, target_date)
+        await refresh_store.set_last_refresh_date_async(market_group, target_date)
         logger.info(f"Successfully completed refresh for {market_group} on {target_date}")
 
     except Exception as e:
@@ -77,7 +80,7 @@ async def start_refresh_loop(runtime_dir: Path, schedule: MarketCloseSchedule, s
                 if not target_date:
                     continue
 
-                last_refresh = refresh_store.get_last_refresh_date(group)
+                last_refresh = await refresh_store.get_last_refresh_date_async(group)
                 if last_refresh is None or last_refresh < target_date:
                     # Time to refresh
                     await run_market_refresh(market_group=group, target_date=target_date, store_registry=store_registry, refresh_store=refresh_store)

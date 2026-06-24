@@ -21,6 +21,7 @@ from dojoagents.dashboard.services.stock_income_store import StockIncomeStore
 from dojoagents.dashboard.services.stock_news_store import StockNewsStore
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
         "stock_news_store",
         "portfolio_store",
         "portfolio_service",
+        "sector_precomputed_store",
     ),
     ("kline_store",),
 )
@@ -63,6 +65,7 @@ class FinancialDomainRegistry:
         self.portfolio_service: Optional[PortfolioService] = None
         self.dojo_sphere_service: Optional[DojoSphereService] = None
         self.sector_precomputed_store: Optional[SectorPrecomputedStore] = None
+        self.sector_movers_service: Optional[SectorMoversService] = None
 
     async def init_and_load_all(
         self,
@@ -104,6 +107,12 @@ class FinancialDomainRegistry:
         )
         self.sector_precomputed_store = SectorPrecomputedStore(self.data_root)
         self.kline_store.sector_precomputed_store = self.sector_precomputed_store
+        self.sector_movers_service = SectorMoversService(
+            sector_store=self.sector_store,
+            stock_store=self.stock_store,
+            sector_precomputed_store=self.sector_precomputed_store,
+        )
+        self.sector_precomputed_store.sector_movers_service = self.sector_movers_service
 
         if preload:
             await self.preload()
@@ -147,5 +156,6 @@ class FinancialDomainRegistry:
             "portfolio_service",
             "dojo_sphere_service",
             "sector_precomputed_store",
+            "sector_movers_service",
         ):
             setattr(self, name, None)

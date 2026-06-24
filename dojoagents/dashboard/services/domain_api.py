@@ -98,7 +98,7 @@ async def build_market_overview(
     days: int,
     market: Optional[str],
 ) -> MarketOverviewResponse:
-    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks()
+    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks(days=days)
     markets = {}
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
     for internal_market in requested_markets:
@@ -117,7 +117,7 @@ async def build_market_overview(
             for benchmark in benchmark_payload.benchmarks:
                 bars = benchmark.kline or []
                 if bars:
-                    dates = [bar.date for bar in bars if getattr(bar, "date", None)]
+                    dates = [getattr(bar, "date", None) or getattr(bar, "datetime", None) for bar in bars if getattr(bar, "date", None) or getattr(bar, "datetime", None)]
                     if dates:
                         start = dates[0]
                         end = dates[-1]
@@ -164,6 +164,32 @@ def _window_percent_from_bars(bars: list, days: int) -> Optional[float]:
 async def build_sector_movers(
     registry,
     *,
+    days: int,
+    limit: int,
+    market: Optional[str],
+    min_cap_by_market: Optional[dict[str, float]] = None,
+) -> SectorMoversResponse:
+    service = getattr(registry, "sector_movers_service", None)
+    if service is not None:
+        return await asyncio.to_thread(
+            service.build_market_movers_response,
+            days=days,
+            limit=limit,
+            market=market,
+            min_cap_by_market=min_cap_by_market,
+        )
+    return await asyncio.to_thread(
+        _build_sector_movers_fallback_sync,
+        registry,
+        days,
+        limit,
+        market,
+        min_cap_by_market,
+    )
+
+
+def _build_sector_movers_fallback_sync(
+    registry,
     days: int,
     limit: int,
     market: Optional[str],

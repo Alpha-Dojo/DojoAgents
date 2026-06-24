@@ -22,7 +22,7 @@ async def market_overview(
 
 @router.get("/sector-movers", response_model=SectorMoversResponse)
 async def market_sector_movers(
-    days: int = Query(1, ge=1, le=90),
+    days: int = Query(2, ge=1, le=90),
     limit: int = Query(5, ge=1, le=20),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
     min_cap_us: Optional[float] = Query(None, ge=0),

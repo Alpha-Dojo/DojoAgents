@@ -45,5 +45,9 @@ async def lookup_sectors_cross_market(
     sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
 ) -> CrossMarketSectorLookupResponse:
     """Resolve a level-2 sector across markets, even if not in top gainers/losers."""
-    markets = lookup_cross_market_sectors(link_key, sector_store, sector_precomputed_store)
+    markets = lookup_cross_market_sectors(
+        link_key,
+        sector_store,
+        sector_precomputed_store,
+    )
     return CrossMarketSectorLookupResponse(link_key=link_key, markets=markets)

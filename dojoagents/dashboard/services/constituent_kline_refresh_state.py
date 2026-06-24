@@ -47,3 +47,9 @@ class RefreshStateStore:
         data[market_group] = date.strftime("%Y-%m-%d")
         data[f"{market_group}_updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         self._write(data)
+
+    async def get_last_refresh_date_async(self, market_group: str) -> datetime.date | None:
+        return self.get_last_refresh_date(market_group)
+
+    async def set_last_refresh_date_async(self, market_group: str, date: datetime.date) -> None:
+        self.set_last_refresh_date(market_group, date)

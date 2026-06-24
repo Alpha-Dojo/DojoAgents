@@ -14,7 +14,6 @@ class StockIncomeStore:
         self.cache: dict[str, CoreTickerIncomeResponse] = {}
         self._inflight: dict[str, asyncio.Task[CoreTickerIncomeResponse]] = {}
         self._refresh_keys: set[str] = set()
-        self._refresh_lock = asyncio.Lock()
 
     async def _fetch(
         self,
@@ -40,15 +39,13 @@ class StockIncomeStore:
         )
 
     async def _schedule_refresh(self, cache_key: str, symbol: str, market_code: str, page_size: int) -> None:
-        async with self._refresh_lock:
-            if cache_key in self._refresh_keys:
-                return
-            self._refresh_keys.add(cache_key)
+        if cache_key in self._refresh_keys:
+            return
+        self._refresh_keys.add(cache_key)
         try:
             self.cache[cache_key] = await self._fetch(symbol, market_code, page_size)
         finally:
-            async with self._refresh_lock:
-                self._refresh_keys.discard(cache_key)
+            self._refresh_keys.discard(cache_key)
 
     async def get_for_ticker(self, ticker: str, market: Optional[str] = None, page_size: int = 100) -> CoreTickerIncomeResponse:
         symbol = ticker.strip().upper()

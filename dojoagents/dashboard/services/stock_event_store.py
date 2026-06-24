@@ -19,7 +19,6 @@ class StockEventStore:
         self.cache: Dict[str, CoreTickerEventsResponse] = {}
         self._inflight: Dict[str, asyncio.Task[CoreTickerEventsResponse]] = {}
         self._refresh_keys = set()
-        self._refresh_lock = asyncio.Lock()
 
     async def _fetch(self, symbol: str, market_code: str, page_size: int) -> CoreTickerEventsResponse:
         response = await self.gateway.stock_events(market_code, symbol, page=1, page_size=page_size)
@@ -59,15 +58,12 @@ class StockEventStore:
             self._inflight.pop(cache_key, None)
 
     async def _schedule_refresh(self, ticker: str, market: Optional[str], page_size: int, cache_key: str):
-        async with self._refresh_lock:
-            if cache_key in self._refresh_keys:
-                return
-            self._refresh_keys.add(cache_key)
-
+        if cache_key in self._refresh_keys:
+            return
+        self._refresh_keys.add(cache_key)
         try:
             self.cache[cache_key] = await self._fetch(ticker, market or "us", page_size)
         except Exception as exc:
             LOGGER.info(f"[StockEventStore] Background refresh failed for {ticker}: {exc}")
         finally:
-            async with self._refresh_lock:
-                self._refresh_keys.discard(cache_key)
+            self._refresh_keys.discard(cache_key)

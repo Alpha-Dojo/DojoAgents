@@ -166,6 +166,9 @@ def lookup_cross_market_sectors(
     sector_store: SectorStore,
     sector_precomputed_store: Any,
 ) -> dict[str, SectorItem | None]:
+    service = getattr(sector_precomputed_store, "sector_movers_service", None)
+    if service is not None:
+        return service.lookup_cross_market_sectors_response(link_key=link_key).markets
     return {market: lookup_sector_by_link_key(market, link_key, sector_store, sector_precomputed_store) for market in MARKETS}
 
 
@@ -200,5 +203,8 @@ def compute_all_market_sector_leads(
     *,
     limit: int = 5,
 ) -> DojoMeshSectorsResponse:
+    service = getattr(sector_precomputed_store, "sector_movers_service", None)
+    if service is not None:
+        return service.build_dojo_mesh_sectors_response(limit=limit)
     markets = {market: compute_market_sector_lead(market, sector_store, sector_precomputed_store, limit=limit) for market in MARKETS}
     return DojoMeshSectorsResponse(markets=markets)

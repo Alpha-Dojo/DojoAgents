@@ -105,6 +105,29 @@ class BaseGateway:
             False,
         )
 
+    async def benchmark_catalog(self):
+        self.calls.append(("benchmark_catalog", None))
+        return GatewayResult(
+            [
+                {
+                    "symbol": "^SPX",
+                    "market": "us",
+                    "name": "S&P 500",
+                    "sort_order": 0,
+                    "is_default": True,
+                },
+                {
+                    "symbol": "^NDX",
+                    "market": "us",
+                    "name": "Nasdaq 100",
+                    "sort_order": 1,
+                },
+            ],
+            "2026-06-20",
+            "sdk_snapshot",
+            False,
+        )
+
 
 @pytest.mark.asyncio
 async def test_stock_store_loads_catalog_and_quotes_through_gateway() -> None:
@@ -164,3 +187,15 @@ async def test_benchmark_store_accepts_online_array_bars() -> None:
     assert result.bars[0].bar_time == "2026-06-20"
     assert result.bars[0].close == 101
     assert result.bars[0].vol == 1_000
+
+
+@pytest.mark.asyncio
+async def test_benchmark_store_prefers_catalog_default_symbol() -> None:
+    gateway = BaseGateway()
+    store = BenchmarkStore(gateway)
+
+    response = await store.get_benchmarks(days=5)
+
+    assert response.markets["us"].default_benchmark == "^SPX"
+    assert [item.symbol for item in response.markets["us"].benchmarks] == ["^SPX", "^NDX"]
+    assert ("benchmark_catalog", None) in gateway.calls

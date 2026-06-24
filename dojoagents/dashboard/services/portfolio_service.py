@@ -95,8 +95,13 @@ class PortfolioService:
         self.kline_store = kline_store
         self.benchmark_store = benchmark_store
 
+    async def _store_call(self, method_name: str, *args, **kwargs):
+        method = getattr(self.store, method_name)
+        return await asyncio.to_thread(method, *args, **kwargs)
+
     async def list_summaries(self) -> List[PortfolioSummary]:
-        return [self._to_summary(row) for row in self.store.list_index_rows()]
+        rows = await self._store_call("list_index_rows")
+        return [self._to_summary(row) for row in rows]
 
     async def get_detail(
         self,
@@ -105,7 +110,7 @@ class PortfolioService:
         include_performance: bool = True,
         benchmark_by_market: Optional[dict[str, str]] = None,
     ) -> Optional[PortfolioDetail]:
-        raw = self.store.get_raw(portfolio_id)
+        raw = await self._store_call("get_raw", portfolio_id)
         if not raw:
             return None
         detail = await self._to_detail(raw)
@@ -115,21 +120,22 @@ class PortfolioService:
         return detail.model_copy(update={"performance": performance})
 
     async def create(self, body: CreatePortfolioRequest) -> PortfolioDetail:
-        raw = self.store.create(body.name)
+        raw = await self._store_call("create", body.name)
         detail = await self._to_detail(raw)
         if detail is None:
             raise RuntimeError("failed to create portfolio")
         return detail
 
     async def update(self, portfolio_id: str, body: UpdatePortfolioRequest) -> Optional[PortfolioDetail]:
-        raw_before = self.store.get_raw(portfolio_id)
+        raw_before = await self._store_call("get_raw", portfolio_id)
         if not raw_before:
             return None
         await self._validate_cost_overrides(raw_before, body)
         config = body.config.model_dump() if body.config is not None else None
         if isinstance(config, dict) and not config.get("cost_date") and config.get("start_date"):
             config["cost_date"] = config["start_date"]
-        raw = self.store.update(
+        raw = await self._store_call(
+            "update",
             portfolio_id,
             name=body.name,
             pinned=body.pinned,
@@ -218,7 +224,7 @@ class PortfolioService:
                 )
 
     async def delete(self, portfolio_id: str) -> bool:
-        return self.store.delete(portfolio_id)
+        return await self._store_call("delete", portfolio_id)
 
     async def add_holding(self, portfolio_id: str, body: AddPortfolioHoldingRequest) -> Optional[PortfolioDetail]:
         ticker = body.ticker.strip()
@@ -226,7 +232,7 @@ class PortfolioService:
         if not market:
             return None
 
-        raw = self.store.get_raw(portfolio_id)
+        raw = await self._store_call("get_raw", portfolio_id)
         if not raw:
             return None
 
@@ -247,7 +253,8 @@ class PortfolioService:
                 )
             )
 
-        raw = self.store.add_holding(
+        raw = await self._store_call(
+            "add_holding",
             portfolio_id,
             ticker=ticker,
             market=market,
@@ -262,7 +269,8 @@ class PortfolioService:
         portfolio_id: str,
         body: RemovePortfolioHoldingRequest,
     ) -> Optional[PortfolioDetail]:
-        raw = self.store.remove_holding(
+        raw = await self._store_call(
+            "remove_holding",
             portfolio_id,
             ticker=body.ticker.strip(),
             market=body.market,
@@ -272,7 +280,7 @@ class PortfolioService:
         return await self._to_detail(raw)
 
     async def auto_allocate(self, portfolio_id: str, body: AutoAllocateRequest) -> Optional[PortfolioDetail]:
-        raw = self.store.get_raw(portfolio_id)
+        raw = await self._store_call("get_raw", portfolio_id)
         if not raw:
             return None
 
@@ -297,7 +305,7 @@ class PortfolioService:
         if not shares_by_ticker:
             return await self._to_detail(raw)
 
-        raw = self.store.apply_market_shares(portfolio_id, shares_by_ticker, reset_manual=False)
+        raw = await self._store_call("apply_market_shares", portfolio_id, shares_by_ticker, reset_manual=False)
         if not raw:
             return None
         return await self._to_detail(raw)
@@ -310,18 +318,19 @@ class PortfolioService:
         hits: list[PortfolioSearchItem] = []
         seen: set[str] = set()
 
-        for row in self.store.list_index_rows():
+        index_rows = await self._store_call("list_index_rows")
+        for row in index_rows:
             portfolio_id = str(row["id"])
             name = str(row.get("name") or "")
             if normalized in name.lower():
                 hits.append(PortfolioSearchItem(id=portfolio_id, match_type="name"))
                 seen.add(portfolio_id)
 
-        for row in self.store.list_index_rows():
+        for row in index_rows:
             portfolio_id = str(row["id"])
             if portfolio_id in seen:
                 continue
-            raw = self.store.get_raw(portfolio_id)
+            raw = await self._store_call("get_raw", portfolio_id)
             if not raw:
                 continue
             for holding in raw.get("holdings") or []:
