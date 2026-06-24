@@ -41,7 +41,8 @@ from dojoagents.agent.models import (
     ChatCompletionResponse,
     ChatRequest,
 )
-from dojoagents.dashboard.sse import make_stream_delta_callback, stream_completion_chunks
+from dojoagents.agent.events import AgentEventSink
+from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
 
@@ -70,6 +71,35 @@ def _chat_request(payload: dict[str, Any]) -> ChatRequest:
     )
 
 
+def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for message in messages:
+        role = str(message.get("role") or "").strip()
+        if not role:
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(str(part.get("text") or ""))
+            content = "".join(text_parts)
+        elif content is None:
+            content = ""
+        else:
+            content = str(content)
+        normalized.append(
+            {
+                "role": role,
+                "content": content,
+                **({"tool_calls": message.get("tool_calls")} if message.get("tool_calls") else {}),
+                **({"tool_call_id": message.get("tool_call_id")} if message.get("tool_call_id") else {}),
+                **({"name": message.get("name")} if message.get("name") else {}),
+            }
+        )
+    return normalized
+
+
 def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str, Any]]:
     """Parse payload into (ChatRequest, extra_info) with dual-format detection.
 
@@ -86,22 +116,40 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
 
     if "messages" in payload:
         # New OpenAI-compatible format
-        messages = payload["messages"]
+        raw_messages = payload["messages"]
+        if not isinstance(raw_messages, list) or not raw_messages:
+            raise ValueError("messages must be a non-empty array")
+        messages = _normalize_openai_messages(raw_messages)
+        if not messages:
+            raise ValueError("messages must contain at least one valid message")
+
+        last_user_index = -1
         last_user_msg = ""
-        for msg in reversed(messages):
+        for idx in range(len(messages) - 1, -1, -1):
+            msg = messages[idx]
             if msg.get("role") == "user":
-                content = msg.get("content", "")
-                last_user_msg = content if isinstance(content, str) else str(content)
+                content = str(msg.get("content") or "").strip()
+                if not content:
+                    continue
+                last_user_index = idx
+                last_user_msg = content
                 break
+        if last_user_index < 0:
+            raise ValueError("messages must include at least one non-empty user message")
 
         user_id = payload.get("user", metadata.get("user_id", "anonymous"))
         session_id = metadata.get("session_id", uuid.uuid4().hex)
         channel = metadata.get("channel", "dashboard")
         stream = payload.get("stream", False)
         model = payload.get("model", "default")
+        event_format = str(metadata.get("event_format") or "openai.v1")
+        locale = str(metadata.get("locale") or payload.get("locale") or "zh")
 
         quant_data = metadata.get("quant")
         quant = QuantContext(**quant_data) if isinstance(quant_data, dict) else None
+        metadata["history"] = messages[:last_user_index]
+        metadata["locale"] = locale
+        metadata["event_format"] = event_format
 
         req = ChatRequest(
             message=last_user_msg,
@@ -111,11 +159,13 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
             quant=quant,
             metadata=metadata,
         )
-        return req, {"stream": stream, "model": model, "messages": messages}
+        return req, {"stream": stream, "model": model, "messages": messages, "event_format": event_format}
     else:
         # Legacy format
         req = _chat_request(payload)
-        return req, {"stream": False, "model": "default", "messages": [{"role": "user", "content": req.message}]}
+        req.metadata.setdefault("locale", payload.get("locale", "zh"))
+        req.metadata.setdefault("event_format", "openai.v1")
+        return req, {"stream": False, "model": "default", "messages": [{"role": "user", "content": req.message}], "event_format": "openai.v1"}
 
 
 async def _close_dojo_client(client: Any) -> None:
@@ -278,27 +328,25 @@ def create_app(
 
     @app.post("/api/chat")
     async def chat(payload: dict[str, Any]) -> Any:
-        req, info = _completion_request(payload)
+        try:
+            req, info = _completion_request(payload)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         is_stream = info["stream"]
         model = info["model"]
+        event_format = info.get("event_format", "openai.v1")
 
         if is_stream:
             # SSE streaming mode
             queue: asyncio.Queue = asyncio.Queue()
-            callback = make_stream_delta_callback(queue)
-
-            # Attach callback to agent loop dynamically
-            agent_loop = runtime.agent
-            prev_callback = getattr(agent_loop, "stream_delta_callback", None)
-            agent_loop.stream_delta_callback = callback
+            run_id = f"run-{uuid.uuid4().hex[:8]}"
+            event_sink = make_event_queue_sink(queue, run_id=run_id, session_id=req.session_id)
 
             async def _stream_and_restore():
                 try:
-                    response: AgentResponse = await agent_loop.run(req)
-                    # Yield to let call_soon_threadsafe callbacks drain
+                    await runtime.agent.run(req, event_sink=event_sink)
                     await asyncio.sleep(0)
                     await queue.put(None)
-                    return response
                 except Exception as exc:
                     await asyncio.sleep(0)
                     await queue.put(exc)
@@ -309,12 +357,13 @@ def create_app(
 
             async def _generate():
                 try:
-                    async for chunk_line in stream_completion_chunks(queue, model=model):
+                    async for chunk_line in stream_completion_chunks(
+                        queue,
+                        model=model,
+                        event_format=event_format,
+                    ):
                         yield chunk_line
                 finally:
-                    # Restore previous callback
-                    agent_loop.stream_delta_callback = prev_callback
-                    # Ensure task is done
                     if not task.done():
                         await task
 
@@ -325,7 +374,18 @@ def create_app(
             )
 
         # Non-streaming mode
-        response: AgentResponse = await runtime.agent.run(req)
+        dojo_extension = None
+        sink: AgentEventSink | None = None
+        if event_format == "dojo.v2":
+            sink = AgentEventSink(run_id=f"run-{uuid.uuid4().hex[:8]}", session_id=req.session_id)
+        response: AgentResponse = await runtime.agent.run(req, event_sink=sink)
+        if sink is not None:
+            dojo_extension = {
+                "schema_version": "2.0",
+                "run_id": sink.run_id,
+                "events": sink.events,
+            }
+            response.metadata["dojo"] = dojo_extension
         openai_resp = ChatCompletionResponse.from_agent_response(response, model=model)
         body = openai_resp.to_dict()
         # Backward-compat: add legacy fields

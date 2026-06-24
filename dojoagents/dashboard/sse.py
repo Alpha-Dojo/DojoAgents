@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, AsyncGenerator
+
+from dojoagents.agent.events import AgentEvent, AgentEventSink
 
 
-def make_stream_delta_callback(queue: asyncio.Queue) -> Callable[[Any], None]:
-    """Return a sync callable that puts text deltas on an asyncio.Queue.
+def make_event_queue_sink(
+    queue: asyncio.Queue,
+    *,
+    run_id: str,
+    session_id: str,
+) -> AgentEventSink:
+    """Create a request-scoped event sink that writes typed events to a queue."""
 
-    Thread-safe: uses ``loop.call_soon_threadsafe`` when called from a
-    different thread than the running event loop.
-    """
-
-    def callback(delta: Any) -> None:
+    def emit(event: AgentEvent) -> None:
         try:
             loop = asyncio.get_running_loop()
-            loop.call_soon_threadsafe(queue.put_nowait, delta)
+            loop.call_soon_threadsafe(queue.put_nowait, event.to_dict())
         except RuntimeError:
             pass
 
-    return callback
+    return AgentEventSink(run_id=run_id, session_id=session_id, emit=emit)
 
 
 def _make_chunk_line(
@@ -30,6 +34,8 @@ def _make_chunk_line(
     created: int,
     model: str,
     choice_delta: dict[str, Any],
+    *,
+    dojo_event: dict[str, Any] | None = None,
 ) -> str:
     from dojoagents.agent.models import ChatCompletionChunk
 
@@ -44,29 +50,40 @@ def _make_chunk_line(
                 **choice_delta,
             }
         ],
+        dojo_event=dojo_event,
     )
     return chunk.to_sse_line()
+
+
+def _tool_delta_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tool_calls": [
+            {
+                "index": 0,
+                "id": event["call_id"],
+                "type": "function",
+                "function": {
+                    "name": event["tool"],
+                    "arguments": json.dumps(event.get("arguments") or {}, ensure_ascii=False),
+                },
+            }
+        ]
+    }
 
 
 async def stream_completion_chunks(
     queue: asyncio.Queue,
     *,
     model: str,
+    event_format: str = "openai.v1",
     completion_id: str | None = None,
     created: int | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Async generator that drains *queue* and yields OpenAI-compatible SSE lines.
-
-    The queue receives items from ``make_stream_delta_callback``:
-    - ``str``   → text content delta
-    - ``dict``  → tool_calls delta (passed through to choices[0].delta)
-    - ``None``  → sentinel: stop streaming
-    - ``Exception`` → re-raised
-    """
+    """Drain event queue and emit OpenAI-compatible SSE lines with optional dojo events."""
     completion_id = completion_id or f"chatcmpl-dojo-{uuid.uuid4().hex[:8]}"
     created = created or int(time.time())
+    dojo_v2 = event_format == "dojo.v2"
 
-    # 1. message_start
     yield _make_chunk_line(
         completion_id,
         created,
@@ -74,37 +91,70 @@ async def stream_completion_chunks(
         {"delta": {"role": "assistant", "content": ""}, "finish_reason": None},
     )
 
-    # 2. Drain queue for content_delta / tool_call_delta
+    terminal_error: dict[str, Any] | None = None
+    terminal_done: dict[str, Any] | None = None
+
     while True:
         item = await queue.get()
         if item is None:
             break
         if isinstance(item, Exception):
-            raise item
-        if isinstance(item, str):
+            terminal_error = {"type": "error", "message": str(item), "code": "runtime_error"}
+            break
+        if not isinstance(item, dict):
+            continue
+
+        event_type = item.get("type")
+        if event_type == "delta":
             yield _make_chunk_line(
                 completion_id,
                 created,
                 model,
-                {"delta": {"content": item}, "finish_reason": None},
+                {"delta": {"content": item.get("text", "")}, "finish_reason": None},
+                dojo_event=item if dojo_v2 else None,
             )
-        elif isinstance(item, dict):
+            continue
+
+        if event_type == "tool_start":
             yield _make_chunk_line(
                 completion_id,
                 created,
                 model,
-                {"delta": item, "finish_reason": None},
+                {"delta": _tool_delta_from_event(item), "finish_reason": None},
+                dojo_event=item if dojo_v2 else None,
+            )
+            continue
+
+        if event_type == "done":
+            terminal_done = item
+            continue
+
+        if event_type == "error":
+            terminal_error = item
+            continue
+
+        if dojo_v2:
+            yield _make_chunk_line(
+                completion_id,
+                created,
+                model,
+                {"delta": {}, "finish_reason": None},
+                dojo_event=item,
             )
 
-    # 3. message_end
+    finish_reason = "stop"
+    dojo_event = None
+    if dojo_v2:
+        dojo_event = terminal_error or terminal_done
+
     yield _make_chunk_line(
         completion_id,
         created,
         model,
-        {"delta": {}, "finish_reason": "stop"},
+        {"delta": {}, "finish_reason": finish_reason},
+        dojo_event=dojo_event,
     )
 
-    # 4. [DONE] sentinel
     from dojoagents.agent.models import ChatCompletionChunk
 
     yield ChatCompletionChunk.done_sentinel()

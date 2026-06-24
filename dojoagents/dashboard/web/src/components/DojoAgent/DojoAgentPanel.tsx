@@ -3,7 +3,15 @@ import { useAgentModel } from '../../agent/AgentModelContext';
 import { useAgentSessions } from '../../agent/useAgentSessions';
 import { streamAgentChat } from '../../api/agent';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { AgentChatMessage, AgentToolActivityItem, ToolCall } from '../../types/agent';
+import { useLocaleContext } from '../../i18n/LocaleContext';
+import { invalidateCachePrefix } from '../../cache/queryCache';
+import type {
+  AgentChatMessage,
+  AgentToolActivityItem,
+  DojoToolResultEvent,
+  DojoToolStartEvent,
+  ToolCall,
+} from '../../types/agent';
 import { AgentModelSwitcher } from '../AgentModelSwitcher';
 import '../AgentModelSwitcher.css';
 import { AgentMarkdown } from './AgentMarkdown';
@@ -82,6 +90,47 @@ function finalizeToolCalls(
   );
 }
 
+function appendUnique(values: string[] | undefined, nextValue: string): string[] {
+  const next = [...(values ?? [])];
+  if (!next.includes(nextValue)) next.push(nextValue);
+  return next;
+}
+
+function applyToolResult(
+  activity: AgentToolActivityItem[] | undefined,
+  event: DojoToolResultEvent,
+): AgentToolActivityItem[] {
+  const next = [...(activity ?? [])];
+  const existing = next.find((item) => item.id === event.call_id);
+  const patch: AgentToolActivityItem = {
+    id: event.call_id,
+    tool: event.tool,
+    status: event.ok ? 'done' : 'error',
+    error: event.ok ? null : event.error || null,
+    result: event.ok ? event.content : event.error,
+    latencyMs: event.latency_ms,
+    data: event.data,
+    vizBlocks: event.viz_blocks,
+    resourceChanges: event.resource_changes,
+  };
+  if (existing) {
+    Object.assign(existing, patch);
+  } else {
+    next.push(patch);
+  }
+  return next;
+}
+
+function invalidateResourceChanges(activity: AgentToolActivityItem[]) {
+  for (const item of activity) {
+    for (const change of item.resourceChanges ?? []) {
+      if (change.resource === 'portfolio') {
+        invalidateCachePrefix('folio-');
+      }
+    }
+  }
+}
+
 export function DojoAgentPanel({
   open,
   pinned = false,
@@ -89,6 +138,7 @@ export function DojoAgentPanel({
   onClose,
 }: DojoAgentPanelProps) {
   const { t } = useTranslation();
+  const { locale } = useLocaleContext();
   const { selectedModelId, setSelectedModelId } = useAgentModel();
   const {
     sessions,
@@ -127,6 +177,14 @@ export function DojoAgentPanel({
     (sessionId: string, nextMessages: AgentChatMessage[]) => {
       replaceSessionMessages(sessionId, nextMessages, selectedModelId);
       setDraftMessages([]);
+    },
+    [replaceSessionMessages, selectedModelId],
+  );
+
+  const persistDraft = useCallback(
+    (sessionId: string, nextMessages: AgentChatMessage[]) => {
+      setDraftMessages(nextMessages);
+      replaceSessionMessages(sessionId, nextMessages, selectedModelId);
     },
     [replaceSessionMessages, selectedModelId],
   );
@@ -181,7 +239,7 @@ export function DojoAgentPanel({
     };
     const nextMessages = [...messages, userMessage, pendingAssistant];
 
-    setDraftMessages(nextMessages);
+    persistDraft(sessionId, nextMessages);
     setInput('');
     setStreaming(true);
     setError(null);
@@ -192,6 +250,10 @@ export function DojoAgentPanel({
 
     let assistantText = '';
     let assistantTools: AgentToolActivityItem[] = [];
+    let assistantPhase: AgentChatMessage['phase'] = 'planning';
+    let assistantPhaseHistory: AgentChatMessage['phaseHistory'] = ['planning'];
+    let assistantRetries: string[] = [];
+    let assistantEvalHints: string[] = [];
 
     await streamAgentChat(
       {
@@ -204,6 +266,7 @@ export function DojoAgentPanel({
         metadata: {
           session_id: sessionId,
           channel: 'dashboard',
+          locale,
           history: messages.map((message) => ({
             role: message.role,
             content: message.content,
@@ -214,13 +277,19 @@ export function DojoAgentPanel({
         onEvent: (event) => {
           if (event.type === 'content_delta') {
             assistantText += event.content ?? '';
-            assistantTools = finalizeToolCalls(assistantTools, 'done');
-            setDraftMessages((prev) =>
-              updateAssistantMessage(prev, {
+            persistDraft(
+              sessionId,
+              updateAssistantMessage([...messages, userMessage, pendingAssistant], {
                 content: assistantText,
                 toolActivity: assistantTools,
+                phase: 'answering',
+                phaseHistory: appendUnique(assistantPhaseHistory, 'answering') as AgentChatMessage['phaseHistory'],
+                retries: assistantRetries,
+                evalHints: assistantEvalHints,
               }),
             );
+            assistantPhase = 'answering';
+            assistantPhaseHistory = appendUnique(assistantPhaseHistory, 'answering') as AgentChatMessage['phaseHistory'];
             return;
           }
 
@@ -229,23 +298,84 @@ export function DojoAgentPanel({
               assistantTools,
               event.chunk?.choices[0]?.delta.tool_calls,
             );
-            setDraftMessages((prev) =>
-              updateAssistantMessage(prev, {
+            persistDraft(
+              sessionId,
+              updateAssistantMessage([...messages, userMessage, pendingAssistant], {
                 content: assistantText,
                 toolActivity: assistantTools,
+                phase: 'tools',
+                phaseHistory: appendUnique(assistantPhaseHistory, 'tools') as AgentChatMessage['phaseHistory'],
+                retries: assistantRetries,
+                evalHints: assistantEvalHints,
+              }),
+            );
+            assistantPhase = 'tools';
+            assistantPhaseHistory = appendUnique(assistantPhaseHistory, 'tools') as AgentChatMessage['phaseHistory'];
+            return;
+          }
+
+          if (event.type === 'dojo_event' && event.dojoEvent) {
+            const dojoEvent = event.dojoEvent;
+            if (dojoEvent.type === 'phase') {
+              const phaseEvent = dojoEvent as Extract<typeof dojoEvent, { type: 'phase' }>;
+              assistantPhase = phaseEvent.phase;
+              assistantPhaseHistory = appendUnique(assistantPhaseHistory, phaseEvent.phase) as AgentChatMessage['phaseHistory'];
+            }
+            if (dojoEvent.type === 'retry') {
+              const retryEvent = dojoEvent as Extract<typeof dojoEvent, { type: 'retry' }>;
+              const label = retryEvent.text || `Retry ${retryEvent.attempt}/${retryEvent.max_attempts}`;
+              assistantRetries = appendUnique(assistantRetries, label);
+            }
+            if (dojoEvent.type === 'eval_hint') {
+              const evalEvent = dojoEvent as Extract<typeof dojoEvent, { type: 'eval_hint' }>;
+              assistantEvalHints = appendUnique(assistantEvalHints, evalEvent.text);
+            }
+            if (dojoEvent.type === 'tool_start') {
+              const toolEvent = dojoEvent as DojoToolStartEvent;
+              assistantTools = mergeToolCalls(assistantTools, [
+                {
+                  id: toolEvent.call_id,
+                  type: 'function',
+                  function: {
+                    name: toolEvent.tool,
+                    arguments: JSON.stringify(toolEvent.arguments ?? {}),
+                  },
+                },
+              ]);
+            }
+            if (dojoEvent.type === 'tool_result') {
+              assistantTools = applyToolResult(assistantTools, dojoEvent as DojoToolResultEvent);
+              invalidateResourceChanges(assistantTools);
+            }
+            if (dojoEvent.type === 'error') {
+              const errorEvent = dojoEvent as Extract<typeof dojoEvent, { type: 'error' }>;
+              setError(errorEvent.message);
+            }
+            persistDraft(
+              sessionId,
+              updateAssistantMessage([...messages, userMessage, pendingAssistant], {
+                content: assistantText,
+                toolActivity: assistantTools,
+                phase: assistantPhase,
+                phaseHistory: assistantPhaseHistory,
+                retries: assistantRetries,
+                evalHints: assistantEvalHints,
               }),
             );
             return;
           }
 
           if (event.type === 'done') {
-            assistantTools = finalizeToolCalls(assistantTools, 'done');
             const finalMessages = [
               ...messages,
               userMessage,
               {
                 role: 'assistant' as const,
                 content: assistantText,
+                phase: assistantPhase,
+                phaseHistory: assistantPhaseHistory,
+                retries: assistantRetries,
+                evalHints: assistantEvalHints,
                 toolActivity: assistantTools.length > 0 ? assistantTools : undefined,
               },
             ];
@@ -258,13 +388,20 @@ export function DojoAgentPanel({
         onError: (message) => {
           assistantTools = finalizeToolCalls(assistantTools, 'error', message);
           setError(message);
-          setDraftMessages((prev) =>
-            updateAssistantMessage(prev, {
+          persistDraft(
+            sessionId,
+            updateAssistantMessage([...messages, userMessage, pendingAssistant], {
               content: assistantText,
               toolActivity: assistantTools,
+              phase: assistantPhase,
+              phaseHistory: assistantPhaseHistory,
+              retries: assistantRetries,
+              evalHints: assistantEvalHints,
             }),
           );
-          setInput(text);
+          if (!controller.signal.aborted) {
+            setInput(text);
+          }
           setStreaming(false);
           abortRef.current = null;
           textareaRef.current?.focus();
@@ -275,7 +412,9 @@ export function DojoAgentPanel({
   }, [
     ensureActiveSession,
     input,
+    locale,
     messages,
+    persistDraft,
     persistMessages,
     selectedModelId,
     streaming,
@@ -420,7 +559,13 @@ export function DojoAgentPanel({
                     <p className="dojo-agent-panel__user-text">{message.content}</p>
                   ) : (
                     <>
-                      <AgentToolActivity items={toolActivity} thinking={showThinking} />
+                      <AgentToolActivity
+                        items={toolActivity}
+                        thinking={showThinking}
+                        phase={message.phase}
+                        retries={message.retries}
+                        evalHints={message.evalHints}
+                      />
                       {message.content ? (
                         <AgentMarkdown content={message.content} streaming={isStreamingAssistant} />
                       ) : null}
@@ -450,11 +595,19 @@ export function DojoAgentPanel({
           <button
             type="button"
             className="action-button dojo-agent-panel__send"
-            disabled={!canSend}
-            aria-label={t('agent.send')}
-            onClick={() => void handleSend()}
+            disabled={!canSend && !streaming}
+            aria-label={streaming ? t('agent.stop') : t('agent.send')}
+            onClick={() => {
+              if (streaming) {
+                abortRef.current?.abort();
+                abortRef.current = null;
+                setStreaming(false);
+                return;
+              }
+              void handleSend();
+            }}
           >
-            {streaming ? t('agent.sending') : t('agent.send')}
+            {streaming ? t('agent.stop') : t('agent.send')}
           </button>
         </div>
       </footer>

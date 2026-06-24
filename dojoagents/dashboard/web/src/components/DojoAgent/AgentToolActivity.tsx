@@ -1,9 +1,12 @@
 import { useTranslation } from '../../hooks/useTranslation';
-import type { AgentToolActivityItem } from '../../types/agent';
+import type { AgentPhase, AgentToolActivityItem } from '../../types/agent';
 
 interface AgentToolActivityProps {
   items: AgentToolActivityItem[];
   thinking?: boolean;
+  phase?: AgentPhase;
+  retries?: string[];
+  evalHints?: string[];
 }
 
 function toolLabel(name: string): string {
@@ -14,19 +17,50 @@ function toolLabel(name: string): string {
     .trim();
 }
 
-export function AgentToolActivity({ items, thinking = false }: AgentToolActivityProps) {
+function phaseLabel(phase: AgentPhase | undefined, t: (key: string) => string): string {
+  if (!phase) return t('agent.thinking');
+  if (phase === 'planning') return t('agent.phasePlanning');
+  if (phase === 'tools') return t('agent.phaseTools');
+  return t('agent.phaseAnswering');
+}
+
+export function AgentToolActivity({
+  items,
+  thinking = false,
+  phase,
+  retries = [],
+  evalHints = [],
+}: AgentToolActivityProps) {
   const { t } = useTranslation();
 
-  if (!thinking && items.length === 0) return null;
+  if (!thinking && items.length === 0 && retries.length === 0 && evalHints.length === 0 && !phase) {
+    return null;
+  }
 
   return (
     <div className="dojo-agent-tool-activity" aria-live="polite">
-      {thinking ? (
+      {thinking || phase ? (
         <div className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--thinking">
           <span className="dojo-agent-tool-activity__spinner" aria-hidden />
-          <span>{t('agent.thinking')}</span>
+          <span>{phaseLabel(phase, t)}</span>
         </div>
       ) : null}
+      {retries.map((retry, index) => (
+        <div key={`retry-${index}`} className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--thinking">
+          <span className="dojo-agent-tool-activity__icon" aria-hidden>
+            ↻
+          </span>
+          <span className="dojo-agent-tool-activity__label">{retry}</span>
+        </div>
+      ))}
+      {evalHints.map((hint, index) => (
+        <div key={`hint-${index}`} className="dojo-agent-tool-activity__row dojo-agent-tool-activity__row--error">
+          <span className="dojo-agent-tool-activity__icon" aria-hidden>
+            !
+          </span>
+          <span className="dojo-agent-tool-activity__label">{hint}</span>
+        </div>
+      ))}
       {items.map((item, index) => (
         <div
           key={`${item.id}-${index}`}
@@ -41,8 +75,13 @@ export function AgentToolActivity({ items, thinking = false }: AgentToolActivity
               ? t('agent.toolRunning')
               : item.status === 'error'
                 ? item.error || t('agent.toolFailed')
-                : t('agent.toolDone')}
+                : item.latencyMs
+                  ? `${t('agent.toolDone')} · ${item.latencyMs}ms`
+                  : t('agent.toolDone')}
           </span>
+          {item.result ? (
+            <span className="dojo-agent-tool-activity__meta">{item.result}</span>
+          ) : null}
         </div>
       ))}
     </div>
