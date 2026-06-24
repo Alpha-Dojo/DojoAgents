@@ -1,7 +1,9 @@
 from __future__ import annotations
+from dojoagents.logging import LOGGER
 
 import argparse
 import asyncio
+from pathlib import Path
 
 import uvicorn
 
@@ -62,9 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcp_parser = sub.add_parser("mcp")
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
-    mcp_serve = mcp_sub.add_parser("serve")
-    return parser
+    _ = mcp_sub.add_parser("serve")
 
+    precompute = sub.add_parser("precompute-sector", help="Precompute sector daily metrics and returns")
+    precompute.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
+    precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
+    precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
+
+    return parser
 
 
 async def _run_chat(args: argparse.Namespace) -> int:
@@ -84,7 +91,7 @@ async def _run_chat(args: argparse.Namespace) -> int:
             quant=quant,
         )
     )
-    print(response.content)
+    LOGGER.info(response.content)
     return 0
 
 
@@ -107,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.gateway_command == "pairing":
             from dojoagents.gateway.pairing import PairingStore
             from dojoagents.config.loader import ConfigStore
+
             raw_config = ConfigStore(args.config).raw()
             gateway_config = raw_config.get("gateway") or {}
             pairing_store_path = gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json")
@@ -115,52 +123,57 @@ def main(argv: list[str] | None = None) -> int:
             if args.pairing_command == "list":
                 pending = store.list_pending(platform=args.platform)
                 if not pending:
-                    print("No pending pairing requests found.")
+                    LOGGER.info("No pending pairing requests found.")
                 else:
-                    print(f"{'Platform':<15} {'User ID':<20} {'User Name':<20} {'Pairing Code':<15}")
-                    print("-" * 75)
+                    LOGGER.info(f"{'Platform':<15} {'User ID':<20} {'User Name':<20} {'Pairing Code':<15}")
+                    LOGGER.info("-" * 75)
                     for p in pending:
-                        print(f"{p['platform']:<15} {p['user_id']:<20} {p['user_name']:<20} {p['code']:<15}")
+                        LOGGER.info(f"{p['platform']:<15} {p['user_id']:<20} {p['user_name']:<20} {p['code']:<15}")
                 return 0
 
             elif args.pairing_command == "approve":
                 try:
                     success = store.approve_code(args.platform, args.code)
                     if success:
-                        print(f"Successfully approved pairing code '{args.code}' for platform '{args.platform}'.")
+                        LOGGER.info(f"Successfully approved pairing code '{args.code}' for platform '{args.platform}'.")
                         return 0
                     else:
-                        print(f"Failed to approve pairing code '{args.code}' on platform '{args.platform}': code not found or invalid.")
+                        LOGGER.info(f"Failed to approve pairing code '{args.code}' on platform '{args.platform}': code not found or invalid.")
                         return 1
                 except Exception as e:
-                    print(f"Error: {str(e)}")
+                    LOGGER.info(f"Error: {str(e)}")
                     return 1
 
             elif args.pairing_command == "deny":
                 success = store.deny_code(args.platform, args.code)
                 if success:
-                    print(f"Successfully denied pairing code '{args.code}' for platform '{args.platform}'.")
+                    LOGGER.info(f"Successfully denied pairing code '{args.code}' for platform '{args.platform}'.")
                     return 0
                 else:
-                    print(f"Failed to deny pairing code '{args.code}' on platform '{args.platform}': code not found.")
+                    LOGGER.info(f"Failed to deny pairing code '{args.code}' on platform '{args.platform}': code not found.")
                     return 1
 
         uvicorn.run(create_gateway_app(config_path=args.config), host=args.host, port=args.port)
         return 0
     if args.command == "scheduler":
         runtime = Runtime.from_default_config()
-        print(f"Loaded {len(runtime.scheduler.list_jobs())} scheduled jobs")
+        LOGGER.info(f"Loaded {len(runtime.scheduler.list_jobs())} scheduled jobs")
         return 0
     if args.command == "model":
         from dojoagents.cli.model_setup import configure_model_connection
+
         return configure_model_connection(config_path=args.config)
     if args.command == "mcp":
         if args.mcp_command == "serve":
             from dojoagents.cli.mcp_serve import run_server
+
             run_server()
             return 0
-    return 2
+    if args.command == "precompute-sector":
+        from dojoagents.cli.precompute_sector import run_precompute_sector
 
+        return asyncio.run(run_precompute_sector(args))
+    return 2
 
 
 if __name__ == "__main__":

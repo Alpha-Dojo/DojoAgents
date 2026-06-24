@@ -3,13 +3,17 @@ import { useAgentModel } from '../../agent/AgentModelContext';
 import { useAgentSessions } from '../../agent/useAgentSessions';
 import { streamAgentChat } from '../../api/agent';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { AgentChatMessage } from '../../types/agent';
+import type { AgentChatMessage, AgentToolActivityItem, ToolCall } from '../../types/agent';
 import { AgentModelSwitcher } from '../AgentModelSwitcher';
 import '../AgentModelSwitcher.css';
+import { AgentMarkdown } from './AgentMarkdown';
+import { AgentToolActivity } from './AgentToolActivity';
 import './DojoAgentPanel.css';
 
 interface DojoAgentPanelProps {
   open: boolean;
+  pinned?: boolean;
+  interactive?: boolean;
   onClose: () => void;
 }
 
@@ -26,9 +30,66 @@ function formatSessionTime(timestamp: number): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
+function updateAssistantMessage(
+  messages: AgentChatMessage[],
+  patch: Partial<AgentChatMessage>,
+): AgentChatMessage[] {
+  if (messages.length === 0) return messages;
+  const updated = [...messages];
+  const last = updated[updated.length - 1];
+  if (last.role !== 'assistant') return messages;
+  updated[updated.length - 1] = { ...last, ...patch };
+  return updated;
+}
+
+function mergeToolCalls(
+  activity: AgentToolActivityItem[] | undefined,
+  toolCalls: ToolCall[] | undefined,
+): AgentToolActivityItem[] {
+  const next = [...(activity ?? [])];
+  for (const toolCall of toolCalls ?? []) {
+    const existing = next.find((item) => item.id === toolCall.id);
+    const args = toolCall.function.arguments || '';
+    if (existing) {
+      existing.arguments = args;
+      existing.tool = toolCall.function.name || existing.tool;
+      if (existing.status === 'done') existing.status = 'running';
+      continue;
+    }
+    next.push({
+      id: toolCall.id,
+      tool: toolCall.function.name || 'tool',
+      arguments: args,
+      status: 'running',
+    });
+  }
+  return next;
+}
+
+function finalizeToolCalls(
+  activity: AgentToolActivityItem[] | undefined,
+  status: 'done' | 'error',
+  error?: string | null,
+): AgentToolActivityItem[] {
+  return (activity ?? []).map((item) =>
+    item.status === 'running'
+      ? {
+          ...item,
+          status,
+          error: status === 'error' ? error ?? null : null,
+        }
+      : item,
+  );
+}
+
+export function DojoAgentPanel({
+  open,
+  pinned = false,
+  interactive = false,
+  onClose,
+}: DojoAgentPanelProps) {
   const { t } = useTranslation();
-  const { selectedModelId, geminiConfigured, setSelectedModelId } = useAgentModel();
+  const { selectedModelId, setSelectedModelId } = useAgentModel();
   const {
     sessions,
     activeSessionId,
@@ -45,6 +106,7 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [draftMessages, setDraftMessages] = useState<AgentChatMessage[]>([]);
+  const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -86,6 +148,7 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
         setHistoryOpen(false);
         return;
       }
+      setSwitchingSessionId(sessionId);
       abortRef.current?.abort();
       abortRef.current = null;
       setStreaming(false);
@@ -97,18 +160,25 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
         setSelectedModelId(session.modelId);
       }
       selectSession(sessionId);
-      setHistoryOpen(false);
+      window.setTimeout(() => {
+        setSwitchingSessionId(null);
+        setHistoryOpen(false);
+      }, 120);
     },
     [activeSessionId, selectSession, sessions, setSelectedModelId],
   );
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || !geminiConfigured) return;
+    if (!text || streaming) return;
 
     const sessionId = ensureActiveSession(selectedModelId);
     const userMessage: AgentChatMessage = { role: 'user', content: text };
-    const pendingAssistant: AgentChatMessage = { role: 'assistant', content: '' };
+    const pendingAssistant: AgentChatMessage = {
+      role: 'assistant',
+      content: '',
+      toolActivity: [],
+    };
     const nextMessages = [...messages, userMessage, pendingAssistant];
 
     setDraftMessages(nextMessages);
@@ -121,36 +191,79 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
     abortRef.current = controller;
 
     let assistantText = '';
+    let assistantTools: AgentToolActivityItem[] = [];
 
     await streamAgentChat(
       {
-        model_id: selectedModelId,
-        messages: [...messages, userMessage],
+        model: selectedModelId,
+        messages: [...messages, userMessage].map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        user: 'dashboard',
+        metadata: {
+          session_id: sessionId,
+          channel: 'dashboard',
+          history: messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+        },
       },
       {
-        onDelta: (delta) => {
-          assistantText += delta;
-          setDraftMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const updated = [...prev];
-            updated[updated.length - 1] = { role: 'assistant', content: assistantText };
-            return updated;
-          });
-        },
-        onDone: () => {
-          const finalMessages = [
-            ...messages,
-            userMessage,
-            { role: 'assistant' as const, content: assistantText },
-          ];
-          persistMessages(sessionId, finalMessages);
-          setStreaming(false);
-          abortRef.current = null;
-          textareaRef.current?.focus();
+        onEvent: (event) => {
+          if (event.type === 'content_delta') {
+            assistantText += event.content ?? '';
+            assistantTools = finalizeToolCalls(assistantTools, 'done');
+            setDraftMessages((prev) =>
+              updateAssistantMessage(prev, {
+                content: assistantText,
+                toolActivity: assistantTools,
+              }),
+            );
+            return;
+          }
+
+          if (event.type === 'tool_call_delta') {
+            assistantTools = mergeToolCalls(
+              assistantTools,
+              event.chunk?.choices[0]?.delta.tool_calls,
+            );
+            setDraftMessages((prev) =>
+              updateAssistantMessage(prev, {
+                content: assistantText,
+                toolActivity: assistantTools,
+              }),
+            );
+            return;
+          }
+
+          if (event.type === 'done') {
+            assistantTools = finalizeToolCalls(assistantTools, 'done');
+            const finalMessages = [
+              ...messages,
+              userMessage,
+              {
+                role: 'assistant' as const,
+                content: assistantText,
+                toolActivity: assistantTools.length > 0 ? assistantTools : undefined,
+              },
+            ];
+            persistMessages(sessionId, finalMessages);
+            setStreaming(false);
+            abortRef.current = null;
+            textareaRef.current?.focus();
+          }
         },
         onError: (message) => {
+          assistantTools = finalizeToolCalls(assistantTools, 'error', message);
           setError(message);
-          setDraftMessages([]);
+          setDraftMessages((prev) =>
+            updateAssistantMessage(prev, {
+              content: assistantText,
+              toolActivity: assistantTools,
+            }),
+          );
           setInput(text);
           setStreaming(false);
           abortRef.current = null;
@@ -161,7 +274,6 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
     );
   }, [
     ensureActiveSession,
-    geminiConfigured,
     input,
     messages,
     persistMessages,
@@ -176,17 +288,19 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
     }
   };
 
-  const canSend = geminiConfigured && input.trim().length > 0 && !streaming;
-  const displayMessages =
-    draftMessages.length > 0 ? draftMessages : messages;
+  const canSend = input.trim().length > 0 && !streaming;
+  const displayMessages = draftMessages.length > 0 ? draftMessages : messages;
+  const isOpen = pinned || open;
 
   return (
     <aside
       id="dojo-agent-panel"
-      className={`dojo-agent-panel ${open ? 'dojo-agent-panel--open' : ''}`}
+      className={`dojo-agent-panel ${isOpen ? 'dojo-agent-panel--open' : ''}${
+        pinned ? ' dojo-agent-panel--pinned' : ''
+      }${interactive ? ' dojo-agent-panel--interactive' : ''}`}
       role="complementary"
       aria-labelledby="dojo-agent-title"
-      aria-hidden={!open}
+      aria-hidden={!isOpen}
     >
       <header className="dojo-agent-panel__head">
         <div className="dojo-agent-panel__head-main">
@@ -216,14 +330,16 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
             <p className="dojo-agent-panel__sub">{t('agent.subtitle')}</p>
           </div>
         </div>
-        <button
-          type="button"
-          className="dojo-agent-panel__close"
-          aria-label={t('agent.close')}
-          onClick={onClose}
-        >
-          ×
-        </button>
+        {!pinned ? (
+          <button
+            type="button"
+            className="dojo-agent-panel__close"
+            aria-label={t('agent.close')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        ) : null}
       </header>
 
       {historyOpen && (
@@ -242,6 +358,7 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
                     <button
                       type="button"
                       className="dojo-agent-panel__history-select"
+                      disabled={switchingSessionId === session.id}
                       onClick={() => handleSelectSession(session.id)}
                     >
                       <span className="dojo-agent-panel__history-title">
@@ -277,9 +394,18 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
               streaming &&
               message.role === 'assistant' &&
               index === displayMessages.length - 1;
-            if (message.role === 'assistant' && !message.content && !isStreamingAssistant) {
+            const toolActivity = message.toolActivity ?? [];
+            const hasToolActivity = toolActivity.length > 0;
+            const showThinking =
+              isStreamingAssistant && !message.content && !hasToolActivity;
+            const showAssistantBubble =
+              message.role === 'assistant' &&
+              (message.content || hasToolActivity || showThinking || isStreamingAssistant);
+
+            if (message.role === 'assistant' && !showAssistantBubble) {
               return null;
             }
+
             return (
               <div
                 key={`${message.role}-${index}`}
@@ -290,7 +416,16 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
                     isStreamingAssistant ? 'dojo-agent-panel__bubble--streaming' : ''
                   }`}
                 >
-                  {message.content}
+                  {message.role === 'user' ? (
+                    <p className="dojo-agent-panel__user-text">{message.content}</p>
+                  ) : (
+                    <>
+                      <AgentToolActivity items={toolActivity} thinking={showThinking} />
+                      {message.content ? (
+                        <AgentMarkdown content={message.content} streaming={isStreamingAssistant} />
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -300,22 +435,18 @@ export function DojoAgentPanel({ open, onClose }: DojoAgentPanelProps) {
       </div>
 
       <footer className="dojo-agent-panel__composer">
-        {!geminiConfigured && (
-          <p className="dojo-agent-panel__hint">{t('agent.apiNotConfigured')}</p>
-        )}
         {error && <p className="dojo-agent-panel__error">{error}</p>}
         <textarea
           ref={textareaRef}
           className="dojo-agent-panel__input"
-          rows={3}
           value={input}
           placeholder={t('agent.placeholder')}
-          disabled={!geminiConfigured || streaming}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
+          disabled={switchingSessionId !== null}
         />
         <div className="dojo-agent-panel__composer-bar">
-          <AgentModelSwitcher variant="composer" />
+          <AgentModelSwitcher />
           <button
             type="button"
             className="action-button dojo-agent-panel__send"

@@ -48,8 +48,10 @@ uv.lock
 *egg-info/
 docs/superpowers/
 docs/hermes/
+docs/plans/
 .superpowers/
 .qoder/
 
 # front
 *node_modules/
+dojo

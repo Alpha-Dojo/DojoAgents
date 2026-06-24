@@ -11,6 +11,9 @@
         <div v-else-if="appStore.currentView === 'scheduler'" style="height: 100%; overflow: auto">
           <SchedulerView />
         </div>
+        <div v-else-if="appStore.currentView === 'financial'" style="height: 100%; overflow: auto">
+          <FinancialWorkspace />
+        </div>
       </template>
       <template #chat>
         <ChatPanel />
@@ -25,6 +28,7 @@ import ChatPanel from './components/chat/ChatPanel.vue'
 import CanvasPanel from './components/canvas/CanvasPanel.vue'
 import SettingsView from './components/settings/SettingsView.vue'
 import SchedulerView from './components/scheduler/SchedulerView.vue'
+import FinancialWorkspace from './views/financial/FinancialWorkspace.vue'
 import { useAppStore } from './stores/app'
 
 const appStore = useAppStore()

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 import yaml
 
@@ -97,7 +95,7 @@ def test_gateway_setup_single_adapter_writes_config(tmp_path, monkeypatch, capsy
         "bot_token": "telegram-token",
         "home_channel": "123456",
     }
-    output = capsys.readouterr().out
+    output = capsys.readouterr().out + capsys.readouterr().err
     assert "Telegram configured" in output
     assert str(config_path) in output
 
@@ -171,7 +169,7 @@ def test_gateway_setup_wechat_uses_qr_url_flow(tmp_path, monkeypatch, capsys):
     assert hook["dm_policy"] == "open"
     assert hook["group_policy"] == "disabled"
     assert hook["home_channel"] == "manual-home"
-    output = capsys.readouterr().out
+    output = capsys.readouterr().out + capsys.readouterr().err
     assert "WeChat QR login URL: https://login.example/qr" in output
     assert "WeChat configured via QR login" in output
 
@@ -189,21 +187,14 @@ def test_model_setup_writes_config(tmp_path, monkeypatch):
     from dojoagents.cli.main import main
 
     config_path = tmp_path / "agents.yaml"
-    
+
     inputs = iter(["1", "", "1"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(inputs))
     monkeypatch.setattr("getpass.getpass", lambda _prompt="": "fake-openai-key")
 
     def mock_get(url, headers=None, timeout=None):
-        return httpx.Response(
-            200,
-            json={
-                "data": [
-                    {"id": "gpt-4o"},
-                    {"id": "gpt-4o-mini"}
-                ]
-            }
-        )
+        return httpx.Response(200, json={"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]})
+
     monkeypatch.setattr("httpx.get", mock_get)
 
     code = main(["model", "--config", str(config_path)])
@@ -215,4 +206,3 @@ def test_model_setup_writes_config(tmp_path, monkeypatch):
     assert data["llm_provider"]["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
     assert data["llm_provider"]["providers"]["openai"]["api_key"] == "fake-openai-key"
     assert data["agent"]["model"] == "gpt-4o"
-

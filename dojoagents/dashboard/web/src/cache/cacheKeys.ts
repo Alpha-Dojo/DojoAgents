@@ -12,6 +12,8 @@ function tickerKey(market: string | undefined, ticker: string): string {
 
 export const cacheKeys = {
   sectorTaxonomy: () => 'sector-taxonomy',
+  sectorAnalysis: (selection: SectorPathSelection) =>
+    `sector-analysis:${selectionKey(selection)}`,
   sectorScopeMetrics: (selection: SectorPathSelection) =>
     `sector-scope-metrics:${selectionKey(selection)}`,
   sectorScopePerformanceAll: (selection: SectorPathSelection) =>

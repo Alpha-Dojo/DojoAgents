@@ -1,0 +1,20 @@
+repos:
+- repo: https://github.com/psf/black
+  rev: 26.5.1
+  hooks:
+    - id: black
+      args:
+        - --line-length=180
+        - --fast
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: check-merge-conflict
+- repo: https://github.com/PyCQA/flake8
+  rev: 7.3.0
+  hooks:
+    - id: flake8
+      args:
+      - --max-line-length=180
+      - --max-complexity=100
+      - --ignore=E203,W503

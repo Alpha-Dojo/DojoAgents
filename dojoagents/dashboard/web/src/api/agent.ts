@@ -1,32 +1,51 @@
+import { fetchSettingsConfig } from './settings';
 import { ApiError } from './http';
-import type { AgentChatRequest, AgentModelsResponse, AgentStreamEvent } from '../types/agent';
+import type {
+  AgentChatRequest,
+  AgentModelsResponse,
+  AgentStreamEvent,
+  ChatCompletionChunk,
+} from '../types/agent';
 
-const API_PREFIX = '/api/v1';
+const API_URL = '/api/chat';
 
-export async function fetchAgentModels(): Promise<AgentModelsResponse> {
-  const res = await fetch(`${API_PREFIX}/agent/models`, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) {
-    throw new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status);
-  }
-  return res.json() as Promise<AgentModelsResponse>;
+function providerLabel(provider: string, model: string): string {
+  const normalized = provider.trim().toLowerCase();
+  if (!normalized) return model;
+  return `${normalized}:${model}`;
 }
 
-function parseSseBlock(block: string): AgentStreamEvent | null {
-  const dataLine = block
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.startsWith('data:'));
-  if (!dataLine) return null;
-  const raw = dataLine.slice(5).trim();
-  if (!raw) return null;
-  return JSON.parse(raw) as AgentStreamEvent;
+export async function fetchAgentModels(): Promise<AgentModelsResponse> {
+  const settings = await fetchSettingsConfig();
+  const llmProvider = (settings.llm_provider ?? {}) as {
+    default?: string;
+    providers?: Record<string, { model?: string }>;
+  };
+  const agentCfg = (settings.agent ?? {}) as { model?: string };
+
+  const provider = llmProvider.default ?? 'default';
+  const providerModel = llmProvider.providers?.[provider]?.model?.trim();
+  const agentModel = agentCfg.model?.trim();
+  const resolvedModel = agentModel || providerModel || 'gpt-4.1';
+
+  return {
+    default_model_id: resolvedModel,
+    gemini_configured: true,
+    models: [
+      {
+        id: resolvedModel,
+        label: providerLabel(provider, resolvedModel),
+        provider,
+        available: true,
+      },
+    ],
+  };
 }
 
 async function readErrorMessage(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { detail?: string | { msg?: string }[] };
+    const body = (await res.json()) as { error?: string; detail?: string | { msg?: string }[] };
+    if (typeof body.error === 'string') return body.error;
     if (typeof body.detail === 'string') return body.detail;
     if (Array.isArray(body.detail) && body.detail[0]?.msg) return body.detail[0].msg;
   } catch {
@@ -35,22 +54,74 @@ async function readErrorMessage(res: Response): Promise<string> {
   return `Request failed: ${res.status} ${res.statusText}`;
 }
 
+export async function* parseSSEStream(
+  response: Response,
+): AsyncGenerator<AgentStreamEvent, void, unknown> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+        const data = trimmed.slice(5).trim();
+        if (data === '[DONE]') {
+          yield { type: 'done' };
+          return;
+        }
+
+        try {
+          const chunk = JSON.parse(data) as ChatCompletionChunk;
+          const delta = chunk.choices[0]?.delta;
+          const finishReason = chunk.choices[0]?.finish_reason;
+
+          if (delta?.content) {
+            yield { type: 'content_delta', content: delta.content, chunk };
+          }
+          if (delta?.tool_calls) {
+            yield { type: 'tool_call_delta', chunk };
+          }
+          if (finishReason) {
+            yield { type: 'message_end', chunk };
+          }
+        } catch (e) {
+          yield { type: 'error', error: new Error(`SSE parse error: ${e}`) };
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function streamAgentChat(
   body: AgentChatRequest,
   handlers: {
-    onDelta: (text: string) => void;
-    onDone: (modelId: string) => void;
+    onEvent: (event: AgentStreamEvent) => void;
     onError: (message: string) => void;
   },
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_PREFIX}/agent/chat/stream`, {
+  const res = await fetch(API_URL, {
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...body,
+      stream: true,
+    }),
     signal,
   });
 
@@ -64,40 +135,20 @@ export async function streamAgentChat(
     return;
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    let readResult: ReadableStreamReadResult<Uint8Array>;
-    try {
-      readResult = await reader.read();
-    } catch (err) {
-      if (signal?.aborted) return;
-      handlers.onError(err instanceof Error ? err.message : 'Stream read failed');
-      return;
-    }
-
-    const { done, value } = readResult;
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const blocks = buffer.split('\n\n');
-    buffer = blocks.pop() ?? '';
-
-    for (const block of blocks) {
-      const event = parseSseBlock(block);
-      if (!event) continue;
-      if (event.type === 'delta') {
-        handlers.onDelta(event.text);
-      } else if (event.type === 'done') {
-        handlers.onDone(event.model_id);
-        return;
-      } else if (event.type === 'error') {
-        handlers.onError(event.message);
+  try {
+    for await (const event of parseSSEStream(res)) {
+      handlers.onEvent(event);
+      if (event.type === 'done') return;
+      if (event.type === 'error') {
+        handlers.onError(event.error?.message ?? 'Stream parse failed');
         return;
       }
     }
+  } catch (err) {
+    if (signal?.aborted) return;
+    const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Stream failed';
+    handlers.onError(message);
+    return;
   }
 
   handlers.onError('Stream ended unexpectedly');

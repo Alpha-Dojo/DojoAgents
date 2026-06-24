@@ -6,14 +6,25 @@ import type { FolioKpiMetric, FolioPortfolioConfig } from '../../types/dojoFolio
 import { DEFAULT_FOLIO_CONFIG, FOLIO_MARKETS } from '../../types/dojoFolio';
 import { buildLinePath } from '../../utils/folioFormat';
 import { formatMarketNetValue } from '../../utils/folioCompute';
+import { FolioDetailTabs } from './FolioDetailTabs';
 import { FolioMarketLabel } from './FolioMarketLabel';
-import { FolioSectorAllocationPanel } from './FolioSectorAllocationPanel';
 import { FolioStartDatePicker } from './FolioStartDatePicker';
 
 interface FolioOverviewPanelProps {
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
+  addingTicker?: boolean;
+  removingTicker?: string | null;
+  allocating?: boolean;
   onApplyConfig: (config: FolioPortfolioConfig) => void;
+  onApplyShares: (
+    sharesByTicker: Record<string, number>,
+    manualSharesByTicker: Record<string, boolean>,
+  ) => void;
+  onApplyOpenDate: (ticker: string, openDate: string | null) => void;
+  onAddHolding: (ticker: string, market: MarketCode) => void;
+  onRemoveHolding: (ticker: string, market: MarketCode) => void;
+  onAutoAllocate: (market: MarketCode) => void;
 }
 
 const KPI_LABEL_KEYS: Record<
@@ -39,7 +50,15 @@ const EMPTY_KPI: FolioKpiMetric[] = KPI_KEYS.map((key) => ({
 export function FolioOverviewPanel({
   portfolio,
   loading = false,
+  addingTicker = false,
+  removingTicker = null,
+  allocating = false,
   onApplyConfig,
+  onApplyShares,
+  onApplyOpenDate,
+  onAddHolding,
+  onRemoveHolding,
+  onAutoAllocate,
 }: FolioOverviewPanelProps) {
   const { t } = useTranslation();
   const config = portfolio.config ?? DEFAULT_FOLIO_CONFIG;
@@ -218,7 +237,18 @@ export function FolioOverviewPanel({
         </div>
       </article>
 
-      <FolioSectorAllocationPanel holdings={portfolio.holdings} loading={loading} />
+      <FolioDetailTabs
+        portfolio={portfolio}
+        loading={loading}
+        addingTicker={addingTicker}
+        removingTicker={removingTicker}
+        allocating={allocating}
+        onApplyShares={onApplyShares}
+        onApplyOpenDate={onApplyOpenDate}
+        onAddHolding={onAddHolding}
+        onRemoveHolding={onRemoveHolding}
+        onAutoAllocate={onAutoAllocate}
+      />
     </section>
   );
 }

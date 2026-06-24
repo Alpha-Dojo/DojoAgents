@@ -14,26 +14,37 @@ import type {
   SectorItem,
 } from '../types/dojoMesh';
 
-/**
- * ## DojoMesh API contract
- *
- * Page bootstrap composes three live endpoints:
- * - `GET /api/v1/markets/stats`
- * - `GET /api/v1/dojo-mesh/benchmarks`
- * - `GET /api/v1/dojo-mesh/sectors?sector_limit=5`
- *
- * Missing or failed responses render empty UI — no mock fallback.
- */
-
 const API_PREFIX = '/api/v1';
 const MARKET_CODES: MarketCode[] = ['us', 'sh', 'hk'];
 
-async function fetchLiveMarketStats(): Promise<Partial<Record<MarketCode, MarketStats>> | null> {
-  try {
-    return await fetchJson<Record<MarketCode, MarketStats>>(`${API_PREFIX}/markets/stats`);
-  } catch {
-    return null;
-  }
+function normalizeMarketCode(market: string): MarketCode {
+  return market === 'cn' ? 'sh' : (market as MarketCode);
+}
+
+interface OverviewMarketPayload {
+  market: string;
+  stats: MarketStats;
+  default_benchmark?: string | null;
+  benchmarks?: BenchmarkCard[];
+}
+
+interface MarketOverviewResponse {
+  days: number;
+  as_of?: string | null;
+  markets: Partial<Record<string, OverviewMarketPayload>>;
+}
+
+interface LiveSectorsResponse {
+  days: number;
+  markets: Partial<
+    Record<
+      string,
+      {
+        gainers: SectorItem[];
+        losers: SectorItem[];
+      }
+    >
+  >;
 }
 
 export interface BenchmarkCatalogResponse {
@@ -49,9 +60,50 @@ export interface BenchmarkCatalogResponse {
   >;
 }
 
+async function fetchMarketOverview(): Promise<MarketOverviewResponse | null> {
+  try {
+    return await fetchJson<MarketOverviewResponse>(`${API_PREFIX}/market/overview`);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLiveMarketStats(): Promise<Partial<Record<MarketCode, MarketStats>> | null> {
+  const overview = await fetchMarketOverview();
+  if (!overview) return null;
+  return Object.fromEntries(
+    Object.entries(overview.markets ?? {})
+      .filter((entry): entry is [string, OverviewMarketPayload] => Boolean(entry[1]))
+      .map(([market, payload]) => [
+        normalizeMarketCode(market),
+        {
+          ...payload.stats,
+          market: normalizeMarketCode(payload.stats.market),
+        },
+      ]),
+  ) as Partial<Record<MarketCode, MarketStats>>;
+}
+
 export async function fetchBenchmarkCatalog(): Promise<BenchmarkCatalogResponse> {
   if (USE_INTERACTIVE_MOCKS) return fetchMockBenchmarkCatalog();
-  return fetchJson<BenchmarkCatalogResponse>(`${API_PREFIX}/dojo-mesh/benchmarks`);
+  const overview = await fetchMarketOverview();
+  return {
+    as_of: overview?.as_of,
+    markets: Object.fromEntries(
+      Object.entries(overview?.markets ?? {})
+        .filter((entry): entry is [string, OverviewMarketPayload] => Boolean(entry[1]))
+        .map(([market, payload]) => [
+          normalizeMarketCode(market),
+          {
+            default_benchmark: payload.default_benchmark ?? '',
+            benchmarks: (payload.benchmarks ?? []).map((item) => ({
+              ...item,
+              market: normalizeMarketCode(item.market),
+            })),
+          },
+        ]),
+    ) as BenchmarkCatalogResponse['markets'],
+  };
 }
 
 async function fetchLiveBenchmarks(): Promise<BenchmarkCatalogResponse | null> {
@@ -62,22 +114,19 @@ async function fetchLiveBenchmarks(): Promise<BenchmarkCatalogResponse | null> {
   }
 }
 
-interface LiveSectorsResponse {
-  markets: Partial<
-    Record<
-      MarketCode,
-      {
-        gainers: SectorItem[];
-        losers: SectorItem[];
-      }
-    >
-  >;
-}
-
 async function fetchLiveSectors(sectorLimit: number): Promise<LiveSectorsResponse | null> {
   try {
-    const params = new URLSearchParams({ sector_limit: String(sectorLimit) });
-    return await fetchJson<LiveSectorsResponse>(`${API_PREFIX}/dojo-mesh/sectors?${params}`);
+    const params = new URLSearchParams({ limit: String(sectorLimit) });
+    const raw = await fetchJson<LiveSectorsResponse>(`${API_PREFIX}/market/sector-movers?${params}`);
+    return {
+      ...raw,
+      markets: Object.fromEntries(
+        Object.entries(raw.markets ?? {}).map(([market, payload]) => [
+          normalizeMarketCode(market),
+          payload,
+        ]),
+      ) as LiveSectorsResponse['markets'],
+    };
   } catch {
     return null;
   }
@@ -167,7 +216,6 @@ interface CrossMarketSectorLookupResponse {
   markets: Partial<Record<MarketCode, SectorItem | null>>;
 }
 
-/** Resolve a level-2 sector in all markets, even when not in top gainers/losers. */
 export async function fetchCrossMarketSectors(
   linkKey: string,
 ): Promise<Partial<Record<MarketCode, SectorItem | null>>> {

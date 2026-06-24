@@ -11,11 +11,19 @@ LOGGER = logging.getLogger(__name__)
 
 try:
     from dojo.client.async_client import AsyncDojo
-    from dojo._compat import model_dump
+
     HAS_DOJO_SDK = True
 except ImportError:
     LOGGER.warning("dojosdk library is not installed. DojoSDK tools will be unavailable.")
     HAS_DOJO_SDK = False
+
+
+def _dump_res(res: Any) -> Any:
+    if isinstance(res, (dict, list)):
+        return res
+    from dojo._compat import model_dump
+
+    return model_dump(res)
 
 
 class DojoSDKToolManager:
@@ -45,10 +53,7 @@ class DojoSDKToolManager:
         return [
             ToolSpec(
                 name="dojo.sdk.get_kline",
-                description=(
-                    "Retrieve historical kline (candlestick) data for stock or crypto symbols. "
-                    "Returns timestamp, open, high, low, close, and volume."
-                ),
+                description=("Retrieve historical kline (candlestick) data for stock or crypto symbols. " "Returns timestamp, open, high, low, close, and volume."),
                 parameters={
                     "type": "object",
                     "properties": {
@@ -151,10 +156,7 @@ class DojoSDKToolManager:
             kline_t=args.get("kline_t", "1d"),
             limit=args.get("limit", 100),
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_ticker_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.market_data.get_ticker(
@@ -162,28 +164,17 @@ class DojoSDKToolManager:
             bz_type=args["bz_type"],
             symbol=args["symbol"],
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_news_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.news.get_news(
             limit=args.get("limit", 10),
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_stock_quote_handler(self, args: dict[str, Any]) -> dict[str, Any]:
-        res = await self.client.stocks.get_quote(
-            symbols=args["symbols"]
-        )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        res = await self.client.stocks.get_quote(symbols=args["symbols"])
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_stock_kline_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         kline_t_raw = args.get("kline_t")
@@ -205,30 +196,21 @@ class DojoSDKToolManager:
             end_time=args.get("end_time"),
             limit=args.get("limit"),
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_stock_financials_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.stocks.get_financials(
             symbol=args["symbol"],
             lookback=args.get("lookback"),
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
     async def get_stock_news_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.stocks.get_news(
             symbol=args["symbol"],
             limit=args.get("limit"),
         )
-        return {
-            "content": json.dumps(model_dump(res), ensure_ascii=False),
-            "metadata": {"ok": True}
-        }
+        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 
 
 def get_dojo_sdk_specs(config: DojoSDKConfig | None = None) -> list[ToolSpec]:

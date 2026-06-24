@@ -6,7 +6,6 @@ from typing import TextIO
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import (
     DEFAULT_LOG_DATE_FORMAT,
-    DEFAULT_LOG_FORMAT,
     LoggingConfig,
 )
 

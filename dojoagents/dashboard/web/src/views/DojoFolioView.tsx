@@ -1,4 +1,3 @@
-import { FolioHoldingsPanel } from '../components/DojoFolio/FolioHoldingsPanel';
 import { FolioOverviewPanel } from '../components/DojoFolio/FolioOverviewPanel';
 import { FolioPortfolioSidebar } from '../components/DojoFolio/FolioPortfolioSidebar';
 import { useFolioPortfolios } from '../hooks/useFolioPortfolios';
@@ -24,8 +23,10 @@ export function DojoFolioView() {
     createPortfolio,
     deletePortfolio,
     addHolding,
+    removeHolding,
     autoAllocate,
     addingTicker,
+    removingTicker,
   } = useFolioPortfolios();
 
   return (
@@ -45,27 +46,23 @@ export function DojoFolioView() {
         />
 
         {activePortfolio ? (
-          <>
-            <FolioOverviewPanel
-              portfolio={activePortfolio}
-              loading={detailLoading}
-              onApplyConfig={(config) => applyPortfolioConfig(activePortfolio.id, config)}
-            />
-            <FolioHoldingsPanel
-              portfolio={activePortfolio}
-              loading={detailLoading}
-              addingTicker={addingTicker}
-              allocating={detailLoading}
-              onApplyShares={(shares, manualShares) =>
-                applyShareOverrides(activePortfolio.id, shares, manualShares)
-              }
-              onApplyOpenDate={(ticker, openDate) =>
-                applyOpenDate(activePortfolio.id, ticker, openDate)
-              }
-              onAddHolding={(ticker, market) => addHolding(activePortfolio.id, ticker, market)}
-              onAutoAllocate={(market) => autoAllocate(activePortfolio.id, market)}
-            />
-          </>
+          <FolioOverviewPanel
+            portfolio={activePortfolio}
+            loading={detailLoading}
+            addingTicker={addingTicker}
+            removingTicker={removingTicker}
+            allocating={detailLoading}
+            onApplyConfig={(config) => applyPortfolioConfig(activePortfolio.id, config)}
+            onApplyShares={(shares, manualShares) =>
+              applyShareOverrides(activePortfolio.id, shares, manualShares)
+            }
+            onApplyOpenDate={(ticker, openDate) =>
+              applyOpenDate(activePortfolio.id, ticker, openDate)
+            }
+            onAddHolding={(ticker, market) => addHolding(activePortfolio.id, ticker, market)}
+            onRemoveHolding={(ticker, market) => removeHolding(activePortfolio.id, ticker, market)}
+            onAutoAllocate={(market) => autoAllocate(activePortfolio.id, market)}
+          />
         ) : (
           <div className="folio-main-empty folio-card">
             <p className="folio-main-empty__text">
