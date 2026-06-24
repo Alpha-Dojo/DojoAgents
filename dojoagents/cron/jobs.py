@@ -23,15 +23,19 @@ class ScheduledJob:
     quant: QuantContext | None = None
     delivery: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    plan: bool = False
 
     def to_chat_request(self) -> ChatRequest:
+        meta = {"job_id": self.id, **self.metadata}
+        if self.plan:
+            meta["plan"] = True
         return ChatRequest(
             message=self.prompt,
             user_id="scheduler",
             session_id=f"job-{self.id}-{uuid4().hex[:8]}",
             channel="scheduler",
             quant=self.quant,
-            metadata={"job_id": self.id, **self.metadata},
+            metadata=meta,
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -53,6 +57,7 @@ class ScheduledJob:
             quant=quant,
             delivery=record.get("delivery"),
             metadata=dict(record.get("metadata", {})),
+            plan=bool(record.get("plan", False)),
         )
 
 

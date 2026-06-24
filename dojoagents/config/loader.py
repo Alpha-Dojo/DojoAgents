@@ -21,6 +21,8 @@ from dojoagents.config.models import (
     LLMProviderConfig,
     LoggingConfig,
     MemoryConfig,
+    MultiAgentConfig,
+    PlanConfig,
     SkillsConfig,
     SandboxConfig,
     SchedulerConfig,
@@ -99,6 +101,8 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     dashboard_raw = raw.get("dashboard", {})
     extensions_raw = raw.get("dojo_extensions", {})
     logging_raw = raw.get("logging", {})
+    multi_agent_raw = raw.get("multi_agent", {})
+    planning_raw = raw.get("planning", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -149,6 +153,17 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             base_url=raw.get("dojosdk", {}).get("base_url"),
             timeout=float(raw.get("dojosdk", {}).get("timeout", 60.0)),
             max_retries=int(raw.get("dojosdk", {}).get("max_retries", 1)),
+        ),
+        multi_agent=MultiAgentConfig(
+            enabled=bool(multi_agent_raw.get("enabled", False)),
+            max_workers=int(multi_agent_raw.get("max_workers", 3)),
+            default_agents=list(multi_agent_raw.get("default_agents", MultiAgentConfig().default_agents)),
+        ),
+        planning=PlanConfig(
+            enabled=bool(planning_raw.get("enabled", False)),
+            auto_plan_threshold=int(planning_raw.get("auto_plan_threshold", 100)),
+            plan_store_path=str(planning_raw.get("plan_store_path", "~/.dojo/agents/plans")),
+            max_plan_steps=int(planning_raw.get("max_plan_steps", 10)),
         ),
     )
 

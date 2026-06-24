@@ -36,6 +36,8 @@ class AgentConfig:
     enable_guardrails: bool = True
     enable_think_scrubbing: bool = True
     enable_context_compression: bool = True
+    session_max_tokens: int = 100000
+    threshold_ratio: float = 0.9
     default_skills: list[str] = field(default_factory=lambda: ["dojo-quant-analyst"])
 
 
@@ -110,6 +112,25 @@ class DojoSDKConfig:
 
 
 @dataclass(frozen=True)
+class MultiAgentConfig:
+    enabled: bool = False
+    max_workers: int = 3
+    default_agents: list[dict[str, Any]] = field(default_factory=lambda: [
+        {"role": "analyst", "name": "analyst"},
+        {"role": "implementer", "name": "implementer"},
+        {"role": "reviewer", "name": "reviewer"},
+    ])
+
+
+@dataclass(frozen=True)
+class PlanConfig:
+    enabled: bool = False
+    auto_plan_threshold: int = 100
+    plan_store_path: str = "~/.dojo/agents/plans"
+    max_plan_steps: int = 10
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     version: int = 1
     llm_provider: LLMConfig = field(default_factory=LLMConfig)
@@ -124,3 +145,5 @@ class AgentsConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     mcp_servers: dict[str, Any] = field(default_factory=dict)
     dojosdk: DojoSDKConfig = field(default_factory=DojoSDKConfig)
+    multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
+    planning: PlanConfig = field(default_factory=PlanConfig)

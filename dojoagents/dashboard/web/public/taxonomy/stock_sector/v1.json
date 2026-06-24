@@ -1,0 +1,2046 @@
+{
+  "version": "v1",
+  "id_scheme": "dot.separated.semantic",
+  "level_1": [
+    {
+      "id": "technology",
+      "name": {
+        "zh": "科技",
+        "en": "Technology"
+      },
+      "description": {
+        "zh": "致力于半导体研发制造、各类电子硬件与算力基础设施建设，以及提供系统软件、云计算与人工智能服务的企业。",
+        "en": "Companies engaged in semiconductor R&D and manufacturing, electronic hardware and compute infrastructure, and system software, cloud computing, and artificial intelligence services."
+      },
+      "level_2": [
+        {
+          "id": "technology.semiconductor",
+          "name": {
+            "zh": "半导体与集成电路",
+            "en": "Semiconductors & Integrated Circuits"
+          },
+          "description": {
+            "zh": "涵盖芯片设计、制造、封测、设备及材料等半导体全产业链环节的企业。",
+            "en": "Companies across the semiconductor value chain, including chip design, fabrication, packaging, testing, equipment, and materials."
+          },
+          "level_3": [
+            {
+              "id": "technology.semiconductor.semiconductor_materials",
+              "name": {
+                "zh": "半导体材料",
+                "en": "Semiconductor Materials"
+              },
+              "definition": {
+                "zh": "生产硅片、光刻胶、靶材、电子特气等芯片制造及封测环节所需前沿材料的企业。",
+                "en": "Companies producing advanced materials for chip fabrication and packaging, including silicon wafers, photoresists, sputtering targets, and electronic specialty gases."
+              }
+            },
+            {
+              "id": "technology.semiconductor.semiconductor_equipment",
+              "name": {
+                "zh": "半导体设备",
+                "en": "Semiconductor Equipment"
+              },
+              "definition": {
+                "zh": "研发制造光刻机、刻蚀机、薄膜沉积设备、清洗及测试设备等半导体产线硬件的企业。",
+                "en": "Companies that develop and manufacture semiconductor production hardware such as lithography, etching, thin-film deposition, cleaning, and test equipment."
+              }
+            },
+            {
+              "id": "technology.semiconductor.semiconductor_software",
+              "name": {
+                "zh": "半导体软件",
+                "en": "Semiconductor Software"
+              },
+              "definition": {
+                "zh": "提供EDA（电子设计自动化）工具、半导体基础IP授权及相关工艺仿真软件的企业。",
+                "en": "Companies providing EDA tools, semiconductor IP licensing, and process simulation software for chip design and manufacturing."
+              }
+            },
+            {
+              "id": "technology.semiconductor.chip_design",
+              "name": {
+                "zh": "芯片设计",
+                "en": "Chip Design"
+              },
+              "definition": {
+                "zh": "采用Fabless模式，专注于集成电路功能设计、研发与销售，将制造外包的企业（如英伟达、高通）。",
+                "en": "Fabless companies focused on integrated circuit design, R&D, and sales while outsourcing manufacturing (e.g., NVIDIA, Qualcomm)."
+              }
+            },
+            {
+              "id": "technology.semiconductor.wafer_fabrication",
+              "name": {
+                "zh": "集成电路制造",
+                "en": "Wafer Fabrication"
+              },
+              "definition": {
+                "zh": "拥有晶圆厂（Fab），提供晶圆代工制造及先进封装工艺的企业（如台积电、中芯国际）。",
+                "en": "Companies operating wafer fabs that provide foundry manufacturing and advanced packaging services (e.g., TSMC, SMIC)."
+              }
+            },
+            {
+              "id": "technology.semiconductor.semiconductor_osat",
+              "name": {
+                "zh": "半导体封测",
+                "en": "Semiconductor Packaging & Testing"
+              },
+              "definition": {
+                "zh": "提供传统及先进集成电路封装与功能测试服务（OSAT）的企业。",
+                "en": "Outsourced semiconductor assembly and test (OSAT) providers offering conventional and advanced IC packaging and functional testing services."
+              }
+            }
+          ]
+        },
+        {
+          "id": "technology.electronic_components",
+          "name": {
+            "zh": "电子元器件",
+            "en": "Electronic Components"
+          },
+          "description": {
+            "zh": "生产印制电路板、被动元件及声光电模组等电子基础连接与信号转换组件的企业。",
+            "en": "Companies producing fundamental electronic interconnect and signal conversion components such as PCBs, passive components, and optoelectronics modules."
+          },
+          "level_3": [
+            {
+              "id": "technology.electronic_components.printed_circuit_boards",
+              "name": {
+                "zh": "印制电路板",
+                "en": "Printed Circuit Boards"
+              },
+              "definition": {
+                "zh": "生产单面板、双面板、多层板及柔性电路板（FPC）等电子连接基板的企业。",
+                "en": "Companies manufacturing electronic interconnect substrates including single-sided, double-sided, multilayer, and flexible printed circuit boards (FPC)."
+              }
+            },
+            {
+              "id": "technology.electronic_components.passive_components",
+              "name": {
+                "zh": "被动元件",
+                "en": "Passive Components"
+              },
+              "definition": {
+                "zh": "生产电容、电阻、电感、射频器件等不具备信号放大或处理功能的基础电子元件的企业。",
+                "en": "Companies producing basic electronic components without signal amplification or processing functions, such as capacitors, resistors, inductors, and RF devices."
+              }
+            },
+            {
+              "id": "technology.electronic_components.optoelectronic_modules",
+              "name": {
+                "zh": "声光电模组",
+                "en": "Optoelectronic Modules"
+              },
+              "definition": {
+                "zh": "制造摄像头模组、声学器件、显示面板模组、微型马达等用于信号转换与输出的组件企业。",
+                "en": "Companies manufacturing modules for signal conversion and output, including camera modules, acoustic devices, display panel modules, and micro motors."
+              }
+            }
+          ]
+        },
+        {
+          "id": "technology.consumer_electronics",
+          "name": {
+            "zh": "消费电子终端",
+            "en": "Consumer Electronics"
+          },
+          "description": {
+            "zh": "从事智能手机、PC/平板、XR/可穿戴及智能家居等面向消费者的智能终端设计、制造与销售的企业。",
+            "en": "Companies designing, manufacturing, and selling consumer-facing smart terminals including smartphones, PCs/tablets, XR/wearables, and smart home devices."
+          },
+          "level_3": [
+            {
+              "id": "technology.consumer_electronics.smartphones",
+              "name": {
+                "zh": "智能手机",
+                "en": "Smartphones"
+              },
+              "definition": {
+                "zh": "从事智能手机整机设计、研发、组装及品牌销售的企业。",
+                "en": "Companies engaged in smartphone design, R&D, assembly, and branded sales."
+              }
+            },
+            {
+              "id": "technology.consumer_electronics.pc_tablets",
+              "name": {
+                "zh": "PC/平板",
+                "en": "PCs & Tablets"
+              },
+              "definition": {
+                "zh": "生产个人电脑、笔记本、平板电脑及其核心外设的企业。",
+                "en": "Companies producing personal computers, laptops, tablets, and their core peripherals."
+              }
+            },
+            {
+              "id": "technology.consumer_electronics.xr_wearables",
+              "name": {
+                "zh": "XR/可穿戴设备",
+                "en": "XR & Wearables"
+              },
+              "definition": {
+                "zh": "研发制造VR/AR/MR头显、智能手表、TWS耳机等可穿戴智能终端的企业。",
+                "en": "Companies developing and manufacturing wearable smart devices such as VR/AR/MR headsets, smartwatches, and true wireless stereo (TWS) earbuds."
+              }
+            },
+            {
+              "id": "technology.consumer_electronics.smart_home",
+              "name": {
+                "zh": "智能家居",
+                "en": "Smart Home"
+              },
+              "definition": {
+                "zh": "提供智能音箱、路由器、智能中控屏等具备联网与交互功能的家庭控制终端企业。",
+                "en": "Companies providing connected home control terminals with networking and interaction capabilities, such as smart speakers, routers, and smart control panels."
+              }
+            }
+          ]
+        },
+        {
+          "id": "technology.it_hardware",
+          "name": {
+            "zh": "IT硬件与算力设施",
+            "en": "IT Hardware & Compute Infrastructure"
+          },
+          "description": {
+            "zh": "研发制造服务器与存储、网络交换设备、数据中心基础设施，及提供算力租赁等IT硬件与算力设施的企业。",
+            "en": "Companies providing IT hardware and compute infrastructure including servers and storage, networking equipment, data center facilities, and compute leasing services."
+          },
+          "level_3": [
+            {
+              "id": "technology.it_hardware.servers_storage",
+              "name": {
+                "zh": "服务器与存储",
+                "en": "Servers & Storage"
+              },
+              "definition": {
+                "zh": "研发制造通用服务器、AI服务器、企业级硬盘及大型存储阵列硬件的企业。",
+                "en": "Companies developing and manufacturing general-purpose servers, AI servers, enterprise hard drives, and large-scale storage array hardware."
+              }
+            },
+            {
+              "id": "technology.it_hardware.data_centers_idc",
+              "name": {
+                "zh": "数据中心与IDC",
+                "en": "Data Centers & Colocation"
+              },
+              "definition": {
+                "zh": "提供数据中心机房机柜租赁、供电及网络接入基础设施服务的企业。",
+                "en": "Companies providing data center rack leasing, power supply, and network access infrastructure services."
+              }
+            },
+            {
+              "id": "technology.it_hardware.networking_equipment",
+              "name": {
+                "zh": "网络与交换设备",
+                "en": "Networking Equipment"
+              },
+              "definition": {
+                "zh": "生产路由器、交换机、光模块、防火墙硬件等核心网络传输与控制设备的企业。",
+                "en": "Companies producing core network transmission and control equipment such as routers, switches, optical transceivers, and firewall hardware."
+              }
+            },
+            {
+              "id": "technology.it_hardware.compute_rental",
+              "name": {
+                "zh": "算力租赁",
+                "en": "Compute Rental"
+              },
+              "definition": {
+                "zh": "采购并持有大量AI服务器或GPU算力集群，对外提供裸金属算力租赁与调度的企业。",
+                "en": "Companies that procure and operate large AI server or GPU compute clusters, offering bare-metal compute rental and scheduling services."
+              }
+            }
+          ]
+        },
+        {
+          "id": "technology.software_cloud",
+          "name": {
+            "zh": "软件与云服务",
+            "en": "Software & Cloud Services"
+          },
+          "description": {
+            "zh": "开发基础软件、行业应用软件、网络安全、云计算IaaS/PaaS及AI大模型与智能体等软件与云服务的企业。",
+            "en": "Companies developing foundational software, vertical applications, cybersecurity, cloud IaaS/PaaS, and AI foundation models and agent services."
+          },
+          "level_3": [
+            {
+              "id": "technology.software_cloud.foundational_software",
+              "name": {
+                "zh": "基础软件/信创",
+                "en": "Foundational Software & Domestic IT"
+              },
+              "definition": {
+                "zh": "开发操作系统（OS）、数据库、中间件及国产替代（信创）底层软件的企业。",
+                "en": "Companies developing operating systems, databases, middleware, and domestically sourced foundational software for IT substitution initiatives."
+              }
+            },
+            {
+              "id": "technology.software_cloud.industry_application_software",
+              "name": {
+                "zh": "行业应用软件",
+                "en": "Industry Application Software"
+              },
+              "definition": {
+                "zh": "开发ERP、CRM、HRM等企业级SaaS管理软件或特定行业垂直应用软件的企业。",
+                "en": "Companies developing enterprise SaaS management software such as ERP, CRM, and HRM, or vertical industry application software."
+              }
+            },
+            {
+              "id": "technology.software_cloud.cybersecurity",
+              "name": {
+                "zh": "网络安全",
+                "en": "Cybersecurity"
+              },
+              "definition": {
+                "zh": "提供终端安全、云安全、数据加密、身份认证等软件级网络防护服务的企业。",
+                "en": "Companies providing software-based network protection services including endpoint security, cloud security, data encryption, and identity authentication."
+              }
+            },
+            {
+              "id": "technology.software_cloud.cloud_iaas_paas",
+              "name": {
+                "zh": "云计算IaaS/PaaS",
+                "en": "Cloud IaaS/PaaS"
+              },
+              "definition": {
+                "zh": "提供公有云、私有云底层计算与存储资源（IaaS）及平台级开发环境（PaaS）的云服务商。",
+                "en": "Cloud service providers offering public and private cloud compute and storage resources (IaaS) and platform-level development environments (PaaS)."
+              }
+            },
+            {
+              "id": "technology.software_cloud.ai_models_agents",
+              "name": {
+                "zh": "AI大模型与智能体服务",
+                "en": "AI Foundation Models & Agent Services"
+              },
+              "definition": {
+                "zh": "专门从事生成式基础大模型研发，或基于模型提供通用型AI智能体应用与API调用的企业。",
+                "en": "Companies specializing in generative foundation model R&D or providing general-purpose AI agent applications and API services built on such models."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "communication_services",
+      "name": {
+        "zh": "通信服务",
+        "en": "Communication Services"
+      },
+      "description": {
+        "zh": "提供全球网络传输管道服务、多媒体信息分发平台，以及数字娱乐内容和互动传媒产品的企业。",
+        "en": "Companies providing global network transmission infrastructure, multimedia information distribution platforms, and digital entertainment and interactive media products."
+      },
+      "level_2": [
+        {
+          "id": "communication_services.telecom_infrastructure",
+          "name": {
+            "zh": "通信基础设施",
+            "en": "Telecom Infrastructure"
+          },
+          "description": {
+            "zh": "提供运营商网络、通信线缆、卫星互联网及物联网连接等全球网络传输基础设施的企业。",
+            "en": "Companies providing global network transmission infrastructure including carrier services, communication cables, satellite internet, and IoT connectivity."
+          },
+          "level_3": [
+            {
+              "id": "communication_services.telecom_infrastructure.telecom_carriers",
+              "name": {
+                "zh": "运营商服务",
+                "en": "Telecom Carriers"
+              },
+              "definition": {
+                "zh": "拥有通信频段牌照，提供蜂窝网络、宽带接入及固话服务的电信运营商。",
+                "en": "Licensed telecom operators providing cellular networks, broadband access, and fixed-line telephone services."
+              }
+            },
+            {
+              "id": "communication_services.telecom_infrastructure.communication_cables",
+              "name": {
+                "zh": "通信线缆",
+                "en": "Communication Cables"
+              },
+              "definition": {
+                "zh": "生产光纤、光缆、海底电缆及射频同轴电缆等物理传输介质的企业。",
+                "en": "Companies producing physical transmission media including optical fiber, fiber-optic cables, submarine cables, and RF coaxial cables."
+              }
+            },
+            {
+              "id": "communication_services.telecom_infrastructure.satellite_internet",
+              "name": {
+                "zh": "卫星互联网",
+                "en": "Satellite Internet"
+              },
+              "definition": {
+                "zh": "从事通信卫星研制、发射，及提供低轨卫星宽带联网服务的企业。",
+                "en": "Companies engaged in communications satellite development and launch, and providers of low-earth-orbit satellite broadband connectivity services."
+              }
+            },
+            {
+              "id": "communication_services.telecom_infrastructure.iot_connectivity",
+              "name": {
+                "zh": "物联网通信",
+                "en": "IoT Connectivity"
+              },
+              "definition": {
+                "zh": "生产物联网通信模组（蜂窝/Wi-Fi/蓝牙），及提供IoT连接管理平台的企业。",
+                "en": "Companies producing IoT communication modules (cellular/Wi-Fi/Bluetooth) and IoT connectivity management platforms."
+              }
+            }
+          ]
+        },
+        {
+          "id": "communication_services.internet_media",
+          "name": {
+            "zh": "互联网媒体平台",
+            "en": "Internet Media Platforms"
+          },
+          "description": {
+            "zh": "运营社交网络、短视频/直播及搜索引擎等以流量分发与广告或增值服务变现的互联网媒体平台企业。",
+            "en": "Companies operating internet media platforms such as social networks, short video/live streaming, and search engines monetized through traffic, advertising, or value-added services."
+          },
+          "level_3": [
+            {
+              "id": "communication_services.internet_media.social_networks",
+              "name": {
+                "zh": "社交网络",
+                "en": "Social Networks"
+              },
+              "definition": {
+                "zh": "运营熟人社交、陌生人社交及专业职场社交平台，主要通过广告或增值服务变现的企业。",
+                "en": "Companies operating acquaintance-based, interest-based, and professional social platforms that monetize primarily through advertising or value-added services."
+              }
+            },
+            {
+              "id": "communication_services.internet_media.short_video_live_streaming",
+              "name": {
+                "zh": "短视频/直播",
+                "en": "Short Video & Live Streaming"
+              },
+              "definition": {
+                "zh": "运营短视频内容社区及实时互动直播平台，依赖流量分发与虚拟礼物/带货变现的企业。",
+                "en": "Companies operating short-video communities and real-time interactive live-streaming platforms that monetize through traffic distribution, virtual gifts, and live commerce."
+              }
+            },
+            {
+              "id": "communication_services.internet_media.search_engines",
+              "name": {
+                "zh": "搜索引擎",
+                "en": "Search Engines"
+              },
+              "definition": {
+                "zh": "提供互联网网页、内容检索服务，主要收入来源于竞价排名与搜索广告的企业。",
+                "en": "Companies providing internet web and content search services, deriving primary revenue from paid search ranking and search advertising."
+              }
+            }
+          ]
+        },
+        {
+          "id": "communication_services.digital_entertainment",
+          "name": {
+            "zh": "数字娱乐与传媒",
+            "en": "Digital Entertainment & Media"
+          },
+          "description": {
+            "zh": "从事游戏/电竞、影视剧、广告营销、数字版权及传统出版传媒等数字娱乐与内容分发业务的企业。",
+            "en": "Companies engaged in digital entertainment and content distribution including gaming/esports, film and TV, advertising, digital rights, and traditional publishing and broadcasting media."
+          },
+          "level_3": [
+            {
+              "id": "communication_services.digital_entertainment.games_esports",
+              "name": {
+                "zh": "游戏/电竞",
+                "en": "Games & Esports"
+              },
+              "definition": {
+                "zh": "从事电子游戏（主机/PC/手游）研发、发行，及电子竞技赛事运营的企业。",
+                "en": "Companies engaged in video game development and publishing (console/PC/mobile) and esports event operations."
+              }
+            },
+            {
+              "id": "communication_services.digital_entertainment.film_tv",
+              "name": {
+                "zh": "影视剧",
+                "en": "Film & Television"
+              },
+              "definition": {
+                "zh": "从事电影、电视剧、网剧的投资、制作、发行及院线运营的企业。",
+                "en": "Companies involved in investment, production, distribution, and theatrical exhibition of films, TV series, and online dramas."
+              }
+            },
+            {
+              "id": "communication_services.digital_entertainment.advertising_marketing",
+              "name": {
+                "zh": "广告营销",
+                "en": "Advertising & Marketing"
+              },
+              "definition": {
+                "zh": "提供数字营销策划、公关传播、广告代理及程序化广告投放服务的企业。",
+                "en": "Companies providing digital marketing strategy, public relations, advertising agency, and programmatic ad placement services."
+              }
+            },
+            {
+              "id": "communication_services.digital_entertainment.digital_licensing",
+              "name": {
+                "zh": "数字版权",
+                "en": "Digital Licensing"
+              },
+              "definition": {
+                "zh": "拥有大量音乐、网文、图片、视频版权，通过授权和订阅费用获取收入的企业。",
+                "en": "Companies holding large libraries of music, online literature, image, and video copyrights that generate revenue through licensing and subscriptions."
+              }
+            },
+            {
+              "id": "communication_services.digital_entertainment.broadcast_traditional_media",
+              "name": {
+                "zh": "广播与传统出版传媒",
+                "en": "Broadcast & Traditional Publishing"
+              },
+              "definition": {
+                "zh": "运营传统电视网络、广播电台、有线电视，及从事报纸、杂志、图书出版的传媒企业。",
+                "en": "Media companies operating traditional television networks, radio stations, cable TV, and publishing newspapers, magazines, and books."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consumer_cyclical",
+      "name": {
+        "zh": "可选消费",
+        "en": "Consumer Cyclical"
+      },
+      "description": {
+        "zh": "提供非生活绝对刚需的商品与服务，其业绩表现与宏观经济周期、居民可支配收入及消费者信心高度相关的企业。",
+        "en": "Companies providing non-essential goods and services whose performance is closely tied to macroeconomic cycles, disposable income, and consumer confidence."
+      },
+      "level_2": [
+        {
+          "id": "consumer_cyclical.automotive",
+          "name": {
+            "zh": "汽车与汽车零部件",
+            "en": "Automotive & Auto Parts"
+          },
+          "description": {
+            "zh": "涵盖整车制造、汽车零部件供应及汽车销售与后市场服务在内的汽车产业链企业。",
+            "en": "Companies across the automotive value chain including vehicle OEMs, parts suppliers, and auto sales and aftermarket services."
+          },
+          "level_3": [
+            {
+              "id": "consumer_cyclical.automotive.vehicle_manufacturing",
+              "name": {
+                "zh": "整车制造",
+                "en": "Vehicle Manufacturing"
+              },
+              "definition": {
+                "zh": "从事传统燃油乘用车、商用车及新能源整车设计、生产与销售的整车厂（OEM）。",
+                "en": "Original equipment manufacturers (OEMs) designing, producing, and selling conventional fuel and new-energy passenger and commercial vehicles."
+              }
+            },
+            {
+              "id": "consumer_cyclical.automotive.auto_parts",
+              "name": {
+                "zh": "汽车零部件",
+                "en": "Auto Parts"
+              },
+              "definition": {
+                "zh": "生产底盘、内外饰、动力传动、车机屏幕及智能驾驶感知与执行硬件的企业。",
+                "en": "Companies producing chassis, interior and exterior trim, powertrain components, in-vehicle displays, and autonomous driving sensing and actuation hardware."
+              }
+            },
+            {
+              "id": "consumer_cyclical.automotive.auto_sales_service",
+              "name": {
+                "zh": "汽车销售与服务",
+                "en": "Auto Sales & Service"
+              },
+              "definition": {
+                "zh": "经营汽车4S店网络，提供新旧车销售、维修保养、换电及汽车拆解后市场服务的企业。",
+                "en": "Companies operating dealership networks providing new and used vehicle sales, maintenance, battery swapping, and automotive aftermarket dismantling services."
+              }
+            }
+          ]
+        },
+        {
+          "id": "consumer_cyclical.durables_apparel",
+          "name": {
+            "zh": "耐用消费品与服装",
+            "en": "Durables & Apparel"
+          },
+          "description": {
+            "zh": "生产家用电器、休闲体育用品及纺织品、服装与奢侈品等耐用消费品与服饰的企业。",
+            "en": "Companies producing durable consumer goods and apparel including home appliances, leisure and sports products, textiles, and luxury goods."
+          },
+          "level_3": [
+            {
+              "id": "consumer_cyclical.durables_apparel.home_appliances",
+              "name": {
+                "zh": "家用电器及智能家居",
+                "en": "Home Appliances"
+              },
+              "definition": {
+                "zh": "生产白电（冰洗空）、黑电（电视）、小家电及非智能基础家居用品的企业。",
+                "en": "Companies producing major appliances (refrigerators, washers, air conditioners), TVs, small appliances, and non-smart basic home products."
+              }
+            },
+            {
+              "id": "consumer_cyclical.durables_apparel.leisure_sports_goods",
+              "name": {
+                "zh": "休闲、体育与娱乐用品",
+                "en": "Leisure, Sports & Entertainment Goods"
+              },
+              "definition": {
+                "zh": "制造玩具、潮玩盲盒、自行车、体育器材、乐器等主要用于休闲娱乐体验的实体商品企业。",
+                "en": "Companies manufacturing physical goods primarily for leisure and recreation, including toys, collectible blind boxes, bicycles, sports equipment, and musical instruments."
+              }
+            },
+            {
+              "id": "consumer_cyclical.durables_apparel.textiles_apparel_luxury",
+              "name": {
+                "zh": "纺织品、服装与奢侈品",
+                "en": "Textiles, Apparel & Luxury"
+              },
+              "definition": {
+                "zh": "从事纱线面料加工，及成衣、鞋帽、箱包、高溢价奢侈品珠宝的设计与品牌销售企业。",
+                "en": "Companies engaged in yarn and fabric processing, and the design and branded sale of apparel, footwear, bags, and high-premium luxury jewelry."
+              }
+            }
+          ]
+        },
+        {
+          "id": "consumer_cyclical.consumer_services",
+          "name": {
+            "zh": "消费者服务",
+            "en": "Consumer Services"
+          },
+          "description": {
+            "zh": "提供酒店餐饮、旅游休闲、教育及综合博彩等随经济周期与消费信心波动较大的消费者服务企业。",
+            "en": "Companies providing cyclical consumer services including hotels and restaurants, travel and leisure, education, and integrated gaming and betting services."
+          },
+          "level_3": [
+            {
+              "id": "consumer_cyclical.consumer_services.hotels_restaurants_leisure",
+              "name": {
+                "zh": "酒店、餐馆与休闲",
+                "en": "Hotels, Restaurants & Leisure"
+              },
+              "definition": {
+                "zh": "运营连锁酒店品牌、餐饮门店、主题公园、旅游景区及提供在线旅游（OTA）服务的企业。",
+                "en": "Companies operating hotel chains, restaurants, theme parks, tourist attractions, and online travel agency (OTA) services."
+              }
+            },
+            {
+              "id": "consumer_cyclical.consumer_services.education_services",
+              "name": {
+                "zh": "教育服务",
+                "en": "Education Services"
+              },
+              "definition": {
+                "zh": "提供K12课外辅导、职业技能培训、民办高等教育及在线教育平台的企业。",
+                "en": "Companies providing K-12 tutoring, vocational training, private higher education, and online education platforms."
+              }
+            },
+            {
+              "id": "consumer_cyclical.consumer_services.gambling_services",
+              "name": {
+                "zh": "综合博彩服务",
+                "en": "Gambling Services"
+              },
+              "definition": {
+                "zh": "经营实体赌场、赛马、体育彩票及合法在线博彩业务的企业。",
+                "en": "Companies operating land-based casinos, horse racing, sports lotteries, and legal online gambling businesses."
+              }
+            }
+          ]
+        },
+        {
+          "id": "consumer_cyclical.discretionary_retail",
+          "name": {
+            "zh": "可选零售",
+            "en": "Discretionary Retail"
+          },
+          "description": {
+            "zh": "运营综合电商、跨境直销及百货与专卖店等可选消费品零售渠道的企业。",
+            "en": "Companies operating discretionary retail channels including e-commerce, cross-border direct selling, department stores, and specialty retail chains."
+          },
+          "level_3": [
+            {
+              "id": "consumer_cyclical.discretionary_retail.e_commerce_direct_sales",
+              "name": {
+                "zh": "综合电商与直销",
+                "en": "E-Commerce & Direct Sales"
+              },
+              "definition": {
+                "zh": "运营综合性在线购物平台、跨境电商平台及多品类直销网络，赚取商品差价或平台佣金的企业。",
+                "en": "Companies operating general online shopping platforms, cross-border e-commerce platforms, and multi-category direct sales networks earning product margins or platform commissions."
+              }
+            },
+            {
+              "id": "consumer_cyclical.discretionary_retail.department_stores_specialty_retail",
+              "name": {
+                "zh": "专卖店与百货",
+                "en": "Department Stores & Specialty Retail"
+              },
+              "definition": {
+                "zh": "运营大型百货商场、免税店及针对特定可选商品（如电子产品、美妆）的实体连锁专卖店。",
+                "en": "Companies operating department stores, duty-free shops, and physical specialty retail chains for discretionary categories such as electronics and cosmetics."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consumer_defensive",
+      "name": {
+        "zh": "必选消费",
+        "en": "Consumer Defensive"
+      },
+      "description": {
+        "zh": "提供居民维持基础生活所必需的食品、饮料、农产品及日用消耗品，需求呈高频且对经济衰退具备强防御性的企业。",
+        "en": "Companies providing food, beverages, agricultural products, and daily consumables essential to basic living, with high-frequency demand and strong defensive characteristics during economic downturns."
+      },
+      "level_2": [
+        {
+          "id": "consumer_defensive.food_beverage",
+          "name": {
+            "zh": "食品饮料",
+            "en": "Food & Beverage"
+          },
+          "description": {
+            "zh": "酿造销售酒精饮料及软饮料、乳制品，并生产包装食品与肉类加工产品的企业。",
+            "en": "Companies producing and selling alcoholic and non-alcoholic beverages, dairy products, packaged foods, and processed meat products."
+          },
+          "level_3": [
+            {
+              "id": "consumer_defensive.food_beverage.alcoholic_beverages",
+              "name": {
+                "zh": "酒精饮料",
+                "en": "Alcoholic Beverages"
+              },
+              "definition": {
+                "zh": "酿造并销售白酒、啤酒、葡萄酒、黄酒及烈性洋酒的企业。",
+                "en": "Companies brewing and selling baijiu, beer, wine, huangjiu, and distilled spirits."
+              }
+            },
+            {
+              "id": "consumer_defensive.food_beverage.soft_drinks_dairy",
+              "name": {
+                "zh": "软饮料与乳制品",
+                "en": "Soft Drinks & Dairy"
+              },
+              "definition": {
+                "zh": "生产瓶装水、碳酸饮料、果汁、茶饮，以及液态奶、奶粉、奶酪等乳制品的企业。",
+                "en": "Companies producing bottled water, carbonated drinks, juices, tea beverages, and dairy products such as liquid milk, powdered milk, and cheese."
+              }
+            },
+            {
+              "id": "consumer_defensive.food_beverage.packaged_food_meat",
+              "name": {
+                "zh": "包装食品与肉类",
+                "en": "Packaged Food & Meat"
+              },
+              "definition": {
+                "zh": "生产休闲零食、调味品、预制菜，及从事生猪/家禽屠宰与肉类加工包装的企业。",
+                "en": "Companies producing snacks, condiments, and prepared meals, and engaged in hog/poultry slaughter and meat processing and packaging."
+              }
+            }
+          ]
+        },
+        {
+          "id": "consumer_defensive.agriculture",
+          "name": {
+            "zh": "农业与畜牧业",
+            "en": "Agriculture & Livestock"
+          },
+          "description": {
+            "zh": "从事粮食与经济作物种植、畜牧水产养殖及种子培育等上游农业与畜牧业的企业。",
+            "en": "Companies engaged in crop farming, livestock and aquaculture, and upstream agricultural inputs such as seed breeding and animal health."
+          },
+          "level_3": [
+            {
+              "id": "consumer_defensive.agriculture.crop_production",
+              "name": {
+                "zh": "农产品种植",
+                "en": "Crop Production"
+              },
+              "definition": {
+                "zh": "从事粮食作物、经济作物种植，及提供农业种子培育（含转基因）的企业。",
+                "en": "Companies engaged in grain and cash crop cultivation and agricultural seed breeding, including genetically modified varieties."
+              }
+            },
+            {
+              "id": "consumer_defensive.agriculture.livestock_aquaculture",
+              "name": {
+                "zh": "畜牧养殖",
+                "en": "Livestock & Aquaculture"
+              },
+              "definition": {
+                "zh": "从事生猪、家禽、牛羊等活体动物养殖，及水产养殖、动物疫苗兽药研发的企业。",
+                "en": "Companies engaged in hog, poultry, and cattle farming, aquaculture, and animal vaccine and veterinary drug R&D."
+              }
+            }
+          ]
+        },
+        {
+          "id": "consumer_defensive.household_staples",
+          "name": {
+            "zh": "生活必需用品",
+            "en": "Household Staples"
+          },
+          "description": {
+            "zh": "运营超市、便利店等食品生鲜零售渠道，及生产家庭护理与个人清洁日化用品的企业。",
+            "en": "Companies operating food and fresh grocery retail channels and manufacturing household and personal care consumer staples."
+          },
+          "level_3": [
+            {
+              "id": "consumer_defensive.household_staples.food_grocery_retail",
+              "name": {
+                "zh": "食品与生鲜零售",
+                "en": "Food & Grocery Retail"
+              },
+              "definition": {
+                "zh": "运营大型生活超市、社区生鲜店、便利店及农产品批发市场的零售终端企业。",
+                "en": "Retail operators running hypermarkets, community fresh-food stores, convenience stores, and agricultural wholesale markets."
+              }
+            },
+            {
+              "id": "consumer_defensive.household_staples.household_personal_care",
+              "name": {
+                "zh": "家庭护理与个人用品",
+                "en": "Household & Personal Care"
+              },
+              "definition": {
+                "zh": "生产洗发水、牙膏、纸巾等个人清洁用品，以及洗衣液、洗洁精等家庭护理日化品的企业。",
+                "en": "Companies producing personal care products such as shampoo, toothpaste, and tissue, and household care products such as laundry detergent and dish soap."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "healthcare",
+      "name": {
+        "zh": "医疗保健",
+        "en": "Healthcare"
+      },
+      "description": {
+        "zh": "致力于人类疾病防治、生命健康维护，提供医药研发、医疗器械制造及终端医疗护理服务的企业。",
+        "en": "Companies dedicated to disease prevention and treatment, health maintenance, pharmaceutical R&D, medical device manufacturing, and end-user healthcare services."
+      },
+      "level_2": [
+        {
+          "id": "healthcare.pharma_biotech",
+          "name": {
+            "zh": "制药与生物科技",
+            "en": "Pharmaceuticals & Biotechnology"
+          },
+          "description": {
+            "zh": "研发与生产化学制药、生物制品、创新药与前沿生物疗法及中药等制药与生物科技产品的企业。",
+            "en": "Companies researching and manufacturing pharmaceutical and biotech products including chemical drugs, biologics, innovative therapies, and traditional Chinese medicine."
+          },
+          "level_3": [
+            {
+              "id": "healthcare.pharma_biotech.chemical_pharmaceuticals",
+              "name": {
+                "zh": "化学制药",
+                "en": "Chemical Pharmaceuticals"
+              },
+              "definition": {
+                "zh": "以化学合成反应为主要手段，研发或仿制小分子药物的企业。",
+                "en": "Companies that develop or manufacture small-molecule drugs primarily through chemical synthesis."
+              }
+            },
+            {
+              "id": "healthcare.pharma_biotech.biologics",
+              "name": {
+                "zh": "生物制品",
+                "en": "Biologics"
+              },
+              "definition": {
+                "zh": "从事血液制品提取、人类疫苗研发，及重组蛋白药物生产的企业。",
+                "en": "Companies engaged in blood product extraction, human vaccine development, and recombinant protein drug production."
+              }
+            },
+            {
+              "id": "healthcare.pharma_biotech.innovative_biotech",
+              "name": {
+                "zh": "创新药与前沿生物",
+                "en": "Innovative Biotech"
+              },
+              "definition": {
+                "zh": "专注于大分子单抗、ADC药物、细胞与基因治疗（CGT）、合成生物等前沿疗法研发的高壁垒生物科技企业。",
+                "en": "High-barrier biotech companies focused on frontier therapies including monoclonal antibodies, ADC drugs, cell and gene therapy (CGT), and synthetic biology."
+              }
+            },
+            {
+              "id": "healthcare.pharma_biotech.traditional_chinese_medicine",
+              "name": {
+                "zh": "中药与民族药",
+                "en": "Traditional Chinese Medicine"
+              },
+              "definition": {
+                "zh": "生产中药饮片、中成药处方药及具备独家保密配方传统医药的企业。",
+                "en": "Companies producing traditional Chinese medicine decoction pieces, prescription proprietary medicines, and traditional medicines with exclusive protected formulas."
+              }
+            }
+          ]
+        },
+        {
+          "id": "healthcare.medical_devices",
+          "name": {
+            "zh": "医疗器械与耗材",
+            "en": "Medical Devices & Supplies"
+          },
+          "description": {
+            "zh": "制造大型医疗设备、高/低值医疗耗材及体外诊断试剂与检测仪器的企业。",
+            "en": "Companies manufacturing medical equipment, high- and low-value medical consumables, and in vitro diagnostic reagents and instruments."
+          },
+          "level_3": [
+            {
+              "id": "healthcare.medical_devices.medical_equipment",
+              "name": {
+                "zh": "医疗设备",
+                "en": "Medical Equipment"
+              },
+              "definition": {
+                "zh": "制造核磁共振、CT、直线加速器、呼吸机、手术机器人等大型及高精密医疗设备的企业。",
+                "en": "Companies manufacturing large-scale and high-precision medical equipment such as MRI, CT, linear accelerators, ventilators, and surgical robots."
+              }
+            },
+            {
+              "id": "healthcare.medical_devices.medical_consumables",
+              "name": {
+                "zh": "高/低值医疗耗材",
+                "en": "Medical Consumables"
+              },
+              "definition": {
+                "zh": "生产心血管支架、骨科植入物（高值），以及注射器、医用敷料、导管（低值）的企业。",
+                "en": "Companies producing high-value consumables such as cardiovascular stents and orthopedic implants, and low-value items such as syringes, dressings, and catheters."
+              }
+            },
+            {
+              "id": "healthcare.medical_devices.in_vitro_diagnostics",
+              "name": {
+                "zh": "体外诊断",
+                "en": "In Vitro Diagnostics"
+              },
+              "definition": {
+                "zh": "研发制造生化、免疫、分子诊断及基因测序所需的试剂盒与检测仪器的企业。",
+                "en": "Companies developing and manufacturing reagent kits and instruments for biochemical, immunological, molecular diagnostic, and gene sequencing applications."
+              }
+            }
+          ]
+        },
+        {
+          "id": "healthcare.health_services",
+          "name": {
+            "zh": "医疗服务与医药商业",
+            "en": "Health Services & Pharma Distribution"
+          },
+          "description": {
+            "zh": "运营民营医疗机构、CRO/CDMO研发生产外包，及药械批发流通与连锁药房网络的企业。",
+            "en": "Companies operating healthcare providers, CRO/CDMO outsourcing services, and pharmaceutical and device wholesale distribution and retail pharmacy networks."
+          },
+          "level_3": [
+            {
+              "id": "healthcare.health_services.healthcare_providers",
+              "name": {
+                "zh": "医疗服务机构",
+                "en": "Healthcare Providers"
+              },
+              "definition": {
+                "zh": "运营综合民营医院、专科医院（眼科/牙科/医美）、体检中心及第三方医学检验实验室的企业。",
+                "en": "Companies operating private general hospitals, specialty hospitals (ophthalmology/dentistry/medical aesthetics), health check centers, and third-party medical laboratories."
+              }
+            },
+            {
+              "id": "healthcare.health_services.cro_cdmo",
+              "name": {
+                "zh": "研发与生产外包",
+                "en": "CRO & CDMO"
+              },
+              "definition": {
+                "zh": "提供临床前研发（CRO）、临床试验管理及定制化生产代工（CDMO）服务的“卖水人”企业。",
+                "en": "Contract research organizations (CRO) and contract development and manufacturing organizations (CDMO) providing preclinical R&D, clinical trial management, and customized production services."
+              }
+            },
+            {
+              "id": "healthcare.health_services.pharma_distribution",
+              "name": {
+                "zh": "医药商业与流通",
+                "en": "Pharma Distribution"
+              },
+              "definition": {
+                "zh": "从事药械产品的大宗批发分销，及运营面向C端的线下连锁药房网络的企业。",
+                "en": "Companies engaged in bulk wholesale distribution of pharmaceuticals and medical devices, and operating consumer-facing retail pharmacy chains."
+              }
+            }
+          ]
+        },
+        {
+          "id": "healthcare.digital_health",
+          "name": {
+            "zh": "医疗IT与数字健康",
+            "en": "Digital Health"
+          },
+          "description": {
+            "zh": "为医院与政府提供医疗信息化系统，及运营在线问诊与医药电商等数字健康服务的企业。",
+            "en": "Companies providing healthcare IT systems for hospitals and governments, and operating telemedicine platforms and online pharmacy and digital health services."
+          },
+          "level_3": [
+            {
+              "id": "healthcare.digital_health.healthcare_it",
+              "name": {
+                "zh": "医疗信息化",
+                "en": "Healthcare IT"
+              },
+              "definition": {
+                "zh": "为医院提供HIS系统、电子病历系统及为政府开发医保支付IT系统的企业。",
+                "en": "Companies providing hospital information systems (HIS), electronic medical record systems, and government healthcare payment IT systems."
+              }
+            },
+            {
+              "id": "healthcare.digital_health.online_healthcare_services",
+              "name": {
+                "zh": "互联网医疗服务",
+                "en": "Online Healthcare Services"
+              },
+              "definition": {
+                "zh": "运营在线问诊平台、医药电商零售B2C平台及慢病数字化管理服务的企业。",
+                "en": "Companies operating online consultation platforms, pharmaceutical e-commerce B2C platforms, and chronic disease digital management services."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "financial_services",
+      "name": {
+        "zh": "金融服务",
+        "en": "Financial Services"
+      },
+      "description": {
+        "zh": " 通过经营信用风险、资产管理、资金结算及保险精算，为社会提供资金融通及风险对冲服务的机构与赋能技术提供商。",
+        "en": "Institutions and enabling technology providers that facilitate capital intermediation and risk hedging through credit risk management, asset management, payment settlement, and actuarial insurance services."
+      },
+      "level_2": [
+        {
+          "id": "financial_services.banking",
+          "name": {
+            "zh": "银行业",
+            "en": "Banking"
+          },
+          "description": {
+            "zh": "提供存贷款、结算及表外业务的全国性综合性商业银行与区域性银行。",
+            "en": "Systemically important commercial banks and regional banks providing deposit and lending, settlement, and off-balance-sheet banking services."
+          },
+          "level_3": [
+            {
+              "id": "financial_services.banking.commercial_banks",
+              "name": {
+                "zh": "综合性商业银行",
+                "en": "Commercial Banks"
+              },
+              "definition": {
+                "zh": "业务覆盖全国或全球，提供全面存贷款、结算及表外业务的大型系统重要性银行。",
+                "en": "Large systemically important banks with nationwide or global operations providing comprehensive deposit and lending, settlement, and off-balance-sheet services."
+              }
+            },
+            {
+              "id": "financial_services.banking.regional_banks",
+              "name": {
+                "zh": "区域性银行",
+                "en": "Regional Banks"
+              },
+              "definition": {
+                "zh": "扎根特定省市，以服务地方经济及中小微企业为主的城市商业银行及农村商业银行。",
+                "en": "City commercial banks and rural commercial banks rooted in specific provinces and cities, primarily serving local economies and small and medium enterprises."
+              }
+            }
+          ]
+        },
+        {
+          "id": "financial_services.diversified_financials",
+          "name": {
+            "zh": "多元金融与信贷",
+            "en": "Diversified Financials & Credit"
+          },
+          "description": {
+            "zh": "从事消费金融与小额贷款、融资租赁与商业保理，及信托与金融控股集团等多元金融服务的企业与机构。",
+            "en": "Institutions providing diversified financial and credit services including consumer finance, leasing and factoring, and trust and financial holding companies."
+          },
+          "level_3": [
+            {
+              "id": "financial_services.diversified_financials.consumer_finance",
+              "name": {
+                "zh": "消费金融与小额贷款",
+                "en": "Consumer Finance & Micro-Lending"
+              },
+              "definition": {
+                "zh": "依托场景或流量，向个人或微型企业提供无抵押小额信贷及分期服务的企业。",
+                "en": "Companies providing unsecured micro-credit and installment services to individuals or micro-enterprises through scenario-based or traffic-driven channels."
+              }
+            },
+            {
+              "id": "financial_services.diversified_financials.leasing_factoring",
+              "name": {
+                "zh": "金融租赁与商业保理",
+                "en": "Leasing & Factoring"
+              },
+              "definition": {
+                "zh": "提供大型设备融资租赁业务，或基于企业应收账款提供融资及保理服务的机构。",
+                "en": "Institutions providing large equipment finance leasing or financing and factoring services based on corporate accounts receivable."
+              }
+            },
+            {
+              "id": "financial_services.diversified_financials.trust_holding_companies",
+              "name": {
+                "zh": "信托与金融控股集团",
+                "en": "Trust & Financial Holding Companies"
+              },
+              "definition": {
+                "zh": "经营财产信托受托业务，或同时控股银行、证券、保险等多张金融牌照的大型金控集团。",
+                "en": "Trust companies managing property trust fiduciary services, or large financial holding groups controlling multiple licenses across banking, securities, and insurance."
+              }
+            }
+          ]
+        },
+        {
+          "id": "financial_services.capital_markets",
+          "name": {
+            "zh": "资本市场与投资",
+            "en": "Capital Markets & Investment"
+          },
+          "description": {
+            "zh": "拥有券商牌照开展经纪与投行业务，及从事资产管理、VC/PE与交易所数据服务的资本市场机构。",
+            "en": "Capital markets institutions including securities brokerage and investment banking, asset management, venture capital and private equity, and exchanges and financial data services."
+          },
+          "level_3": [
+            {
+              "id": "financial_services.capital_markets.securities_investment_banking",
+              "name": {
+                "zh": "证券经纪与投行",
+                "en": "Securities Brokerage & Investment Banking"
+              },
+              "definition": {
+                "zh": "拥有券商牌照，提供股票经纪交易、融资融券、企业IPO承销及自营投资的证券公司。",
+                "en": "Licensed securities firms providing stock brokerage, margin trading, IPO underwriting, and proprietary investment services."
+              }
+            },
+            {
+              "id": "financial_services.capital_markets.asset_management_custody",
+              "name": {
+                "zh": "资产管理与托管",
+                "en": "Asset Management & Custody"
+              },
+              "definition": {
+                "zh": "发行并管理公募基金、私募基金，或从事风险投资（VC/PE）及资产托管业务的机构。",
+                "en": "Institutions issuing and managing public and private funds, or engaged in venture capital (VC/PE) and asset custody services."
+              }
+            },
+            {
+              "id": "financial_services.capital_markets.exchanges_financial_data",
+              "name": {
+                "zh": "金融交易所与数据服务",
+                "en": "Exchanges & Financial Data Services"
+              },
+              "definition": {
+                "zh": "运营股票、期货交易所，及提供专业金融数据终端、信用评级、指数编制服务的企业。",
+                "en": "Companies operating stock and futures exchanges, and providing professional financial data terminals, credit ratings, and index compilation services."
+              }
+            }
+          ]
+        },
+        {
+          "id": "financial_services.insurance",
+          "name": {
+            "zh": "保险业",
+            "en": "Insurance"
+          },
+          "description": {
+            "zh": "提供人寿与健康险、财产与意外险精算承保，及保险经纪与代销中介服务的保险机构。",
+            "en": "Insurance institutions providing life and health underwriting, property and casualty coverage, and insurance brokerage and distribution intermediary services."
+          },
+          "level_3": [
+            {
+              "id": "financial_services.insurance.life_health_insurance",
+              "name": {
+                "zh": "人寿与健康保险",
+                "en": "Life & Health Insurance"
+              },
+              "definition": {
+                "zh": "提供生老病死相关的人寿险、年金险、重大疾病险及商业医疗险的精算与承保机构。",
+                "en": "Actuarial and underwriting institutions providing life insurance, annuities, critical illness insurance, and commercial medical coverage."
+              }
+            },
+            {
+              "id": "financial_services.insurance.property_casualty_insurance",
+              "name": {
+                "zh": "财产与意外保险",
+                "en": "Property & Casualty Insurance"
+              },
+              "definition": {
+                "zh": "提供车险、企业财产险、农业险及责任险等财产损失补偿对冲服务的承保机构。",
+                "en": "Underwriting institutions providing property loss compensation and hedging services including auto, commercial property, agricultural, and liability insurance."
+              }
+            },
+            {
+              "id": "financial_services.insurance.insurance_brokerage",
+              "name": {
+                "zh": "保险经纪与服务",
+                "en": "Insurance Brokerage & Services"
+              },
+              "definition": {
+                "zh": "不承担底层保险风险，仅代表投保人或保险人进行保险产品代销与方案撮合的中介服务机构。",
+                "en": "Intermediary service providers that do not assume underlying insurance risk but distribute insurance products and match coverage solutions on behalf of policyholders or insurers."
+              }
+            }
+          ]
+        },
+        {
+          "id": "financial_services.fintech_digital_assets",
+          "name": {
+            "zh": "金融科技与数字资产",
+            "en": "Fintech & Digital Assets"
+          },
+          "description": {
+            "zh": "运营第三方支付与清算网络、合规数字资产交易平台，及从事加密货币挖矿与节点验证的金融科技企业。",
+            "en": "Fintech companies operating payment processing and clearing networks, compliant digital asset trading and tokenization platforms, and cryptocurrency mining and node validation."
+          },
+          "level_3": [
+            {
+              "id": "financial_services.fintech_digital_assets.payment_processors",
+              "name": {
+                "zh": "交易支付处理商",
+                "en": "Payment Processors"
+              },
+              "definition": {
+                "zh": "运营第三方支付网络、银行卡清算组织（如Visa），提供收单与交易清算技术的企业。",
+                "en": "Companies operating third-party payment networks, card clearing organizations (e.g., Visa), and merchant acquiring and transaction settlement technology."
+              }
+            },
+            {
+              "id": "financial_services.fintech_digital_assets.digital_asset_platforms",
+              "name": {
+                "zh": "数字资产交易与服务平台",
+                "en": "Digital Asset Trading Platforms"
+              },
+              "definition": {
+                "zh": "运营合规加密货币交易所、Web3基础设施资产代币化（RWA）平台，或持有大量加密资产储备的持牌机构。",
+                "en": "Licensed institutions operating compliant cryptocurrency exchanges, Web3 real-world asset (RWA) tokenization platforms, or holding substantial crypto asset reserves."
+              }
+            },
+            {
+              "id": "financial_services.fintech_digital_assets.crypto_mining",
+              "name": {
+                "zh": "数字资产挖矿与算力",
+                "en": "Crypto Mining & Hash Power"
+              },
+              "definition": {
+                "zh": "专门从事比特币等加密货币的算力挖矿、矿池运营及区块链节点验证的企业。",
+                "en": "Companies specializing in cryptocurrency hash power mining, mining pool operations, and blockchain node validation."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "industrials",
+      "name": {
+        "zh": "工业",
+        "en": "Industrials"
+      },
+      "description": {
+        "zh": " 制造用于生产其他产品的资本货物、重型机械，及提供基础交通运输物流与大型B端专业服务的企业。",
+        "en": "Companies manufacturing capital goods and heavy machinery used to produce other products, and providing essential transportation, logistics, and large-scale B2B professional services."
+      },
+      "level_2": [
+        {
+          "id": "industrials.capital_goods",
+          "name": {
+            "zh": "资本品与高端制造",
+            "en": "Capital Goods & Advanced Manufacturing"
+          },
+          "description": {
+            "zh": "研发制造航空航天与国防装备、工程机械与自动化、电气新能源装备及大基建工程相关产品的资本品企业。",
+            "en": "Capital goods manufacturers producing aerospace and defense, industrial machinery and automation, electrical and new energy equipment, and construction and engineering products."
+          },
+          "level_3": [
+            {
+              "id": "industrials.capital_goods.aerospace_defense",
+              "name": {
+                "zh": "航空航天与国防",
+                "en": "Aerospace & Defense"
+              },
+              "definition": {
+                "zh": "研发制造战斗机、导弹、军工信息化装备，及民用大飞机整机与核心组件的企业。",
+                "en": "Companies developing and manufacturing fighter aircraft, missiles, defense IT equipment, and civil large aircraft and core components."
+              }
+            },
+            {
+              "id": "industrials.capital_goods.machinery_automation",
+              "name": {
+                "zh": "机械制造与自动化",
+                "en": "Machinery & Automation"
+              },
+              "definition": {
+                "zh": "生产工程机械（如挖掘机）、工业母机（机床）、工业/人形机器人及自动化产线控制系统的企业。",
+                "en": "Companies producing construction machinery (e.g., excavators), machine tools, industrial/humanoid robots, and automated production line control systems."
+              }
+            },
+            {
+              "id": "industrials.capital_goods.electrical_equipment",
+              "name": {
+                "zh": "电气设备与新能源装备",
+                "en": "Electrical Equipment & New Energy Machinery"
+              },
+              "definition": {
+                "zh": "生产高低压电网变配电设备、光伏风电制造设备、锂电池与固态电池生产线装备的企业。",
+                "en": "Companies producing high- and low-voltage grid power equipment, solar and wind manufacturing equipment, and lithium-ion and solid-state battery production line machinery."
+              }
+            },
+            {
+              "id": "industrials.capital_goods.construction_engineering",
+              "name": {
+                "zh": "建筑产品与工程",
+                "en": "Construction Products & Engineering"
+              },
+              "definition": {
+                "zh": "提供高铁、公路、水利等大基建工程施工承包，及提供专业建筑设计与非金属建筑组件的企业。",
+                "en": "Companies providing large infrastructure construction contracting for high-speed rail, highways, and water conservancy, and professional architectural design and non-metallic building components."
+              }
+            }
+          ]
+        },
+        {
+          "id": "industrials.transportation_logistics",
+          "name": {
+            "zh": "交通运输与物流",
+            "en": "Transportation & Logistics"
+          },
+          "description": {
+            "zh": "提供航空客运与货运、海运与港口、收费公路与铁路，及综合快递与供应链物流运输服务的企业。",
+            "en": "Companies providing transportation and logistics services including airlines, shipping and ports, toll roads and rail, and integrated express and supply chain logistics."
+          },
+          "level_3": [
+            {
+              "id": "industrials.transportation_logistics.air_transport",
+              "name": {
+                "zh": "航空运输",
+                "en": "Air Transport"
+              },
+              "definition": {
+                "zh": "运营客运航班、全货运机队及提供机场起降调度与地面配套服务的企业。",
+                "en": "Companies operating passenger flights, all-cargo fleets, and airport landing coordination and ground support services."
+              }
+            },
+            {
+              "id": "industrials.transportation_logistics.maritime_ports",
+              "name": {
+                "zh": "海运与港口",
+                "en": "Maritime & Ports"
+              },
+              "definition": {
+                "zh": "运营干散货船、集装箱船、油轮等远洋运输业务，及经营沿海及内河港口码头的企业。",
+                "en": "Companies operating dry bulk, container, and tanker shipping, and managing coastal and inland river port terminals."
+              }
+            },
+            {
+              "id": "industrials.transportation_logistics.road_rail_transport",
+              "name": {
+                "zh": "公路与铁路",
+                "en": "Road & Rail Transport"
+              },
+              "definition": {
+                "zh": "拥有并运营收费高速公路网络，及提供铁路客货运网络运输服务的企业。",
+                "en": "Companies owning and operating toll highway networks and providing passenger and freight rail transport services."
+              }
+            },
+            {
+              "id": "industrials.transportation_logistics.logistics_express",
+              "name": {
+                "zh": "综合物流与快递",
+                "en": "Integrated Logistics & Express"
+              },
+              "definition": {
+                "zh": "提供快递收发网络、冷链仓储及跨国供应链综合管理调度的企业。",
+                "en": "Companies providing express delivery networks, cold-chain warehousing, and cross-border integrated supply chain management and dispatch."
+              }
+            }
+          ]
+        },
+        {
+          "id": "industrials.commercial_services",
+          "name": {
+            "zh": "商业与专业服务",
+            "en": "Commercial & Professional Services"
+          },
+          "description": {
+            "zh": "为企业提供人力资源外包、第三方检验检测（TIC）、安保及工业危废与土壤修复等商业与专业服务机构。",
+            "en": "B2B professional service providers including human resources outsourcing, third-party inspection and testing, security services, and industrial waste and environmental remediation."
+          },
+          "level_3": [
+            {
+              "id": "industrials.commercial_services.business_outsourcing",
+              "name": {
+                "zh": "商业与外包服务",
+                "en": "Business & Outsourcing Services"
+              },
+              "definition": {
+                "zh": "为企业提供人力资源外包、第三方检验检测（TIC）、安保服务及设施日常管理（物业外）的机构。",
+                "en": "Institutions providing human resources outsourcing, third-party inspection and testing (TIC), security services, and facility management (excluding property management) for enterprises."
+              }
+            },
+            {
+              "id": "industrials.commercial_services.environmental_waste_management",
+              "name": {
+                "zh": "环保与废弃物管理",
+                "en": "Environmental & Waste Management"
+              },
+              "definition": {
+                "zh": "从事工业危废处理、环境监测仪器制造、动力电池回收及大规模土壤修复工程的企业。",
+                "en": "Companies engaged in industrial hazardous waste treatment, environmental monitoring instrument manufacturing, power battery recycling, and large-scale soil remediation projects."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "basic_materials",
+      "name": {
+        "zh": "基础材料",
+        "en": "Basic Materials"
+      },
+      "description": {
+        "zh": " 处于产业链极上游，通过采掘自然资源或进行基础化学加工，为全球制造业提供原物料及大宗商品的企业。",
+        "en": "Upstream companies that extract natural resources or perform basic chemical processing to supply raw materials and commodities to global manufacturing."
+      },
+      "level_2": [
+        {
+          "id": "basic_materials.metals_mining",
+          "name": {
+            "zh": "金属与采矿",
+            "en": "Metals & Mining"
+          },
+          "description": {
+            "zh": "勘探开采冶炼贵金属、铜铝钢铁等大宗工业金属，及锂钴镍稀土等电池与战略性矿产的企业。",
+            "en": "Companies exploring, mining, and refining precious metals, base metals and steel, and battery and strategic minerals such as lithium, cobalt, nickel, and rare earths."
+          },
+          "level_3": [
+            {
+              "id": "basic_materials.metals_mining.precious_metals",
+              "name": {
+                "zh": "贵金属",
+                "en": "Precious Metals"
+              },
+              "definition": {
+                "zh": "勘探、开采及冶炼黄金、白银及铂族金属等具有金融避险属性矿产的企业。",
+                "en": "Companies exploring, mining, and refining gold, silver, platinum-group metals, and other minerals with financial safe-haven attributes."
+              }
+            },
+            {
+              "id": "basic_materials.metals_mining.base_industrial_metals",
+              "name": {
+                "zh": "大宗工业金属",
+                "en": "Base Industrial Metals"
+              },
+              "definition": {
+                "zh": "开采及冶炼铜、铝、铅、锌等有色金属，以及铁矿石与钢铁冶炼的企业。",
+                "en": "Companies mining and smelting non-ferrous metals such as copper, aluminum, lead, and zinc, as well as iron ore mining and steel production."
+              }
+            },
+            {
+              "id": "basic_materials.metals_mining.battery_strategic_minerals",
+              "name": {
+                "zh": "能源金属与特种矿产",
+                "en": "Battery & Strategic Minerals"
+              },
+              "definition": {
+                "zh": "开采锂、钴、镍（主要用于电池）及稀土、钨、钼等具有地缘战略价值金属矿产的企业。",
+                "en": "Companies mining lithium, cobalt, nickel (primarily for batteries), and strategically significant minerals such as rare earths, tungsten, and molybdenum."
+              }
+            }
+          ]
+        },
+        {
+          "id": "basic_materials.chemicals",
+          "name": {
+            "zh": "化工",
+            "en": "Chemicals"
+          },
+          "description": {
+            "zh": "生产纯碱氯碱等大宗基础化工、氮磷钾化肥与农药，及电子化学品与氟硅化工等特种化工材料的企业。",
+            "en": "Companies producing commodity bulk chemicals, fertilizers and crop protection chemicals, and specialty chemicals and advanced materials including electronic and fluorosilicon chemicals."
+          },
+          "level_3": [
+            {
+              "id": "basic_materials.chemicals.bulk_chemicals",
+              "name": {
+                "zh": "大宗基础化工",
+                "en": "Bulk Chemicals"
+              },
+              "definition": {
+                "zh": "依托煤炭或石油提炼基础化工原料（如纯碱、氯碱、聚乙烯），产品呈强周期大宗属性的企业。",
+                "en": "Companies deriving basic chemical feedstocks from coal or petroleum (e.g., soda ash, chlor-alkali, polyethylene) with highly cyclical commodity product profiles."
+              }
+            },
+            {
+              "id": "basic_materials.chemicals.agricultural_chemicals",
+              "name": {
+                "zh": "农业化学品",
+                "en": "Agricultural Chemicals"
+              },
+              "definition": {
+                "zh": "生产氮磷钾化肥、复合肥，及合成除草剂、杀虫剂等农药原药与制剂的企业。",
+                "en": "Companies producing nitrogen, phosphorus, and potassium fertilizers, compound fertilizers, and pesticide active ingredients and formulations such as herbicides and insecticides."
+              }
+            },
+            {
+              "id": "basic_materials.chemicals.specialty_chemicals",
+              "name": {
+                "zh": "特种化工与高性能材料",
+                "en": "Specialty Chemicals & Advanced Materials"
+              },
+              "definition": {
+                "zh": "研发制造电子化学品、氟硅化工、PEEK等高分子聚合物及气凝胶等高附加值前沿材料的企业。",
+                "en": "Companies developing and manufacturing high-value advanced materials including electronic chemicals, fluorosilicon chemicals, PEEK polymers, and aerogels."
+              }
+            }
+          ]
+        },
+        {
+          "id": "basic_materials.construction_materials",
+          "name": {
+            "zh": "建筑材料",
+            "en": "Construction Materials"
+          },
+          "description": {
+            "zh": "开采石灰石生产水泥熟料与混凝土，及制造浮法玻璃、建筑陶瓷等非金属基础建材的企业。",
+            "en": "Companies producing basic construction materials including cement clinker and ready-mix concrete, float glass, building ceramics, and other non-metallic building products."
+          },
+          "level_3": [
+            {
+              "id": "basic_materials.construction_materials.cement_concrete",
+              "name": {
+                "zh": "水泥与混凝土",
+                "en": "Cement & Concrete"
+              },
+              "definition": {
+                "zh": "开采石灰石并烧制水泥熟料，及生产商品预拌混凝土等重资产基础建材的企业。",
+                "en": "Capital-intensive companies mining limestone, producing cement clinker, and manufacturing ready-mix concrete and other basic building materials."
+              }
+            },
+            {
+              "id": "basic_materials.construction_materials.glass_nonmetallic",
+              "name": {
+                "zh": "玻璃与非金属建材",
+                "en": "Glass & Non-Metallic Building Materials"
+              },
+              "definition": {
+                "zh": "生产浮法玻璃、光伏玻璃、建筑陶瓷、石膏板及防水卷材等非金属建材的企业。",
+                "en": "Companies producing float glass, photovoltaic glass, building ceramics, gypsum boards, and waterproof membranes and other non-metallic building materials."
+              }
+            }
+          ]
+        },
+        {
+          "id": "basic_materials.paper_packaging",
+          "name": {
+            "zh": "纸业与包装",
+            "en": "Paper & Packaging"
+          },
+          "description": {
+            "zh": "从事林木纸浆与造纸，及为下游提供金属罐、玻璃瓶、塑料薄膜和纸箱等综合包装制品生产的企业。",
+            "en": "Companies engaged in pulp and paper production and manufacturing integrated packaging products including metal cans, glass bottles, plastic film, and corrugated boxes."
+          },
+          "level_3": [
+            {
+              "id": "basic_materials.paper_packaging.pulp_paper",
+              "name": {
+                "zh": "纸浆与造纸",
+                "en": "Pulp & Paper"
+              },
+              "definition": {
+                "zh": "砍伐林木生产纸浆，及制造文化纸、箱板纸、特种纸的大型造纸企业。",
+                "en": "Large paper producers harvesting timber for pulp production and manufacturing cultural paper, containerboard, and specialty paper."
+              }
+            },
+            {
+              "id": "basic_materials.paper_packaging.packaging_materials",
+              "name": {
+                "zh": "综合包装材料",
+                "en": "Packaging Materials"
+              },
+              "definition": {
+                "zh": "为下游消费品或工业品提供金属易拉罐、玻璃瓶、塑料薄膜及纸箱包装定制生产的企业。",
+                "en": "Companies providing customized packaging production for downstream consumer and industrial goods, including metal cans, glass bottles, plastic film, and corrugated boxes."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "energy",
+      "name": {
+        "zh": "能源",
+        "en": "Energy"
+      },
+      "description": {
+        "zh": " 从事传统化石能源的勘探、开采、炼化与销售，或提供相关油气钻探设备与技术服务，以及研发前沿低碳替代燃料的企业。",
+        "en": "Companies engaged in exploration, production, refining, and marketing of conventional fossil fuels, oilfield equipment and services, and development of frontier low-carbon alternative fuels."
+      },
+      "level_2": [
+        {
+          "id": "energy.oil_gas_fuels",
+          "name": {
+            "zh": "石油、天然气与消耗型燃料",
+            "en": "Oil, Gas & Consumable Fuels"
+          },
+          "description": {
+            "zh": "涵盖油气勘探开采、储运管输、炼化销售、综合性油气巨头、煤炭开采及核燃料采掘加工等消耗型燃料企业。",
+            "en": "Companies across consumable fuel value chains including oil and gas E&P, storage and transportation, refining and marketing, integrated oil majors, coal mining, and nuclear fuel processing."
+          },
+          "level_3": [
+            {
+              "id": "energy.oil_gas_fuels.exploration_production",
+              "name": {
+                "zh": "勘探与开采",
+                "en": "Exploration & Production"
+              },
+              "definition": {
+                "zh": "拥有油田或气田区块权益，主营原油与天然气（含页岩油气）钻探开采的产业链上游企业（E&P）。",
+                "en": "Upstream exploration and production (E&P) companies holding oil or gas field interests engaged in crude oil and natural gas (including shale) drilling and extraction."
+              }
+            },
+            {
+              "id": "energy.oil_gas_fuels.storage_transportation",
+              "name": {
+                "zh": "储藏与运输",
+                "en": "Storage & Transportation"
+              },
+              "definition": {
+                "zh": "拥有跨区油气管道、LNG接收站及大型储油库，赚取管输费及仓储费的中游企业。",
+                "en": "Midstream companies owning cross-regional oil and gas pipelines, LNG receiving terminals, and large storage facilities earning pipeline and storage fees."
+              }
+            },
+            {
+              "id": "energy.oil_gas_fuels.refining_marketing",
+              "name": {
+                "zh": "炼油与销售",
+                "en": "Refining & Marketing"
+              },
+              "definition": {
+                "zh": "将原油炼化为汽柴油及基础化工品，及经营终端加油站网络的下游分销企业。",
+                "en": "Downstream companies refining crude oil into gasoline, diesel, and basic petrochemicals, and operating retail fuel station networks."
+              }
+            },
+            {
+              "id": "energy.oil_gas_fuels.integrated_oil_gas",
+              "name": {
+                "zh": "综合性油气巨头",
+                "en": "Integrated Oil & Gas"
+              },
+              "definition": {
+                "zh": "业务完全覆盖上游开采、中游运输及下游炼化销售的全产业链跨国能源寡头。",
+                "en": "Integrated multinational energy majors with full value-chain coverage across upstream extraction, midstream transportation, and downstream refining and marketing."
+              }
+            },
+            {
+              "id": "energy.oil_gas_fuels.coal_mining",
+              "name": {
+                "zh": "煤炭开采与洗选",
+                "en": "Coal Mining & Processing"
+              },
+              "definition": {
+                "zh": "拥有煤矿矿权，从事动力煤、炼焦煤的井下或露天开采及原煤洗选加工的企业。",
+                "en": "Companies holding coal mining rights engaged in underground or open-pit mining of thermal and coking coal and raw coal washing and processing."
+              }
+            },
+            {
+              "id": "energy.oil_gas_fuels.nuclear_fuel",
+              "name": {
+                "zh": "核燃料采掘与加工",
+                "en": "Nuclear Fuel Mining & Processing"
+              },
+              "definition": {
+                "zh": "专门从事天然铀矿勘探开采，及核电站所需核燃料组件浓缩与加工的企业。",
+                "en": "Companies specializing in natural uranium exploration and mining, and enrichment and processing of nuclear fuel assemblies for power plants."
+              }
+            }
+          ]
+        },
+        {
+          "id": "energy.energy_equipment_services",
+          "name": {
+            "zh": "能源设备与服务",
+            "en": "Energy Equipment & Services"
+          },
+          "description": {
+            "zh": "制造海上钻井平台与压裂车等油气重型装备，并提供地震物探、测井固井等油田技术服务的企业。",
+            "en": "Companies manufacturing heavy oil and gas equipment such as offshore drilling platforms and fracturing units, and providing oilfield services including seismic exploration, logging, and cementing."
+          },
+          "level_3": [
+            {
+              "id": "energy.energy_equipment_services.oilfield_equipment",
+              "name": {
+                "zh": "油气钻探与设备",
+                "en": "Oilfield Equipment"
+              },
+              "definition": {
+                "zh": "制造海上钻井平台、压裂车等重型能源装备，并提供钻机日租服务的企业。",
+                "en": "Companies manufacturing heavy energy equipment such as offshore drilling platforms and fracturing trucks, and providing daily rig rental services."
+              }
+            },
+            {
+              "id": "energy.energy_equipment_services.oilfield_services",
+              "name": {
+                "zh": "油田服务与工程",
+                "en": "Oilfield Services & Engineering"
+              },
+              "definition": {
+                "zh": "为油气开采提供地震物探、测井、固井等专业技术服务及油田地面工程施工的企业。",
+                "en": "Companies providing specialized oilfield services including seismic exploration, well logging, and cementing, and oilfield surface engineering construction."
+              }
+            }
+          ]
+        },
+        {
+          "id": "energy.alternative_fuels",
+          "name": {
+            "zh": "新能源燃料与低碳替代品",
+            "en": "Alternative Fuels & Low-Carbon Substitutes"
+          },
+          "description": {
+            "zh": "利用生物质生产燃料乙醇与生物柴油，及从事绿氢/蓝氢制取储运与可燃冰、碳中和新型燃料开发的企业。",
+            "en": "Companies producing biofuels such as ethanol and biodiesel, green and blue hydrogen production and storage, and developing frontier carbon-neutral fuels including methane hydrates."
+          },
+          "level_3": [
+            {
+              "id": "energy.alternative_fuels.biofuels",
+              "name": {
+                "zh": "生物质燃料",
+                "en": "Biofuels"
+              },
+              "definition": {
+                "zh": "利用农林废弃物或油脂生产燃料乙醇、生物柴油及可持续航空燃料（SAF）的企业。",
+                "en": "Companies producing fuel ethanol, biodiesel, and sustainable aviation fuel (SAF) from agricultural and forestry waste or oils."
+              }
+            },
+            {
+              "id": "energy.alternative_fuels.hydrogen_production",
+              "name": {
+                "zh": "氢能源制造与储运",
+                "en": "Hydrogen Production & Storage"
+              },
+              "definition": {
+                "zh": "专注于绿氢/蓝氢的大规模制取，及氢气液化、高压储运及加氢站建设的企业（不含燃料电池制造）。",
+                "en": "Companies focused on large-scale green/blue hydrogen production, hydrogen liquefaction, high-pressure storage and transport, and hydrogen refueling station construction (excluding fuel cell manufacturing)."
+              }
+            },
+            {
+              "id": "energy.alternative_fuels.novel_fuel_development",
+              "name": {
+                "zh": "新型燃料开发",
+                "en": "Novel Fuel Development"
+              },
+              "definition": {
+                "zh": "从事可燃冰开采技术研发，或基于碳捕集转化合成新型碳中和燃料的前沿能源企业。",
+                "en": "Frontier energy companies developing combustible ice extraction technology or synthesizing novel carbon-neutral fuels through carbon capture and conversion."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "utilities",
+      "name": {
+        "zh": "公用事业",
+        "en": "Utilities"
+      },
+      "description": {
+        "zh": " 在特定区域内拥有政府授予的特许经营权，负责提供电力、自来水、天然气及城市固废处理等维持社会基础运转的防守型服务企业。",
+        "en": "Defensive service companies holding government-granted franchises in specific regions to provide electricity, water, natural gas, and municipal solid waste treatment essential to society."
+      },
+      "level_2": [
+        {
+          "id": "utilities.power_grid",
+          "name": {
+            "zh": "电力与电网运营",
+            "en": "Power Generation & Grid Operations"
+          },
+          "description": {
+            "zh": "运营燃煤、燃气火电及大型水电站等传统发电，及拥有跨区域输电网与地方配售电网络的企业。",
+            "en": "Companies operating conventional power generation including coal, gas, and hydro plants, and regional transmission and distribution grid networks."
+          },
+          "level_3": [
+            {
+              "id": "utilities.power_grid.conventional_power_generation",
+              "name": {
+                "zh": "传统发电运营",
+                "en": "Conventional Power Generation"
+              },
+              "definition": {
+                "zh": "运营燃煤、燃气火电厂及大型水利枢纽水电站，向电网趸售电力的传统发电企业。",
+                "en": "Traditional power generators operating coal and gas-fired plants and large hydroelectric facilities selling electricity to the grid."
+              }
+            },
+            {
+              "id": "utilities.power_grid.transmission_distribution",
+              "name": {
+                "zh": "电网与配售电",
+                "en": "Transmission & Distribution"
+              },
+              "definition": {
+                "zh": "拥有跨区域输电网或地方配电网络，通过向终端用户供电赚取输配电价（过路费）的区域垄断企业。",
+                "en": "Regionally monopolistic companies owning cross-regional transmission grids or local distribution networks earning regulated transmission and distribution tariffs."
+              }
+            }
+          ]
+        },
+        {
+          "id": "utilities.renewable_nuclear",
+          "name": {
+            "zh": "独立新能源与核电",
+            "en": "Renewable & Nuclear Power"
+          },
+          "description": {
+            "zh": "独立投资并运营风电场、集中式/分布式光伏电站，及持有核安全牌照管理核电机组的发电企业。",
+            "en": "Independent operators of wind and solar power generation and licensed nuclear power plants supplying baseload electricity to the grid."
+          },
+          "level_3": [
+            {
+              "id": "utilities.renewable_nuclear.renewable_power",
+              "name": {
+                "zh": "新能源发电运营",
+                "en": "Renewable Power Generation"
+              },
+              "definition": {
+                "zh": "独立投资并运营风力发电场、集中式/分布式太阳能电站，赚取绿色电力上网电费的企业。",
+                "en": "Companies independently investing in and operating wind farms and centralized/distributed solar power plants earning grid-connected green electricity tariffs."
+              }
+            },
+            {
+              "id": "utilities.renewable_nuclear.nuclear_power",
+              "name": {
+                "zh": "核电运营",
+                "en": "Nuclear Power Operations"
+              },
+              "definition": {
+                "zh": "拥有核安全运营牌照，通过投资并管理核电机组向电网输送基荷电力的企业。",
+                "en": "Companies holding nuclear safety operating licenses that invest in and manage nuclear power units supplying baseload electricity to the grid."
+              }
+            }
+          ]
+        },
+        {
+          "id": "utilities.gas_water",
+          "name": {
+            "zh": "燃气与水务",
+            "en": "Gas & Water Utilities"
+          },
+          "description": {
+            "zh": "在特许经营权下敷设燃气管网提供城市燃气分销，及运营自来水厂与市政污水处理的企业。",
+            "en": "Franchise holders providing city gas distribution through municipal pipeline networks, and operating water treatment plants and sewage treatment services."
+          },
+          "level_3": [
+            {
+              "id": "utilities.gas_water.city_gas_distribution",
+              "name": {
+                "zh": "城市燃气分销",
+                "en": "City Gas Distribution"
+              },
+              "definition": {
+                "zh": "敷设城市中低压燃气管网，向工商业及居民提供天然气接驳与气量销售的企业。",
+                "en": "Companies laying urban medium- and low-pressure gas pipelines providing natural gas connection and volume sales to commercial, industrial, and residential customers."
+              }
+            },
+            {
+              "id": "utilities.gas_water.water_utility",
+              "name": {
+                "zh": "水务供应与处理",
+                "en": "Water Supply & Treatment"
+              },
+              "definition": {
+                "zh": "运营城市自来水厂及市政管网，及负责集中接收并处理城市市政污水的特许经营企业。",
+                "en": "Franchised operators running municipal water treatment plants and distribution networks, and centralized municipal sewage collection and treatment."
+              }
+            }
+          ]
+        },
+        {
+          "id": "utilities.municipal_environment",
+          "name": {
+            "zh": "市政环保运营",
+            "en": "Municipal Environmental Services"
+          },
+          "description": {
+            "zh": "获得政府长期特许协议，运营生活垃圾焚烧发电厂、餐厨垃圾处理及卫生填埋等固废处理的企业。",
+            "en": "Companies operating municipal solid waste treatment under long-term government concessions, including waste-to-energy incineration, food waste processing, and sanitary landfills."
+          },
+          "level_3": [
+            {
+              "id": "utilities.municipal_environment.waste_to_energy",
+              "name": {
+                "zh": "固废处理与垃圾发电",
+                "en": "Waste Treatment & Waste-to-Energy"
+              },
+              "definition": {
+                "zh": "获得政府长期补贴与特许协议，运营生活垃圾焚烧发电厂、餐厨垃圾处理及卫生填埋场的企业。",
+                "en": "Companies operating municipal solid waste incineration plants, food waste treatment facilities, and sanitary landfills under long-term government subsidies and franchise agreements."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "real_estate",
+      "name": {
+        "zh": "房地产",
+        "en": "Real Estate"
+      },
+      "description": {
+        "zh": "从事土地开发、房屋建设销售、商业不动产自持运营，以及提供物业服务与不动产金融证券化资产（REITs）的机构。",
+        "en": "Institutions engaged in land development, residential and commercial property construction and sales, self-operated commercial real estate, property services, and real estate investment trusts (REITs)."
+      },
+      "level_2": [
+        {
+          "id": "real_estate.property_development",
+          "name": {
+            "zh": "房地产开发与运营",
+            "en": "Property Development & Operations"
+          },
+          "description": {
+            "zh": "通过竞拍获取土地进行住宅开发销售，及长期自持运营购物中心、写字楼与物流地产的房地产开发企业。",
+            "en": "Property developers acquiring land for residential construction and sales, and self-operating commercial assets such as shopping malls, office buildings, and logistics parks."
+          },
+          "level_3": [
+            {
+              "id": "real_estate.property_development.residential_development",
+              "name": {
+                "zh": "住宅地产开发",
+                "en": "Residential Development"
+              },
+              "definition": {
+                "zh": "通过竞拍获取住宅用地，进行房屋施工建设并主要通过将房产出售给居民赚取开发利润的企业。",
+                "en": "Companies acquiring residential land through auction, constructing housing, and earning development profits primarily by selling properties to residents."
+              }
+            },
+            {
+              "id": "real_estate.property_development.commercial_mixed_use",
+              "name": {
+                "zh": "商业与多元地产运营",
+                "en": "Commercial & Mixed-Use Operations"
+              },
+              "definition": {
+                "zh": "开发并长期自持购物中心、写字楼、产业园区及物流地产，主要通过收取租金获得稳定现金流的企业。",
+                "en": "Companies developing and long-term holding shopping malls, office buildings, industrial parks, and logistics properties, generating stable cash flow primarily through rental income."
+              }
+            }
+          ]
+        },
+        {
+          "id": "real_estate.property_services",
+          "name": {
+            "zh": "房地产服务",
+            "en": "Property Services"
+          },
+          "description": {
+            "zh": "为住宅与商业楼宇提供物业管理，及通过线上线下渠道提供新房代销与二手房买卖租赁撮合服务的企业。",
+            "en": "Companies providing property management for residential and commercial buildings, and real estate brokerage for new home sales and secondary market transactions and leasing."
+          },
+          "level_3": [
+            {
+              "id": "real_estate.property_services.property_management",
+              "name": {
+                "zh": "物业管理",
+                "en": "Property Management"
+              },
+              "definition": {
+                "zh": "为住宅社区、商业楼宇及公共设施提供安保、保洁、绿化及设施维护等轻资产服务的企业。",
+                "en": "Asset-light service companies providing security, cleaning, landscaping, and facility maintenance for residential communities, commercial buildings, and public facilities."
+              }
+            },
+            {
+              "id": "real_estate.property_services.real_estate_brokerage",
+              "name": {
+                "zh": "房地产经纪与代理",
+                "en": "Real Estate Brokerage & Agency"
+              },
+              "definition": {
+                "zh": "搭建线上房源信息平台或线下中介门店网络，提供新房代销及二手房买卖/租赁撮合服务的企业。",
+                "en": "Companies building online listing platforms or offline agency networks providing new home sales agency and secondary market sales/leasing matchmaking services."
+              }
+            }
+          ]
+        },
+        {
+          "id": "real_estate.reits",
+          "name": {
+            "zh": "权益类不动产投资信托",
+            "en": "Equity REITs"
+          },
+          "description": {
+            "zh": "以物流仓库、购物中心、长租公寓、数据中心及通信铁塔等专业不动产为底层资产的权益型不动产投资信托基金。",
+            "en": "Equity REITs with underlying assets in logistics warehouses, retail malls, residential rentals, data centers, telecom towers, and other specialized commercial real estate."
+          },
+          "level_3": [
+            {
+              "id": "real_estate.reits.industrial_warehouse_reits",
+              "name": {
+                "zh": "工业与仓储 REITs",
+                "en": "Industrial & Warehouse REITs"
+              },
+              "definition": {
+                "zh": "底层资产为大型物流仓库、高端制造业厂房及轻工业园区的证券化信托基金。",
+                "en": "Securitized trust funds backed by large logistics warehouses, advanced manufacturing facilities, and light industrial parks."
+              }
+            },
+            {
+              "id": "real_estate.reits.retail_office_reits",
+              "name": {
+                "zh": "零售与商业 REITs",
+                "en": "Retail & Office REITs"
+              },
+              "definition": {
+                "zh": "底层资产为大型区域性购物中心（Mall）、社区奥特莱斯及核心区甲级写字楼的证券化信托基金。",
+                "en": "Securitized trust funds backed by large regional shopping malls, community outlet centers, and core-grade A office buildings."
+              }
+            },
+            {
+              "id": "real_estate.reits.residential_reits",
+              "name": {
+                "zh": "住宅 REITs",
+                "en": "Residential REITs"
+              },
+              "definition": {
+                "zh": "底层资产为多户型长租公寓、独栋出租住宅及学生公寓的证券化信托基金。",
+                "en": "Securitized trust funds backed by multi-family rental apartments, single-family rental homes, and student housing."
+              }
+            },
+            {
+              "id": "real_estate.reits.specialty_reits",
+              "name": {
+                "zh": "特殊专业 REITs",
+                "en": "Specialty REITs"
+              },
+              "definition": {
+                "zh": "底层资产为数据中心（IDC机房）、通信铁塔、医疗护理地产及林地等高壁垒专业不动产的证券化信托基金。",
+                "en": "Securitized trust funds backed by high-barrier specialty real estate including data centers (IDC facilities), telecom towers, healthcare properties, and timberland."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

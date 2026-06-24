@@ -255,7 +255,6 @@ Skill metadata:
 name: dojo-quant-analyst
 description: Use for stock and crypto market analysis workflows.
 tools:
-  - dojo.market.snapshot
   - dojo.research.artifacts
 ---
 ```
@@ -362,26 +361,7 @@ class DojoExtension(Protocol):
 Example extension facade:
 
 ```python
-class DojoMarketDataExtension:
-    name = "dojo_market_data"
-    version = "0.1"
 
-    def tool_specs(self) -> list[ToolSpec]:
-        return [
-            ToolSpec(
-                name="dojo.market.snapshot",
-                description="Return latest normalized market snapshot for symbols.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "symbols": {"type": "array", "items": {"type": "string"}},
-                        "market": {"type": "string", "enum": ["stock", "crypto"]},
-                    },
-                    "required": ["symbols", "market"],
-                },
-                handler=self.snapshot,
-            )
-        ]
 ```
 
 This is a facade only. Indicator computation, factor models, order execution,
@@ -448,7 +428,7 @@ class ConfigStore:
 - [ ] Add `LLMProvider` protocol and a fake provider for tests.
 - [ ] Add `ToolRegistry` and timeout-aware `ToolExecutor`.
 - [ ] Add `MemoryProvider` and no-op plus skill-summary providers.
-- [ ] Add `DojoExtensionRegistry` and one fake market-data extension.
+- [ ] Add `DojoExtensionRegistry` and one fake research extension.
 - [ ] Add `AgentLoop` direct-answer and tool-call tests.
 - [ ] Add APScheduler-backed scheduler with fake job execution tests.
 - [ ] Add FastAPI dashboard endpoints with JSON contract tests.

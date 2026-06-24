@@ -1,0 +1,67 @@
+.tz-menu {
+  position: relative;
+}
+
+.tz-menu__trigger {
+  padding: 5px 8px 5px 10px;
+}
+
+.tz-menu__time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.tz-menu__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.tz-menu__chevron {
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.15s;
+}
+
+.tz-menu__trigger--open .tz-menu__chevron {
+  transform: rotate(180deg);
+  opacity: 0.85;
+}
+
+.tz-menu__dropdown {
+  min-width: 148px;
+}
+
+.tz-menu__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tz-menu__option--active .tz-menu__option-label {
+  color: var(--color-accent-primary);
+}
+
+.tz-menu__option-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tz-menu__option-city {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tz-menu__option--active .tz-menu__option-city {
+  color: var(--text-muted);
+}

@@ -1,0 +1,119 @@
+import { useTranslation } from '../../hooks/useTranslation';
+import type { CoreAssetSnapshot, CoreSectorOption, CoreTickerSearchItem } from '../../types/dojoCore';
+import type { SectorLevelKey } from '../../types/dojoSphere';
+import type { SectorPathSelection, SectorTaxonomyDocument } from '../../types/sectorTaxonomy';
+import { formatCompactNumber } from '../../utils/coreCharts';
+import { activeClassificationRole, findSectorOptionIndex } from '../../utils/coreSectorOptions';
+import { CORE_METRIC_COLUMN_COUNT } from '../../utils/coreKeyMetrics';
+import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { CoreAddToFolioButton } from './CoreAddToFolioButton';
+import { CoreSectorCycleButton } from './CoreSectorCycleButton';
+import { CoreSectorToolbar } from './CoreSectorToolbar';
+import { CoreTickerSearch } from './CoreTickerSearch';
+
+interface CoreAssetSnapshotProps {
+  asset: CoreAssetSnapshot;
+  taxonomy: SectorTaxonomyDocument | null;
+  selection: SectorPathSelection | null;
+  sectorOptions: CoreSectorOption[];
+  sectorOptionsLoading: boolean;
+  onSelectionChange: (next: SectorPathSelection) => void;
+  onOpenSphereLevel?: (level: SectorLevelKey) => void;
+  onCycleSector: () => void;
+  onTickerSelect: (item: CoreTickerSearchItem) => void;
+}
+
+function formatSigned(value: number, digits = 2): string {
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(digits)}`;
+}
+
+export function CoreAssetSnapshot({
+  asset,
+  taxonomy,
+  selection,
+  sectorOptions,
+  sectorOptionsLoading,
+  onSelectionChange,
+  onOpenSphereLevel,
+  onCycleSector,
+  onTickerSelect,
+}: CoreAssetSnapshotProps) {
+  const { t, text } = useTranslation();
+  const { quote, metricRows, market, ticker } = asset;
+
+  const renderMetricCell = (metric: (typeof metricRows)[number][number]) => (
+    <div
+      key={metric.labelKey}
+      className={`core-snapshot__metric${metric.title ? ' core-snapshot__metric--truncated' : ''}`}
+    >
+      <dt>{t(`core.metrics.${metric.labelKey}` as 'core.metrics.marketCap')}</dt>
+      <dd title={metric.title}>
+        {metric.value}
+        {metric.subValue ? <span className="core-snapshot__metric-sub">{metric.subValue}</span> : null}
+      </dd>
+    </div>
+  );
+  const positive = quote.changePercent >= 0;
+  const activeOptionIndex = findSectorOptionIndex(sectorOptions, selection);
+  const classificationRole = activeClassificationRole(sectorOptions, selection);
+
+  return (
+    <header className="core-snapshot">
+      <div className="core-snapshot__head">
+        <div className="core-snapshot__lead">
+          <span className="core-snapshot__market" aria-hidden>
+            {MARKET_FLAG[market]}
+          </span>
+          <span className="core-snapshot__ticker">{ticker}</span>
+          <h1 className="core-snapshot__name">{text(asset.name)}</h1>
+          <span className={`core-snapshot__price ${positive ? 'core-snapshot__price--up' : 'core-snapshot__price--down'}`}>
+            {formatCompactNumber(quote.price)}
+          </span>
+          <span className={`core-snapshot__change ${positive ? 'core-snapshot__change--up' : 'core-snapshot__change--down'}`}>
+            {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
+          </span>
+          <CoreAddToFolioButton ticker={ticker} market={market} />
+        </div>
+
+        <div className="core-snapshot__controls">
+          <div className="core-snapshot__controls-row">
+            {taxonomy && selection ? (
+              <CoreSectorToolbar
+                taxonomy={taxonomy}
+                selection={selection}
+                classificationRole={classificationRole}
+                onSelectionChange={onSelectionChange}
+                onOpenSphereLevel={onOpenSphereLevel}
+              />
+            ) : null}
+            <CoreSectorCycleButton
+              options={sectorOptions}
+              activeIndex={activeOptionIndex >= 0 ? activeOptionIndex : 0}
+              classificationRole={classificationRole}
+              loading={sectorOptionsLoading}
+              onCycle={onCycleSector}
+            />
+            <CoreTickerSearch
+              ticker={ticker}
+              market={market}
+              selection={selection}
+              onSelect={onTickerSelect}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="core-snapshot__metrics-panel"
+        style={{ '--core-metric-cols': CORE_METRIC_COLUMN_COUNT } as React.CSSProperties}
+      >
+        {metricRows.map((row, rowIndex) => (
+          <dl key={rowIndex} className="core-snapshot__metrics-row">
+            {row.map((metric) => renderMetricCell(metric))}
+          </dl>
+        ))}
+      </div>
+    </header>
+  );
+}

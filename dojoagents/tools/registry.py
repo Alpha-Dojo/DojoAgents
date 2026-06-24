@@ -36,3 +36,13 @@ class ToolRegistry:
 
     def all(self) -> list[ToolSpec]:
         return list(self._tools.values())
+
+    def clone(self) -> "ToolRegistry":
+        """Return a shallow copy of this registry (ToolSpec objects shared by reference)."""
+        new = ToolRegistry()
+        new._tools = dict(self._tools)
+        return new
+
+    def remove(self, name: str) -> None:
+        """Remove a tool by name; no-op if not present."""
+        self._tools.pop(name, None)

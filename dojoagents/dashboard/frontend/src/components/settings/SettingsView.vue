@@ -81,6 +81,31 @@
         </div>
       </details>
 
+      <!-- Multi-Agent -->
+      <details class="config-section">
+        <summary>Multi-Agent</summary>
+        <div class="section-body">
+          <label class="field checkbox">
+            <input v-model="form.multi_agent.enabled" type="checkbox" />
+            <span>Enabled</span>
+          </label>
+          <label class="field">
+            <span>Max Workers</span>
+            <input v-model.number="form.multi_agent.max_workers" type="number" min="1" />
+          </label>
+          <div class="multi-agent-list">
+            <h4>Default Agents Settings</h4>
+            <div v-for="(agent, idx) in form.multi_agent.default_agents" :key="idx" class="agent-setting-block">
+              <h5>{{ agent.name }} ({{ agent.role }})</h5>
+              <label class="field">
+                <span>Model Override</span>
+                <input v-model="agent.model" type="text" placeholder="e.g. gpt-4o, leave blank for default" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </details>
+
       <!-- Tools / Sandbox -->
       <details class="config-section">
         <summary>Tools / Sandbox</summary>
@@ -293,6 +318,15 @@ interface FormState {
   dashboard: { host: string; port: number }
   logging: { level: string; format: string; date_format: string }
   dojosdk: { api_key: string; base_url: string; timeout: number; max_retries: number }
+  multi_agent: {
+    enabled: boolean
+    max_workers: number
+    default_agents: Array<{
+      role: string
+      name: string
+      model?: string
+    }>
+  }
 }
 
 const form = ref<FormState | null>(null)
@@ -371,6 +405,15 @@ function buildForm(cfg: Record<string, any>): FormState {
       timeout: (cfg.dojosdk ?? {}).timeout ?? 60,
       max_retries: (cfg.dojosdk ?? {}).max_retries ?? 1,
     },
+    multi_agent: {
+      enabled: (cfg.multi_agent ?? {}).enabled ?? false,
+      max_workers: (cfg.multi_agent ?? {}).max_workers ?? 3,
+      default_agents: ((cfg.multi_agent ?? {}).default_agents ?? []).map((agent: any) => ({
+        role: agent.role ?? '',
+        name: agent.name ?? '',
+        model: agent.model ?? '',
+      })),
+    },
   }
 }
 
@@ -443,6 +486,17 @@ function buildPatch(): Record<string, any> {
   }
   if (f.dojosdk.api_key) sdkPatch.api_key = f.dojosdk.api_key
   patch.dojosdk = sdkPatch
+
+  // Multi-Agent
+  patch.multi_agent = {
+    enabled: f.multi_agent.enabled,
+    max_workers: f.multi_agent.max_workers,
+    default_agents: f.multi_agent.default_agents.map(agent => ({
+      role: agent.role,
+      name: agent.name,
+      model: agent.model || null,
+    })),
+  }
 
   return patch
 }
@@ -560,6 +614,37 @@ h2 {
   margin: 0;
   font-size: 0.95em;
   color: #333;
+}
+
+/* Multi-Agent styles */
+.multi-agent-list {
+  border-top: 1px solid #eee;
+  padding-top: 12px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.multi-agent-list h4 {
+  margin: 0;
+  font-size: 0.95em;
+  color: #333;
+}
+.agent-setting-block {
+  padding: 12px;
+  background: #fcfcfc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.agent-setting-block h5 {
+  margin: 0;
+  font-size: 0.9em;
+  color: #4b5563;
+  font-weight: 600;
 }
 
 /* Save bar */

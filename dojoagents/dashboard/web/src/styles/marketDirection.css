@@ -1,0 +1,100 @@
+/**
+ * Unified green-up / red-down styling for DojoMesh, DojoSphere, and DojoCore.
+ * Import after view CSS so these rules win over page-local color overrides.
+ */
+
+/* Text color — up / gain / positive */
+.market-hero__chart-head-price--up,
+.market-hero__chart-head-chg--up,
+.market-hero__chg--up,
+.mesh-sector-block__head--gain .mesh-sector-block__title,
+.mesh-sector-row__chg--gain,
+.mesh-sector-row__member-chg--up,
+.core-snapshot__price--up,
+.core-snapshot__change--up,
+.core-kline__val--up,
+.core-kline__field b.core-kline__val--up,
+.core-revenue__yoy-label--up,
+.sphere-table__up,
+.sphere-level-risk__value--pos {
+  color: var(--green);
+}
+
+/* Text color — down / loss / negative */
+.market-hero__chart-head-price--down,
+.market-hero__chart-head-chg--down,
+.market-hero__chg--down,
+.mesh-sector-block__head--loss .mesh-sector-block__title,
+.mesh-sector-row__chg--loss,
+.mesh-sector-row__member-chg--down,
+.core-snapshot__price--down,
+.core-snapshot__change--down,
+.core-kline__val--down,
+.core-kline__field b.core-kline__val--down,
+.core-revenue__yoy-label--down,
+.sphere-table__down,
+.sphere-level-risk__value--neg {
+  color: var(--red);
+}
+
+/* Shared numeric typography for directional values */
+.market-hero__chart-head-price--up,
+.market-hero__chart-head-price--down,
+.market-hero__chart-head-chg,
+.market-hero__chg,
+.mesh-sector-row__chg,
+.mesh-sector-row__member-chg,
+.core-snapshot__price--up,
+.core-snapshot__price--down,
+.core-snapshot__change,
+.core-kline__val--up,
+.core-kline__val--down,
+.core-kline__hover-price-pct,
+.core-revenue__yoy-label--up,
+.core-revenue__yoy-label--down,
+.sphere-table__up,
+.sphere-table__down,
+.sphere-level-risk__value--pos,
+.sphere-level-risk__value--neg {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.sphere-table__up,
+.sphere-table__down,
+.mesh-sector-row__member-chg,
+.core-snapshot__change,
+.core-kline__val--up,
+.core-kline__val--down,
+.core-kline__hover-price-pct,
+.sphere-level-risk__value--pos,
+.sphere-level-risk__value--neg {
+  font-weight: 600;
+}
+
+.sphere-level-sparkline__inline-return--up,
+.sphere-performance__tooltip-value--up {
+  color: var(--green);
+}
+
+.sphere-level-sparkline__inline-return--down,
+.sphere-performance__tooltip-value--down {
+  color: var(--red);
+}
+
+.sphere-level-sparkline__inline-return--up,
+.sphere-level-sparkline__inline-return--down,
+.sphere-performance__tooltip-value--up,
+.sphere-performance__tooltip-value--down {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.sphere-level-sparkline__inline-return--up {
+  background: var(--market-up-bg);
+}
+
+.sphere-level-sparkline__inline-return--down {
+  background: var(--market-down-bg);
+}
