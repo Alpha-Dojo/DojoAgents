@@ -289,7 +289,6 @@ export function DojoMeshView({
               key={code}
               market={code}
               isDragging={draggingMarket === code}
-              isDropTarget={dropTargetMarket === code}
               dropSide={dropTargetMarket === code ? dropTargetSide : null}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}

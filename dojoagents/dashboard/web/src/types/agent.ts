@@ -86,8 +86,26 @@ export interface AgentSessionStore {
   sessions: AgentSession[];
 }
 
+export interface ChatCompletionChunk {
+  choices: Array<{
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
+    };
+    finish_reason?: string;
+  }>;
+  dojo_event?: unknown;
+}
+
 export type AgentStreamEvent =
   | { type: 'delta'; text: string }
+  | { type: 'content_delta'; content: string; chunk: ChatCompletionChunk }
+  | { type: 'tool_call_delta'; chunk: ChatCompletionChunk }
   | { type: 'think_start' }
   | { type: 'think_delta'; text: string }
   | { type: 'think_end' }
@@ -111,5 +129,7 @@ export type AgentStreamEvent =
       viz_blocks?: import('./agentViz').AgentVizBlock[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
+  | { type: 'dojo_event'; dojoEvent: unknown; chunk: ChatCompletionChunk }
+  | { type: 'message_end'; chunk: ChatCompletionChunk }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }
   | { type: 'error'; message: string };

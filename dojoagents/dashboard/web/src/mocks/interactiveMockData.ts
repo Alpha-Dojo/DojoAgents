@@ -32,13 +32,13 @@ export const USE_INTERACTIVE_MOCKS = import.meta.env.VITE_USE_MOCKS === 'true';
 const API_DELAY_MS = 120;
 const MARKET_CURRENCY: Record<MarketCode, string> = {
   us: 'USD',
-  sh: 'CNY',
+  cn: 'CNY',
   hk: 'HKD',
 };
 
 const MARKET_LABEL: Record<MarketCode, string> = {
   us: 'US',
-  sh: 'CN',
+  cn: 'CN',
   hk: 'HK',
 };
 
@@ -84,9 +84,9 @@ const mockTickers: CoreTickerSearchItem[] = [
   { ticker: 'AAPL', market: 'us', name: { zh: '苹果', en: 'Apple' }, market_cap: 3_050_000_000_000 },
   { ticker: 'AMD', market: 'us', name: { zh: '超威半导体', en: 'AMD' }, market_cap: 270_000_000_000 },
   { ticker: 'TSM', market: 'us', name: { zh: '台积电', en: 'TSMC' }, market_cap: 840_000_000_000 },
-  { ticker: '002371.SZ', market: 'sh', name: { zh: '北方华创', en: 'NAURA' }, market_cap: 170_000_000_000 },
-  { ticker: '688981.SH', market: 'sh', name: { zh: '中芯国际', en: 'SMIC A' }, market_cap: 390_000_000_000 },
-  { ticker: '000333.SZ', market: 'sh', name: { zh: '美的集团', en: 'Midea Group' }, market_cap: 470_000_000_000 },
+  { ticker: '002371.SZ', market: 'cn', name: { zh: '北方华创', en: 'NAURA' }, market_cap: 170_000_000_000 },
+  { ticker: '688981.SH', market: 'cn', name: { zh: '中芯国际', en: 'SMIC A' }, market_cap: 390_000_000_000 },
+  { ticker: '000333.SZ', market: 'cn', name: { zh: '美的集团', en: 'Midea Group' }, market_cap: 470_000_000_000 },
   { ticker: '1810.HK', market: 'hk', name: { zh: '小米集团', en: 'Xiaomi' }, market_cap: 520_000_000_000 },
   { ticker: '0981.HK', market: 'hk', name: { zh: '中芯国际', en: 'SMIC' }, market_cap: 215_000_000_000 },
   { ticker: '1347.HK', market: 'hk', name: { zh: '华虹半导体', en: 'Hua Hong' }, market_cap: 48_000_000_000 },
@@ -148,11 +148,11 @@ function buildSector(name: string, code: string, market: MarketCode, change: num
 export function fetchMockDojoMeshOverview(): Promise<DojoMeshOverview> {
   const stats: Record<MarketCode, MarketStats> = {
     us: { market: 'us', listed_count: 5128, total_market_cap: 58_400_000_000_000, weighted_pe: 27.8, simple_pe: 31.2, pe_sample_count: 4312 },
-    sh: { market: 'sh', listed_count: 5362, total_market_cap: 88_100_000_000_000, weighted_pe: 18.4, simple_pe: 29.1, pe_sample_count: 4720 },
+    cn: { market: 'cn', listed_count: 5362, total_market_cap: 88_100_000_000_000, weighted_pe: 18.4, simple_pe: 29.1, pe_sample_count: 4720 },
     hk: { market: 'hk', listed_count: 2611, total_market_cap: 39_300_000_000_000, weighted_pe: 13.7, simple_pe: 20.5, pe_sample_count: 2196 },
   };
   const markets = Object.fromEntries(
-    (['us', 'sh', 'hk'] as MarketCode[]).map((market, index) => [
+    (['us', 'cn', 'hk'] as MarketCode[]).map((market, index) => [
       market,
       {
         stats: stats[market],
@@ -179,7 +179,7 @@ export function fetchMockBenchmarkCatalog(): Promise<BenchmarkCatalogResponse> {
     as_of: overview.as_of,
     markets: {
       us: { default_benchmark: 'MOCK-us-1', benchmarks: overview.markets.us.benchmarks },
-      sh: { default_benchmark: 'MOCK-sh-1', benchmarks: overview.markets.sh.benchmarks },
+      cn: { default_benchmark: 'MOCK-cn-1', benchmarks: overview.markets.cn.benchmarks },
       hk: { default_benchmark: 'MOCK-hk-1', benchmarks: overview.markets.hk.benchmarks },
     },
   }));
@@ -254,7 +254,7 @@ export function fetchMockSectorScopeMetrics(params: {
 function buildScopeStats(memberCount: number): SectorScopeMetricsResponse['scopes']['L1'] {
   return {
     us: { market: 'us', member_count: memberCount, total_market_cap: 6_800_000_000_000, weighted_pe: 31.5, pe_sample_count: memberCount - 9 },
-    sh: { market: 'sh', member_count: memberCount - 18, total_market_cap: 1_900_000_000_000, weighted_pe: 42.4, pe_sample_count: memberCount - 24 },
+    cn: { market: 'cn', member_count: memberCount - 18, total_market_cap: 1_900_000_000_000, weighted_pe: 42.4, pe_sample_count: memberCount - 24 },
     hk: { market: 'hk', member_count: memberCount - 42, total_market_cap: 860_000_000_000, weighted_pe: 21.2, pe_sample_count: memberCount - 51 },
   };
 }
@@ -268,7 +268,7 @@ export function fetchMockSectorScopePerformance(params: {
   const points = Array.from({ length: 36 }, (_, index) => ({
     date: `2026-05-${String(index + 1).padStart(2, '0')}`,
     us: Number((100 + Math.sin(index / 4) * 4 + index * 0.35).toFixed(2)),
-    sh: Number((100 + Math.cos(index / 5) * 3 + index * 0.18).toFixed(2)),
+    cn: Number((100 + Math.cos(index / 5) * 3 + index * 0.18).toFixed(2)),
     hk: Number((100 + Math.sin(index / 6) * 2.5 + index * 0.12).toFixed(2)),
   }));
   return delay({
@@ -281,15 +281,15 @@ export function fetchMockSectorScopePerformance(params: {
     points,
     series_by_market: {
       us: points.map((point) => ({ date: point.date, value: point.us ?? 100 })),
-      sh: points.map((point) => ({ date: point.date, value: point.sh ?? 100 })),
+      cn: points.map((point) => ({ date: point.date, value: point.cn ?? 100 })),
       hk: points.map((point) => ({ date: point.date, value: point.hk ?? 100 })),
     },
     stats_by_market: {
       us: { cumulative_return_pct: 12.4, sharpe_ratio: 1.8, max_drawdown_pct: -4.2, calmar_ratio: 2.9, volatility_pct: 18.6, trading_days: 36 },
-      sh: { cumulative_return_pct: 7.3, sharpe_ratio: 1.1, max_drawdown_pct: -6.8, calmar_ratio: 1.2, volatility_pct: 22.1, trading_days: 36 },
+      cn: { cumulative_return_pct: 7.3, sharpe_ratio: 1.1, max_drawdown_pct: -6.8, calmar_ratio: 1.2, volatility_pct: 22.1, trading_days: 36 },
       hk: { cumulative_return_pct: 4.6, sharpe_ratio: 0.8, max_drawdown_pct: -5.5, calmar_ratio: 0.9, volatility_pct: 20.7, trading_days: 36 },
     },
-    members_by_market: { us: 42, sh: 35, hk: 24 },
+    members_by_market: { us: 42, cn: 35, hk: 24 },
   });
 }
 
@@ -486,7 +486,7 @@ let mockPortfolios: FolioPortfolioDetailResponse[] = [
     kind: 'manual',
     today_change: 1.28,
     net_value_usd: 1_286_400,
-    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 800_000, sh: 250_000, hk: 180_000 } },
+    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 800_000, cn: 250_000, hk: 180_000 } },
     holdings: [
       buildHolding('NVDA', 120),
       buildHolding('AAPL', 80),
@@ -500,7 +500,7 @@ let mockPortfolios: FolioPortfolioDetailResponse[] = [
       { key: 'maxDrawdown', value: '-7.8%', delta_tone: 'risk' },
     ],
     performance: buildPortfolioPerformance(1.18),
-    net_value_by_market: { us: 856_000, sh: 248_000, hk: 182_400 },
+    net_value_by_market: { us: 856_000, cn: 248_000, hk: 182_400 },
   },
   {
     id: 'mock-balanced',
@@ -509,7 +509,7 @@ let mockPortfolios: FolioPortfolioDetailResponse[] = [
     kind: 'agent',
     today_change: -0.18,
     net_value_usd: 932_700,
-    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 350_000, sh: 350_000, hk: 250_000 } },
+    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 350_000, cn: 350_000, hk: 250_000 } },
     holdings: [buildHolding('TSM', 90), buildHolding('000333.SZ', 1800), buildHolding('0981.HK', 3200)],
     kpis: [
       { key: 'netValue', value: '$932.7K', delta: '-0.18%', delta_tone: 'negative' },
@@ -518,7 +518,7 @@ let mockPortfolios: FolioPortfolioDetailResponse[] = [
       { key: 'maxDrawdown', value: '-5.2%', delta_tone: 'risk' },
     ],
     performance: buildPortfolioPerformance(1.06),
-    net_value_by_market: { us: 368_000, sh: 329_000, hk: 235_700 },
+    net_value_by_market: { us: 368_000, cn: 329_000, hk: 235_700 },
   },
 ];
 
@@ -559,9 +559,24 @@ function normalizePortfolio(portfolio: FolioPortfolioDetailResponse): FolioPortf
 function buildPortfolioPerformance(multiplier: number): NonNullable<FolioPortfolioDetailResponse['performance']> {
   const dates = Array.from({ length: 12 }, (_, index) => `2025-${String(index + 7).padStart(2, '0')}-16`);
   return {
-    dates,
-    portfolio: dates.map((_, index) => Number((100 * multiplier + Math.sin(index / 2) * 3 + index * 1.2).toFixed(2))),
-    benchmark: dates.map((_, index) => Number((100 + Math.cos(index / 3) * 2 + index * 0.8).toFixed(2))),
+    window_start: dates[0] ?? null,
+    window_end: dates[dates.length - 1] ?? null,
+    series_by_market: {
+      us: dates.map((date, index) => ({ date, value: Number((100 * multiplier + Math.sin(index / 2) * 3 + index * 1.2).toFixed(2)) })),
+      cn: dates.map((date, index) => ({ date, value: Number((100 * multiplier + Math.cos(index / 3) * 2 + index * 1.5).toFixed(2)) })),
+      hk: dates.map((date, index) => ({ date, value: Number((100 * multiplier + Math.tan(index / 4) * 2 + index * 1.0).toFixed(2)) })),
+    },
+    benchmark_by_market: {
+      us: dates.map((date, index) => ({ date, value: Number((100 + Math.cos(index / 3) * 2 + index * 0.8).toFixed(2)) })),
+      cn: dates.map((date, index) => ({ date, value: Number((100 + Math.sin(index / 4) * 1.5 + index * 0.6).toFixed(2)) })),
+      hk: dates.map((date, index) => ({ date, value: Number((100 + Math.cos(index / 5) * 1 + index * 0.4).toFixed(2)) })),
+    },
+    benchmark_symbol_by_market: { us: 'SPY', cn: '000001.SZ', hk: 'HSI' },
+    stats_by_market: {
+      us: { cumulative_return_pct: 12.4, sharpe_ratio: 1.8, max_drawdown_pct: -4.2, calmar_ratio: 2.9, volatility_pct: 18.6, trading_days: 36 },
+      cn: { cumulative_return_pct: 7.3, sharpe_ratio: 1.1, max_drawdown_pct: -6.8, calmar_ratio: 1.2, volatility_pct: 22.1, trading_days: 36 },
+      hk: { cumulative_return_pct: 4.6, sharpe_ratio: 0.8, max_drawdown_pct: -5.5, calmar_ratio: 0.9, volatility_pct: 20.7, trading_days: 36 },
+    },
   };
 }
 
@@ -588,11 +603,11 @@ export function createMockFolioPortfolio(name: string): Promise<FolioPortfolioDe
     kind: 'manual',
     today_change: 0,
     net_value_usd: 0,
-    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 1_000_000, sh: 1_000_000, hk: 1_000_000 } },
+    config: { start_date: '2025-06-16', cost_date: '2025-06-16', capital_by_market: { us: 1_000_000, cn: 1_000_000, hk: 1_000_000 } },
     holdings: [],
     kpis: null,
     performance: buildPortfolioPerformance(1),
-    net_value_by_market: { us: 0, sh: 0, hk: 0 },
+    net_value_by_market: { us: 0, cn: 0, hk: 0 },
   };
   portfolioSeq += 1;
   mockPortfolios = [...mockPortfolios, created];
