@@ -1,24 +1,23 @@
 """Tests for PUT /api/config — editable settings endpoint (TDD)."""
+
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 import yaml
 from fastapi.testclient import TestClient
 
 from dojoagents.config.loader import ConfigStore
 from dojoagents.dashboard.server import create_app
 
-
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 class FakeAgent:
     async def run(self, request):
         from dojoagents.agent.models import AgentResponse
+
         return AgentResponse(content="ok", session_id="s")
 
 
@@ -44,6 +43,7 @@ def _make_runtime_with_config(tmp_path: Path, initial: dict | None = None):
 
 def _make_runtime_no_config():
     """Runtime without config_store."""
+
     class FakeRuntime:
         def __init__(self):
             self.agent = FakeAgent()
@@ -58,12 +58,16 @@ def _make_runtime_no_config():
 
 # ── Tests ────────────────────────────────────────────────────────────
 
+
 def test_put_config_saves_and_returns_updated(tmp_path):
     """PUT /api/config deep-merges payload into YAML and returns updated config."""
-    runtime, cfg_file = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "logging": {"level": "INFO"},
-    })
+    runtime, cfg_file = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "logging": {"level": "INFO"},
+        },
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
@@ -83,16 +87,17 @@ def test_put_config_saves_and_returns_updated(tmp_path):
 
 def test_put_config_nested_agent_fields(tmp_path):
     """PUT merges nested agent config correctly."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "agent": {"max_iterations": 8, "max_tool_workers": 4},
-    })
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "agent": {"max_iterations": 8, "max_tool_workers": 4},
+        },
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
-    resp = client.put("/api/config", json={
-        "agent": {"max_iterations": 20}
-    })
+    resp = client.put("/api/config", json={"agent": {"max_iterations": 20}})
     assert resp.status_code == 200
     body = resp.json()
     assert body["agent"]["max_iterations"] == 20
@@ -102,10 +107,13 @@ def test_put_config_nested_agent_fields(tmp_path):
 
 def test_put_config_empty_body_no_change(tmp_path):
     """PUT with empty body returns current config without modifications."""
-    runtime, cfg_file = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "logging": {"level": "WARNING"},
-    })
+    runtime, cfg_file = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "logging": {"level": "WARNING"},
+        },
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
@@ -141,18 +149,21 @@ def test_put_config_permission_denied_returns_403(tmp_path):
 
 def test_put_config_redacts_api_keys(tmp_path):
     """PUT response redacts sensitive api_key values."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "llm_provider": {
-            "default": "openai",
-            "providers": {
-                "openai": {
-                    "model": "gpt-4.1",
-                    "api_key": "sk-secret-123",
-                }
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {
+                        "model": "gpt-4.1",
+                        "api_key": "sk-secret-123",
+                    }
+                },
             },
         },
-    })
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
@@ -175,18 +186,24 @@ def test_put_config_invalid_json_returns_422(tmp_path):
 
 def test_put_config_multiple_sections(tmp_path):
     """PUT can update multiple top-level sections at once."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "logging": {"level": "INFO"},
-        "scheduler": {"enabled": True, "timezone": "Asia/Shanghai"},
-    })
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "logging": {"level": "INFO"},
+            "scheduler": {"enabled": True, "timezone": "Asia/Shanghai"},
+        },
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
-    resp = client.put("/api/config", json={
-        "logging": {"level": "ERROR"},
-        "scheduler": {"timezone": "UTC"},
-    })
+    resp = client.put(
+        "/api/config",
+        json={
+            "logging": {"level": "ERROR"},
+            "scheduler": {"timezone": "UTC"},
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["logging"]["level"] == "ERROR"
@@ -194,12 +211,50 @@ def test_put_config_multiple_sections(tmp_path):
     assert body["scheduler"]["enabled"] is True  # preserved
 
 
+def test_put_config_updates_web_tool_settings(tmp_path):
+    """PUT can update nested tools.web settings and preserve sibling sandbox config."""
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "tools": {
+                "sandbox": {"allow_network": False, "timeout_seconds": 120},
+                "web": {"search_backend": "ddgs", "extract_backend": "firecrawl"},
+            },
+        },
+    )
+    app = create_app(runtime)
+    client = TestClient(app)
+
+    resp = client.put(
+        "/api/config",
+        json={
+            "tools": {
+                "web": {
+                    "search_backend": "tavily",
+                    "summary_threshold_chars": 2400,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tools"]["web"]["search_backend"] == "tavily"
+    assert body["tools"]["web"]["extract_backend"] == "firecrawl"
+    assert body["tools"]["web"]["summary_threshold_chars"] == 2400
+    assert body["tools"]["sandbox"]["timeout_seconds"] == 120
+
+
 def test_get_config_still_works_after_put(tmp_path):
     """GET /api/config reflects changes made by PUT."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "logging": {"level": "INFO"},
-    })
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "logging": {"level": "INFO"},
+        },
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
@@ -215,24 +270,27 @@ def test_get_config_still_works_after_put(tmp_path):
 
 def test_agent_models_reflect_configured_llm_providers(tmp_path):
     """GET /api/v1/agent/models derives selectable models from llm_provider.providers."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "llm_provider": {
-            "default": "deepseek",
-            "providers": {
-                "openai": {
-                    "model": "gpt-4.1",
-                    "base_url": "https://api.openai.com/v1",
-                    "api_key_env": "OPENAI_API_KEY",
-                },
-                "deepseek": {
-                    "model": "deepseek-chat",
-                    "base_url": "https://api.deepseek.com/v1",
-                    "api_key_env": "DEEPSEEK_API_KEY",
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "deepseek",
+                "providers": {
+                    "openai": {
+                        "model": "gpt-4.1",
+                        "base_url": "https://api.openai.com/v1",
+                        "api_key_env": "OPENAI_API_KEY",
+                    },
+                    "deepseek": {
+                        "model": "deepseek-chat",
+                        "base_url": "https://api.deepseek.com/v1",
+                        "api_key_env": "DEEPSEEK_API_KEY",
+                    },
                 },
             },
         },
-    })
+    )
     app = create_app(runtime)
     client = TestClient(app)
 
@@ -264,17 +322,20 @@ def test_agent_models_reflect_configured_llm_providers(tmp_path):
 
 def test_put_config_default_provider_updates_agent_model(tmp_path):
     """PUT /api/config keeps agent.model aligned with the selected default provider."""
-    runtime, _ = _make_runtime_with_config(tmp_path, {
-        "version": 1,
-        "llm_provider": {
-            "default": "openai",
-            "providers": {
-                "openai": {"model": "gpt-4.1", "api_key_env": "OPENAI_API_KEY"},
-                "deepseek": {"model": "deepseek-chat", "api_key_env": "DEEPSEEK_API_KEY"},
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {"model": "gpt-4.1", "api_key_env": "OPENAI_API_KEY"},
+                    "deepseek": {"model": "deepseek-chat", "api_key_env": "DEEPSEEK_API_KEY"},
+                },
             },
+            "agent": {"model": "gpt-4.1", "max_iterations": 8},
         },
-        "agent": {"model": "gpt-4.1", "max_iterations": 8},
-    })
+    )
     app = create_app(runtime)
     client = TestClient(app)
 

@@ -8,6 +8,8 @@ import './SettingsModal.css';
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const CUSTOM_MODEL_VALUE = '__custom_model__';
+const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel'];
+const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel'];
 
 interface ModelPreset {
   value: string;
@@ -220,7 +222,9 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   }
 
   const agent = asRecord(cfg.agent);
-  const sandbox = asRecord(asRecord(cfg.tools).sandbox);
+  const tools = asRecord(cfg.tools);
+  const sandbox = asRecord(tools.sandbox);
+  const web = asRecord(tools.web);
   const skills = asRecord(cfg.skills);
   const scheduler = asRecord(cfg.scheduler);
   const dashboard = asRecord(cfg.dashboard);
@@ -248,6 +252,17 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
         allow_network: asBool(sandbox.allow_network, false),
         allowed_commands: arrToLines(sandbox.allowed_commands),
         timeout_seconds: asNumber(sandbox.timeout_seconds, 120),
+      },
+      web: {
+        search_backend: asString(web.search_backend),
+        extract_backend: asString(web.extract_backend),
+        search_base_url: asString(web.search_base_url),
+        extract_base_url: asString(web.extract_base_url),
+        max_extract_urls: asNumber(web.max_extract_urls, 5),
+        max_content_bytes: asNumber(web.max_content_bytes, 2_000_000),
+        summary_threshold_chars: asNumber(web.summary_threshold_chars, 6000),
+        max_summary_chars: asNumber(web.max_summary_chars, 2500),
+        debug: asBool(web.debug, false),
       },
     },
     memory: {
@@ -327,6 +342,13 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
         ...form.tools.sandbox,
         allowed_roots: linesToArr(form.tools.sandbox.allowed_roots),
         allowed_commands: linesToArr(form.tools.sandbox.allowed_commands),
+      },
+      web: {
+        ...form.tools.web,
+        search_backend: form.tools.web.search_backend || null,
+        extract_backend: form.tools.web.extract_backend || null,
+        search_base_url: form.tools.web.search_base_url || null,
+        extract_base_url: form.tools.web.extract_base_url || null,
       },
     },
     memory: { ...form.memory },
@@ -622,6 +644,50 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <textarea rows={3} value={form.tools.sandbox.allowed_commands} onChange={(event) => updateField((draft) => { draft.tools.sandbox.allowed_commands = event.target.value; })} />
                 </Field>
                 <Field label="Timeout (seconds)">{numberInput(form.tools.sandbox.timeout_seconds, (value) => updateField((draft) => { draft.tools.sandbox.timeout_seconds = value; }), 1)}</Field>
+              </Section>
+
+              <Section title="Tools / Web">
+                <Field label="Search Backend">
+                  <DojoSelect
+                    size="sm"
+                    value={form.tools.web.search_backend}
+                    onChange={(event) => updateField((draft) => { draft.tools.web.search_backend = event.target.value; })}
+                    options={WEB_SEARCH_BACKENDS.map((value) => ({
+                      value,
+                      label: value || 'Disabled',
+                    }))}
+                  />
+                </Field>
+                <Field label="Extract Backend">
+                  <DojoSelect
+                    size="sm"
+                    value={form.tools.web.extract_backend}
+                    onChange={(event) => updateField((draft) => { draft.tools.web.extract_backend = event.target.value; })}
+                    options={WEB_EXTRACT_BACKENDS.map((value) => ({
+                      value,
+                      label: value || 'Disabled',
+                    }))}
+                  />
+                </Field>
+                <Field label="Search Base URL">
+                  {textInput(form.tools.web.search_base_url, (value) => updateField((draft) => { draft.tools.web.search_base_url = value; }))}
+                </Field>
+                <Field label="Extract Base URL">
+                  {textInput(form.tools.web.extract_base_url, (value) => updateField((draft) => { draft.tools.web.extract_base_url = value; }))}
+                </Field>
+                <Field label="Max Extract URLs">
+                  {numberInput(form.tools.web.max_extract_urls, (value) => updateField((draft) => { draft.tools.web.max_extract_urls = value; }), 1)}
+                </Field>
+                <Field label="Max Content Bytes">
+                  {numberInput(form.tools.web.max_content_bytes, (value) => updateField((draft) => { draft.tools.web.max_content_bytes = value; }), 1)}
+                </Field>
+                <Field label="Summary Threshold Chars">
+                  {numberInput(form.tools.web.summary_threshold_chars, (value) => updateField((draft) => { draft.tools.web.summary_threshold_chars = value; }), 1)}
+                </Field>
+                <Field label="Max Summary Chars">
+                  {numberInput(form.tools.web.max_summary_chars, (value) => updateField((draft) => { draft.tools.web.max_summary_chars = value; }), 1)}
+                </Field>
+                <CheckboxField label="Debug Logging" checked={form.tools.web.debug} onChange={(checked) => updateField((draft) => { draft.tools.web.debug = checked; })} />
               </Section>
 
               <Section title="Memory">

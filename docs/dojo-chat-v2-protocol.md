@@ -39,6 +39,7 @@
 | `metadata.channel` | 渠道来源 |
 | `metadata.locale` | 回答目标语言 |
 | `metadata.event_format` | `openai.v1` 或 `dojo.v2` |
+| `metadata.run_mode` | 可选 `background`，表示创建后台 run 并通过 run 事件流续接 |
 
 兼容规则：
 
@@ -153,7 +154,30 @@
 - `dojo.events` 为同一轮运行的完整 typed event 序列
 - `content` / `session_id` 为兼容旧调用方保留
 
-## 5. 工具结果扩展
+## 5. 后台 Run 传输模式
+
+为了支持长任务、刷新恢复和断线续接，Dashboard 现在支持后台 run 传输层。主入口仍然是 `POST /api/chat`，但前端也可以直接使用 run API：
+
+- `POST /api/chat/runs`
+- `GET /api/chat/runs/{run_id}`
+- `GET /api/chat/runs/{run_id}/events?cursor=N`
+- `POST /api/chat/runs/{run_id}/cancel`
+
+典型流程：
+
+1. 前端创建 run，拿到 `run_id`
+2. 前端订阅 `/events?cursor=0`
+3. 若页面刷新或 SSE 中断，前端用最近的 `cursor` 续接
+4. 若用户点击停止，前端调用 `/cancel`
+
+约束：
+
+- 事件以 `run_id + seq` 去重和排序
+- `cursor` 按事件序号前进
+- `tool_start` / `tool_result` 必须携带 `call_id`
+- 已产生的事件在 run 生命周期内可被重放
+
+## 6. 工具结果扩展
 
 `tool_result` 事件是这次升级的核心。相比只传文本，它额外保留：
 
@@ -168,13 +192,34 @@
 
 当前 Dashboard portfolio 写操作会产生 `resource_changes`，用于前端触发 Folio 数据刷新。
 
-## 6. 前端消费建议
+此外，Agent runtime 现在支持 harness 驱动的任务校验：
+
+- portfolio 类写操作完成后，若缺少验证性读取，harness 会发出 `eval_hint`
+- 最终答复会被阻断为未完成状态，直到关键验证步骤补齐
+
+## 7. Web Searcher 工具
+
+按照 Hermes 风格，DojoAgents 当前提供两段式 web 工具：
+
+- `web_search`：只返回搜索结果元数据，不返回整页正文
+- `web_extract`：对公开 URL 抓取并归一化正文
+
+安全与处理规则：
+
+- 仅允许 `http/https`
+- 拦截 localhost、私网 IP、`.local` 主机名和带 secret-like query 参数的 URL
+- 长正文会截断压缩，并在 `tool_result.truncated` 与 `metadata.processing_applied` 中体现
+
+这两类工具都通过结构化 `data` 返回结果，前端或 harness 无需解析自由文本。
+
+## 8. 前端消费建议
 
 - 只需要兼容 OpenAI 的客户端：继续读取 `choices[0]`
 - Dashboard React 主前端：显式请求 `metadata.event_format = "dojo.v2"`，并消费 `dojo_event`
 - 新前端 reducer 应以 `run_id + seq` 作为事件排序与去重依据
+- 当前 Dashboard 主 Agent 面板通过 `AgentRunContext` 消费 run 事件，并把 think/tool/eval 统一折叠成 `activitySteps`
 
-## 7. 当前不承诺的能力
+## 9. 当前不承诺的能力
 
 - 不返回原始 chain-of-thought
 - 不提供第二套 `/api/v1/agent/*` 接口

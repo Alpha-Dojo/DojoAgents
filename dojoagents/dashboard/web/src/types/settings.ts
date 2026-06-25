@@ -28,6 +28,17 @@ export interface SettingsFormState {
       allowed_commands: string;
       timeout_seconds: number;
     };
+    web: {
+      search_backend: string;
+      extract_backend: string;
+      search_base_url: string;
+      extract_base_url: string;
+      max_extract_urls: number;
+      max_content_bytes: number;
+      summary_threshold_chars: number;
+      max_summary_chars: number;
+      debug: boolean;
+    };
   };
   memory: { provider: string; generated_skill_dir: string };
   skills: {

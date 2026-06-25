@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.harnesses import PortfolioTaskHarness
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.cron.jobs import JobStore
@@ -43,15 +44,20 @@ class Runtime:
             tool_registry.register(spec)
 
         from dojoagents.plugins import get_plugin_registry
+
         plugin_registry = get_plugin_registry()
 
         skills_cfg = config.skills
         built_in_dir = Path(__file__).parent.parent / "skills" / "built_in"
-        skill_dirs = [
-            skills_cfg.dir,
-            skills_cfg.generated_skill_dir,
-            built_in_dir,
-        ] + skills_cfg.external_dirs + plugin_registry._skill_dirs
+        skill_dirs = (
+            [
+                skills_cfg.dir,
+                skills_cfg.generated_skill_dir,
+                built_in_dir,
+            ]
+            + skills_cfg.external_dirs
+            + plugin_registry._skill_dirs
+        )
 
         if skills_cfg.read_claude_skills:
             skill_dirs.append("~/.claude/skills")
@@ -64,21 +70,21 @@ class Runtime:
             lazy_skills=config.agent.lazy_skills,
         )
 
-        skill_tool = SkillManagerTool(
-            main_skills_dir=Path(skills_cfg.dir),
-            skill_manager=skill_manager
-        )
+        skill_tool = SkillManagerTool(main_skills_dir=Path(skills_cfg.dir), skill_manager=skill_manager)
         tool_registry.register(skill_tool.get_tool_spec())
 
         from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
+
         tool_registry.register(SkillsListTool(skill_manager).get_tool_spec())
         tool_registry.register(SkillViewTool(skill_manager).get_tool_spec())
 
         from dojoagents.tools.plugin_manage import PluginListTool, PluginDeleteTool
+
         tool_registry.register(PluginListTool(plugin_registry).get_tool_spec())
         tool_registry.register(PluginDeleteTool(plugin_registry).get_tool_spec())
 
         from dojoagents.tools.terminal_tool import get_terminal_spec
+
         policy = SandboxPolicy(
             allowed_roots=config.tools.sandbox.allowed_roots,
             allow_network=config.tools.sandbox.allow_network,
@@ -88,14 +94,22 @@ class Runtime:
         tool_registry.register(get_terminal_spec(policy))
 
         from dojoagents.tools.code_execution_tool import get_code_execution_spec
+
         tool_registry.register(get_code_execution_spec(tool_registry, policy))
 
         from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
+
         for spec in get_dojo_sdk_specs(config.dojosdk):
             tool_registry.register(spec)
 
         from dojoagents.tools.tools_list_tool import ToolsListTool
+
         tool_registry.register(ToolsListTool(tool_registry).get_tool_spec())
+
+        from dojoagents.tools.web_searcher import get_web_searcher_specs
+
+        for spec in get_web_searcher_specs(config.tools.web):
+            tool_registry.register(spec)
 
         # Multi-Agent setup
         pool = None
@@ -137,9 +151,11 @@ class Runtime:
             plan_hook = PlanActivationHook()
 
         from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
+
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
         if plugin_registry._mcp_configs:
             from dojoagents.logging import LOGGER
+
             LOGGER.debug(f"Registering MCP tools config from plugins: {plugin_registry._mcp_configs}")
             discover_and_register_mcp_tools(tool_registry, plugin_registry._mcp_configs)
 
@@ -157,9 +173,7 @@ class Runtime:
 
         memory = MemoryManager()
         if config.memory.provider == "skill_summary":
-            memory.add_provider(
-                SkillSummaryMemoryProvider(config.memory.generated_skill_dir)
-            )
+            memory.add_provider(SkillSummaryMemoryProvider(config.memory.generated_skill_dir))
 
         agent = AgentLoop(
             llm_provider=provider,
@@ -172,28 +186,28 @@ class Runtime:
             extension_registry=extensions,
             config=config.agent,
             plan_activation_hook=plan_hook,
+            task_harnesses=[PortfolioTaskHarness()],
         )
 
         # Wire pool runtime reference after agent creation
         if pool is not None:
-            pool._runtime = type('RuntimeRef', (), {'agent': agent, 'config': config})()
+            pool._runtime = type("RuntimeRef", (), {"agent": agent, "config": config})()
             from dojoagents.multi_agent.automation import MultiAgentAutoDispatcher
+
             # Instantiate to register with event_bus
-            _dispatcher = MultiAgentAutoDispatcher(pool)
+            _dispatcher = MultiAgentAutoDispatcher(pool)  # noqa
 
         if config.planning.enabled:
             from dojoagents.planning.automation import AutoPlanManager
+
             # Instantiate to register with event_bus
-            _plan_manager = AutoPlanManager(
-                llm_provider=provider,
-                model=config.agent.model,
-                plan_engine=plan_engine
-            )
+            _plan_manager = AutoPlanManager(llm_provider=provider, model=config.agent.model, plan_engine=plan_engine)  # noqa
 
         # Register multi-agent trigger hooks in plugin system
         if config.multi_agent.enabled:
             from dojoagents.multi_agent.triggers import MultiAgentTriggerHook
-            from dojoagents.multi_agent.orchestrator import Orchestrator
+            from dojoagents.multi_agent.orchestrator import Orchestrator  # noqa
+
             orchestrator = Orchestrator()
             trigger_hook = MultiAgentTriggerHook(orchestrator)
             plugin_registry._hooks.setdefault("pre_llm_call", []).append(trigger_hook.on_pre_llm_call)
