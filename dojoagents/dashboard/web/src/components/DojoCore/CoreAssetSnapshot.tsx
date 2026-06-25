@@ -5,7 +5,7 @@ import type { SectorPathSelection, SectorTaxonomyDocument } from '../../types/se
 import { formatCompactNumber } from '../../utils/coreCharts';
 import { activeClassificationRole, findSectorOptionIndex } from '../../utils/coreSectorOptions';
 import { CORE_METRIC_COLUMN_COUNT } from '../../utils/coreKeyMetrics';
-import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import { CoreAddToFolioButton } from './CoreAddToFolioButton';
 import { CoreSectorCycleButton } from './CoreSectorCycleButton';
 import { CoreSectorToolbar } from './CoreSectorToolbar';
@@ -62,17 +62,19 @@ export function CoreAssetSnapshot({
     <header className="core-snapshot">
       <div className="core-snapshot__head">
         <div className="core-snapshot__lead">
-          <span className="core-snapshot__market" aria-hidden>
-            {MARKET_FLAG[market]}
-          </span>
-          <span className="core-snapshot__ticker">{ticker}</span>
-          <h1 className="core-snapshot__name">{text(asset.name)}</h1>
-          <span className={`core-snapshot__price ${positive ? 'core-snapshot__price--up' : 'core-snapshot__price--down'}`}>
-            {formatCompactNumber(quote.price)}
-          </span>
-          <span className={`core-snapshot__change ${positive ? 'core-snapshot__change--up' : 'core-snapshot__change--down'}`}>
-            {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
-          </span>
+          <div className="core-snapshot__identity">
+            <img className="core-snapshot__market" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
+            <span className="core-snapshot__ticker">{ticker}</span>
+            <h1 className="core-snapshot__name">{text(asset.name)}</h1>
+          </div>
+          <div className="core-snapshot__quote">
+            <span className={`core-snapshot__price ${positive ? 'core-snapshot__price--up' : 'core-snapshot__price--down'}`}>
+              {formatCompactNumber(quote.price)}
+            </span>
+            <span className={`core-snapshot__change ${positive ? 'core-snapshot__change--up' : 'core-snapshot__change--down'}`}>
+              {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
+            </span>
+          </div>
           <CoreAddToFolioButton ticker={ticker} market={market} />
         </div>
 

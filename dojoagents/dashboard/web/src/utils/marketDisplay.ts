@@ -1,14 +1,17 @@
 import type { MarketCode } from '../types/dojoMesh';
+import cnFlag from '../assets/images/cn.png';
+import hkFlag from '../assets/images/hk.png';
+import usFlag from '../assets/images/us.png';
 
-export const MARKET_FLAG: Record<MarketCode, string> = {
-  us: '🇺🇸',
-  sh: '🇨🇳',
-  hk: '🇭🇰',
+export const MARKET_FLAG_IMAGE: Record<MarketCode, string> = {
+  us: usFlag,
+  cn: cnFlag,
+  hk: hkFlag,
 };
 
 export const MARKET_CODE: Record<MarketCode, string> = {
   us: 'US',
-  sh: 'CN',
+  cn: 'CN',
   hk: 'HK',
 };
 
@@ -20,6 +23,6 @@ export type MarketLegalCurrencyKey = 'currencyUs' | 'currencySh' | 'currencyHk';
 
 export const MARKET_LEGAL_CURRENCY_KEY: Record<MarketCode, MarketLegalCurrencyKey> = {
   us: 'currencyUs',
-  sh: 'currencySh',
+  cn: 'currencySh',
   hk: 'currencyHk',
 };

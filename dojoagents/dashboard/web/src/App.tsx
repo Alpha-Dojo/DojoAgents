@@ -14,32 +14,46 @@ import { DojoSphereView } from './views/DojoSphereView';
 import './styles/marketDirection.css';
 import './styles/chartDate.css';
 import './styles/panelTitle.css';
+import './styles/uiPrimitives.css';
+
 
 function MainView({
   tab,
   onNavigateTab,
   agentVisible,
 }: {
-  tab: string;
+  tab: AppTab;
   onNavigateTab: (tab: AppTab) => void;
   agentVisible: boolean;
 }) {
-  return (
-    <>
-      <div className="app-main__pane" hidden={tab !== 'mesh'} aria-hidden={tab !== 'mesh'}>
-        <DojoMeshView onNavigateTab={onNavigateTab} agentOpen={agentVisible} />
-      </div>
-      <div className="app-main__pane" hidden={tab !== 'sphere'} aria-hidden={tab !== 'sphere'}>
-        <DojoSphereView onNavigateTab={onNavigateTab} />
-      </div>
-      <div className="app-main__pane" hidden={tab !== 'core'} aria-hidden={tab !== 'core'}>
-        <DojoCoreView onNavigateTab={onNavigateTab} />
-      </div>
-      <div className="app-main__pane" hidden={tab !== 'folio'} aria-hidden={tab !== 'folio'}>
-        <DojoFolioView />
-      </div>
-    </>
-  );
+  switch (tab) {
+    case 'mesh':
+      return (
+        <div className="app-main__pane">
+          <DojoMeshView onNavigateTab={onNavigateTab} agentOpen={agentVisible} />
+        </div>
+      );
+    case 'sphere':
+      return (
+        <div className="app-main__pane">
+          <DojoSphereView onNavigateTab={onNavigateTab} />
+        </div>
+      );
+    case 'core':
+      return (
+        <div className="app-main__pane">
+          <DojoCoreView onNavigateTab={onNavigateTab} />
+        </div>
+      );
+    case 'folio':
+      return (
+        <div className="app-main__pane">
+          <DojoFolioView onNavigateTab={onNavigateTab} />
+        </div>
+      );
+    default:
+      return null;
+  }
 }
 
 export default function App() {
@@ -97,6 +111,7 @@ export default function App() {
                 open
                 pinned={agentPinned}
                 interactive={!agentPinned}
+                sourceTab={tab}
                 onClose={handleAgentClose}
               />
             ) : null}

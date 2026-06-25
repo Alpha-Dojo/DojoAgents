@@ -1,9 +1,15 @@
-import type { CoreTickerQuoteResponse } from '../api/dojoCore';
 import type { MarketCode } from '../types/dojoMesh';
 import type { CoreKeyMetric, CoreKlineBar, CorePeBandPoint, StockFinIndicatorRow } from '../types/dojoCore';
+import type { CoreTickerQuoteResponse } from '../api/dojoCore';
 import { extractReportDate, resolveHkPeriodFinRow } from './coreFinIndicators';
 import { resolvePeBandPeForDate } from './corePeBand';
 import { formatMarketCap, formatPe, formatStockPrice } from './marketStats';
+
+const MARKET_CURRENCY: Record<MarketCode, string> = {
+  cn: 'CNY',
+  hk: 'HKD',
+  us: 'USD',
+};
 
 const METRIC_ROWS: CoreKeyMetric['labelKey'][][] = [
   [
@@ -74,7 +80,6 @@ function resolveTurnoverRate(volume: number | null, totalShares: number | null):
 }
 
 export function buildCoreKeyMetrics(input: {
-  quote: CoreTickerQuoteResponse | null;
   finRows: StockFinIndicatorRow[];
   klineBars: CoreKlineBar[];
   peBandPoints?: CorePeBandPoint[];
@@ -82,28 +87,65 @@ export function buildCoreKeyMetrics(input: {
   market?: MarketCode | null;
   currency?: string | null;
   peLossLabel?: string;
+  /** Snapshot fields not always present in quarterly fin indicators (e.g. CN A-shares). */
+  quoteDetail?: Pick<
+    CoreTickerQuoteResponse,
+    'market_cap' | 'total_shares' | 'pb' | 'turn_rate' | 'volume' | 'dividend_yield'
+  > | null;
 }): CoreKeyMetric[][] {
-  const currency = resolveCurrency(input.currency ?? input.quote?.currency);
+  const currency = resolveCurrency(input.currency ?? (input.market ? MARKET_CURRENCY[input.market] : null));
   const latestRawFin = latestFinRow(input.finRows);
   const periodFin = resolveHkPeriodFinRow(input.finRows, input.market);
+  const latestBar = input.klineBars.at(-1) ?? null;
+  const lastClose = latestBar && latestBar.close > 0 ? latestBar.close : null;
 
-  const marketCap = isValidNumber(input.quote?.market_cap) ? input.quote.market_cap : null;
-  const totalShares = isValidNumber(input.quote?.total_shares) ? input.quote.total_shares : null;
-  const peDynamic = isValidSignedNumber(input.quote?.pe) ? input.quote.pe : null;
+  const marketCap =
+    isValidNumber(latestRawFin?.total_market_cap)
+      ? latestRawFin.total_market_cap
+      : isValidNumber(latestRawFin?.hksk_market_cap)
+        ? latestRawFin.hksk_market_cap
+        : isValidNumber(input.quoteDetail?.market_cap)
+          ? input.quoteDetail.market_cap
+          : isValidNumber(input.quoteDetail?.total_shares) && lastClose != null
+            ? input.quoteDetail.total_shares * lastClose
+            : null;
+  const totalShares =
+    isValidNumber(input.quoteDetail?.total_shares)
+      ? input.quoteDetail.total_shares
+      : marketCap != null && lastClose != null
+        ? marketCap / lastClose
+        : null;
   const peTtm = resolvePeBandPeForDate(input.peBandPoints ?? [], input.chartAnchorDate);
-  const pb = isValidSignedNumber(input.quote?.pb) ? input.quote.pb : null;
+  const peDynamic = peTtm;
+  const pb =
+    isValidSignedNumber(latestRawFin?.pb_ttm)
+      ? latestRawFin.pb_ttm
+      : isValidSignedNumber(input.quoteDetail?.pb)
+        ? input.quoteDetail.pb
+        : null;
   const epsBasic = isValidSignedNumber(periodFin?.eps_basic) ? periodFin.eps_basic : null;
   const roe = isValidSignedNumber(periodFin?.roe_weighted) ? periodFin.roe_weighted : null;
   const roa = isValidSignedNumber(periodFin?.roa) ? periodFin.roa : null;
   const grossMargin = isValidSignedNumber(latestRawFin?.gross_margin) ? latestRawFin.gross_margin : null;
   const netMargin = isValidSignedNumber(latestRawFin?.net_margin) ? latestRawFin.net_margin : null;
-  const dividendYield = isValidNumber(latestRawFin?.dividend_rate) ? latestRawFin.dividend_rate : null;
+  const dividendYield =
+    isValidNumber(input.quoteDetail?.dividend_yield)
+      ? input.quoteDetail.dividend_yield
+      : isValidNumber(latestRawFin?.dividend_rate)
+        ? latestRawFin.dividend_rate
+        : null;
   const week52 = resolveWeek52Range(input.klineBars);
   const volume =
-    input.quote?.volume != null && Number.isFinite(input.quote.volume) && input.quote.volume > 0
-      ? input.quote.volume
-      : null;
-  const turnover = resolveTurnoverRate(volume, totalShares);
+    latestBar?.volume != null && Number.isFinite(latestBar.volume) && latestBar.volume > 0
+      ? latestBar.volume
+      : input.quoteDetail?.volume != null &&
+          Number.isFinite(input.quoteDetail.volume) &&
+          input.quoteDetail.volume > 0
+        ? input.quoteDetail.volume
+        : null;
+  const turnover =
+    resolveTurnoverRate(volume, totalShares) ??
+    (isValidNumber(input.quoteDetail?.turn_rate) ? input.quoteDetail.turn_rate : null);
 
   const byKey: Record<string, CoreKeyMetric> = {
     marketCap: {

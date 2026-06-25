@@ -1,19 +1,14 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorAnalysis } from '../api/dojoSphere';
+import { fetchSectorAnalysisBundle, type SectorAnalysisBundle } from '../api/dojoSphere';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 import type { SectorScopeMetricsResponse } from '../types/dojoSphere';
 
 export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
-  const cacheKey = selection ? cacheKeys.sectorAnalysis(selection) : null;
+  const cacheKey = selection ? cacheKeys.sectorAnalysisBundle(selection) : null;
   const [metrics, setMetrics] = useState<SectorScopeMetricsResponse | null>(() =>
-    cacheKey
-      ? (getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey)?.scopes.L3?.metrics ??
-          getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey)?.scopes.L2?.metrics ??
-          getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey)?.scopes.L1?.metrics ??
-          null)
-      : null,
+    getCached<SectorAnalysisBundle>(cacheKey ?? '')?.metrics ?? null,
   );
   const [loading, setLoading] = useState(() => (cacheKey ? !getCached(cacheKey) : false));
   const [error, setError] = useState<string | null>(null);
@@ -27,11 +22,9 @@ export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
     }
 
     let cancelled = false;
-    const cached = getCached<Awaited<ReturnType<typeof fetchSectorAnalysis>>>(cacheKey);
-    const cachedMetrics =
-      cached?.scopes.L3?.metrics ?? cached?.scopes.L2?.metrics ?? cached?.scopes.L1?.metrics ?? null;
-    if (cachedMetrics) {
-      setMetrics(cachedMetrics);
+    const cached = getCached<SectorAnalysisBundle>(cacheKey);
+    if (cached) {
+      setMetrics(cached.metrics);
       setLoading(false);
     } else {
       setLoading(true);
@@ -39,19 +32,18 @@ export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
     setError(null);
 
     fetchCached(cacheKey, () =>
-      fetchSectorAnalysis({
+      fetchSectorAnalysisBundle({
         level1Id: selection.level1Id,
         level2Id: selection.level2Id,
         level3Id: selection.level3Id,
       }),
     )
-      .then((data) => {
-        if (cancelled) return;
-        setMetrics(data.scopes.L3?.metrics ?? data.scopes.L2?.metrics ?? data.scopes.L1?.metrics ?? null);
+      .then((bundle) => {
+        if (!cancelled) setMetrics(bundle.metrics);
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          if (!cachedMetrics) setMetrics(null);
+          if (!cached) setMetrics(null);
           setError(err instanceof Error ? err.message : 'Failed to load sector metrics');
         }
       })

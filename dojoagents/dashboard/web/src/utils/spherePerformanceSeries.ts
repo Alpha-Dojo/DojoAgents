@@ -3,11 +3,11 @@ import type { SectorPerformanceMarketPoint, SectorPerformancePoint } from '../ty
 
 export type PerformanceChartPoint = SectorPerformancePoint;
 
-export const PERFORMANCE_MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+export const PERFORMANCE_MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 
 export const PERFORMANCE_MARKET_CLASS: Record<MarketCode, string> = {
   us: 'us',
-  sh: 'cn',
+  cn: 'cn',
   hk: 'hk',
 };
 

@@ -12,20 +12,64 @@ export interface AgentModelsResponse {
 }
 
 export type AgentChatRole = 'user' | 'assistant';
+
 export type AgentToolActivityStatus = 'running' | 'done' | 'error';
 
 export interface AgentToolActivityItem {
-  id: string;
   tool: string;
-  arguments?: string;
   status: AgentToolActivityStatus;
+  latencyMs?: number;
   error?: string | null;
+  arguments?: Record<string, unknown>;
+  resultSummary?: string | null;
+  vizBlocks?: import('./agentViz').AgentVizBlock[];
+}
+
+export interface AgentEvalHintItem {
+  id: string;
+  issues: string[];
+}
+
+export interface AgentThinkBlock {
+  id: string;
+  text: string;
+  collapsed: boolean;
+  done: boolean;
 }
 
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
   toolActivity?: AgentToolActivityItem[];
+  thinkBlocks?: AgentThinkBlock[];
+  evalHints?: AgentEvalHintItem[];
+}
+
+export type AgentLocale = 'zh' | 'en';
+
+export interface AgentChatRequest {
+  model_id: string;
+  messages: AgentChatMessage[];
+  locale?: AgentLocale;
+  use_tools?: boolean;
+  max_tool_steps?: number;
+  exclude_mutating_tools?: boolean;
+}
+
+export interface AgentToolTraceItem {
+  tool: string;
+  arguments: Record<string, unknown>;
+  ok: boolean;
+  latency_ms: number;
+  truncated: boolean;
+  error?: string | null;
+}
+
+export interface AgentChatResponse {
+  model_id: string;
+  message: AgentChatMessage;
+  tool_trace?: AgentToolTraceItem[];
+  tool_steps?: number;
 }
 
 export interface AgentSession {
@@ -42,85 +86,50 @@ export interface AgentSessionStore {
   sessions: AgentSession[];
 }
 
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-}
-
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: { name: string; arguments: string };
-}
-
-export interface ToolDefinition {
-  type: 'function';
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-  };
-}
-
-export interface AgentChatRequest {
-  model: string;
-  messages: ChatMessage[];
-  stream?: boolean;
-  tools?: ToolDefinition[];
-  tool_choice?: 'auto' | 'none' | 'required' | object;
-  temperature?: number;
-  user?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentChatResponse {
-  id: string;
-  object: 'chat.completion';
-  created: number;
-  model: string;
-  choices: CompletionChoice[];
-  usage: UsageInfo;
-  content?: string;
-  session_id?: string;
-}
-
-export interface CompletionChoice {
-  index: number;
-  message: ChatMessage;
-  finish_reason: 'stop' | 'tool_calls' | null;
-}
-
 export interface ChatCompletionChunk {
-  id: string;
-  object: 'chat.completion.chunk';
-  created: number;
-  model: string;
-  choices: ChunkChoice[];
+  choices: Array<{
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
+    };
+    finish_reason?: string;
+  }>;
+  dojo_event?: unknown;
 }
 
-export interface ChunkChoice {
-  index: number;
-  delta: {
-    role?: string;
-    content?: string;
-    tool_calls?: ToolCall[];
-  };
-  finish_reason: 'stop' | 'tool_calls' | null;
-}
-
-export interface UsageInfo {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
-
-export type AgentStreamEventType = 'content_delta' | 'tool_call_delta' | 'message_end' | 'done' | 'error';
-
-export interface AgentStreamEvent {
-  type: AgentStreamEventType;
-  chunk?: ChatCompletionChunk;
-  content?: string;
-  error?: Error;
-}
+export type AgentStreamEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'content_delta'; content: string; chunk: ChatCompletionChunk }
+  | { type: 'tool_call_delta'; chunk: ChatCompletionChunk }
+  | { type: 'think_start' }
+  | { type: 'think_delta'; text: string }
+  | { type: 'think_end' }
+  | { type: 'phase'; phase: 'planning' | 'tools' | 'answering' }
+  | { type: 'retry'; attempt: number; max_attempts: number; text: string }
+  | { type: 'tool_start'; tool: string; arguments: Record<string, unknown> }
+  | {
+      type: 'tool_result';
+      tool: string;
+      ok: boolean;
+      latency_ms: number;
+      truncated: boolean;
+      error?: string | null;
+      data?: {
+        portfolio_id?: string;
+        name?: string;
+        holdings_count?: number;
+        holdings_by_market?: Record<string, number>;
+        tickers?: string[];
+      } | null;
+      viz_blocks?: import('./agentViz').AgentVizBlock[];
+    }
+  | { type: 'eval_hint'; text: string; issues: string[] }
+  | { type: 'dojo_event'; dojoEvent: unknown; chunk: ChatCompletionChunk }
+  | { type: 'message_end'; chunk: ChatCompletionChunk }
+  | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }
+  | { type: 'error'; message: string };

@@ -13,13 +13,21 @@ export function selectionFromCoreCrumb(crumb: CoreSectorCrumb): SectorPathSelect
   };
 }
 
+export function openSphereFromSelection(
+  onNavigateTab: ((tab: AppTab) => void) | undefined,
+  selection: SectorPathSelection,
+  scopeLevel: SectorLevelKey,
+) {
+  if (!onNavigateTab) return;
+  clearSphereSectorContext();
+  persistSphereViewState(selection, scopeLevel);
+  notifySphereNavigation();
+  onNavigateTab('sphere');
+}
+
 export function openSphereFromCoreCrumb(
   onNavigateTab: ((tab: AppTab) => void) | undefined,
   crumb: CoreSectorCrumb,
 ) {
-  if (!onNavigateTab) return;
-  clearSphereSectorContext();
-  persistSphereViewState(selectionFromCoreCrumb(crumb), crumb.level as SectorLevelKey);
-  notifySphereNavigation();
-  onNavigateTab('sphere');
+  openSphereFromSelection(onNavigateTab, selectionFromCoreCrumb(crumb), crumb.level as SectorLevelKey);
 }

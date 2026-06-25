@@ -26,7 +26,7 @@
   gap: 5px;
   padding: 5px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
@@ -36,22 +36,6 @@
   transition:
     color 0.15s,
     background 0.15s;
-}
-
-.header-util__icon-button {
-  width: 28px;
-  height: 28px;
-}
-
-.header-util__icon-button svg {
-  width: 12px;
-  height: 12px;
-  fill: currentColor;
-}
-
-.header-util__icon-button--active {
-  color: var(--color-accent-primary);
-  background: rgb(2 175 127 / 10%);
 }
 
 .header-util__agent:hover {

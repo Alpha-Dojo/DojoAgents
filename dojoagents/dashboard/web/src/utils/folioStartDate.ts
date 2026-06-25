@@ -1,3 +1,5 @@
+import { DATA_START_DATE } from './klineDate';
+
 function formatIsoDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -15,14 +17,11 @@ export function todayIsoDate(from: Date = new Date()): string {
   return formatIsoDate(from);
 }
 
-/** Earliest selectable start date: min(1 year ago, first performance data point). */
-export function computeStartDateBounds(earliestDataDate?: string | null): { min: string; max: string } {
+/** Earliest selectable date: global dataset inception (2025-01-01) through today. */
+export function computeStartDateBounds(floorDate?: string | null): { min: string; max: string } {
   const max = todayIsoDate();
-  const rollingMin = oneYearAgoDate();
-  if (!earliestDataDate || earliestDataDate >= rollingMin) {
-    return { min: rollingMin, max };
-  }
-  return { min: earliestDataDate, max };
+  const min = floorDate && floorDate > DATA_START_DATE ? floorDate : DATA_START_DATE;
+  return { min, max };
 }
 
 export function enumerateIsoDates(min: string, max: string): string[] {

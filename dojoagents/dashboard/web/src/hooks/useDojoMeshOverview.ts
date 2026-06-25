@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchDojoMeshOverview } from '../api/dojoMesh';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached, invalidateCache } from '../cache/queryCache';
 import type { DojoMeshOverview } from '../types/dojoMesh';
+import type { MeshSectorFilterState } from '../utils/meshSectorFilters';
+import { minCapKeyFromFilters, minCapThresholdsFromYi } from '../utils/meshSectorFilters';
 
 interface UseDojoMeshOverviewResult {
   data: DojoMeshOverview | null;
@@ -11,8 +13,10 @@ interface UseDojoMeshOverviewResult {
   reload: () => void;
 }
 
-export function useDojoMeshOverview(sectorLimit = 5): UseDojoMeshOverviewResult {
-  const cacheKey = cacheKeys.dojoMeshOverview(sectorLimit);
+export function useDojoMeshOverview(filters: MeshSectorFilterState): UseDojoMeshOverviewResult {
+  const capKey = useMemo(() => minCapKeyFromFilters(filters), [filters]);
+  const cacheKey = cacheKeys.dojoMeshOverview(filters.sectorLimit, filters.days, capKey);
+
   const [data, setData] = useState<DojoMeshOverview | null>(() => getCached<DojoMeshOverview>(cacheKey));
   const [loading, setLoading] = useState(() => !getCached<DojoMeshOverview>(cacheKey));
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +38,15 @@ export function useDojoMeshOverview(sectorLimit = 5): UseDojoMeshOverviewResult 
     }
     setError(null);
 
-    fetchCached(cacheKey, () => fetchDojoMeshOverview({ sector_limit: sectorLimit }))
+    const min_cap_by_market = minCapThresholdsFromYi(filters.minCapYi);
+
+    fetchCached(cacheKey, () =>
+      fetchDojoMeshOverview({
+        sector_limit: filters.sectorLimit,
+        days: filters.days,
+        min_cap_by_market,
+      }),
+    )
       .then((overview) => {
         if (!cancelled) setData(overview);
       })
@@ -51,7 +63,7 @@ export function useDojoMeshOverview(sectorLimit = 5): UseDojoMeshOverviewResult 
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, sectorLimit, tick]);
+  }, [cacheKey, filters.days, filters.sectorLimit, capKey, tick]);
 
   return { data, loading, error, reload };
 }

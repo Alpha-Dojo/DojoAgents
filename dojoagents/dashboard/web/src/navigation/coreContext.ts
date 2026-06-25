@@ -14,6 +14,15 @@ export interface CoreTickerContext {
   sector_selection?: SectorPathSelection;
 }
 
+/** Fallback when no ticker was chosen from Mesh/Sphere (largest US market cap as of 2025). */
+export const DEFAULT_CORE_TICKER: CoreTickerContext = {
+  ticker: 'NVDA',
+  market: 'us',
+  name_en: 'NVIDIA Corporation',
+  name_zh: '英伟达',
+  sector_source: 'search',
+};
+
 export function saveCoreTickerContext(ctx: CoreTickerContext) {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(ctx));
   window.dispatchEvent(new CustomEvent('alphadojo-core-ticker'));
@@ -33,4 +42,12 @@ export function readCoreTickerContext(): CoreTickerContext | null {
 
 export function clearCoreTickerContext() {
   sessionStorage.removeItem(STORAGE_KEY);
+}
+
+/** Read saved ticker or seed session with the default largest-cap symbol. */
+export function resolveCoreTickerContext(): CoreTickerContext {
+  const saved = readCoreTickerContext();
+  if (saved) return saved;
+  saveCoreTickerContext(DEFAULT_CORE_TICKER);
+  return DEFAULT_CORE_TICKER;
 }

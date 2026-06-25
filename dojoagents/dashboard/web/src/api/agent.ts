@@ -6,6 +6,7 @@ import type {
   AgentStreamEvent,
   ChatCompletionChunk,
 } from '../types/agent';
+import { readStoredLocale } from '../i18n/locale';
 
 const API_URL = '/api/chat';
 
@@ -76,7 +77,7 @@ export async function* parseSSEStream(
 
         const data = trimmed.slice(5).trim();
         if (data === '[DONE]') {
-          yield { type: 'done' };
+          yield { type: 'done', model_id: '', tool_trace: undefined, tool_steps: undefined };
           return;
         }
 
@@ -84,6 +85,7 @@ export async function* parseSSEStream(
           const chunk = JSON.parse(data) as ChatCompletionChunk;
           const delta = chunk.choices[0]?.delta;
           const finishReason = chunk.choices[0]?.finish_reason;
+          const dojoEvent = chunk.dojo_event;
 
           if (delta?.content) {
             yield { type: 'content_delta', content: delta.content, chunk };
@@ -91,11 +93,14 @@ export async function* parseSSEStream(
           if (delta?.tool_calls) {
             yield { type: 'tool_call_delta', chunk };
           }
+          if (dojoEvent) {
+            yield { type: 'dojo_event', dojoEvent, chunk };
+          }
           if (finishReason) {
             yield { type: 'message_end', chunk };
           }
         } catch (e) {
-          yield { type: 'error', error: new Error(`SSE parse error: ${e}`) };
+          yield { type: 'error', message: `SSE parse error: ${e}` };
         }
       }
     }
@@ -107,8 +112,26 @@ export async function* parseSSEStream(
 export async function streamAgentChat(
   body: AgentChatRequest,
   handlers: {
-    onEvent: (event: AgentStreamEvent) => void;
-    onError: (message: string) => void;
+    onPhase?: (phase: 'planning' | 'tools' | 'answering') => void;
+    onRetry?: (data: { attempt: number; max_attempts: number }) => void;
+    onThinkStart?: () => void;
+    onThinkDelta?: (text: string) => void;
+    onThinkEnd?: () => void;
+    onDelta?: (delta: string) => void;
+    onToolStart?: (tool: string, args: Record<string, unknown>) => void;
+    onToolResult?: (data: {
+      tool: string;
+      ok: boolean;
+      latency_ms: number;
+      truncated?: boolean;
+      error?: string | null;
+      data?: any;
+      viz_blocks?: any[];
+    }) => void;
+    onEvalHint?: (data: { issues: string[] }) => void;
+    onDone?: () => void;
+    onEvent?: (event: AgentStreamEvent) => void;
+    onError?: (message: string) => void;
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -121,35 +144,71 @@ export async function streamAgentChat(
     body: JSON.stringify({
       ...body,
       stream: true,
+      event_format: 'dojo.v2',
+      locale: body.locale ?? readStoredLocale(),
     }),
     signal,
   });
 
   if (!res.ok) {
-    handlers.onError(await readErrorMessage(res));
+    handlers.onError?.(await readErrorMessage(res));
     return;
   }
 
   if (!res.body) {
-    handlers.onError('Empty response body');
+    handlers.onError?.('Empty response body');
     return;
   }
 
   try {
     for await (const event of parseSSEStream(res)) {
-      handlers.onEvent(event);
-      if (event.type === 'done') return;
-      if (event.type === 'error') {
-        handlers.onError(event.error?.message ?? 'Stream parse failed');
-        return;
+      handlers.onEvent?.(event);
+
+      switch (event.type) {
+        case 'phase':
+          handlers.onPhase?.(event.phase);
+          break;
+        case 'retry':
+          handlers.onRetry?.(event);
+          break;
+        case 'think_start':
+          handlers.onThinkStart?.();
+          break;
+        case 'think_delta':
+          handlers.onThinkDelta?.(event.text);
+          break;
+        case 'think_end':
+          handlers.onThinkEnd?.();
+          break;
+        case 'delta':
+          handlers.onDelta?.(event.text);
+          break;
+        case 'content_delta':
+          handlers.onDelta?.(event.content);
+          break;
+        case 'tool_start':
+          handlers.onToolStart?.(event.tool, event.arguments);
+          break;
+        case 'tool_result':
+          handlers.onToolResult?.(event);
+          break;
+        case 'eval_hint':
+          handlers.onEvalHint?.({ issues: event.issues });
+          break;
+        case 'done':
+          handlers.onDone?.();
+          return;
+        case 'error':
+          handlers.onError?.(event.message);
+          return;
       }
     }
   } catch (err) {
     if (signal?.aborted) return;
     const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Stream failed';
-    handlers.onError(message);
+    handlers.onError?.(message);
     return;
   }
 
-  handlers.onError('Stream ended unexpectedly');
+  handlers.onError?.('Stream ended unexpectedly');
 }

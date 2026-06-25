@@ -22,7 +22,7 @@ import type { SectorPathSelection, SectorTaxonomyDocument } from '../types/secto
 import type { SectorLevelKey } from '../types/dojoSphere';
 import {
   findSectorPathByIds,
-  getDefaultSelection,
+  getSphereDefaultSelection,
 } from '../utils/sectorTaxonomy';
 import './DojoSphereView.css';
 
@@ -35,7 +35,7 @@ function resolveFallbackSelection(taxonomy: SectorTaxonomyDocument): SectorPathS
   if (persisted && findSectorPathByIds(taxonomy, persisted)) {
     return persisted;
   }
-  return getDefaultSelection(taxonomy);
+  return getSphereDefaultSelection(taxonomy);
 }
 
 export function DojoSphereView({ onNavigateTab }: DojoSphereViewProps) {
@@ -56,23 +56,12 @@ export function DojoSphereView({ onNavigateTab }: DojoSphereViewProps) {
   useEffect(() => {
     if (!taxonomy) return;
 
-    if (navTick > 0) {
-      const jumpSelection = resolveJumpSelection(taxonomy);
-      if (jumpSelection) {
-        setSelection(jumpSelection);
-        setScopeLevel('L3');
-        markSphereViewBootstrapped();
-        return;
-      }
-
-      const persisted = readPersistedSphereSelection();
-      const persistedLevel = readPersistedSphereScopeLevel();
-      if (persisted && findSectorPathByIds(taxonomy, persisted)) {
-        setSelection(persisted);
-        setScopeLevel(persistedLevel);
-        markSphereViewBootstrapped();
-        return;
-      }
+    const jumpSelection = resolveJumpSelection(taxonomy);
+    if (jumpSelection) {
+      setSelection(jumpSelection);
+      setScopeLevel('L3');
+      markSphereViewBootstrapped();
+      return;
     }
 
     if (isSphereViewBootstrapped()) {
@@ -149,7 +138,9 @@ export function DojoSphereView({ onNavigateTab }: DojoSphereViewProps) {
           selectedLevel={scopeLevel}
           onSelectLevel={setScopeLevel}
         />
-        <SphereBottomPanel selection={selection} scope={scopeLevel} onNavigateTab={onNavigateTab} />
+        {!performanceLoading ? (
+          <SphereBottomPanel selection={selection} scope={scopeLevel} onNavigateTab={onNavigateTab} />
+        ) : null}
       </div>
     </section>
   );

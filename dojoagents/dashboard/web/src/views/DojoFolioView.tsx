@@ -2,9 +2,14 @@ import { FolioOverviewPanel } from '../components/DojoFolio/FolioOverviewPanel';
 import { FolioPortfolioSidebar } from '../components/DojoFolio/FolioPortfolioSidebar';
 import { useFolioPortfolios } from '../hooks/useFolioPortfolios';
 import { useTranslation } from '../hooks/useTranslation';
+import type { AppTab } from '../navigation/appTab';
 import './DojoFolioView.css';
 
-export function DojoFolioView() {
+interface DojoFolioViewProps {
+  onNavigateTab?: (tab: AppTab) => void;
+}
+
+export function DojoFolioView({ onNavigateTab }: DojoFolioViewProps) {
   const { t } = useTranslation();
   const {
     portfolios,
@@ -14,11 +19,21 @@ export function DojoFolioView() {
     activeId,
     setActiveId,
     setSearchQuery,
+    benchmarkSymbol,
+    setBenchmarkSymbol,
     listLoading,
+    creatingPortfolio,
+    createError,
     detailLoading,
+    allocating,
     renamePortfolio,
     applyPortfolioConfig,
     applyShareOverrides,
+    toggleSharesLock,
+    toggleOpenDateLock,
+    toggleCostLock,
+    applyCost,
+    togglePortfolioPin,
     applyOpenDate,
     createPortfolio,
     deletePortfolio,
@@ -38,9 +53,12 @@ export function DojoFolioView() {
           holdingsByPortfolioId={holdingsByPortfolioId}
           activeId={activeId}
           loading={listLoading}
+          creating={creatingPortfolio}
+          createError={createError}
           onSelect={setActiveId}
           onRename={renamePortfolio}
           onDelete={deletePortfolio}
+          onTogglePin={togglePortfolioPin}
           onCreate={createPortfolio}
           onSearchQueryChange={setSearchQuery}
         />
@@ -51,17 +69,28 @@ export function DojoFolioView() {
             loading={detailLoading}
             addingTicker={addingTicker}
             removingTicker={removingTicker}
-            allocating={detailLoading}
+            allocating={allocating}
+            benchmarkSymbol={benchmarkSymbol}
+            onBenchmarkChange={setBenchmarkSymbol}
             onApplyConfig={(config) => applyPortfolioConfig(activePortfolio.id, config)}
-            onApplyShares={(shares, manualShares) =>
-              applyShareOverrides(activePortfolio.id, shares, manualShares)
+            onNavigateTab={onNavigateTab}
+            onApplyShares={(shares) => applyShareOverrides(activePortfolio.id, shares)}
+            onToggleSharesLock={(ticker, locked) =>
+              toggleSharesLock(activePortfolio.id, ticker, locked)
             }
+            onToggleOpenDateLock={(ticker, locked) =>
+              toggleOpenDateLock(activePortfolio.id, ticker, locked)
+            }
+            onToggleCostLock={(ticker, locked) =>
+              toggleCostLock(activePortfolio.id, ticker, locked)
+            }
+            onApplyCost={(ticker, cost) => applyCost(activePortfolio.id, ticker, cost)}
             onApplyOpenDate={(ticker, openDate) =>
               applyOpenDate(activePortfolio.id, ticker, openDate)
             }
             onAddHolding={(ticker, market) => addHolding(activePortfolio.id, ticker, market)}
             onRemoveHolding={(ticker, market) => removeHolding(activePortfolio.id, ticker, market)}
-            onAutoAllocate={(market) => autoAllocate(activePortfolio.id, market)}
+            onAutoAllocate={(market, strategy) => autoAllocate(activePortfolio.id, market, strategy)}
           />
         ) : (
           <div className="folio-main-empty folio-card">

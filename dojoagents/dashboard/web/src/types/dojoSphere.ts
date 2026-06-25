@@ -47,7 +47,7 @@ export type SpherePerformanceRange = '1D' | '5D' | '1M' | '1Y';
 export interface SectorPerformancePoint {
   date: string;
   us?: number | null;
-  sh?: number | null;
+  cn?: number | null;
   hk?: number | null;
 }
 

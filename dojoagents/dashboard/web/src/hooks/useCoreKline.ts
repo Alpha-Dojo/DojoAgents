@@ -6,8 +6,8 @@ import type { CoreTickerContext } from '../navigation/coreContext';
 import type { CoreKlineBar, CoreKlineInterval } from '../types/dojoCore';
 import {
   KLINE_INTERVAL_API,
-  KLINE_INTERVAL_LIMIT,
   mapKlineBarsToCore,
+  resolveCoreDailyChartWindow,
 } from '../utils/coreKline';
 
 interface CoreKlineCache {
@@ -73,12 +73,15 @@ export function useCoreKline(ctx: CoreTickerContext | null, interval: CoreKlineI
     }
     setError(null);
 
+    const chartWindow = ctx.market ? resolveCoreDailyChartWindow(ctx.market) : null;
+
     fetchCached(cacheKey, () =>
       fetchCoreTickerKline({
         ticker: ctx.ticker,
         market: ctx.market,
         kline_t: KLINE_INTERVAL_API[interval],
-        limit: KLINE_INTERVAL_LIMIT[interval],
+        start_date: chartWindow?.start,
+        end_date: chartWindow?.end,
       }).then((response) => buildCacheEntry(response, interval, ctx.market)),
     )
       .then((entry) => {

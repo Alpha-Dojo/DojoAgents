@@ -1,21 +1,14 @@
-import { fetchJson } from './http';
-import {
-  addMockFolioHolding,
-  autoAllocateMockFolioPortfolio,
-  createMockFolioPortfolio,
-  deleteMockFolioPortfolio,
-  fetchMockFolioPortfolioDetail,
-  fetchMockFolioPortfolios,
-  updateMockFolioPortfolio,
-  USE_INTERACTIVE_MOCKS,
-} from '../mocks/interactiveMockData';
+import { fetchJson, ApiError } from './http';
 import type { MarketCode } from '../types/dojoMesh';
 import type {
+  FolioAllocationStrategy,
   FolioHolding,
   FolioKpiMetric,
   FolioPortfolioConfig,
   FolioPortfolioKind,
 } from '../types/dojoFolio';
+import { DEFAULT_FOLIO_CONFIG } from '../types/dojoFolio';
+import { DATA_START_DATE } from '../utils/klineDate';
 import { mapApiSearchHits, type FolioPortfolioSearchHit } from '../utils/folioPortfolioSearch';
 
 const API_PREFIX = '/api/v1';
@@ -25,6 +18,7 @@ export interface FolioPortfolioSummaryResponse {
   name: string;
   subtitle?: string | null;
   kind: FolioPortfolioKind;
+  pinned?: boolean;
   today_change?: number | null;
   net_value_usd?: number | null;
 }
@@ -38,16 +32,30 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
   holdings?: Array<{
     ticker: string;
     name: string;
+    name_zh?: string;
+    name_en?: string;
     market: MarketCode;
     shares: number;
     weight: number;
     cost: number;
+    cost_low?: number | null;
+    cost_high?: number | null;
+    uses_default_cost?: boolean;
+    cost_date?: string | null;
+    cost_basis?: number;
     open_date?: string | null;
     uses_default_open_date?: boolean;
+    shares_locked?: boolean;
+    open_date_locked?: boolean;
+    cost_locked?: boolean;
     manual_shares?: boolean;
     price: number;
     change_percent: number;
+    total_return_pct?: number | null;
     sector: string;
+    sector_l1?: string;
+    sector_l2?: string;
+    sector_l3?: string;
     market_value: number;
   }>;
   kpis?: Array<{
@@ -58,28 +66,157 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
     hint?: string | null;
   }> | null;
   performance?: {
-    dates: string[];
-    portfolio: number[];
-    benchmark: number[];
+    window_start?: string | null;
+    window_end?: string | null;
+    series_by_market?: Partial<
+      Record<
+        MarketCode,
+        Array<{ date: string; value: number }>
+      >
+    >;
+    benchmark_by_market?: Partial<
+      Record<
+        MarketCode,
+        Array<{ date: string; value: number }>
+      >
+    >;
+    benchmark_symbol_by_market?: Partial<Record<MarketCode, string>>;
+    stats_by_market?: Partial<
+      Record<
+        MarketCode,
+        {
+          cumulative_return_pct?: number | null;
+          volatility_pct?: number | null;
+          sharpe_ratio?: number | null;
+          calmar_ratio?: number | null;
+          max_drawdown_pct?: number | null;
+          trading_days?: number;
+        }
+      >
+    >;
   } | null;
   net_value_by_market?: Partial<Record<MarketCode, number>> | null;
+  cost_basis_by_market?: Partial<Record<MarketCode, number>> | null;
+}
+
+interface PortfolioAnalysisResponse {
+  id: string;
+  name: string;
+  subtitle?: string | null;
+  benchmark?: string | null;
+  start_date?: string | null;
+  capital_by_market?: Partial<Record<MarketCode, number>>;
+  holdings: Array<{
+    ticker: string;
+    name: string;
+    name_zh?: string;
+    name_en?: string;
+    market: MarketCode;
+    shares: number;
+    weight: number;
+    cost: number;
+    cost_low?: number | null;
+    cost_high?: number | null;
+    uses_default_cost?: boolean;
+    cost_date?: string | null;
+    open_date?: string | null;
+    uses_default_open_date?: boolean;
+    cost_basis?: number;
+    price: number;
+    change_percent: number;
+    total_return_pct?: number | null;
+    market_value: number;
+    sector_l1: string;
+    sector_l2: string;
+    sector_l3: string;
+  }>;
+  kpis: Array<{
+    key: FolioKpiMetric['key'];
+    value: string;
+    delta?: string | null;
+    delta_tone?: FolioKpiMetric['deltaTone'] | null;
+  }>;
+  performance_window_start?: string | null;
+  performance_window_end?: string | null;
+  nav_by_market: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
+  benchmark_by_market: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
+  benchmark_symbol_by_market?: Partial<Record<MarketCode, string>>;
+  stats_by_market: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct?: number | null;
+        volatility_pct?: number | null;
+        sharpe_ratio?: number | null;
+        calmar_ratio?: number | null;
+        max_drawdown_pct?: number | null;
+        trading_days?: number;
+      }
+    >
+  >;
+  net_value_by_market: Partial<Record<MarketCode, number>>;
+  cost_basis_by_market?: Partial<Record<MarketCode, number>>;
+}
+
+interface PortfolioListResponse {
+  query?: string | null;
+  items: FolioPortfolioSummaryResponse[];
 }
 
 function mapHolding(raw: NonNullable<FolioPortfolioDetailResponse['holdings']>[number]): FolioHolding {
   return {
     ticker: raw.ticker,
     name: raw.name,
+    nameZh: raw.name_zh ?? raw.name,
+    nameEn: raw.name_en ?? raw.name,
     market: raw.market,
     shares: raw.shares,
     weight: raw.weight,
     cost: raw.cost,
+    costLow: raw.cost_low ?? undefined,
+    costHigh: raw.cost_high ?? undefined,
+    usesDefaultCost: raw.uses_default_cost ?? true,
+    costDate: raw.cost_date ?? undefined,
+    costBasis: raw.cost_basis ?? raw.cost * raw.shares,
     openDate: raw.open_date ?? undefined,
     usesDefaultOpenDate: raw.uses_default_open_date ?? true,
-    manualShares: raw.manual_shares ?? false,
+    sharesLocked: raw.shares_locked ?? raw.manual_shares ?? false,
+    openDateLocked: raw.open_date_locked ?? false,
+    costLocked: raw.cost_locked ?? false,
+    manualShares: raw.manual_shares ?? raw.shares_locked ?? false,
     price: raw.price,
     changePercent: raw.change_percent,
+    totalReturnPct:
+      raw.total_return_pct ??
+      (raw.cost > 0 && raw.price > 0
+        ? Number((((raw.price - raw.cost) / raw.cost) * 100).toFixed(2))
+        : null),
     sector: raw.sector,
+    sectorL1: raw.sector_l1 ?? raw.sector,
+    sectorL2: raw.sector_l2 ?? raw.sector,
+    sectorL3: raw.sector_l3 ?? raw.sector,
     marketValue: raw.market_value,
+  };
+}
+
+function mapConfigFromAnalysis(analysis: PortfolioAnalysisResponse): FolioPortfolioConfig {
+  const startDate =
+    analysis.performance_window_start ??
+    analysis.start_date ??
+    DATA_START_DATE;
+  const capital = analysis.capital_by_market ?? {};
+  return {
+    startDate,
+    costDate: startDate,
+    capitalByMarket: {
+      us: capital.us ?? DEFAULT_FOLIO_CONFIG.capitalByMarket.us,
+      cn: capital.cn ?? DEFAULT_FOLIO_CONFIG.capitalByMarket.cn,
+      hk: capital.hk ?? DEFAULT_FOLIO_CONFIG.capitalByMarket.hk,
+    },
   };
 }
 
@@ -90,9 +227,64 @@ function mapConfig(raw: FolioPortfolioDetailResponse['config']): FolioPortfolioC
     costDate: raw.start_date,
     capitalByMarket: {
       us: raw.capital_by_market.us ?? 0,
-      sh: raw.capital_by_market.sh ?? 0,
+      cn: raw.capital_by_market.cn ?? 0,
       hk: raw.capital_by_market.hk ?? 0,
     },
+  };
+}
+
+function mapPerformance(raw: FolioPortfolioDetailResponse['performance']) {
+  if (!raw) return null;
+  const seriesByMarket: Partial<Record<MarketCode, { date: string; value: number }[]>> = {};
+  const benchmarkByMarket: Partial<Record<MarketCode, { date: string; value: number }[]>> = {};
+  for (const market of ['us', 'cn', 'hk'] as MarketCode[]) {
+    if (raw.series_by_market?.[market]?.length) {
+      seriesByMarket[market] = raw.series_by_market[market]!.map((point) => ({
+        date: point.date,
+        value: Number(point.value),
+      }));
+    }
+    if (raw.benchmark_by_market?.[market]?.length) {
+      benchmarkByMarket[market] = raw.benchmark_by_market[market]!.map((point) => ({
+        date: point.date,
+        value: Number(point.value),
+      }));
+    }
+  }
+
+  const statsByMarket: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct: number | null;
+        volatility_pct: number | null;
+        sharpe_ratio: number | null;
+        calmar_ratio: number | null;
+        max_drawdown_pct: number | null;
+        trading_days: number;
+      }
+    >
+  > = {};
+  for (const market of ['us', 'cn', 'hk'] as MarketCode[]) {
+    const row = raw.stats_by_market?.[market];
+    if (!row) continue;
+    statsByMarket[market] = {
+      cumulative_return_pct: row.cumulative_return_pct ?? null,
+      volatility_pct: row.volatility_pct ?? null,
+      sharpe_ratio: row.sharpe_ratio ?? null,
+      calmar_ratio: row.calmar_ratio ?? null,
+      max_drawdown_pct: row.max_drawdown_pct ?? null,
+      trading_days: row.trading_days ?? 0,
+    };
+  }
+
+  return {
+    windowStart: raw.window_start ?? null,
+    windowEnd: raw.window_end ?? null,
+    seriesByMarket,
+    benchmarkByMarket,
+    benchmarkSymbolByMarket: raw.benchmark_symbol_by_market ?? {},
+    statsByMarket,
   };
 }
 
@@ -107,6 +299,7 @@ export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
     name: raw.name,
     subtitle: raw.subtitle ?? undefined,
     kind: raw.kind,
+    pinned: raw.pinned ?? false,
     config: mapConfig(raw.config),
     holdings,
     sharesByTicker,
@@ -114,8 +307,13 @@ export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
     netValueUsd: raw.net_value_usd ?? null,
     netValueByMarket: {
       us: raw.net_value_by_market?.us ?? 0,
-      sh: raw.net_value_by_market?.sh ?? 0,
+      cn: raw.net_value_by_market?.cn ?? 0,
       hk: raw.net_value_by_market?.hk ?? 0,
+    },
+    costBasisByMarket: {
+      us: raw.cost_basis_by_market?.us ?? 0,
+      cn: raw.cost_basis_by_market?.cn ?? 0,
+      hk: raw.cost_basis_by_market?.hk ?? 0,
     },
     kpis: raw.kpis?.map((item) => ({
       key: item.key,
@@ -124,97 +322,193 @@ export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
       deltaTone: item.delta_tone ?? undefined,
       hint: item.hint ?? undefined,
     })) ?? null,
-    performance: raw.performance ?? null,
+    performance: mapPerformance(raw.performance),
   };
 }
 
 export type FolioPortfolioDetail = ReturnType<typeof mapFolioPortfolioDetail>;
 
+function mapAnalysisToDetail(
+  analysis: PortfolioAnalysisResponse,
+  summary?: FolioPortfolioSummaryResponse,
+  includePerformance = true,
+): FolioPortfolioDetailResponse {
+  const netTotal = Object.values(analysis.net_value_by_market ?? {}).reduce(
+    (sum, value) => sum + (value ?? 0),
+    0,
+  );
+  const config = mapConfigFromAnalysis(analysis);
+  return {
+    id: analysis.id,
+    name: analysis.name,
+    subtitle: analysis.subtitle,
+    kind: summary?.kind ?? 'manual',
+    pinned: summary?.pinned ?? false,
+    today_change: summary?.today_change ?? null,
+    net_value_usd: summary?.net_value_usd ?? netTotal,
+    config: {
+      start_date: config.startDate,
+      cost_date: config.costDate,
+      capital_by_market: config.capitalByMarket,
+    },
+    holdings: analysis.holdings.map((row) => ({
+      ticker: row.ticker,
+      name: row.name,
+      name_zh: row.name_zh,
+      name_en: row.name_en,
+      market: row.market,
+      shares: row.shares,
+      weight: row.weight,
+      cost: row.cost,
+      cost_low: row.cost_low ?? null,
+      cost_high: row.cost_high ?? null,
+      uses_default_cost: row.uses_default_cost ?? true,
+      cost_date: row.cost_date ?? null,
+      open_date: row.open_date ?? null,
+      uses_default_open_date: row.uses_default_open_date ?? true,
+      cost_basis: row.cost_basis ?? row.cost * row.shares,
+      price: row.price,
+      change_percent: row.change_percent,
+      total_return_pct: row.total_return_pct ?? null,
+      sector: row.sector_l3 || row.sector_l1,
+      sector_l1: row.sector_l1,
+      sector_l2: row.sector_l2,
+      sector_l3: row.sector_l3,
+      market_value: row.market_value,
+    })),
+    kpis: analysis.kpis,
+    performance: includePerformance
+      ? {
+          window_start: analysis.performance_window_start ?? null,
+          window_end: analysis.performance_window_end ?? null,
+          series_by_market: analysis.nav_by_market,
+          benchmark_by_market: analysis.benchmark_by_market,
+          benchmark_symbol_by_market: analysis.benchmark_symbol_by_market,
+          stats_by_market: analysis.stats_by_market,
+        }
+      : null,
+    net_value_by_market: analysis.net_value_by_market,
+    cost_basis_by_market: analysis.cost_basis_by_market,
+  };
+}
+
+async function fetchPortfolioList(query?: string): Promise<PortfolioListResponse> {
+  const params = query ? new URLSearchParams({ query }) : '';
+  const suffix = params ? `?${params}` : '';
+  return fetchJson<PortfolioListResponse>(`${API_PREFIX}/portfolio${suffix}`);
+}
+
+async function fetchPortfolioSummary(portfolioId: string): Promise<FolioPortfolioSummaryResponse | undefined> {
+  const list = await fetchPortfolioList();
+  return list.items.find((item) => item.id === portfolioId);
+}
+
 export async function fetchFolioPortfolios(): Promise<FolioPortfolioSummaryResponse[]> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockFolioPortfolios();
-  const raw = await fetchJson<{ items: FolioPortfolioSummaryResponse[] }>(`${API_PREFIX}/portfolio`);
-  return raw.items;
+  const list = await fetchPortfolioList();
+  return list.items;
 }
 
 export async function searchFolioPortfolios(query: string): Promise<FolioPortfolioSearchHit[]> {
-  if (USE_INTERACTIVE_MOCKS) {
-    const rows = await fetchMockFolioPortfolios();
-    const normalized = query.trim().toLowerCase();
-    return rows
-      .filter((row) => row.name.toLowerCase().includes(normalized))
-      .map((row) => ({ portfolioId: row.id, matchType: 'name' }));
-  }
-  const params = new URLSearchParams({ q: query });
-  const raw = await fetchJson<{
-    query: string;
-    items: Array<{
-      id: string;
-      match_type: 'name' | 'holding';
-      matched_ticker?: string | null;
-      matched_name?: string | null;
-    }>;
-  }>(`${API_PREFIX}/dojo-folio/portfolios/search?${params}`);
-  return mapApiSearchHits(raw.items);
+  const list = await fetchPortfolioList(query);
+  return mapApiSearchHits(
+    list.items.map((item) => ({
+      id: item.id,
+      match_type: 'name' as const,
+      matched_name: item.name,
+    })),
+  );
 }
 
-export async function fetchFolioPortfolioDetail(portfolioId: string): Promise<FolioPortfolioDetail> {
-  if (USE_INTERACTIVE_MOCKS) {
-    return mapFolioPortfolioDetail(await fetchMockFolioPortfolioDetail(portfolioId));
-  }
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(
-    `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis`,
+export async function fetchFolioPortfolioDetail(
+  portfolioId: string,
+  options?: { benchmark?: string | null; includePerformance?: boolean; startDate?: string | null },
+): Promise<FolioPortfolioDetail> {
+  const params = new URLSearchParams();
+  if (options?.benchmark) params.set('benchmark', options.benchmark);
+  if (options?.includePerformance === false) params.set('include_performance', 'false');
+  if (options?.startDate) params.set('start_date', options.startDate);
+  const query = params.toString();
+  const [analysis, summary] = await Promise.all([
+    fetchJson<PortfolioAnalysisResponse>(
+      `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis${query ? `?${query}` : ''}`,
+    ),
+    fetchPortfolioSummary(portfolioId),
+  ]);
+  return mapFolioPortfolioDetail(
+    mapAnalysisToDetail(analysis, summary, options?.includePerformance !== false),
   );
-  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function createFolioPortfolio(name: string): Promise<FolioPortfolioDetail> {
-  if (USE_INTERACTIVE_MOCKS) {
-    return mapFolioPortfolioDetail(await createMockFolioPortfolio(name));
-  }
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/manage`, {
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/manage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'create', name }),
   });
-  return mapFolioPortfolioDetail(raw.detail);
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis));
 }
 
 export async function updateFolioPortfolio(
   portfolioId: string,
   payload: {
     name?: string;
+    pinned?: boolean;
     config?: FolioPortfolioConfig;
     shares_by_ticker?: Record<string, number>;
+    shares_locked_by_ticker?: Record<string, boolean>;
     manual_shares_by_ticker?: Record<string, boolean>;
     open_date_by_ticker?: Record<string, string | null>;
+    open_date_locked_by_ticker?: Record<string, boolean>;
+    cost_by_ticker?: Record<string, number | null>;
+    cost_locked_by_ticker?: Record<string, boolean>;
   },
 ): Promise<FolioPortfolioDetail> {
-  if (USE_INTERACTIVE_MOCKS) {
-    return mapFolioPortfolioDetail(await updateMockFolioPortfolio(portfolioId, payload));
+  if (payload.name !== undefined || payload.pinned !== undefined || payload.config !== undefined) {
+    await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/manage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update',
+        portfolio_id: portfolioId,
+        name: payload.name,
+        pinned: payload.pinned,
+        start_date: payload.config?.startDate,
+        capital_by_market: payload.config?.capitalByMarket,
+      }),
+    });
   }
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/manage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'update',
-      portfolio_id: portfolioId,
-      name: payload.name,
-      start_date: payload.config?.startDate,
-      capital_by_market: payload.config?.capitalByMarket,
-      shares_by_ticker: payload.shares_by_ticker,
-      manual_shares_by_ticker: payload.manual_shares_by_ticker,
-      open_date_by_ticker: payload.open_date_by_ticker,
-    }),
+
+  void payload.shares_locked_by_ticker;
+  void payload.manual_shares_by_ticker;
+  void payload.open_date_locked_by_ticker;
+  void payload.cost_by_ticker;
+  void payload.cost_locked_by_ticker;
+
+  if (payload.open_date_by_ticker || payload.shares_by_ticker) {
+    const analysis = await fetchJson<PortfolioAnalysisResponse>(
+      `${API_PREFIX}/portfolio/holdings/metadata`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          portfolio_id: portfolioId,
+          open_date_by_ticker: payload.open_date_by_ticker,
+          shares_by_ticker: payload.shares_by_ticker,
+        }),
+      },
+    );
+    const summary = await fetchPortfolioSummary(portfolioId);
+    return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+  }
+
+  return fetchFolioPortfolioDetail(portfolioId, {
+    includePerformance: true,
+    startDate: payload.config?.startDate,
   });
-  return mapFolioPortfolioDetail(raw.detail);
 }
 
 export async function deleteFolioPortfolio(portfolioId: string): Promise<void> {
-  if (USE_INTERACTIVE_MOCKS) {
-    await deleteMockFolioPortfolio(portfolioId);
-    return;
-  }
-  await fetchJson(`${API_PREFIX}/portfolio/manage`, {
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/manage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'delete', portfolio_id: portfolioId }),
@@ -225,53 +519,55 @@ export async function addFolioHolding(
   portfolioId: string,
   payload: { ticker: string; market?: MarketCode; shares?: number },
 ): Promise<FolioPortfolioDetail> {
-  if (USE_INTERACTIVE_MOCKS) {
-    return mapFolioPortfolioDetail(await addMockFolioHolding(portfolioId, payload));
-  }
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/holdings`, {
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       portfolio_id: portfolioId,
-      ticker: payload.ticker,
-      market: payload.market === 'sh' ? 'cn' : payload.market,
-      shares: payload.shares,
+      holding_details: {
+        ticker: payload.ticker,
+        market: payload.market,
+        shares: payload.shares,
+      },
     }),
   });
-  return mapFolioPortfolioDetail(raw.detail);
+  const summary = await fetchPortfolioSummary(portfolioId);
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
 }
 
 export async function removeFolioHolding(
   portfolioId: string,
-  payload: { ticker: string; market?: MarketCode },
+  payload: { ticker: string; market: MarketCode },
 ): Promise<FolioPortfolioDetail> {
-  const market = payload.market === 'sh' ? 'cn' : payload.market;
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/holdings`, {
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       portfolio_id: portfolioId,
       ticker: payload.ticker,
-      market,
+      market: payload.market,
     }),
   });
-  return mapFolioPortfolioDetail(raw.detail);
+  const summary = await fetchPortfolioSummary(portfolioId);
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
 }
 
 export async function autoAllocateFolioPortfolio(
   portfolioId: string,
   market?: MarketCode,
+  allocationStrategy: FolioAllocationStrategy = 'market_cap',
 ): Promise<FolioPortfolioDetail> {
-  if (USE_INTERACTIVE_MOCKS) {
-    return mapFolioPortfolioDetail(await autoAllocateMockFolioPortfolio(portfolioId, market));
-  }
-  const raw = await fetchJson<{ detail: FolioPortfolioDetailResponse }>(`${API_PREFIX}/portfolio/allocate`, {
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/allocate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       portfolio_id: portfolioId,
-      market: market === 'sh' ? 'cn' : market,
+      market,
+      allocation_strategy: allocationStrategy,
     }),
   });
-  return mapFolioPortfolioDetail(raw.detail);
+  const summary = await fetchPortfolioSummary(portfolioId);
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
 }
+
+export { ApiError };

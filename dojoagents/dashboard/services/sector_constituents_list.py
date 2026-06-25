@@ -11,6 +11,7 @@ from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_sphere import SectorConstituentItem, SectorConstituentsResponse
 
 CURRENCY_BY_MARKET = {"us": "USD", "sh": "CNY", "hk": "HKD"}
+VALID_QUERY_MARKETS = {"cn", *MARKETS}
 
 
 def _display_ratio(value: float | None) -> float | None:
@@ -18,6 +19,17 @@ def _display_ratio(value: float | None) -> float | None:
     if value is None or not math.isfinite(value) or value == 0:
         return None
     return float(value)
+
+
+def _market_candidates(market: str | None) -> list[str | None]:
+    if market is None:
+        return [None]
+    code = str(market).strip().lower()
+    if code == "cn":
+        return ["cn", "sh"]
+    if code == "sh":
+        return ["sh", "cn"]
+    return [code]
 
 
 async def list_sector_constituents(
@@ -34,7 +46,7 @@ async def list_sector_constituents(
     """Constituents for L1/L2/L3 scope of the selected sector path."""
     if scope not in ("L1", "L2", "L3"):
         scope = "L3"
-    if market is not None and market not in MARKETS:
+    if market is not None and market not in VALID_QUERY_MARKETS:
         return SectorConstituentsResponse(
             level1_id=path.level1_id,
             level2_id=path.level2_id,
@@ -44,12 +56,16 @@ async def list_sector_constituents(
             items=[],
         )
 
-    constituents = sector_precomputed_store.get_sector_constituents(
-        level1_id=path.level1_id,
-        level2_id=path.level2_id,
-        level3_id=path.level3_id,
-        market=market,
-    )
+    constituents = []
+    for market_candidate in _market_candidates(market):
+        constituents = sector_precomputed_store.get_sector_constituents(
+            level1_id=path.level1_id,
+            level2_id=path.level2_id,
+            level3_id=path.level3_id,
+            market=market_candidate,
+        )
+        if constituents:
+            break
 
     if not constituents:
         return SectorConstituentsResponse(
@@ -89,7 +105,7 @@ async def list_sector_constituents(
                 ticker=stock.ticker,
                 market=stock.market,
                 name=_stock_bilingual_name(stock),
-                currency=(stock.currency or CURRENCY_BY_MARKET.get(stock.market, "")).strip(),
+                currency=(stock.currency or CURRENCY_BY_MARKET.get(stock.market, "") or CURRENCY_BY_MARKET.get(resolved_market, "")).strip(),
                 last_price=quote.last_price,
                 change_percent=quote.change_percent,
                 window_change_percent=window_change_percent,

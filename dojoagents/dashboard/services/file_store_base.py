@@ -51,11 +51,19 @@ def _atomic_write_text(path: Path, content: str) -> None:
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
         temp_path = None
-        directory_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        # ===== 只在 Linux/Unix 上执行目录 fsync =====
+        # Windows 执行 os.open(path.parent, os.O_RDONLY) 会抛出 PermissionError
+        if os.name == 'posix':  # Linux / macOS / Unix
+            try:
+                directory_fd = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # 如果目录 fsync 失败，忽略（不影响主流程）
+                pass
+        
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)

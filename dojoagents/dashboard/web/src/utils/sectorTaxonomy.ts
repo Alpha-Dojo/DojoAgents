@@ -78,6 +78,26 @@ export function findSectorPathByL3Name(
   return null;
 }
 
+export function findSectorPathByLevelName(
+  taxonomy: SectorTaxonomyDocument,
+  level: 'L1' | 'L2' | 'L3',
+  name: string,
+): ResolvedSectorPath | null {
+  const needle = name.trim();
+  if (!needle) return null;
+
+  for (const path of iterSectorPaths(taxonomy)) {
+    const node =
+      level === 'L1' ? path.level1.name : level === 'L2' ? path.level2.name : path.level3.name;
+    const zh = node.zh.trim();
+    const en = node.en.trim();
+    if ((zh && zh === needle) || (en && en === needle)) {
+      return path;
+    }
+  }
+  return null;
+}
+
 export function resolveSectorPathFromJump(
   taxonomy: SectorTaxonomyDocument,
   linkKey?: string | null,
@@ -108,6 +128,15 @@ export function getDefaultSelection(taxonomy: SectorTaxonomyDocument): SectorPat
     return { level1Id: '', level2Id: '', level3Id: '' };
   }
   return selectionFromPath(first);
+}
+
+/** DojoSphere landing sector: 科技 > 半导体与集成电路 > 芯片设计 */
+export function getSphereDefaultSelection(taxonomy: SectorTaxonomyDocument): SectorPathSelection {
+  const chipDesign =
+    findSectorPathByLinkKey(taxonomy, 'chip-design') ??
+    findSectorPathByL3Name(taxonomy, '芯片设计', 'Chip Design');
+  if (chipDesign) return selectionFromPath(chipDesign);
+  return getDefaultSelection(taxonomy);
 }
 
 export function listLevel2Options(

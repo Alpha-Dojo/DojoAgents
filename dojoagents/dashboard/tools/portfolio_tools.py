@@ -30,9 +30,15 @@ def _service_or_raise(registry: FinancialDomainRegistry):
     return service
 
 
-def _json_content(payload: Any) -> dict[str, Any]:
+def _json_content(
+    payload: Any,
+    *,
+    resource_changes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "content": json.dumps(payload, ensure_ascii=False, indent=2),
+        "data": payload,
+        "resource_changes": list(resource_changes or []),
         "metadata": {"ok": True},
     }
 
@@ -64,7 +70,11 @@ def register_dashboard_portfolio_tools(
     async def create_portfolio(args: dict[str, Any]) -> dict[str, Any]:
         name = str(args.get("name") or "").strip()
         detail = await _service_or_raise(registry).create(CreatePortfolioRequest(name=name))
-        return _json_content(detail.model_dump())
+        payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": payload.get("id")}],
+        )
 
     async def rename_portfolio(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
@@ -75,14 +85,21 @@ def register_dashboard_portfolio_tools(
         )
         if detail is None:
             raise RuntimeError("portfolio not found")
-        return _json_content(detail.model_dump())
+        payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "rename", "portfolio_id": portfolio_id}],
+        )
 
     async def delete_portfolio(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
         ok = await _service_or_raise(registry).delete(portfolio_id)
         if not ok:
             raise RuntimeError("portfolio not found")
-        return _json_content({"ok": True, "portfolio_id": portfolio_id})
+        return _json_content(
+            {"ok": True, "portfolio_id": portfolio_id},
+            resource_changes=[{"resource": "portfolio", "action": "delete", "portfolio_id": portfolio_id}],
+        )
 
     async def add_holding(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
@@ -94,7 +111,11 @@ def register_dashboard_portfolio_tools(
         detail = await _service_or_raise(registry).add_holding(portfolio_id, body)
         if detail is None:
             raise RuntimeError("portfolio or ticker not found")
-        return _json_content(detail.model_dump())
+        payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "add_holding", "portfolio_id": portfolio_id}],
+        )
 
     async def remove_holding(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
@@ -105,7 +126,11 @@ def register_dashboard_portfolio_tools(
         detail = await _service_or_raise(registry).remove_holding(portfolio_id, body)
         if detail is None:
             raise RuntimeError("portfolio or holding not found")
-        return _json_content(detail.model_dump())
+        payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "remove_holding", "portfolio_id": portfolio_id}],
+        )
 
     async def auto_allocate(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
@@ -113,7 +138,11 @@ def register_dashboard_portfolio_tools(
         detail = await _service_or_raise(registry).auto_allocate(portfolio_id, body)
         if detail is None:
             raise RuntimeError("portfolio not found")
-        return _json_content(detail.model_dump())
+        payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "auto_allocate", "portfolio_id": portfolio_id}],
+        )
 
     tool_specs = [
         ToolSpec(

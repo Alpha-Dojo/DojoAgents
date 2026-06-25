@@ -20,6 +20,8 @@ export interface OrderedSectorRow {
   selected?: boolean;
   injected?: boolean;
   missing?: boolean;
+  /** Scroll this row into view inside the sector list (cross-market highlight). */
+  scrollIntoView?: boolean;
 }
 
 /** undefined = loading, null = not found, SectorItem = resolved */
@@ -30,10 +32,10 @@ function sectorVariant(changePercent: number): 'gain' | 'loss' {
 }
 
 function sectorLeadSortScore(sector: SectorItem): number {
-  return (sector.avg_market_cap ?? 0) * sector.change_percent;
+  return (sector.avg_market_cap ?? 0) * (sector.change_percent ?? 0);
 }
 
-function withStrength(sector: SectorItem, peers: SectorItem[]): SectorItem {
+export function withStrength(sector: SectorItem, peers: SectorItem[]): SectorItem {
   const maxAbs = Math.max(
     ...peers.map((s) => Math.abs(sectorLeadSortScore(s))),
     Math.abs(sectorLeadSortScore(sector)),
@@ -45,17 +47,15 @@ function withStrength(sector: SectorItem, peers: SectorItem[]): SectorItem {
   };
 }
 
-function mapRows(
-  sectors: SectorItem[],
+function isSelectedSector(
+  sector: SectorItem,
   link: CrossMarketLink,
   market: MarketCode,
-  mapRow: (sector: SectorItem) => Omit<OrderedSectorRow, 'sector'>,
-): OrderedSectorRow[] {
-  return sectors.map((sector) => ({
-    sector,
-    ...mapRow(sector),
-    selected: market === link.sourceMarket && sector.concept_code === link.sourceConceptCode,
-  }));
+): boolean {
+  if (market === link.sourceMarket) {
+    return sector.concept_code === link.sourceConceptCode;
+  }
+  return sectorLinkKey(sector.concept_code) === link.linkKey;
 }
 
 export function orderSectorsWithLink(
@@ -72,63 +72,32 @@ export function orderSectorsWithLink(
   const isSource = market === link.sourceMarket;
   const inList = sectors.find((s) => sectorLinkKey(s.concept_code) === link.linkKey);
 
-  if (isSource) {
-    if (!inList) {
-      return mapRows(sectors, link, market, () => ({}));
-    }
-    const rest = sectors.filter((s) => sectorLinkKey(s.concept_code) !== link.linkKey);
-    return [
-      {
-        sector: inList,
-        selected: inList.concept_code === link.sourceConceptCode,
-      },
-      ...mapRows(rest, link, market, () => ({})),
-    ];
-  }
-
-  if (inList) {
-    const rest = sectors.filter((s) => sectorLinkKey(s.concept_code) !== link.linkKey);
-    return [
-      { sector: inList, linked: true },
-      ...mapRows(rest, link, market, () => ({})),
-    ];
+  if (inList || isSource) {
+    return sectors.map((sector) => {
+      const selected = isSelectedSector(sector, link, market);
+      return {
+        sector,
+        selected,
+        scrollIntoView: selected && !isSource,
+      };
+    });
   }
 
   if (lookupSector === undefined) {
-    return mapRows(sectors, link, market, () => ({}));
+    return sectors.map((sector) => ({ sector }));
   }
 
-  let pinned: SectorItem | null = null;
-  let missing = false;
-
-  if (lookupSector) {
-    if (sectorVariant(lookupSector.change_percent) !== variant) {
-      return mapRows(sectors, link, market, () => ({}));
-    }
-    pinned = withStrength(lookupSector, sectors);
-  } else {
-    if (sectorVariant(link.sourceChangePercent) !== variant) {
-      return mapRows(sectors, link, market, () => ({}));
-    }
-    missing = true;
-    pinned = {
-      concept_code: `${market.toUpperCase()}.L3.${link.linkKey}`,
-      name: link.sourceName,
-      change_percent: 0,
-      strength: 0,
-      sample_tickers: [],
-      member_count: 0,
-      members: [],
-    };
+  if (!lookupSector || sectorVariant(lookupSector.change_percent) !== variant) {
+    return sectors.map((sector) => ({ sector }));
   }
 
   return [
+    ...sectors.map((sector) => ({ sector })),
     {
-      sector: pinned,
-      linked: true,
+      sector: withStrength(lookupSector, sectors),
+      selected: true,
       injected: true,
-      missing,
+      scrollIntoView: true,
     },
-    ...mapRows(sectors, link, market, () => ({})),
   ];
 }

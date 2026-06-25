@@ -9,7 +9,7 @@ import {
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorPerformanceMarketPoint } from '../../types/dojoSphere';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
@@ -380,9 +380,7 @@ export function SphereLevelPerformanceSparkline({
                     className={`sphere-level-sparkline__inline-market sphere-level-sparkline__inline-market--${PERFORMANCE_MARKET_CLASS[market]}`}
                     title={marketTitle(chip, isClosed, isLatest)}
                   >
-                    <span className="sphere-level-sparkline__inline-flag" aria-hidden>
-                      {MARKET_FLAG[market]}
-                    </span>
+                    <img className="sphere-level-sparkline__inline-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
                     <span className="sphere-level-sparkline__inline-code">{MARKET_CODE[market]}</span>
                     <span
                       className={`sphere-level-sparkline__inline-return sphere-level-sparkline__inline-return--${

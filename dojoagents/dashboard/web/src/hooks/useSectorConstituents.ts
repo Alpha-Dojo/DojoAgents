@@ -6,11 +6,11 @@ import type { MarketCode } from '../types/dojoMesh';
 import type { SectorLevelKey } from '../types/dojoSphere';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 
-const MARKETS: MarketCode[] = ['us', 'sh', 'hk'];
+const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 
 const EMPTY_BY_MARKET: ConstituentsByMarket = {
   us: [],
-  sh: [],
+  cn: [],
   hk: [],
 };
 
@@ -51,7 +51,11 @@ export function useSectorConstituents(
     };
 
     fetchCached(cacheKey, () =>
-      Promise.all(MARKETS.map((market) => fetchSectorConstituents({ ...params, market }))).then(
+      Promise.all(
+        MARKETS.map((market) =>
+          fetchSectorConstituents({ ...params, market }),
+        ),
+      ).then(
         (responses) => {
           const next = { ...EMPTY_BY_MARKET };
           for (const response of responses) {

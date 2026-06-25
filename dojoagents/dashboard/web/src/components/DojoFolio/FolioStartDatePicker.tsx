@@ -3,19 +3,11 @@ import { clampStartDate, computeStartDateBounds } from '../../utils/folioStartDa
 
 interface FolioStartDatePickerProps {
   value: string;
-  earliestDataDate?: string | null;
   onChange: (value: string) => void;
 }
 
-export function FolioStartDatePicker({
-  value,
-  earliestDataDate,
-  onChange,
-}: FolioStartDatePickerProps) {
-  const bounds = useMemo(
-    () => computeStartDateBounds(earliestDataDate),
-    [earliestDataDate],
-  );
+export function FolioStartDatePicker({ value, onChange }: FolioStartDatePickerProps) {
+  const bounds = useMemo(() => computeStartDateBounds(), []);
 
   const selected = clampStartDate(value, bounds.min, bounds.max);
 

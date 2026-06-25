@@ -215,7 +215,32 @@ def financial_client(monkeypatch) -> TestClient:
         lambda *_args, **_kwargs: CoreTickerSectorResponse(ticker="AAPL", market="us"),
     )
     monkeypatch.setattr(
+        domain_api,
+        "resolve_core_ticker_sector",
+        lambda *_args, **_kwargs: CoreTickerSectorResponse(ticker="AAPL", market="us"),
+    )
+    monkeypatch.setattr(
         dojo_core,
+        "resolve_core_ticker_quote",
+        lambda *_args, **_kwargs: CoreTickerQuoteResponse(
+            ticker="AAPL",
+            market="us",
+            last_price=100,
+            change=1,
+            change_percent=1,
+            pre_close=99,
+            open=99,
+            high=101,
+            low=98,
+            volume=100,
+            market_cap=1_000_000_001,
+            pe=20,
+            pb=3,
+            turn_rate=1,
+        ),
+    )
+    monkeypatch.setattr(
+        domain_api,
         "resolve_core_ticker_quote",
         lambda *_args, **_kwargs: CoreTickerQuoteResponse(
             ticker="AAPL",
@@ -239,6 +264,7 @@ def financial_client(monkeypatch) -> TestClient:
         return CoreTickerPeBandResponse(ticker="AAPL", market="us", total_shares=10)
 
     monkeypatch.setattr(dojo_core, "resolve_core_ticker_pe_band", pe_band)
+    monkeypatch.setattr(domain_api, "resolve_core_ticker_pe_band", pe_band)
     monkeypatch.setattr(
         dojo_mesh,
         "compute_all_market_sector_leads",

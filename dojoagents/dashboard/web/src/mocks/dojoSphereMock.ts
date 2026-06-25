@@ -1,10 +1,10 @@
 import type { ResolvedSectorPath } from '../types/sectorTaxonomy';
 
-export type SphereMarketTab = 'all' | 'us' | 'sh' | 'hk';
+export type SphereMarketTab = 'all' | 'us' | 'cn' | 'hk';
 export type SpherePerformanceRange = '1D' | '5D' | '1M' | '1Y';
 
 export interface SphereFlowGauge {
-  market: 'us' | 'sh' | 'hk';
+  market: 'us' | 'cn' | 'hk';
   changePercent: number;
   inflowLabel: string;
 }
@@ -18,7 +18,7 @@ export interface SpherePerformancePoint {
 
 export interface SphereConstituentRow {
   ticker: string;
-  market: 'us' | 'sh' | 'hk';
+  market: 'us' | 'cn' | 'hk';
   nameZh: string;
   nameEn: string;
   lastPrice: number;
@@ -66,7 +66,7 @@ const MOCK_ROWS: SphereConstituentRow[] = [
   },
   {
     ticker: '000333.SZ',
-    market: 'sh',
+    market: 'cn',
     nameZh: '美的集团',
     nameEn: 'Midea Group',
     lastPrice: 68.5,
@@ -130,7 +130,7 @@ const MOCK_ROWS: SphereConstituentRow[] = [
   },
   {
     ticker: '002371.SZ',
-    market: 'sh',
+    market: 'cn',
     nameZh: '北方华创',
     nameEn: 'NAURA',
     lastPrice: 312.6,
@@ -178,7 +178,7 @@ const MOCK_ROWS: SphereConstituentRow[] = [
   },
   {
     ticker: '688981.SH',
-    market: 'sh',
+    market: 'cn',
     nameZh: '中芯国际',
     nameEn: 'SMIC A',
     lastPrice: 48.9,
@@ -252,7 +252,7 @@ export function buildSphereMock(path: ResolvedSectorPath): SpherePageMock {
     totalMarketCapLabel: '$1.8T (Global 加权)',
     flowGauges: [
       { market: 'us', changePercent: 1.1, inflowLabel: '+$200M Inflow' },
-      { market: 'sh', changePercent: -0.8, inflowLabel: '-¥1.2B Inflow' },
+      { market: 'cn', changePercent: -0.8, inflowLabel: '-¥1.2B Inflow' },
       { market: 'hk', changePercent: 0.4, inflowLabel: '+HK$80M Inflow' },
     ],
     performance: buildPerformanceSeries(),

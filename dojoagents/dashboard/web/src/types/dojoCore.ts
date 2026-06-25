@@ -53,6 +53,11 @@ export interface StockFinIndicatorRow {
   divi_ratio?: number | null;
   total_market_cap?: number | null;
   hksk_market_cap?: number | null;
+  /** Natural calendar period from backend (+2 on fiscal report_period_name). */
+  calendar_year?: number | null;
+  calendar_quarter?: number | null;
+  calendar_period_label?: string | null;
+  calendar_period_index?: number | null;
 }
 
 export interface CoreTickerFinIndicatorsResponse {
@@ -120,6 +125,7 @@ export interface CorePeBandPoint {
 
 export interface CoreFinancialYear {
   year: string;
+  reportDate?: string;
   revenue: number;
   netProfit: number;
   /** Same-quarter YoY revenue growth; null when prior-year quarter is unavailable. */

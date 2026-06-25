@@ -13,6 +13,12 @@ export function normalizeManualShares(market: MarketCode, rawValue: number): num
   return normalizeLotShares(rawValue);
 }
 
+export function formatSharesForMarket(market: MarketCode, shares: number): string {
+  const normalized = normalizeManualShares(market, shares);
+  if (normalized <= 0) return '0';
+  return String(normalized);
+}
+
 export function sharesInputStep(market: MarketCode): number {
   return market === 'us' ? 1 : 100;
 }

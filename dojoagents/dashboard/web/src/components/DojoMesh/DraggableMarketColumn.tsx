@@ -1,5 +1,6 @@
 import type { DragEvent, HTMLAttributes, ReactNode } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
+import type { MarketDropSide } from '../../navigation/marketColumnOrder';
 import type { MarketCode } from '../../types/dojoMesh';
 
 export type MarketBrandDragProps = HTMLAttributes<HTMLDivElement> & {
@@ -9,18 +10,25 @@ export type MarketBrandDragProps = HTMLAttributes<HTMLDivElement> & {
 interface DraggableMarketColumnProps {
   market: MarketCode;
   isDragging: boolean;
-  isDropTarget: boolean;
+  dropSide: MarketDropSide | null;
   onDragStart: (market: MarketCode) => void;
   onDragEnd: () => void;
-  onDragOver: (market: MarketCode) => void;
-  onDrop: (market: MarketCode) => void;
+  onDragOver: (market: MarketCode, side: MarketDropSide) => void;
+  onDrop: (market: MarketCode, side: MarketDropSide) => void;
   children: (brandDrag: MarketBrandDragProps) => ReactNode;
+}
+
+function getDropSide(event: DragEvent<HTMLDivElement>): MarketDropSide {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const offset = event.clientX - rect.left;
+  const ratio = rect.width > 0 ? offset / rect.width : 0;
+  return ratio > 0.5 ? 'right' : 'left';
 }
 
 export function DraggableMarketColumn({
   market,
   isDragging,
-  isDropTarget,
+  dropSide,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -32,6 +40,7 @@ export function DraggableMarketColumn({
   const brandDrag: MarketBrandDragProps = {
     draggable: true,
     'aria-label': t('mesh.dragColumn'),
+    title: t('mesh.dragColumn'),
     onDragStart: (event: DragEvent<HTMLDivElement>) => {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', market);
@@ -43,15 +52,20 @@ export function DraggableMarketColumn({
   return (
     <div
       className={`mesh-market-column-wrap${isDragging ? ' mesh-market-column-wrap--dragging' : ''}${
-        isDropTarget ? ' mesh-market-column-wrap--drop-target' : ''
+        dropSide ? ` mesh-market-column-wrap--drop-target mesh-market-column-wrap--drop-${dropSide}` : ''
       }`}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        onDragOver(market, getDropSide(event));
+      }}
       onDragOver={(event) => {
         event.preventDefault();
-        onDragOver(market);
+        event.dataTransfer.dropEffect = 'move';
+        onDragOver(market, getDropSide(event));
       }}
       onDrop={(event) => {
         event.preventDefault();
-        onDrop(market);
+        onDrop(market, getDropSide(event));
       }}
     >
       {children(brandDrag)}

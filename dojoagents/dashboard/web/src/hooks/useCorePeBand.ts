@@ -4,6 +4,7 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { CoreTickerContext } from '../navigation/coreContext';
 import type { CorePeBandPoint } from '../types/dojoCore';
+import { resolveCoreDailyChartWindow } from '../utils/coreKline';
 
 interface CorePeBandCache {
   points: CorePeBandPoint[];
@@ -47,11 +48,14 @@ export function useCorePeBand(ctx: CoreTickerContext | null) {
     }
     setError(null);
 
+    const chartWindow = ctx.market ? resolveCoreDailyChartWindow(ctx.market) : null;
+
     fetchCached(cacheKey, () =>
       fetchCoreTickerPeBand({
         ticker: ctx.ticker,
         market: ctx.market,
-        limit: 252,
+        start_date: chartWindow?.start,
+        end_date: chartWindow?.end,
       }).then((response) => ({
         points: response.points,
         loadedKey: `${ctx.market ?? ''}:${response.ticker}`,

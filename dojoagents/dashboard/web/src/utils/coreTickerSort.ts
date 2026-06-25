@@ -3,7 +3,7 @@ import type { CoreTickerSearchItem } from '../types/dojoCore';
 
 const MARKET_ORDER: Record<MarketCode, number> = {
   us: 0,
-  sh: 1,
+  cn: 1,
   hk: 2,
 };
 

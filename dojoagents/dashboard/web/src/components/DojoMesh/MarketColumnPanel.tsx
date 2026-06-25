@@ -8,9 +8,10 @@ import { SectorBlock } from './SectorBlock';
 
 interface MarketColumnPanelProps {
   market: MarketCode;
-  flag: string;
+  flagSrc: string;
   label: string;
   column: MarketColumn;
+  sectorDays?: number;
   chartWindowStart?: string;
   chartWindowEnd?: string;
   crossMarketLink: CrossMarketLink | null;
@@ -21,13 +22,15 @@ interface MarketColumnPanelProps {
   linkedHoverDate?: string | null;
   onLinkedHoverDateChange?: (date: string | null) => void;
   brandDrag?: MarketBrandDragProps;
+  section?: 'all' | 'hero' | 'sectors';
 }
 
 export function MarketColumnPanel({
   market,
-  flag,
+  flagSrc,
   label,
   column,
+  sectorDays = 1,
   chartWindowStart,
   chartWindowEnd,
   crossMarketLink,
@@ -38,6 +41,7 @@ export function MarketColumnPanel({
   linkedHoverDate,
   onLinkedHoverDateChange,
   brandDrag,
+  section = 'all',
 }: MarketColumnPanelProps) {
   const { t } = useTranslation();
   const gainerRows = orderSectorsWithLink(
@@ -55,38 +59,59 @@ export function MarketColumnPanel({
     lookupSector,
   );
 
+  const showHero = section === 'all' || section === 'hero';
+  const showSectors = section === 'all' || section === 'sectors';
+  const scrollToLinkKey =
+    crossMarketLink && market !== crossMarketLink.sourceMarket
+      ? crossMarketLink.linkKey
+      : null;
+
   return (
-    <div className="mesh-market-column">
-      <MarketHeroCard
-        flag={flag}
-        label={label}
-        stats={column.stats}
-        benchmarks={column.benchmarks}
-        defaultSymbol={column.default_benchmark}
-        chartWindowStart={chartWindowStart}
-        chartWindowEnd={chartWindowEnd}
-        linkedHoverDate={linkedHoverDate}
-        onLinkedHoverDateChange={onLinkedHoverDateChange}
-        brandDrag={brandDrag}
-      />
-      <div className="mesh-market-column__sectors">
-        <SectorBlock
-          variant="gain"
-          title={t('sector.gainers')}
-          rows={gainerRows}
-          onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
-          onSectorJump={(sector) => onSectorJump?.(sector, market)}
-          onTickerClick={(member, sector) => onTickerClick?.(member, market, sector)}
+    <div
+      className={`mesh-market-column${
+        section === 'hero' ? ' mesh-market-column--hero' : ''
+      }${section === 'sectors' ? ' mesh-market-column--sectors' : ''}`}
+    >
+      {showHero ? (
+        <MarketHeroCard
+          flagSrc={flagSrc}
+          label={label}
+          stats={column.stats}
+          benchmarks={column.benchmarks}
+          defaultSymbol={column.default_benchmark}
+          chartWindowStart={chartWindowStart}
+          chartWindowEnd={chartWindowEnd}
+          linkedHoverDate={linkedHoverDate}
+          onLinkedHoverDateChange={onLinkedHoverDateChange}
+          brandDrag={brandDrag}
         />
-        <SectorBlock
-          variant="loss"
-          title={t('sector.losers')}
-          rows={loserRows}
-          onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
-          onSectorJump={(sector) => onSectorJump?.(sector, market)}
-          onTickerClick={(member, sector) => onTickerClick?.(member, market, sector)}
-        />
-      </div>
+      ) : null}
+      {showSectors ? (
+        <div className="mesh-market-column__sectors">
+          <SectorBlock
+            market={market}
+            variant="gain"
+            lookbackDays={sectorDays}
+            title={t('sector.gainers')}
+            rows={gainerRows}
+            scrollToLinkKey={scrollToLinkKey}
+            onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
+            onSectorJump={(sector) => onSectorJump?.(sector, market)}
+            onTickerClick={(member, sector) => onTickerClick?.(member, market, sector)}
+          />
+          <SectorBlock
+            market={market}
+            variant="loss"
+            lookbackDays={sectorDays}
+            title={t('sector.losers')}
+            rows={loserRows}
+            scrollToLinkKey={scrollToLinkKey}
+            onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
+            onSectorJump={(sector) => onSectorJump?.(sector, market)}
+            onTickerClick={(member, sector) => onTickerClick?.(member, market, sector)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

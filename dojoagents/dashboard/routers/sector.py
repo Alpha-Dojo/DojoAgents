@@ -8,10 +8,15 @@ from dojoagents.dashboard.deps import get_financial_registry
 from dojoagents.dashboard.schemas.domain_api import SectorAnalysisResponse, SectorConstituentsResponseV1
 from dojoagents.dashboard.services.domain_api import build_sector_analysis, build_sector_constituents_v1
 
-router = APIRouter(prefix="/sector", tags=["sector"])
+router = APIRouter(prefix="/sector", tags=["sector-analysis"])
 
 
-@router.get("/analysis", response_model=SectorAnalysisResponse)
+@router.get(
+    "/analysis",
+    response_model=SectorAnalysisResponse,
+    operation_id="get_sector_analysis",
+    summary="Sector market cap, weighted PE, NAV curves, and risk stats",
+)
 async def sector_analysis(
     level1_id: str = Query(..., min_length=1),
     level2_id: str = Query(..., min_length=1),
@@ -31,7 +36,12 @@ async def sector_analysis(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.get("/constituents", response_model=SectorConstituentsResponseV1)
+@router.get(
+    "/constituents",
+    response_model=SectorConstituentsResponseV1,
+    operation_id="filter_sector_constituents",
+    summary="All constituents in a sector with quote and valuation metrics",
+)
 async def sector_constituents(
     level1_id: str = Query(..., min_length=1),
     level2_id: str = Query(..., min_length=1),
