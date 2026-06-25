@@ -25,7 +25,7 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk==0.1.1",
+    "dojosdk==0.1.2",
     "exchange-calendars>=4,<5",
     "portalocker",
 ]

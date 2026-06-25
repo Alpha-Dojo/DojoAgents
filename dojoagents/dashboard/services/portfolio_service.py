@@ -482,7 +482,7 @@ class PortfolioService:
             price = float(quote.last_price) if quote else 0.0
             change_percent = float(quote.change_percent) if quote else 0.0
             open_date = resolve_cost_date(row, config_raw)
-            open_price = lookup_open_price(self.kline_store, ticker, open_date) if open_date else None
+            open_price = await lookup_open_price(self.kline_store, ticker, open_date) if open_date else None
             cost = float(open_price) if open_price and open_price > 0 else price
             cost_override = row.get("cost_override")
             if cost_override is not None:

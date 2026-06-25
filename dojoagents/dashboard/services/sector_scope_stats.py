@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Dict, Any
 
 from dojoagents.dashboard.services.market_stats import compute_market_stats
@@ -36,6 +37,20 @@ async def compute_sector_scope_metrics(
     path: ResolvedSectorPath,
 ) -> SectorScopeMetricsResponse:
     """Total market cap and weighted PE for L1/L2/L3 scopes in each market."""
+    return await asyncio.to_thread(
+        _compute_sector_scope_metrics_sync,
+        stock_store,
+        sector_precomputed_store,
+        path,
+    )
+
+
+def _compute_sector_scope_metrics_sync(
+    stock_store: StockStore,
+    sector_precomputed_store: Any,
+    path: ResolvedSectorPath,
+) -> SectorScopeMetricsResponse:
+    """Sync core used behind the async API to avoid blocking the event loop."""
     scopes: Dict[SectorLevel, Dict[str, SectorScopeMarketStats]] = {level: {} for level in LEVELS}
 
     for market in MARKETS:

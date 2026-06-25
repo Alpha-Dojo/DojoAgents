@@ -151,11 +151,9 @@ class DojoDataGateway:
 
     async def stock_klines(
         self,
-        market: str,
         symbols: list[str],
         **window: Any,
     ) -> GatewayResult["pd.DataFrame"]:
-        del market
         kwargs = {key: value for key, value in window.items() if value is not None}
         try:
             payload_df = await self._call(
@@ -163,7 +161,7 @@ class DojoDataGateway:
                 self.client.stocks.get_all_klines_with_df(),
             )
             canonical_symbols = [_canonical_symbol(s) for s in symbols]
-            df = payload_df[payload_df["symbol"].isin(canonical_symbols)].copy()
+            df = payload_df[payload_df["symbol"].isin(canonical_symbols)]
             return _df_result(df)
         except Exception:
             pass
@@ -197,7 +195,7 @@ class DojoDataGateway:
             )
             if symbols is not None:
                 canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
-                payload_df = payload_df[payload_df["symbol"].isin(canonical_symbols)].copy()
+                payload_df = payload_df[payload_df["symbol"].isin(canonical_symbols)]
             return _df_result(payload_df)
         except Exception:
             pass

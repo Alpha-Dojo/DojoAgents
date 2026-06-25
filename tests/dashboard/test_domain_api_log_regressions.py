@@ -99,13 +99,7 @@ async def test_build_sector_analysis_backfills_kline_precomputed_store(monkeypat
     monkeypatch.setattr(domain_api, "compute_sector_scope_metrics", fake_metrics)
     monkeypatch.setattr(domain_api, "compute_sector_scope_performance", fake_performance)
 
-    response = await domain_api.build_sector_analysis(
-        registry,
-        level1_id="1",
-        level2_id="2",
-        level3_id="3",
-        scope="L3",
-    )
+    response = await domain_api.build_sector_analysis(registry, path, scope="L3")
 
     assert response.scope == "L3"
     assert registry.kline_store.sector_precomputed_store is registry.sector_precomputed_store
@@ -147,9 +141,7 @@ async def test_build_sector_constituents_reads_source_cn_market_rows() -> None:
         kline_store=SimpleNamespace(),
         sector_precomputed_store=SimpleNamespace(
             get_sector_constituents=get_sector_constituents,
-            get_ticker_daily_by_window=lambda _days, _tickers: [
-                {"ticker": "000001.SZ", "daily_return_pct": 2.5}
-            ],
+            get_ticker_daily_by_window=lambda _days, _tickers: [{"ticker": "000001.SZ", "daily_return_pct": 2.5}],
         ),
     )
 
@@ -176,9 +168,7 @@ async def test_build_sector_constituents_falls_back_to_precomputed_ids_when_path
         kline_store=SimpleNamespace(),
         sector_precomputed_store=SimpleNamespace(
             get_sector_constituents=lambda **_kwargs: [{"ticker": "AAPL", "market": "us"}],
-            get_ticker_daily_by_window=lambda _days, _tickers: [
-                {"ticker": "AAPL", "daily_return_pct": 3.0}
-            ],
+            get_ticker_daily_by_window=lambda _days, _tickers: [{"ticker": "AAPL", "daily_return_pct": 3.0}],
         ),
     )
 
@@ -264,9 +254,7 @@ async def test_build_sector_analysis_falls_back_to_precomputed_path_when_index_m
     registry = SimpleNamespace(
         sector_store=SimpleNamespace(find_resolved_path=lambda *_args: None),
         stock_store=object(),
-        sector_precomputed_store=SimpleNamespace(
-            get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market": "us"}]
-        ),
+        sector_precomputed_store=SimpleNamespace(get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market": "us"}]),
         kline_store=SimpleNamespace(
             sector_precomputed_store=None,
             prioritize_sector_path=prioritize_sector_path,
@@ -280,13 +268,16 @@ async def test_build_sector_analysis_falls_back_to_precomputed_path_when_index_m
     monkeypatch.setattr(domain_api, "compute_sector_scope_metrics", fake_metrics)
     monkeypatch.setattr(domain_api, "compute_sector_scope_performance", fake_performance)
 
-    response = await domain_api.build_sector_analysis(
+    path = domain_api.resolve_sector_analysis_path(
         registry,
         level1_id="72",
         level2_id="82",
         level3_id="84",
-        scope="L3",
     )
+
+    assert path is not None
+
+    response = await domain_api.build_sector_analysis(registry, path, scope="L3")
 
     assert response.scope == "L3"
     assert response.members_by_market == {"us": 1}

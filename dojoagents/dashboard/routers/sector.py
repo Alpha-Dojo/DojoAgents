@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from dojoagents.dashboard.deps import get_financial_registry
 from dojoagents.dashboard.schemas.domain_api import SectorAnalysisResponse, SectorConstituentsResponseV1
-from dojoagents.dashboard.services.domain_api import build_sector_analysis, build_sector_constituents_v1
+from dojoagents.dashboard.services.domain_api import (
+    build_sector_analysis,
+    build_sector_constituents_v1,
+    resolve_sector_analysis_path,
+)
 
 router = APIRouter(prefix="/sector", tags=["sector-analysis"])
 
@@ -24,16 +28,18 @@ async def sector_analysis(
     scope: Literal["L1", "L2", "L3"] = Query("L3"),
     registry=Depends(get_financial_registry),
 ) -> SectorAnalysisResponse:
-    try:
-        return await build_sector_analysis(
-            registry,
-            level1_id=level1_id,
-            level2_id=level2_id,
-            level3_id=level3_id,
-            scope=scope,
+    path = resolve_sector_analysis_path(
+        registry,
+        level1_id=level1_id,
+        level2_id=level2_id,
+        level3_id=level3_id,
+    )
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown sector path: {level1_id}/{level2_id}/{level3_id}",
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await build_sector_analysis(registry, path, scope=scope)
 
 
 @router.get(
