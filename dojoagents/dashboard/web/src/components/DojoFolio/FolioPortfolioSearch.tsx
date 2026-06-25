@@ -94,6 +94,12 @@ export function FolioPortfolioSearch({
     inputRef.current?.blur();
   };
 
+  const clearQuery = () => {
+    setQuery('');
+    onQueryChange('');
+    inputRef.current?.focus();
+  };
+
   return (
     <div className="folio-portfolio-search" ref={rootRef}>
       <span className="folio-portfolio-search__icon" aria-hidden>
@@ -111,9 +117,17 @@ export function FolioPortfolioSearch({
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => setFocused(true)}
       />
+      {query ? (
+        <button
+          type="button"
+          className="folio-portfolio-search__clear"
+          aria-label={t('folio.cancel')}
+          onClick={clearQuery}
+        />
+      ) : null}
 
       {panelOpen ? (
-        <div className="folio-portfolio-search__panel">
+        <div className="folio-portfolio-search__panel dojo-dropdown-select__dropdown">
           <ul id={listId} className="folio-portfolio-search__list" role="listbox">
             {loading ? <li className="folio-portfolio-search__status">{t('folio.searching')}</li> : null}
             {!loading && hits.length === 0 ? (
@@ -124,15 +138,15 @@ export function FolioPortfolioSearch({
                   const portfolio = portfolios.find((item) => item.id === hit.portfolioId);
                   if (!portfolio) return null;
                   return (
-                    <li key={`${hit.portfolioId}:${hit.matchType}:${hit.matchedLabel ?? ''}`}>
+                    <li key={`${hit.portfolioId}:${hit.matchType}:${hit.matchedLabel ?? ''}`} role="presentation">
                       <button
                         type="button"
-                        className="folio-portfolio-search__option"
+                        className="folio-portfolio-search__option dojo-dropdown-select__option"
                         role="option"
                         onClick={() => handlePick(hit.portfolioId)}
                       >
-                        <span className="folio-portfolio-search__option-name">{portfolio.name}</span>
-                        <span className="folio-portfolio-search__option-meta">
+                        <span className="folio-portfolio-search__option-name dojo-dropdown-select__option-label">{portfolio.name}</span>
+                        <span className="folio-portfolio-search__option-meta dojo-dropdown-select__option-detail">
                           {hit.matchType === 'name'
                             ? t('folio.searchMatchName')
                             : t('folio.searchMatchHolding', { label: hit.matchedLabel ?? '—' })}

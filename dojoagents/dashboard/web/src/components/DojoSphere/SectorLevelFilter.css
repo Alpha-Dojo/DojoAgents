@@ -19,7 +19,7 @@
   line-height: 1.1;
 }
 
-.sphere-level-filter__select {
+.sphere-level-filter__select .dojo-dropdown-select__trigger {
   width: 100%;
   height: calc(26px * var(--sphere-scale, 1));
   padding: 0 8px;
@@ -31,7 +31,14 @@
   font-size: calc(12px * var(--sphere-scale, 1));
 }
 
-.sphere-level-filter__select:focus {
-  outline: none;
+.sphere-level-filter__select .dojo-dropdown-select__trigger:hover,
+.sphere-level-filter__select .dojo-dropdown-select__trigger--open {
   border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.sphere-level-filter__select .dojo-dropdown-select__value {
+  color: var(--text-primary);
+  font-size: calc(12px * var(--sphere-scale, 1));
+  font-weight: 500;
 }
