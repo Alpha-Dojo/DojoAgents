@@ -41,6 +41,12 @@ function linesToArr(text: string): string[] {
 function buildForm(cfg: SettingsConfig): SettingsFormState {
   const llm = asRecord(cfg.llm_provider);
   const providers: Record<string, ProviderForm> = {};
+  const KNOWN_PROVIDERS = ['openai', 'anthropic', 'gemini', 'deepseek', 'glm', 'minimax', 'kimi'];
+
+  for (const name of KNOWN_PROVIDERS) {
+    providers[name] = { model: '', base_url: '', api_key_env: '', api_key: '' };
+  }
+
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
     const provider = asRecord(value);
     providers[name] = {

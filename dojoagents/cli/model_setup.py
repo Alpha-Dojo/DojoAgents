@@ -14,6 +14,9 @@ PRESET_PROVIDERS = {
     "anthropic": {"label": "Anthropic", "default_url": "https://api.anthropic.com/v1", "default_model": "claude-3-5-sonnet-latest"},
     "gemini": {"label": "Google Gemini", "default_url": "https://generativelanguage.googleapis.com/v1beta", "default_model": "gemini-1.5-pro"},
     "deepseek": {"label": "DeepSeek", "default_url": "https://api.deepseek.com/v1", "default_model": "deepseek-chat"},
+    "glm": {"label": "GLM (ZhipuAI)", "default_url": "https://open.bigmodel.cn/api/paas/v4/", "default_model": "glm-4"},
+    "minimax": {"label": "MiniMax", "default_url": "https://api.minimax.chat/v1", "default_model": "abab6.5-chat"},
+    "kimi": {"label": "Kimi (Moonshot)", "default_url": "https://api.moonshot.cn/v1", "default_model": "moonshot-v1-8k"},
 }
 
 

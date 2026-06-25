@@ -69,6 +69,7 @@ export interface AgentChatRequest {
 }
 
 export interface AgentToolTraceItem {
+  call_id?: string;
   tool: string;
   arguments: Record<string, unknown>;
   ok: boolean;
@@ -105,9 +106,10 @@ export type AgentStreamEvent =
   | { type: 'think_end' }
   | { type: 'phase'; phase: 'planning' | 'tools' | 'answering' }
   | { type: 'retry'; attempt: number; max_attempts: number; text: string }
-  | { type: 'tool_start'; tool: string; arguments: Record<string, unknown> }
+  | { type: 'tool_start'; call_id?: string; tool: string; arguments: Record<string, unknown> }
   | {
       type: 'tool_result';
+      call_id?: string;
       tool: string;
       ok: boolean;
       latency_ms: number;

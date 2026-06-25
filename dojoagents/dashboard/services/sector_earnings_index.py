@@ -228,7 +228,7 @@ async def market_cap_weighted_quote_session_return(
     weighted_sum = 0.0
     weight_total = 0.0
 
-    chunk_size = 50
+    chunk_size = 500
     tickers_list = list(tickers)
     for i in range(0, len(tickers_list), chunk_size):
         chunk = tickers_list[i : i + chunk_size]
