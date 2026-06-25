@@ -981,7 +981,7 @@ async def build_ticker_news_events_v1(
                 event_type=str(item.get("event_type") or item.get("type") or ""),
                 title=str(item.get("title") or item.get("event_name") or ""),
                 event_date=item.get("event_date") or item.get("remind_date") or item.get("notice_date"),
-                description=str(item.get("description") or item.get("content") or ""),
+                description=str(item.get("level1_content") or item.get("level2_content") or ""),
             )
             for item in event_items
         ],
