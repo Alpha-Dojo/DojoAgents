@@ -119,7 +119,6 @@ async def sector_scope_performance(
         )
 
     async def compute() -> dict:
-        await kline_store.prioritize_sector_path(path, market=None)
         result = await compute_sector_scope_performance(
             stock_store,
             kline_store,
@@ -174,7 +173,6 @@ async def sector_constituent_klines(
             detail=f"unknown sector path: {level1_id}/{level2_id}/{level3_id}",
         )
 
-    await store.prioritize_sector_path(path, market=market)
     return await store.get_sector_klines(path, market=market)
 
 

@@ -37,6 +37,7 @@ def parse_quote_item(item: dict, ticker: str) -> StockQuote:
         turn_rate=float(item.get("turn_rate") or 0.0),
         pe=float(item.get("pe") or 0.0),
         pb=float(item.get("pb") or 0.0),
+        dividend_yield=float(item.get("dividend_yield") or 0.0),
     )
 
 

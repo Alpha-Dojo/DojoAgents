@@ -23,7 +23,6 @@ from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.sector_constituents import (
     collect_sector_scope_tickers,
-    split_priority_symbol_groups,
 )
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
 
@@ -139,9 +138,9 @@ class KlineStore:
         end = end_time[:10] if end_time else None
 
         if start:
-            df = df[df["day"] >= start]
+            df = df[df["bar_time"] >= start]
         if end:
-            df = df[df["day"] <= end]
+            df = df[df["bar_time"] <= end]
 
         if limit > 0:
             df = df.tail(limit)
@@ -176,7 +175,7 @@ class KlineStore:
                 return
             df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
             df = df[df["symbol"] != ""]
-            df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(subset=["symbol", "day"], keep="last")
+            df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(subset=["symbol", "bar_time"], keep="last")
 
             if limit > 0:
                 df = df.groupby("symbol").tail(limit).reset_index(drop=True)
@@ -272,17 +271,6 @@ class KlineStore:
             as_of=latest,
             scopes=scopes,
         )
-
-    async def prioritize_sector_path(self, path: ResolvedSectorPath, market: Optional[str] = None) -> None:
-        """Prefetch klines for a given sector path."""
-        scopes_raw = collect_sector_scope_tickers(
-            self.sector_precomputed_store,
-            path,
-            market=market,
-        )
-        for symbols in split_priority_symbol_groups(scopes_raw):
-            if symbols:
-                await self.get_klines(symbols)
 
     async def stats(self) -> ConstituentKlineStatsResponse:
         return ConstituentKlineStatsResponse(
