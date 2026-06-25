@@ -106,7 +106,6 @@ export function FolioAddHoldingSearch({
     >
       <div className="folio-add-holding__search">
         <span className="folio-add-holding__icon" aria-hidden>
-          ⌕
         </span>
         <input
           ref={inputRef}
@@ -127,9 +126,7 @@ export function FolioAddHoldingSearch({
             className="folio-add-holding__clear"
             aria-label={t('folio.cancel')}
             onClick={clearQuery}
-          >
-            ×
-          </button>
+          />
         ) : null}
         {showPanel ? (
           <ul id={listId} className="folio-add-holding__panel" role="listbox">

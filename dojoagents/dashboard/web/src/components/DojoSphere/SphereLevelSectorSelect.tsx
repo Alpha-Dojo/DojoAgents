@@ -7,6 +7,7 @@ import {
   listLevel2Options,
   listLevel3Options,
 } from '../../utils/sectorTaxonomy';
+import { DojoDropdownSelect } from '../ui';
 
 interface SphereLevelSectorSelectProps {
   level: SectorLevelKey;
@@ -74,7 +75,7 @@ export function SphereLevelSectorSelect({
   };
 
   return (
-    <label
+    <div
       className="sphere-level-card__sector-picker"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
@@ -83,19 +84,17 @@ export function SphereLevelSectorSelect({
       <span className="sphere-level-card__sector-select-sizer" aria-hidden>
         {selectedLabel}
       </span>
-      <select
+      <DojoDropdownSelect
+        aria-label={t(levelLabelKey)}
         className="sphere-level-card__sector-select"
         value={value}
-        aria-label={t(levelLabelKey)}
-        onChange={(event) => handleChange(event.target.value)}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {options.map((item) => (
-          <option key={item.id} value={item.id}>
-            {labelFor(item.name.zh, item.name.en)}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={handleChange}
+        dropdownMinWidth={160}
+        options={options.map((item) => ({
+          value: item.id,
+          label: labelFor(item.name.zh, item.name.en),
+        }))}
+      />
+    </div>
   );
 }

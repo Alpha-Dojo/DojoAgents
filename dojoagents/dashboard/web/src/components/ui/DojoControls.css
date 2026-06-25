@@ -172,6 +172,27 @@
   padding: 0 8px;
 }
 
+.dojo-input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  padding-right: 14px;
+}
+
+.dojo-input[type='number']::-webkit-outer-spin-button,
+.dojo-input[type='number']::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dojo-input--sm[type='number'] {
+  padding-right: 10px;
+}
+
+.dojo-input--xs[type='number'] {
+  padding-right: 8px;
+}
+
 .dojo-input::placeholder {
   color: #7d8da5;
   opacity: 1;
