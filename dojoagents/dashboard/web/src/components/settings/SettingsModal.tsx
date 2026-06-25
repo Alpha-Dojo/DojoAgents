@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type React
 import { fetchSettingsConfig, updateSettingsConfig } from '../../api/settings';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { SettingsConfig, SettingsFormState, ProviderForm } from '../../types/settings';
+import { DojoButton, DojoInput, DojoSelect } from '../ui';
 import './SettingsModal.css';
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
@@ -277,7 +278,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     placeholder?: string,
     type = 'text',
   ) => (
-    <input
+    <DojoInput
+      size="sm"
       type={type}
       value={value}
       placeholder={placeholder}
@@ -291,7 +293,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     min = 0,
     max?: number,
   ) => (
-    <input
+    <DojoInput
+      size="sm"
       type="number"
       value={value}
       min={min}
@@ -339,7 +342,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           {error ? (
             <div className="settings-state settings-state--error">
               <span>{error}</span>
-              <button type="button" onClick={loadConfig}>{t('settings.retry')}</button>
+              <DojoButton size="sm" variant="secondary" onClick={loadConfig}>{t('settings.retry')}</DojoButton>
             </div>
           ) : null}
 
@@ -450,9 +453,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
               <Section title="Logging">
                 <Field label="Level">
-                  <select value={form.logging.level} onChange={(event) => updateField((draft) => { draft.logging.level = event.target.value; })}>
-                    {LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-                  </select>
+                  <DojoSelect
+                    size="sm"
+                    value={form.logging.level}
+                    onChange={(event) => updateField((draft) => { draft.logging.level = event.target.value; })}
+                    options={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
+                  />
                 </Field>
                 <Field label="Format">{textInput(form.logging.format, (value) => updateField((draft) => { draft.logging.format = value; }))}</Field>
                 <Field label="Date Format">{textInput(form.logging.date_format, (value) => updateField((draft) => { draft.logging.date_format = value; }))}</Field>
@@ -471,10 +477,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         <footer className="settings-modal__footer">
           {saveStatus ? <span className={`settings-save-status settings-save-status--${saveStatus.type}`}>{saveStatus.message}</span> : <span />}
           <div className="settings-modal__actions">
-            <button type="button" className="settings-button settings-button--ghost" onClick={onClose}>{t('settings.cancel')}</button>
-            <button type="button" className="action-button settings-button settings-button--primary" disabled={!form || saving} onClick={() => void handleSave()}>
+            <DojoButton size="sm" variant="secondary" onClick={onClose}>{t('settings.cancel')}</DojoButton>
+            <DojoButton size="sm" variant="primary" disabled={!form || saving} onClick={() => void handleSave()}>
               {saving ? t('settings.saving') : t('settings.save')}
-            </button>
+            </DojoButton>
           </div>
         </footer>
       </section>
