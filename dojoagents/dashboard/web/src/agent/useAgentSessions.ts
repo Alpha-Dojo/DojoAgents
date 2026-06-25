@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AGENT_SESSIONS_STORAGE_KEY } from './agentStorage';
 import type { AgentChatMessage, AgentSession, AgentSessionStore } from '../types/agent';
 
-const STORAGE_KEY = 'dojo-agent-sessions-v1';
+export { AGENT_SESSIONS_STORAGE_KEY, AGENT_DRAFT_STORAGE_KEY } from './agentStorage';
+
 const MAX_SESSIONS = 50;
 
 function createEmptyStore(): AgentSessionStore {
@@ -10,7 +12,7 @@ function createEmptyStore(): AgentSessionStore {
 
 function loadStore(): AgentSessionStore {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(AGENT_SESSIONS_STORAGE_KEY);
     if (!raw) return createEmptyStore();
     const parsed = JSON.parse(raw) as AgentSessionStore;
     if (!Array.isArray(parsed.sessions)) return createEmptyStore();
@@ -24,7 +26,7 @@ function loadStore(): AgentSessionStore {
 }
 
 function persistStore(store: AgentSessionStore) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  localStorage.setItem(AGENT_SESSIONS_STORAGE_KEY, JSON.stringify(store));
 }
 
 export function deriveSessionTitle(firstUserMessage: string, fallback = 'New chat'): string {
@@ -122,6 +124,10 @@ export function useAgentSessions() {
     });
   }, []);
 
+  const reloadFromStorage = useCallback(() => {
+    setStore(loadStore());
+  }, []);
+
   return {
     sessions: store.sessions,
     activeSessionId: store.activeSessionId,
@@ -131,5 +137,6 @@ export function useAgentSessions() {
     ensureActiveSession,
     replaceSessionMessages,
     deleteSession,
+    reloadFromStorage,
   };
 }

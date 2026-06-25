@@ -1,73 +1,132 @@
-import type { AppTab } from '../navigation/appTab';
+import { readPersistedSphereSelection } from '../cache/sphereViewState';
 import type { AppLocale } from '../i18n/locale';
+import { readCoreTickerContext, resolveCoreTickerContext } from '../navigation/coreContext';
+import type { AppTab } from '../navigation/appTab';
+import type { BilingualLabel, SectorTaxonomyDocument } from '../types/sectorTaxonomy';
+import { findSectorPathByIds, getSphereDefaultSelection } from '../utils/sectorTaxonomy';
 
-const SUGGESTED_QUESTIONS: Record<AppTab, Record<AppLocale, string[]>> = {
+export interface SuggestedQuestionContext {
+  sphereL2: string;
+  sphereL3: string;
+  coreCompanyName: string;
+}
+
+const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> = {
   mesh: {
     zh: [
-      '港股今日市场概览怎样？us/cn/hk 近 5 日表现对比如何？',
-      '最近 5 日领涨和领跌的行业板块有哪些？',
-      '美股市值超 100 亿、自 2025-01-01 以来涨超 300% 的股票有哪些？',
-      '对比 us、cn、hk 三市场的总市值与加权 PE',
-      'A 股半导体板块近期涨跌表现如何？',
+      '中美港三地大盘，目前哪边的估值最便宜？',
+      '今天全球市场有何异动？哪个板块在带头砸盘？',
+      '过去一周，全市场资金都在疯狂抢筹哪些板块？',
+      '美股大涨的板块中，A股有哪些同概念板块可以跟涨？',
+      '标普500当前溢价较高，现在还有追高的空间吗？',
     ],
     en: [
-      'How is the HK market today? Compare us/cn/hk over the last 5 sessions.',
-      'Which sectors led gains and losses over the last 5 sessions?',
-      'US stocks with market cap above $10B and total return above 300% since 2025-01-01?',
-      'Compare total market cap and weighted PE across us, cn, and hk.',
-      'How has the A-share semiconductor sector performed recently?',
+      'Among US, CN, and HK, which market looks cheapest on valuation today?',
+      'What moved globally today? Which sectors are leading the selloff?',
+      'Over the past week, which sectors saw the strongest fund inflows across all markets?',
+      'Among US sectors that rallied, which A-share concept sectors could follow?',
+      'The S&P 500 looks richly valued—is there still room to chase higher?',
     ],
   },
   sphere: {
     zh: [
-      '帮我列出半导体相关的三级行业分类',
-      '港股综合性商业银行板块成分股有哪些？筛 PE 较低的',
-      '近期领跌的行业板块有哪些？（总涨跌幅维度 days:0）',
-      '对比金融与科技板块的行业净值表现',
-      '商业航天相关板块在美股的近期表现',
+      '对比中美港三地，{L3}板块现在哪边性价比最高？',
+      '{L2}产业链中，最近哪个细分赛道在领涨？',
+      '帮我在美股{L3}板块中，筛选出市值大且低市盈率的龙头股。',
+      '帮我在全市场{L3}板块中，筛选出市值大且年涨跌幅翻倍的成分股。',
+      '对比一下全球市场「金融」与「科技」板块近期的净值表现。',
     ],
     en: [
-      'List L3 sectors related to semiconductors.',
-      'HK diversified commercial bank constituents with lower PE.',
-      'Which sectors led losses recently? (total return, days:0)',
-      'Compare financials vs technology sector NAV performance.',
-      'How have commercial aerospace sectors performed in the US?',
+      'Across US, CN, and HK, where does {L3} offer the best value now?',
+      'Within {L2}, which sub-sector has been leading gains recently?',
+      'Screen US {L3} for large-cap leaders with low P/E.',
+      'Screen global {L3} for large-cap names with 100%+ trailing return.',
+      'Compare recent NAV performance of global Financials vs Technology.',
     ],
   },
   core: {
     zh: [
-      '英伟达最新财务数据和估值水平如何？',
-      '腾讯近 90 日价格走势与最大回撤是多少？',
-      '建设银行最新新闻与公告有哪些？',
-      '美光科技的收入结构 breakdown',
-      '搜索港股「招商银行」并查看实时报价',
+      '{ticker} 当前的估值算便宜还是贵？',
+      '{ticker} 目前最赚钱的核心业务是哪个？',
+      '{ticker} 作为「高股息」防守配置，现在买入稳当吗？',
+      '{ticker} 的股价处于历史什么水位？可以建仓了吗？',
+      '帮我把 {ticker} 的核心收入，按地区和产品维度拆解一下。',
     ],
     en: [
-      'Latest financials and valuation for NVIDIA.',
-      'Tencent price trends over 90 sessions and max drawdown.',
-      'Latest news and events for China Construction Bank.',
-      'Micron income breakdown by segment.',
-      'Search HK ticker for China Merchants Bank and show realtime quote.',
+      'Is {ticker} cheap or expensive on valuation today?',
+      'What is {ticker}’s most profitable core business right now?',
+      'Is {ticker} a stable high-dividend defensive buy now?',
+      'Where is {ticker} trading vs its historical range—is it a good entry?',
+      'Break down {ticker}’s core revenue by region and product line.',
     ],
   },
   folio: {
     zh: [
-      '在 us/cn/hk 各选 6 只市值超 100 亿、累计涨超 300% 的股票，等权建仓到新组合',
-      '分析「明星股」组合的夏普比率、最大回撤和净值曲线',
-      '「半导体与存储」组合的行业集中度与风险敞口如何？',
-      '对美股持仓执行平等权重配平',
-      '列出所有投资组合及各市场持仓数量',
+      '帮我诊断下所有投资组合，最近是谁在拖后腿？',
+      '帮我挑 5 只低估值的美股高息股，直接一键建仓。',
+      '帮我检查组合里哪些个股仓位过重，并自动配平权重。',
+      '对比我手里的所有组合，接下来往哪一个加仓性价比最高？',
+      '半导体行业近期偏利多还是利空？我的组合需要调整相关仓位吗？',
     ],
     en: [
-      'Pick 6 stocks per market (us/cn/hk) with cap >10B and total return >300%, equal-weight new portfolio.',
-      'Analyze Sharpe, max drawdown, and NAV for the Star Stocks portfolio.',
-      'Sector concentration and risk exposure for Semiconductors & Storage.',
-      'Equal-weight rebalance US holdings.',
-      'List all portfolios and holdings count by market.',
+      'Diagnose all my portfolios—what has been dragging performance lately?',
+      'Pick 5 undervalued US high-yield stocks and build a portfolio in one shot.',
+      'Find overweight names in my portfolios and auto-rebalance weights.',
+      'Among my portfolios, which one offers the best value to add to next?',
+      'Are semiconductors bullish or bearish lately—should I adjust my holdings?',
     ],
   },
 };
 
-export function suggestedQuestionsForTab(tab: AppTab, locale: AppLocale): string[] {
-  return SUGGESTED_QUESTIONS[tab][locale] ?? SUGGESTED_QUESTIONS[tab].zh;
+function localizedLabel(label: BilingualLabel, locale: AppLocale): string {
+  return locale === 'zh' ? label.zh || label.en : label.en || label.zh;
+}
+
+function applySuggestedQuestionTemplate(template: string, context: SuggestedQuestionContext): string {
+  return template
+    .replaceAll('{L3}', context.sphereL3)
+    .replaceAll('{L2}', context.sphereL2)
+    .replaceAll('{ticker}', context.coreCompanyName);
+}
+
+export function resolveSuggestedQuestionContext(
+  locale: AppLocale,
+  taxonomy: SectorTaxonomyDocument | null,
+): SuggestedQuestionContext {
+  const core = readCoreTickerContext() ?? resolveCoreTickerContext();
+  const coreCompanyName =
+    locale === 'zh'
+      ? core.name_zh || core.name_en || core.ticker
+      : core.name_en || core.name_zh || core.ticker;
+
+  const fallbackL2 = locale === 'zh' ? '当前产业链' : 'this industry chain';
+  const fallbackL3 = locale === 'zh' ? '当前板块' : 'this sector';
+
+  if (!taxonomy) {
+    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };
+  }
+
+  const selection = readPersistedSphereSelection() ?? getSphereDefaultSelection(taxonomy);
+  const path = findSectorPathByIds(taxonomy, selection);
+  if (!path) {
+    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };
+  }
+
+  return {
+    sphereL2: localizedLabel(path.level2.name, locale),
+    sphereL3: localizedLabel(path.level3.name, locale),
+    coreCompanyName,
+  };
+}
+
+export function suggestedQuestionsForTab(
+  tab: AppTab,
+  locale: AppLocale,
+  context?: SuggestedQuestionContext,
+): string[] {
+  const templates = SUGGESTED_QUESTION_TEMPLATES[tab][locale] ?? SUGGESTED_QUESTION_TEMPLATES[tab].zh;
+  if (!context) {
+    return templates;
+  }
+  return templates.map((template) => applySuggestedQuestionTemplate(template, context));
 }

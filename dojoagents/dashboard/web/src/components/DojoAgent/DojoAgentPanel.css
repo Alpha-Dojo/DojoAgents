@@ -60,7 +60,7 @@
 }
 
 .dojo-agent-panel--open {
-  border-left-color: var(--border-dim);
+  border-left-color: var(--border-accent);
 }
 
 .dojo-agent-panel__head {
@@ -485,13 +485,13 @@
 }
 
 .dojo-agent-panel__message--user .dojo-agent-panel__bubble {
-  background: rgb(2 175 127 / 10%);
-  border: 1px solid rgb(2 175 127 / 20%);
+  background: rgba(0, 229, 255, 0.12);
+  border: 1px solid rgba(0, 229, 255, 0.22);
   color: var(--text-primary);
 }
 
 .dojo-agent-panel__message--assistant .dojo-agent-panel__bubble {
-  background: var(--color-surface-subtle);
+  background: rgba(30, 58, 95, 0.45);
   border: 1px solid var(--border-dim);
   color: var(--text-muted);
 }
@@ -600,6 +600,19 @@
   animation: dojo-agent-cursor 1s step-end infinite;
 }
 
+.dojo-agent-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-timeline .dojo-agent-eval,
+.dojo-agent-timeline .dojo-agent-thinking__block,
+.dojo-agent-timeline .dojo-agent-tool-activity__step {
+  margin: 0;
+}
+
 .dojo-agent-thinking {
   display: flex;
   flex-direction: column;
@@ -682,6 +695,11 @@
 
 .dojo-agent-thinking__phase--done {
   color: #86efac;
+}
+
+.dojo-agent-thinking__phase-elapsed {
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .dojo-agent-thinking__retry {

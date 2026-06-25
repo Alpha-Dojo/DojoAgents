@@ -228,7 +228,7 @@ async def market_cap_weighted_quote_session_return(
     weighted_sum = 0.0
     weight_total = 0.0
 
-    chunk_size = 50
+    chunk_size = 500
     tickers_list = list(tickers)
     for i in range(0, len(tickers_list), chunk_size):
         chunk = tickers_list[i : i + chunk_size]
@@ -331,42 +331,6 @@ def _load_index_member(
         base_close=base_close,
         prev_closes=segment.prev_closes,
     )
-
-
-def _member_index_on_date(
-    member: _IndexMember,
-    date: str,
-    last_close: Optional[float],
-) -> Tuple[Optional[float], Optional[float]]:
-    """Forward-fill close for one member; return (index, updated_last_close)."""
-    if date < member.first_date:
-        return None, last_close
-
-    close = member.closes.get(date)
-    if close is not None:
-        last_close = close
-    elif last_close is None:
-        return None, last_close
-
-    index = INDEX_BASE * last_close / member.base_close
-    return index, last_close
-
-
-def _compute_index_update(members: List[_IndexMember], date: str, last_close: float) -> Tuple[float, float]:
-    """Calculate single day's cap-weighted return."""
-    weighted_return = 0.0
-    weight_sum = 0.0
-    for member in members:
-        daily_return = sector_member_daily_return_usable(member, date)
-        if daily_return is not None:
-            weighted_return += member.weight * daily_return
-            weight_sum += member.weight
-
-    if weight_sum > 0:
-        index = last_close * (1 + weighted_return / weight_sum)
-    else:
-        index = last_close
-    return index, last_close
 
 
 async def compute_market_index_series(

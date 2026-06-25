@@ -75,7 +75,6 @@ async def sector_constituents(
     ),
     sector_store: SectorStore = Depends(get_sector_store),
     stock_store: StockStore = Depends(get_stock_store),
-    kline_store: KlineStore = Depends(get_kline_store),
     sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
 ) -> SectorConstituentsResponse:
     """L1/L2/L3 constituent rows from stock profile and quote."""
@@ -87,7 +86,6 @@ async def sector_constituents(
         )
     return await list_sector_constituents(
         stock_store,
-        kline_store,
         sector_precomputed_store,
         path,
         scope=scope,
@@ -119,7 +117,6 @@ async def sector_scope_performance(
         )
 
     async def compute() -> dict:
-        await kline_store.prioritize_sector_path(path, market=None)
         result = await compute_sector_scope_performance(
             stock_store,
             kline_store,
@@ -174,7 +171,6 @@ async def sector_constituent_klines(
             detail=f"unknown sector path: {level1_id}/{level2_id}/{level3_id}",
         )
 
-    await store.prioritize_sector_path(path, market=market)
     return await store.get_sector_klines(path, market=market)
 
 

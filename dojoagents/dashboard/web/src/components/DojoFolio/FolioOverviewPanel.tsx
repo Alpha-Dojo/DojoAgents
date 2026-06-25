@@ -31,7 +31,7 @@ interface FolioOverviewPanelProps {
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
-  onAutoAllocate: (market: MarketCode, strategy: FolioAllocationStrategy) => void;
+  onAutoAllocate: (strategy: FolioAllocationStrategy) => void;
 }
 
 function flattenBenchmarkOptions(catalog: BenchmarkCatalogResponse | null) {

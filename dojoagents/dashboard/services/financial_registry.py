@@ -85,7 +85,6 @@ class FinancialDomainRegistry:
             self.gateway,
             self.stock_store,
             self.stock_sector_store,
-            data_root=self.data_root,
         )
         self.stock_fin_indicators_store = StockFinIndicatorsStore(self.gateway)
         self.stock_event_store = StockEventStore(self.gateway)
@@ -93,7 +92,7 @@ class FinancialDomainRegistry:
         self.stock_news_store = StockNewsStore(self.gateway)
         from dojoagents.dashboard.services.forex_store import ForexStore
 
-        self.forex_store = ForexStore(data_root, self.gateway)
+        self.forex_store = ForexStore(self.gateway)
         self.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
         self.portfolio_service = PortfolioService(
             store=self.portfolio_store,

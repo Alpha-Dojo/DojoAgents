@@ -1,4 +1,5 @@
 import type { AgentChatMessage, AgentChatRole } from '../types/agent';
+import { resolveActivitySteps, toolItemsFromSteps } from './agentActivityTimeline';
 
 export type AgentApiMessage = {
   role: AgentChatRole;
@@ -6,11 +7,15 @@ export type AgentApiMessage = {
 };
 
 function assistantFallbackContent(message: AgentChatMessage, fallback: string): string {
-  if (message.toolActivity?.length) return fallback;
-  if (message.evalHints?.length) return fallback;
-  if (message.thinkBlocks?.some((block) => block.text.trim())) {
-    return message.thinkBlocks.map((block) => block.text.trim()).filter(Boolean).join('\n\n');
-  }
+  const steps = resolveActivitySteps(message);
+  if (toolItemsFromSteps(steps).length > 0) return fallback;
+  if (steps.some((step) => step.kind === 'eval')) return fallback;
+  const thinkText = steps
+    .filter((step): step is Extract<typeof step, { kind: 'think' }> => step.kind === 'think')
+    .map((step) => step.block.text.trim())
+    .filter(Boolean)
+    .join('\n\n');
+  if (thinkText) return thinkText;
   return fallback;
 }
 

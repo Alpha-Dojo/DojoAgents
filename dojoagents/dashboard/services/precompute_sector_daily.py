@@ -222,7 +222,7 @@ def _compute_ticker_daily(snapshot: PrecomputeInputSnapshot) -> pd.DataFrame:
     frame["daily_return_pct"] = frame.groupby(["market", "ticker"])["close"].pct_change() * 100.0
     first_close = frame.groupby(["market", "ticker"])["close"].transform("first")
     frame["cumulative_return_pct"] = ((frame["close"] / first_close - 1.0) * 100.0).where(first_close > 0)
-    frame = frame[frame["trade_date"] >= snapshot.start_date].copy()
+    frame = frame[frame["trade_date"] >= snapshot.start_date]
     frame["daily_return_pct"] = frame["daily_return_pct"].round(4)
     frame["cumulative_return_pct"] = frame["cumulative_return_pct"].round(4)
     return frame[TICKER_DAILY_COLUMNS]
@@ -247,7 +247,7 @@ def _build_index_rows(
     members: pd.DataFrame,
     returns_pivot: pd.DataFrame,
 ) -> list[dict[str, Any]]:
-    members = members.sort_values(["market", "ticker", "role"]).drop_duplicates(subset=["market", "ticker"], keep="first").copy()
+    members = members.sort_values(["market", "ticker", "role"]).drop_duplicates(subset=["market", "ticker"], keep="first")
     tickers = [(str(row["market"]), str(row["ticker"])) for _, row in members.iterrows()]
     valid_columns = [column for column in tickers if column in returns_pivot.columns]
     if not valid_columns:

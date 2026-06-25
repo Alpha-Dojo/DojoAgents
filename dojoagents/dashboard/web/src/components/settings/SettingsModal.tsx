@@ -1,10 +1,161 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { fetchSettingsConfig, updateSettingsConfig } from '../../api/settings';
+import { useAgentModel } from '../../agent/AgentModelContext';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { SettingsConfig, SettingsFormState, ProviderForm } from '../../types/settings';
+import { DojoButton, DojoInput, DojoSelect } from '../ui';
 import './SettingsModal.css';
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+const CUSTOM_MODEL_VALUE = '__custom_model__';
+const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel'];
+const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel'];
+
+interface ModelPreset {
+  value: string;
+  label: string;
+}
+
+interface ProviderPreset {
+  label: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  models: ModelPreset[];
+}
+
+const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
+  openai: {
+    label: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKeyEnv: 'OPENAI_API_KEY',
+    models: [
+      { value: 'gpt-5.5', label: 'GPT-5.5' },
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+      { value: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+      { value: 'gpt-4.1', label: 'GPT-4.1' },
+      { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    ],
+  },
+  anthropic: {
+    label: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com/v1',
+    apiKeyEnv: 'ANTHROPIC_API_KEY',
+    models: [
+      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+    ],
+  },
+  gemini: {
+    label: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiKeyEnv: 'GEMINI_API_KEY',
+    models: [
+      { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
+    ],
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKeyEnv: 'DEEPSEEK_API_KEY',
+    models: [
+      { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
+      { value: 'deepseek-chat', label: 'DeepSeek Chat' },
+      { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+    ],
+  },
+  qwen: {
+    label: 'Alibaba Tongyi',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKeyEnv: 'DASHSCOPE_API_KEY',
+    models: [
+      { value: 'qwen3.7-max', label: 'Qwen3.7 Max' },
+      { value: 'qwen3.7-plus', label: 'Qwen3.7 Plus' },
+      { value: 'qwen3.6-flash', label: 'Qwen3.6 Flash' },
+      { value: 'qwen3.5-omni-plus', label: 'Qwen3.5 Omni Plus' },
+      { value: 'qwen3-rerank', label: 'Qwen3 Rerank' },
+    ],
+  },
+  zhipu: {
+    label: 'Zhipu GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKeyEnv: 'ZHIPUAI_API_KEY',
+    models: [
+      { value: 'glm-5.1', label: 'GLM-5.1' },
+      { value: 'glm-5', label: 'GLM-5' },
+      { value: 'glm-4.7', label: 'GLM-4.7' },
+      { value: 'glm-4.6', label: 'GLM-4.6' },
+      { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+    ],
+  },
+  moonshot: {
+    label: 'Moonshot',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    apiKeyEnv: 'MOONSHOT_API_KEY',
+    models: [
+      { value: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
+      { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
+      { value: 'kimi-k2.6', label: 'Kimi K2.6' },
+      { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
+      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
+      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
+    ],
+  },
+  ollama: {
+    label: 'Ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    apiKeyEnv: '',
+    models: [
+      { value: 'llama3.1', label: 'Llama 3.1' },
+      { value: 'qwen2.5-coder', label: 'Qwen2.5 Coder' },
+      { value: 'deepseek-r1', label: 'DeepSeek R1' },
+      { value: 'mistral', label: 'Mistral' },
+    ],
+  },
+  glm: {
+    label: 'Zhipu GLM (legacy)',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKeyEnv: 'ZHIPUAI_API_KEY',
+    models: [
+      { value: 'glm-5.1', label: 'GLM-5.1' },
+      { value: 'glm-5', label: 'GLM-5' },
+      { value: 'glm-4.7', label: 'GLM-4.7' },
+      { value: 'glm-4.6', label: 'GLM-4.6' },
+      { value: 'glm-4-plus', label: 'GLM-4 Plus' },
+    ],
+  },
+  kimi: {
+    label: 'Kimi (legacy)',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    apiKeyEnv: 'MOONSHOT_API_KEY',
+    models: [
+      { value: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
+      { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
+      { value: 'kimi-k2.6', label: 'Kimi K2.6' },
+      { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
+      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
+      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
+    ],
+  },
+  minimax: {
+    label: 'MiniMax',
+    baseUrl: 'https://api.minimax.chat/v1',
+    apiKeyEnv: 'MINIMAX_API_KEY',
+    models: [
+      { value: 'abab6.5s-chat', label: 'ABAB6.5s Chat' },
+      { value: 'abab6.5g-chat', label: 'ABAB6.5g Chat' },
+    ],
+  },
+};
+
+const KNOWN_PROVIDERS = Object.keys(LLM_PROVIDER_PRESETS);
 
 interface SettingsModalProps {
   open: boolean;
@@ -38,9 +189,23 @@ function linesToArr(text: string): string[] {
     .filter(Boolean);
 }
 
+function providerLabel(name: string): string {
+  return LLM_PROVIDER_PRESETS[name]?.label ?? name;
+}
+
+function modelPresetValue(provider: ProviderForm, preset?: ProviderPreset): string {
+  if (!preset) return CUSTOM_MODEL_VALUE;
+  return preset.models.some((model) => model.value === provider.model) ? provider.model : CUSTOM_MODEL_VALUE;
+}
+
 function buildForm(cfg: SettingsConfig): SettingsFormState {
   const llm = asRecord(cfg.llm_provider);
   const providers: Record<string, ProviderForm> = {};
+
+  for (const name of KNOWN_PROVIDERS) {
+    providers[name] = { model: '', base_url: '', api_key_env: '', api_key: '' };
+  }
+
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
     const provider = asRecord(value);
     providers[name] = {
@@ -51,8 +216,15 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
     };
   }
 
+  const defaultProvider = asString(llm.default, 'openai');
+  if (!providers[defaultProvider]) {
+    providers[defaultProvider] = { model: '', base_url: '', api_key_env: '', api_key: '' };
+  }
+
   const agent = asRecord(cfg.agent);
-  const sandbox = asRecord(asRecord(cfg.tools).sandbox);
+  const tools = asRecord(cfg.tools);
+  const sandbox = asRecord(tools.sandbox);
+  const web = asRecord(tools.web);
   const skills = asRecord(cfg.skills);
   const scheduler = asRecord(cfg.scheduler);
   const dashboard = asRecord(cfg.dashboard);
@@ -62,7 +234,7 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   const defaultAgents = Array.isArray(multiAgent.default_agents) ? multiAgent.default_agents : [];
 
   return {
-    llm_provider: { default: asString(llm.default, 'openai'), providers },
+    llm_provider: { default: defaultProvider, providers },
     agent: {
       model: asString(agent.model),
       max_iterations: asNumber(agent.max_iterations, 8),
@@ -80,6 +252,17 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
         allow_network: asBool(sandbox.allow_network, false),
         allowed_commands: arrToLines(sandbox.allowed_commands),
         timeout_seconds: asNumber(sandbox.timeout_seconds, 120),
+      },
+      web: {
+        search_backend: asString(web.search_backend),
+        extract_backend: asString(web.extract_backend),
+        search_base_url: asString(web.search_base_url),
+        extract_base_url: asString(web.extract_base_url),
+        max_extract_urls: asNumber(web.max_extract_urls, 5),
+        max_content_bytes: asNumber(web.max_content_bytes, 2_000_000),
+        summary_threshold_chars: asNumber(web.summary_threshold_chars, 6000),
+        max_summary_chars: asNumber(web.max_summary_chars, 2500),
+        debug: asBool(web.debug, false),
       },
     },
     memory: {
@@ -131,6 +314,9 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
 function buildPatch(form: SettingsFormState): SettingsConfig {
   const providers: Record<string, unknown> = {};
   for (const [name, provider] of Object.entries(form.llm_provider.providers)) {
+    if (!provider.model && !provider.base_url && !provider.api_key_env && !provider.api_key && name !== form.llm_provider.default) {
+      continue;
+    }
     const next: Record<string, unknown> = { model: provider.model };
     if (provider.base_url) next.base_url = provider.base_url;
     if (provider.api_key_env) next.api_key_env = provider.api_key_env;
@@ -156,6 +342,13 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
         ...form.tools.sandbox,
         allowed_roots: linesToArr(form.tools.sandbox.allowed_roots),
         allowed_commands: linesToArr(form.tools.sandbox.allowed_commands),
+      },
+      web: {
+        ...form.tools.web,
+        search_backend: form.tools.web.search_backend || null,
+        extract_backend: form.tools.web.extract_backend || null,
+        search_base_url: form.tools.web.search_base_url || null,
+        extract_base_url: form.tools.web.extract_base_url || null,
       },
     },
     memory: { ...form.memory },
@@ -223,6 +416,7 @@ function CheckboxField({
 
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { t } = useTranslation();
+  const { refreshModels } = useAgentModel();
   const [rawConfig, setRawConfig] = useState<SettingsConfig | null>(null);
   const [form, setForm] = useState<SettingsFormState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -277,7 +471,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     placeholder?: string,
     type = 'text',
   ) => (
-    <input
+    <DojoInput
+      size="sm"
       type={type}
       value={value}
       placeholder={placeholder}
@@ -291,7 +486,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     min = 0,
     max?: number,
   ) => (
-    <input
+    <DojoInput
+      size="sm"
       type="number"
       value={value}
       min={min}
@@ -308,6 +504,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       const updated = await updateSettingsConfig(buildPatch(form));
       setRawConfig(updated);
       setForm(buildForm(updated));
+      await refreshModels();
       setSaveStatus({ type: 'success', message: t('settings.saveSuccess') });
       window.setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
@@ -339,7 +536,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           {error ? (
             <div className="settings-state settings-state--error">
               <span>{error}</span>
-              <button type="button" onClick={loadConfig}>{t('settings.retry')}</button>
+              <DojoButton size="sm" variant="secondary" onClick={loadConfig}>{t('settings.retry')}</DojoButton>
             </div>
           ) : null}
 
@@ -350,25 +547,54 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             }}>
               <Section title="LLM Provider" open>
                 <Field label="Default Provider">
-                  {textInput(form.llm_provider.default, (value) =>
-                    updateField((draft) => { draft.llm_provider.default = value; }))}
+                  <DojoSelect
+                    size="sm"
+                    value={form.llm_provider.default}
+                    onChange={(event) => updateField((draft) => { draft.llm_provider.default = event.target.value; })}
+                    options={providerNames.map((name) => ({ value: name, label: providerLabel(name) }))}
+                  />
                 </Field>
                 {providerNames.map((name) => {
                   const provider = form.llm_provider.providers[name];
+                  const preset = LLM_PROVIDER_PRESETS[name];
+                  const selectedPresetValue = modelPresetValue(provider, preset);
                   return (
                     <div className="settings-subsection" key={name}>
-                      <h3>{name}</h3>
+                      <h3>{providerLabel(name)}</h3>
+                      <Field label="Model Preset">
+                        <DojoSelect
+                          size="sm"
+                          value={selectedPresetValue}
+                          onChange={(event) => {
+                            const model = preset?.models.find((item) => item.value === event.target.value);
+                            if (!model) return;
+                            updateField((draft) => {
+                              const nextProvider = draft.llm_provider.providers[name];
+                              nextProvider.model = model.value;
+                              nextProvider.base_url = preset.baseUrl;
+                              nextProvider.api_key_env = preset.apiKeyEnv;
+                            });
+                          }}
+                          options={[
+                            ...(preset?.models.map((model) => ({
+                              value: model.value,
+                              label: model.label,
+                            })) ?? []),
+                            { value: CUSTOM_MODEL_VALUE, label: 'Custom model' },
+                          ]}
+                        />
+                      </Field>
                       <Field label="Model">
                         {textInput(provider.model, (value) =>
                           updateField((draft) => { draft.llm_provider.providers[name].model = value; }))}
                       </Field>
                       <Field label="Base URL">
                         {textInput(provider.base_url, (value) =>
-                          updateField((draft) => { draft.llm_provider.providers[name].base_url = value; }), 'https://api.openai.com/v1')}
+                          updateField((draft) => { draft.llm_provider.providers[name].base_url = value; }), preset?.baseUrl ?? 'https://api.openai.com/v1')}
                       </Field>
                       <Field label="API Key Env">
                         {textInput(provider.api_key_env, (value) =>
-                          updateField((draft) => { draft.llm_provider.providers[name].api_key_env = value; }), 'OPENAI_API_KEY')}
+                          updateField((draft) => { draft.llm_provider.providers[name].api_key_env = value; }), preset?.apiKeyEnv ?? 'OPENAI_API_KEY')}
                       </Field>
                       <Field label="API Key">
                         {textInput(provider.api_key, (value) =>
@@ -420,6 +646,50 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 <Field label="Timeout (seconds)">{numberInput(form.tools.sandbox.timeout_seconds, (value) => updateField((draft) => { draft.tools.sandbox.timeout_seconds = value; }), 1)}</Field>
               </Section>
 
+              <Section title="Tools / Web">
+                <Field label="Search Backend">
+                  <DojoSelect
+                    size="sm"
+                    value={form.tools.web.search_backend}
+                    onChange={(event) => updateField((draft) => { draft.tools.web.search_backend = event.target.value; })}
+                    options={WEB_SEARCH_BACKENDS.map((value) => ({
+                      value,
+                      label: value || 'Disabled',
+                    }))}
+                  />
+                </Field>
+                <Field label="Extract Backend">
+                  <DojoSelect
+                    size="sm"
+                    value={form.tools.web.extract_backend}
+                    onChange={(event) => updateField((draft) => { draft.tools.web.extract_backend = event.target.value; })}
+                    options={WEB_EXTRACT_BACKENDS.map((value) => ({
+                      value,
+                      label: value || 'Disabled',
+                    }))}
+                  />
+                </Field>
+                <Field label="Search Base URL">
+                  {textInput(form.tools.web.search_base_url, (value) => updateField((draft) => { draft.tools.web.search_base_url = value; }))}
+                </Field>
+                <Field label="Extract Base URL">
+                  {textInput(form.tools.web.extract_base_url, (value) => updateField((draft) => { draft.tools.web.extract_base_url = value; }))}
+                </Field>
+                <Field label="Max Extract URLs">
+                  {numberInput(form.tools.web.max_extract_urls, (value) => updateField((draft) => { draft.tools.web.max_extract_urls = value; }), 1)}
+                </Field>
+                <Field label="Max Content Bytes">
+                  {numberInput(form.tools.web.max_content_bytes, (value) => updateField((draft) => { draft.tools.web.max_content_bytes = value; }), 1)}
+                </Field>
+                <Field label="Summary Threshold Chars">
+                  {numberInput(form.tools.web.summary_threshold_chars, (value) => updateField((draft) => { draft.tools.web.summary_threshold_chars = value; }), 1)}
+                </Field>
+                <Field label="Max Summary Chars">
+                  {numberInput(form.tools.web.max_summary_chars, (value) => updateField((draft) => { draft.tools.web.max_summary_chars = value; }), 1)}
+                </Field>
+                <CheckboxField label="Debug Logging" checked={form.tools.web.debug} onChange={(checked) => updateField((draft) => { draft.tools.web.debug = checked; })} />
+              </Section>
+
               <Section title="Memory">
                 <Field label="Provider">{textInput(form.memory.provider, (value) => updateField((draft) => { draft.memory.provider = value; }))}</Field>
                 <Field label="Generated Skill Dir">{textInput(form.memory.generated_skill_dir, (value) => updateField((draft) => { draft.memory.generated_skill_dir = value; }))}</Field>
@@ -450,9 +720,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
               <Section title="Logging">
                 <Field label="Level">
-                  <select value={form.logging.level} onChange={(event) => updateField((draft) => { draft.logging.level = event.target.value; })}>
-                    {LOG_LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
-                  </select>
+                  <DojoSelect
+                    size="sm"
+                    value={form.logging.level}
+                    onChange={(event) => updateField((draft) => { draft.logging.level = event.target.value; })}
+                    options={LOG_LEVELS.map((level) => ({ value: level, label: level }))}
+                  />
                 </Field>
                 <Field label="Format">{textInput(form.logging.format, (value) => updateField((draft) => { draft.logging.format = value; }))}</Field>
                 <Field label="Date Format">{textInput(form.logging.date_format, (value) => updateField((draft) => { draft.logging.date_format = value; }))}</Field>
@@ -471,10 +744,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         <footer className="settings-modal__footer">
           {saveStatus ? <span className={`settings-save-status settings-save-status--${saveStatus.type}`}>{saveStatus.message}</span> : <span />}
           <div className="settings-modal__actions">
-            <button type="button" className="settings-button settings-button--ghost" onClick={onClose}>{t('settings.cancel')}</button>
-            <button type="button" className="action-button settings-button settings-button--primary" disabled={!form || saving} onClick={() => void handleSave()}>
+            <DojoButton size="sm" variant="secondary" onClick={onClose}>{t('settings.cancel')}</DojoButton>
+            <DojoButton size="sm" variant="primary" disabled={!form || saving} onClick={() => void handleSave()}>
               {saving ? t('settings.saving') : t('settings.save')}
-            </button>
+            </DojoButton>
           </div>
         </footer>
       </section>

@@ -44,8 +44,6 @@ def _store(gateway, tmp_path) -> KlineStore:
         gateway,
         StockStore(client),
         StockSectorStore(client),
-        data_root=tmp_path,
-        schema_version=2,
     )
 
 
@@ -152,7 +150,6 @@ async def test_load_prefills_symbol_cache_and_skips_repeat_fetch(tmp_path) -> No
         gateway,
         stock_store,
         StockSectorStore(client),
-        data_root=tmp_path,
     )
 
     await store.load(limit=252)
@@ -224,7 +221,6 @@ async def test_get_klines_batch_fetch_logic(tmp_path) -> None:
         gateway,
         stock_store,
         StockSectorStore(client),
-        data_root=tmp_path,
     )
 
     result = await store.get_klines(["AAPL", "MSFT"], limit=15)

@@ -22,12 +22,12 @@ def normalize_shares(market: str, raw_shares: float) -> int:
     return int(round(raw_shares / 100) * 100)
 
 
-def lookup_open_price(
+async def lookup_open_price(
     kline_store: KlineStore,
     ticker: str,
     date_str: str,
 ) -> Optional[float]:
-    rows = kline_store.load_all(ticker)
+    rows = (await kline_store.get_or_fetch_kline(ticker)).bars
     if not rows:
         return None
 

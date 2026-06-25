@@ -8,16 +8,20 @@ import {
   type ReactNode,
 } from 'react';
 import { fetchAgentModels } from '../api/agent';
+import { updateSettingsConfig } from '../api/settings';
 import type { AgentModelItem } from '../types/agent';
 
 interface AgentModelContextValue {
   models: AgentModelItem[];
   selectedModelId: string;
   selectedModel: AgentModelItem | null;
+  agentReady: boolean;
   geminiConfigured: boolean;
+  zhipuConfigured: boolean;
   loading: boolean;
+  saving: boolean;
   error: string | null;
-  setSelectedModelId: (modelId: string) => void;
+  setSelectedModelId: (modelId: string) => Promise<void>;
   refreshModels: () => Promise<void>;
 }
 
@@ -25,9 +29,12 @@ const AgentModelContext = createContext<AgentModelContextValue | null>(null);
 
 export function AgentModelProvider({ children }: { children: ReactNode }) {
   const [models, setModels] = useState<AgentModelItem[]>([]);
-  const [selectedModelId, setSelectedModelIdState] = useState('gpt-4.1');
-  const [geminiConfigured, setGeminiConfigured] = useState(true);
+  const [selectedModelId, setSelectedModelIdState] = useState('gemini-3.5');
+  const [agentReady, setAgentReady] = useState(false);
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [zhipuConfigured, setZhipuConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshModels = useCallback(async () => {
@@ -36,28 +43,16 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
     try {
       const data = await fetchAgentModels();
       setModels(data.models);
+      setAgentReady(data.agent_ready);
       setGeminiConfigured(data.gemini_configured);
-      setSelectedModelIdState((current) => {
-        const currentModel = data.models.find((model) => model.id === current);
-        if (currentModel?.available) {
-          return current;
-        }
+      setZhipuConfigured(data.zhipu_configured);
+      setSelectedModelIdState(() => {
         const fallback =
           data.models.find((model) => model.id === data.default_model_id && model.available) ??
           data.models.find((model) => model.available);
         return fallback?.id ?? data.default_model_id;
       });
     } catch (err) {
-      setGeminiConfigured(true);
-      setModels([
-        {
-          id: 'gpt-4.1',
-          label: 'openai:gpt-4.1',
-          provider: 'openai',
-          available: true,
-        },
-      ]);
-      setSelectedModelIdState('gpt-4.1');
       setError(err instanceof Error ? err.message : 'Failed to load agent models');
     } finally {
       setLoading(false);
@@ -69,14 +64,25 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
   }, [refreshModels]);
 
   const setSelectedModelId = useCallback(
-    (modelId: string) => {
+    async (modelId: string) => {
       const model = models.find((item) => item.id === modelId);
       if (!model?.available) {
         return;
       }
+      const previousModelId = selectedModelId;
+      setSaving(true);
+      setError(null);
       setSelectedModelIdState(modelId);
+      try {
+        await updateSettingsConfig({ llm_provider: { default: modelId } });
+      } catch (err) {
+        setSelectedModelIdState(previousModelId);
+        setError(err instanceof Error ? err.message : 'Failed to update default model');
+      } finally {
+        setSaving(false);
+      }
     },
-    [models],
+    [models, selectedModelId],
   );
 
   const selectedModel = useMemo(
@@ -89,8 +95,11 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       models,
       selectedModelId,
       selectedModel,
+      agentReady,
       geminiConfigured,
+      zhipuConfigured,
       loading,
+      saving,
       error,
       setSelectedModelId,
       refreshModels,
@@ -99,8 +108,11 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       models,
       selectedModelId,
       selectedModel,
+      agentReady,
       geminiConfigured,
+      zhipuConfigured,
       loading,
+      saving,
       error,
       setSelectedModelId,
       refreshModels,

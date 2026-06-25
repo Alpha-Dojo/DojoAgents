@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from pathlib import Path
 from dojoagents.dashboard.services.forex_store import ForexStore
 
 
@@ -17,7 +16,7 @@ async def test_convert_fin_rows_to_market_usd_cny():
         }
     )
 
-    store = ForexStore(data_root=Path("/tmp/dummy"), client=mock_client)
+    store = ForexStore(client=mock_client)
 
     rows = [
         {
@@ -48,7 +47,7 @@ async def test_convert_caches_results():
         }
     )
 
-    store = ForexStore(data_root=Path("/tmp/dummy"), client=mock_client)
+    store = ForexStore(client=mock_client)
 
     rows = [
         {

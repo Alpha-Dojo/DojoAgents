@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -22,10 +23,12 @@ from dojoagents.dashboard.routers import (
     sectors,
     ticker,
     utility,
+    agent,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
-from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop
+from dojoagents.dashboard.agent_runs import AgentRunManager
+from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
+from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_portfolio_tools
 
@@ -45,6 +48,7 @@ from dojoagents.agent.events import AgentEventSink
 from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.agent.providers import OpenAICompatibleProvider
 
 
 def _jsonable(value: Any) -> Any:
@@ -55,6 +59,50 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _jsonable(item) for key, item in value.items()}
     return value
+
+
+def _sync_agent_model_with_default_provider(config: dict[str, Any]) -> dict[str, Any]:
+    llm_provider = config.get("llm_provider")
+    if not isinstance(llm_provider, dict):
+        return config
+    default_provider = llm_provider.get("default")
+    providers = llm_provider.get("providers")
+    if not isinstance(default_provider, str) or not isinstance(providers, dict):
+        return config
+    provider = providers.get(default_provider)
+    if not isinstance(provider, dict):
+        return config
+    model = provider.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return config
+    agent = config.setdefault("agent", {})
+    if isinstance(agent, dict):
+        agent["model"] = model
+    return config
+
+
+def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> str:
+    store = getattr(runtime, "config_store", None)
+    agent = getattr(runtime, "agent", None)
+    if store is None or agent is None:
+        return provider_name or "default"
+
+    config = store.snapshot()
+    selected_provider = (provider_name or config.llm_provider.default or "").strip()
+    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
+        selected_provider = config.llm_provider.default
+    provider_cfg = config.llm_provider.providers.get(selected_provider)
+    if provider_cfg is None:
+        return selected_provider or "default"
+
+    llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+    llm_provider.name = selected_provider
+    agent.llm_provider = llm_provider
+    if is_dataclass(getattr(agent, "config", None)):
+        agent.config = replace(agent.config, model=provider_cfg.model)
+    elif hasattr(agent, "config"):
+        agent.config.model = provider_cfg.model
+    return provider_cfg.model
 
 
 def _chat_request(payload: dict[str, Any]) -> ChatRequest:
@@ -240,10 +288,11 @@ def create_app(
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry
+            app.state.agent_run_manager = AgentRunManager()
 
             # Start background refresh loop
-            schedule = MarketCloseSchedule()
-            refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
+            # schedule = MarketCloseSchedule()
+            # refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
 
             yield
         finally:
@@ -259,6 +308,8 @@ def create_app(
                 reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
+    app.state.config_store = store
+    app.state.financial_registry = registry
 
     app.include_router(utility.router, prefix="/api/v1")
     app.include_router(market.router, prefix="/api/v1")
@@ -271,6 +322,7 @@ def create_app(
     app.include_router(dojo_sphere.router, prefix="/api/v1")
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
+    app.include_router(agent.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -316,9 +368,19 @@ def create_app(
         # Deep-merge payload into existing raw config, then save
         from dojoagents.config.loader import _deep_merge
 
-        current_raw = store.raw
+        current_raw = store.raw()
         merged = _deep_merge(current_raw, payload)
-        store.save_raw(merged)
+        _sync_agent_model_with_default_provider(merged)
+        try:
+            store.save_raw(merged)
+        except PermissionError as exc:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": f"Configuration file is not writable: {store.path}",
+                    "detail": str(exc),
+                },
+            )
         return store.redacted()
 
     @app.get("/api/jobs")
@@ -341,6 +403,7 @@ def create_app(
         is_stream = info["stream"]
         model = info["model"]
         event_format = info.get("event_format", "openai.v1")
+        _sync_runtime_agent_from_config(runtime, model)
 
         if is_stream:
             # SSE streaming mode
@@ -398,6 +461,85 @@ def create_app(
         body["content"] = response.content
         body["session_id"] = response.session_id
         return body
+
+    @app.post("/api/chat/runs")
+    async def create_chat_run(payload: dict[str, Any]) -> Any:
+        try:
+            req, info = _completion_request(payload)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
+        manager: AgentRunManager = app.state.agent_run_manager
+        _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
+        record = await manager.create_run(
+            request=req,
+            model=info.get("model", "default"),
+            agent=runtime.agent,
+        )
+        return {
+            "run_id": record.id,
+            "session_id": record.session_id,
+            "status": record.status,
+            "model": record.model,
+        }
+
+    @app.get("/api/chat/runs/{run_id}")
+    async def get_chat_run(run_id: str) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        record = manager.get(run_id)
+        if record is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+        return {
+            "run_id": record.id,
+            "session_id": record.session_id,
+            "status": record.status,
+            "event_count": len(record.events),
+            "model": record.model,
+        }
+
+    @app.post("/api/chat/runs/{run_id}/cancel")
+    async def cancel_chat_run(run_id: str) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        cancelled = await manager.cancel_run(run_id)
+        if not cancelled:
+            record = manager.get(run_id)
+            if record is None:
+                return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+            return JSONResponse(status_code=400, content={"error": f"Run is not active: {record.status}"})
+        return {"cancelled": True}
+
+    @app.get("/api/chat/runs/{run_id}/events")
+    async def stream_chat_run_events(run_id: str, cursor: int = 0) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        record = manager.get(run_id)
+        if record is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+
+        safe_cursor = max(0, cursor)
+
+        async def _generate():
+            index = safe_cursor
+            while True:
+                current = manager.get(run_id)
+                if current is None:
+                    yield f'data: {{"type":"error","message":"Unknown run: {run_id}"}}\n\n'
+                    return
+
+                while index < len(current.events):
+                    yield f"data: {json.dumps(current.events[index], ensure_ascii=False)}\n\n"
+                    index += 1
+
+                if current.status != "running":
+                    return
+
+                _, status = await current.wait_for_events(index)
+                if status != "running" and index >= len(current.events):
+                    return
+
+        return StreamingResponse(
+            _generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # Set up and auto-build frontend static files
     web_dir = Path(__file__).parent / "web"

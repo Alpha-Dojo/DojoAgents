@@ -35,15 +35,6 @@ function holdingReturnPct(holding: FolioHolding): number {
   return ((holding.price / holding.cost - 1) * 100);
 }
 
-function weightedPortfolioReturn(holdings: FolioHolding[]): number {
-  const total = holdings.reduce((sum, row) => sum + row.marketValue, 0);
-  if (total <= 0) return 0;
-  return holdings.reduce(
-    (sum, row) => sum + (row.marketValue / total) * holdingReturnPct(row),
-    0,
-  );
-}
-
 function primaryMarket(holdings: FolioHolding[]): MarketCode {
   const totals: Record<MarketCode, number> = { us: 0, cn: 0, hk: 0 };
   for (const row of holdings) totals[row.market] += row.marketValue;
@@ -69,8 +60,8 @@ export function computeReturnAttribution(
   const market = primaryMarket(holdings);
   const benchmarkStats = resolveBenchmarkStats(performance, benchmarkSymbol);
   const benchmarkReturnPct = benchmarkStats?.cumulative_return_pct ?? 0;
-  const portfolioReturnPct =
-    portfolioStatsReturn(performance, market) ?? weightedPortfolioReturn(holdings);
+  const portfolioReturnPct = portfolioStatsReturn(performance, market);
+  if (portfolioReturnPct == null) return null;
   const excessReturnPct = portfolioReturnPct - benchmarkReturnPct;
 
   const totalMv = holdings.reduce((sum, row) => sum + row.marketValue, 0) || 1;

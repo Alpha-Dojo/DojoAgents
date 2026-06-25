@@ -7,7 +7,7 @@ from dojoagents.agent.models import LLMResult, ToolCall
 class LLMProvider(Protocol):
     name: str
 
-    async def chat(
+    async def chat(  # noqa
         self,
         messages: list[dict],
         tools: list[dict],
@@ -16,8 +16,7 @@ class LLMProvider(Protocol):
         stream: bool = False,
         metadata: dict | None = None,
         stream_callback: Callable[[str], None] | None = None,
-    ) -> LLMResult:
-        ...
+    ) -> LLMResult: ...  # noqa
 
 
 class LLMProviderRegistry:
@@ -65,7 +64,7 @@ class StaticLLMProvider:
         if stream and stream_callback and res.content:
             chunk_size = 5
             for i in range(0, len(res.content), chunk_size):
-                stream_callback(res.content[i:i+chunk_size])
+                stream_callback(res.content[i : i + chunk_size])
         return res
 
 
@@ -88,10 +87,7 @@ class OpenAICompatibleProvider:
     ) -> LLMResult:
         if not self.api_key:
             return LLMResult(
-                content=(
-                    "OpenAI-compatible provider is configured without an API key. "
-                    "Set the configured api_key_env before making live calls."
-                ),
+                content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
                 metadata={"provider": self.name, "live": False},
             )
         from openai import AsyncOpenAI
@@ -116,9 +112,7 @@ class OpenAICompatibleProvider:
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_delta = getattr(delta, "reasoning_content", None) or (
-                    delta.model_extra.get("reasoning_content")
-                    if hasattr(delta, "model_extra") and delta.model_extra
-                    else None
+                    delta.model_extra.get("reasoning_content") if hasattr(delta, "model_extra") and delta.model_extra else None
                 )
                 if reasoning_delta:
                     full_reasoning.append(reasoning_delta)
@@ -130,11 +124,7 @@ class OpenAICompatibleProvider:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         if idx not in tool_calls_buffer:
-                            tool_calls_buffer[idx] = {
-                                "id": "",
-                                "name": "",
-                                "arguments": ""
-                            }
+                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": ""}
                         if tc_delta.id:
                             tool_calls_buffer[idx]["id"] = tc_delta.id
                         if tc_delta.function and tc_delta.function.name:
@@ -150,27 +140,19 @@ class OpenAICompatibleProvider:
                         args_dict = json.loads(tc["arguments"])
                     except json.JSONDecodeError:
                         args_dict = {"raw_arguments": tc["arguments"]}
-                final_tool_calls.append(
-                    ToolCall(
-                        id=tc["id"],
-                        name=tc["name"],
-                        arguments=args_dict
-                    )
-                )
+                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict))
             return LLMResult(
                 content="".join(full_content),
                 tool_calls=final_tool_calls,
                 metadata={
                     "provider": self.name,
                     "reasoning_content": "".join(full_reasoning),
-                }
+                },
             )
         else:
             message = response.choices[0].message
             reasoning_content = getattr(message, "reasoning_content", None) or (
-                message.model_extra.get("reasoning_content")
-                if hasattr(message, "model_extra") and message.model_extra
-                else None
+                message.model_extra.get("reasoning_content") if hasattr(message, "model_extra") and message.model_extra else None
             )
             final_tool_calls = []
             if message.tool_calls:
@@ -181,20 +163,14 @@ class OpenAICompatibleProvider:
                             args_dict = json.loads(tc.function.arguments)
                         except json.JSONDecodeError:
                             args_dict = {"raw_arguments": tc.function.arguments}
-                    final_tool_calls.append(
-                        ToolCall(
-                            id=tc.id,
-                            name=tc.function.name,
-                            arguments=args_dict
-                        )
-                    )
+                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict))
             return LLMResult(
                 content=message.content or "",
                 tool_calls=final_tool_calls,
                 metadata={
                     "provider": self.name,
                     "reasoning_content": reasoning_content or "",
-                }
+                },
             )
 
 
@@ -208,7 +184,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
     from strands.models.ollama import OllamaModel
 
     provider_name = provider_name.lower()
-    
+
     if isinstance(config, dict):
         api_key = config.get("api_key")
         api_key_env = config.get("api_key_env")
@@ -230,7 +206,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url,
             },
-            model_id=model or "gpt-4o"
+            model_id=model or "gpt-4o",
         )
     elif provider_name == "deepseek":
         return OpenAIModel(
@@ -238,7 +214,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://api.deepseek.com",
             },
-            model_id=model or "deepseek-chat"
+            model_id=model or "deepseek-chat",
         )
     elif provider_name in ("qwen", "dashscope"):
         return OpenAIModel(
@@ -246,7 +222,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
             },
-            model_id=model or "qwen-max"
+            model_id=model or "qwen-max",
         )
     elif provider_name in ("kimi", "moonshot"):
         return OpenAIModel(
@@ -254,31 +230,35 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://api.moonshot.cn/v1",
             },
-            model_id=model or "moonshot-v1-8k"
+            model_id=model or "moonshot-v1-8k",
+        )
+    elif provider_name in ("glm", "zhipu", "zhipuai"):
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
+            },
+            model_id=model or "glm-4",
+        )
+    elif provider_name == "minimax":
+        return OpenAIModel(
+            client_args={
+                "api_key": api_key,
+                "base_url": base_url or "https://api.minimax.chat/v1",
+            },
+            model_id=model or "abab6.5-chat",
         )
     # 2. Gemini
     elif provider_name == "gemini":
-        return GeminiModel(
-            client_args={"api_key": api_key},
-            model_id=model or "gemini-2.5-flash"
-        )
+        return GeminiModel(client_args={"api_key": api_key}, model_id=model or "gemini-2.5-flash")
     # 3. Anthropic
     elif provider_name == "anthropic":
-        return AnthropicModel(
-            api_key=api_key,
-            model_id=model or "claude-3-5-sonnet"
-        )
+        return AnthropicModel(api_key=api_key, model_id=model or "claude-3-5-sonnet")
     # 4. Bedrock
     elif provider_name == "bedrock":
-        return BedrockModel(
-            model_id=model or "us.amazon.nova-pro-v1:0"
-        )
+        return BedrockModel(model_id=model or "us.amazon.nova-pro-v1:0")
     # 5. Ollama
     elif provider_name == "ollama":
-        return OllamaModel(
-            host=base_url or "http://localhost:11434",
-            model_id=model or "llama3"
-        )
+        return OllamaModel(host=base_url or "http://localhost:11434", model_id=model or "llama3")
     else:
         raise ValueError(f"Unsupported model provider: {provider_name}")
-

@@ -487,3 +487,31 @@ export function mapFinIndicatorsToProfitability(items: StockFinIndicatorRow[]): 
     },
   ];
 }
+
+export function isQuarterlyFinRow(row: StockFinIndicatorRow): boolean {
+  return String(row.report_type ?? '').trim().toLowerCase() === 'quarter';
+}
+
+/** Sum net profit from the latest four distinct quarterly reports. */
+export function resolveRollingTtmNetProfit(
+  rows: StockFinIndicatorRow[],
+  market?: MarketCode | string | null,
+): number | null {
+  const sorted = [...sortFinRows(rows.filter(isQuarterlyFinRow))].reverse();
+  const seen = new Set<number>();
+  let sum = 0;
+  let count = 0;
+  for (const row of sorted) {
+    const period = calendarPeriodFromRow(row, market);
+    if (!period) continue;
+    const index = quarterToIndex(period.fiscalYear, period.quarter);
+    if (seen.has(index)) continue;
+    const profit = row.net_profit_attr_parent;
+    if (profit == null || !Number.isFinite(profit)) continue;
+    seen.add(index);
+    sum += profit;
+    count += 1;
+    if (count >= 4) break;
+  }
+  return count >= 4 ? sum : null;
+}

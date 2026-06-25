@@ -2,6 +2,7 @@ export type AgentVizKind =
   | 'kpi_row'
   | 'sparkline'
   | 'line'
+  | 'price_kline'
   | 'bar'
   | 'hbar_rank'
   | 'donut'
@@ -76,4 +77,13 @@ export interface AgentVizTimelineItem {
   title?: string;
   summary?: string;
   source?: string | null;
+}
+
+export interface AgentVizKlineBar {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
 }

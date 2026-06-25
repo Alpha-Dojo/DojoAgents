@@ -78,7 +78,6 @@ class GlobalStores:
             cls.gateway,
             cls.stock_store,
             cls.stock_sector_store,
-            data_root=data_root,
         )
         cls.stock_fin_indicators_store = StockFinIndicatorsStore(cls.gateway)
         cls.stock_event_store = StockEventStore(cls.gateway)
@@ -86,7 +85,7 @@ class GlobalStores:
         cls.stock_news_store = StockNewsStore(cls.gateway)
         from dojoagents.dashboard.services.forex_store import ForexStore
 
-        cls.forex_store = ForexStore(data_root, cls.gateway)
+        cls.forex_store = ForexStore(cls.gateway)
         cls.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
         cls.portfolio_service = PortfolioService(
             store=cls.portfolio_store,

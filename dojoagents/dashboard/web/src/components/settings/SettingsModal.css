@@ -133,10 +133,10 @@
   font-weight: 600;
 }
 
-.settings-field input,
-.settings-field select,
+.settings-field input:not(.dojo-input),
+.settings-field select:not(.dojo-select),
 .settings-field textarea,
-.settings-agent-row input {
+.settings-agent-row input:not(.dojo-input) {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--border-dim);
@@ -152,9 +152,9 @@
     background 0.15s;
 }
 
-.settings-field input,
-.settings-field select,
-.settings-agent-row input {
+.settings-field input:not(.dojo-input),
+.settings-field select:not(.dojo-select),
+.settings-agent-row input:not(.dojo-input) {
   height: 34px;
   padding: 0 10px;
 }
@@ -165,10 +165,10 @@
   resize: vertical;
 }
 
-.settings-field input:focus,
-.settings-field select:focus,
+.settings-field input:not(.dojo-input):focus,
+.settings-field select:not(.dojo-select):focus,
 .settings-field textarea:focus,
-.settings-agent-row input:focus {
+.settings-agent-row input:not(.dojo-input):focus {
   border-color: var(--color-border-primary);
   background: rgb(2 175 127 / 8%);
   box-shadow: 0 0 0 2px rgb(2 175 127 / 12%);
@@ -248,7 +248,7 @@
   color: var(--color-status-danger);
 }
 
-.settings-state button {
+.settings-state button:not(.dojo-button) {
   border: 1px solid var(--border-dim);
   border-radius: 4px;
   background: var(--color-surface-muted);

@@ -149,7 +149,7 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
     assert constituents.iloc[0]["role"] == "primary"
     assert constituents.iloc[0]["market"] == "sh"
 
-    store = SectorPrecomputedStore(tmp_path, client=StubDojoClient())
+    store = SectorPrecomputedStore(tmp_path)
     store.reload(out_dir)
     assert store.available() is True
     assert store.get_sector_constituents("L1", "L2", "L3", market="cn")[0]["market"] == "sh"

@@ -11,6 +11,8 @@ interface FolioAddHoldingSearchProps {
   existingTickers: Set<string>;
   onAdd: (ticker: string, market: MarketCode) => void;
   adding?: boolean;
+  /** `trailing` — right side of market header, slightly wider */
+  placement?: 'inline' | 'trailing';
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -27,6 +29,7 @@ export function FolioAddHoldingSearch({
   existingTickers,
   onAdd,
   adding = false,
+  placement = 'inline',
 }: FolioAddHoldingSearchProps) {
   const { t, locale } = useTranslation();
   const listId = useId();
@@ -97,7 +100,10 @@ export function FolioAddHoldingSearch({
   };
 
   return (
-    <div className="folio-add-holding folio-add-holding--inline" ref={rootRef}>
+    <div
+      className={`folio-add-holding folio-add-holding--${placement}`}
+      ref={rootRef}
+    >
       <div className="folio-add-holding__search">
         <span className="folio-add-holding__icon" aria-hidden>
           ⌕

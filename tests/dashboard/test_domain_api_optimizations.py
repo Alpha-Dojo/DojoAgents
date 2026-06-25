@@ -11,36 +11,56 @@ from dojoagents.dashboard.schemas.dojo_sphere import (
     SectorPerformanceResponse,
     SectorScopeMetricsResponse,
 )
-from dojoagents.dashboard.services.dojo_sphere_service import DojoSphereService
-from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
-from dojoagents.dashboard.services.sector_performance_cache import SectorPerformanceCache
 
 
 def _registry(tmp_path):
     path = SimpleNamespace(level1_id="1", level2_id="2", level3_id="3")
-    service = DojoSphereService(
-        SectorPerformanceCache(tmp_path, schema_version=1),
-        SectorMetricsStore(tmp_path, schema_version=1),
-    )
+    metrics_cache: dict[str, dict] = {}
+    performance_cache: dict[str, dict] = {}
     calls = {"prioritize": 0}
 
     async def prioritize_sector_path(*_args, **_kwargs):
         calls["prioritize"] += 1
+
+    async def metrics(key, compute):
+        cached = metrics_cache.get(key)
+        if cached is not None:
+            return cached
+        payload = await compute()
+        metrics_cache[key] = payload
+        return payload
+
+    async def performance(key, compute):
+        cached = performance_cache.get(key)
+        if cached is not None:
+            return cached
+        payload = await compute()
+        wrapped = {
+            "payload": payload,
+            "as_of": payload.get("as_of"),
+            "source": "computed",
+            "stale": bool(payload.get("stale", False)),
+        }
+        performance_cache[key] = wrapped
+        return wrapped
 
     registry = SimpleNamespace(
         sector_store=SimpleNamespace(find_resolved_path=lambda *_args: path),
         stock_store=object(),
         stock_sector_store=object(),
         kline_store=SimpleNamespace(prioritize_sector_path=prioritize_sector_path),
-        dojo_sphere_service=service,
+        dojo_sphere_service=SimpleNamespace(
+            metrics=metrics,
+            performance=performance,
+        ),
         sector_precomputed_store=None,
     )
-    return registry, calls
+    return registry, calls, path, performance_cache
 
 
 @pytest.mark.asyncio
 async def test_build_sector_analysis_uses_cached_metrics_and_scope_performance(tmp_path, monkeypatch) -> None:
-    registry, calls = _registry(tmp_path)
+    registry, calls, path, _performance_cache = _registry(tmp_path)
     compute_calls = {"metrics": 0, "performance": []}
 
     async def fake_metrics(*_args, **_kwargs):
@@ -62,42 +82,30 @@ async def test_build_sector_analysis_uses_cached_metrics_and_scope_performance(t
     monkeypatch.setattr(domain_api, "compute_sector_scope_metrics", fake_metrics)
     monkeypatch.setattr(domain_api, "compute_sector_scope_performance", fake_performance)
 
-    first = await domain_api.build_sector_analysis(
-        registry,
-        level1_id="1",
-        level2_id="2",
-        level3_id="3",
-        scope="L3",
-    )
-    second = await domain_api.build_sector_analysis(
-        registry,
-        level1_id="1",
-        level2_id="2",
-        level3_id="3",
-        scope="L1",
-    )
+    first = await domain_api.build_sector_analysis(registry, path, scope="L3")
+    second = await domain_api.build_sector_analysis(registry, path, scope="L1")
 
     assert first.scopes.keys() == {"L1", "L2", "L3"}
     assert second.scope == "L1"
-    assert second.source == "dashboard_cache"
     assert compute_calls["metrics"] == 1
     assert compute_calls["performance"] == ["L1", "L2", "L3"]
     assert calls["prioritize"] == 2
 
 
 @pytest.mark.asyncio
-async def test_build_sector_constituents_reuses_cached_window_start(tmp_path, monkeypatch) -> None:
-    registry, _calls = _registry(tmp_path)
-    await registry.dojo_sphere_service.performance_cache.put(
-        "L2/1/2/3",
-        {"window_start": "2025-06-20"},
-        as_of="2026-06-20",
-    )
-    captured: dict[str, str | None] = {"window_start": None}
+async def test_build_sector_constituents_uses_native_market_and_counts_items(tmp_path, monkeypatch) -> None:
+    registry, _calls, _path, _performance_cache = _registry(tmp_path)
 
-    async def fake_list_sector_constituents(*_args, window_start=None, **_kwargs):
-        captured["window_start"] = window_start
-        return SectorConstituentsResponse(level1_id="1", level2_id="2", level3_id="3", scope="L2")
+    async def fake_list_sector_constituents(*_args, market=None, **_kwargs):
+        assert market == "us"
+        return SectorConstituentsResponse(
+            level1_id="1",
+            level2_id="2",
+            level3_id="3",
+            scope="L2",
+            market="us",
+            items=[],
+        )
 
     monkeypatch.setattr(domain_api, "list_sector_constituents", fake_list_sector_constituents)
 
@@ -112,7 +120,8 @@ async def test_build_sector_constituents_reuses_cached_window_start(tmp_path, mo
     )
 
     assert response.scope == "L2"
-    assert captured["window_start"] == "2025-06-20"
+    assert response.market == "us"
+    assert response.count == 0
 
 
 @pytest.mark.asyncio
@@ -165,7 +174,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
 
 @pytest.mark.asyncio
 async def test_build_sector_analysis_backfills_kline_precomputed_store(tmp_path, monkeypatch) -> None:
-    registry, calls = _registry(tmp_path)
+    registry, calls, path, _performance_cache = _registry(tmp_path)
     registry.sector_precomputed_store = object()
     registry.kline_store = SimpleNamespace(
         sector_precomputed_store=None,
@@ -189,13 +198,7 @@ async def test_build_sector_analysis_backfills_kline_precomputed_store(tmp_path,
     monkeypatch.setattr(domain_api, "compute_sector_scope_metrics", fake_metrics)
     monkeypatch.setattr(domain_api, "compute_sector_scope_performance", fake_performance)
 
-    response = await domain_api.build_sector_analysis(
-        registry,
-        level1_id="1",
-        level2_id="2",
-        level3_id="3",
-        scope="L3",
-    )
+    response = await domain_api.build_sector_analysis(registry, path, scope="L3")
 
     assert response.scope == "L3"
     assert registry.kline_store.sector_precomputed_store is registry.sector_precomputed_store

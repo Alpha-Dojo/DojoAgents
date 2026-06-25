@@ -28,6 +28,7 @@ from dojoagents.config.models import (
     SandboxConfig,
     SchedulerConfig,
     ToolsConfig,
+    WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
 )
@@ -85,13 +86,25 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         default_skills=list(agent_raw.get("default_skills", ["dojo-quant-analyst"])),
     )
     sandbox_raw = raw.get("tools", {}).get("sandbox", {})
+    web_raw = raw.get("tools", {}).get("web", {})
     tools = ToolsConfig(
         sandbox=SandboxConfig(
             allowed_roots=list(sandbox_raw.get("allowed_roots", ["${PWD}", "/tmp"])),
             allow_network=bool(sandbox_raw.get("allow_network", False)),
             allowed_commands=list(sandbox_raw.get("allowed_commands", [])),
             timeout_seconds=float(sandbox_raw.get("timeout_seconds", 120)),
-        )
+        ),
+        web=WebToolsConfig(
+            search_backend=web_raw.get("search_backend"),
+            extract_backend=web_raw.get("extract_backend"),
+            search_base_url=web_raw.get("search_base_url"),
+            extract_base_url=web_raw.get("extract_base_url"),
+            max_extract_urls=int(web_raw.get("max_extract_urls", 5)),
+            max_content_bytes=int(web_raw.get("max_content_bytes", 2_000_000)),
+            summary_threshold_chars=int(web_raw.get("summary_threshold_chars", 6000)),
+            max_summary_chars=int(web_raw.get("max_summary_chars", 2500)),
+            debug=bool(web_raw.get("debug", False)),
+        ),
     )
     memory_raw = raw.get("memory", {})
     skills_raw = raw.get("skills", {})

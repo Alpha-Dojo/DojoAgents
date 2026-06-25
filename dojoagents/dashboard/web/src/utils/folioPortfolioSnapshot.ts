@@ -1,5 +1,5 @@
 import type { FolioHolding } from '../types/dojoFolio';
-import { DEFAULT_FOLIO_CONFIG, FOLIO_MARKETS } from '../types/dojoFolio';
+import { FOLIO_MARKETS } from '../types/dojoFolio';
 import type { MarketCode } from '../types/dojoMesh';
 
 export interface FolioMarketSnapshot {
@@ -36,10 +36,6 @@ export function computeMarketSnapshots(
         ? netValueFromApi
         : rows.reduce((sum, row) => sum + row.marketValue, 0);
 
-    const costBasis =
-      options?.costBasisByMarket?.[market] ??
-      DEFAULT_FOLIO_CONFIG.capitalByMarket[market];
-
     let todayChange: number | null = null;
     if (netValue > 0) {
       todayChange =
@@ -47,8 +43,7 @@ export function computeMarketSnapshots(
     }
 
     const totalReturn =
-      options?.returnPctByMarket?.[market] ??
-      (costBasis > 0 ? ((netValue - costBasis) / costBasis) * 100 : null);
+      options?.returnPctByMarket?.[market] ?? null;
 
     result[market] = { todayChange, netValue, totalReturn, holdingCount: rows.length };
   }

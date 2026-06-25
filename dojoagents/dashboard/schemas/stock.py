@@ -23,6 +23,7 @@ class StockQuote(BaseModel):
     turn_rate: float = Field(..., description="Stock turn rate")
     pe: float = Field(..., description="Stock P/E Ratio")
     pb: float = Field(..., description="Stock P/B Ratio")
+    dividend_yield: float  = Field(..., description="Stock dividend yield")
 
 
 class Stock(BaseModel):

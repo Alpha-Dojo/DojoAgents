@@ -90,7 +90,7 @@ export function DojoFolioView({ onNavigateTab }: DojoFolioViewProps) {
             }
             onAddHolding={(ticker, market) => addHolding(activePortfolio.id, ticker, market)}
             onRemoveHolding={(ticker, market) => removeHolding(activePortfolio.id, ticker, market)}
-            onAutoAllocate={(market, strategy) => autoAllocate(activePortfolio.id, market, strategy)}
+            onAutoAllocate={(strategy) => autoAllocate(activePortfolio.id, strategy)}
           />
         ) : (
           <div className="folio-main-empty folio-card">

@@ -17,7 +17,7 @@ DEFAULT_TICKER_MARKET_CAP_MIN_BY_MARKET: dict[str, float] = {
 
 @lru_cache
 def _settings_caps() -> dict[str, float]:
-    return DEFAULT_TICKER_MARKET_CAP_MIN_BY_MARKET.copy()
+    return DEFAULT_TICKER_MARKET_CAP_MIN_BY_MARKET
 
 
 def ticker_market_cap_min(market: str) -> float | None:

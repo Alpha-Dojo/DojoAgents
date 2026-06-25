@@ -49,6 +49,17 @@ let mockConfig: SettingsConfig = {
       allowed_commands: ['python', 'node', 'npm'],
       timeout_seconds: 120,
     },
+    web: {
+      search_backend: 'ddgs',
+      extract_backend: '',
+      search_base_url: '',
+      extract_base_url: '',
+      max_extract_urls: 5,
+      max_content_bytes: 2000000,
+      summary_threshold_chars: 6000,
+      max_summary_chars: 2500,
+      debug: false,
+    },
   },
   memory: {
     provider: 'skill_summary',
