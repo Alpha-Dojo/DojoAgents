@@ -14,31 +14,19 @@ export interface AgentPortfolioMutation {
   portfolio_id?: string;
   name?: string;
   holdings_count?: number;
-  holdings_by_market?: Record<string, number>;
   tickers?: string[];
 }
 
-export function syncFolioFromAgentTool(
-  tool: string,
-  ok: boolean,
-  data: unknown,
-): Promise<void>;
-export function syncFolioFromAgentTool(
-  tool: string,
-  ok: boolean,
-  data?: AgentPortfolioMutation | null,
-): Promise<void>;
 export async function syncFolioFromAgentTool(
   tool: string,
   ok: boolean,
-  data?: unknown,
+  data?: AgentPortfolioMutation | null,
 ): Promise<void> {
   if (!ok || !PORTFOLIO_MUTATING_TOOLS.has(tool)) return;
 
-  const portfolioData = data as AgentPortfolioMutation | null | undefined;
-  const portfolioId = portfolioData?.portfolio_id;
+  const portfolioId = data?.portfolio_id;
   const action =
-    tool === 'manage_portfolio' && portfolioData?.name ? ('create' as const) : ('update' as const);
+    tool === 'manage_portfolio' && data?.name ? ('create' as const) : ('update' as const);
 
   invalidateCache(cacheKeys.folioPortfolios());
   publishFolioListRefresh({ portfolioId, action });
@@ -57,8 +45,7 @@ export async function syncFolioFromAgentTool(
 export function syncFolioAfterAgentSession(
   tools: Array<{ tool: string; ok?: boolean }>,
 ): void {
-  const mutated = tools.some((item) => item.ok && PORTFOLIO_MUTATING_TOOLS.has(item.tool));
-  if (mutated) {
+  if (tools.some((item) => item.ok && PORTFOLIO_MUTATING_TOOLS.has(item.tool))) {
     publishFolioListRefresh();
   }
 }

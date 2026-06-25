@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AgentModelProvider } from './agent/AgentModelContext';
+import { AgentRunProvider } from './agent/AgentRunContext';
 import { Header } from './components/Header';
 import { DojoAgentPanel } from './components/DojoAgent/DojoAgentPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
@@ -92,32 +93,32 @@ export default function App() {
   return (
     <LocaleProvider>
       <AgentModelProvider>
-        <div className="app">
-          <Header
-            activeTab={tab}
-            onTabChange={navigateTab}
-            agentOpen={agentVisible}
-            agentPinned={agentPinned}
-            onAgentToggle={handleAgentToggle}
-            settingsOpen={settingsOpen}
-            onSettingsOpen={() => setSettingsOpen(true)}
-          />
-          <main className="app-main" aria-label={tab}>
-            <div className="app-main__content">
-              <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
-            </div>
-            {agentVisible ? (
-              <DojoAgentPanel
-                open
-                pinned={agentPinned}
-                interactive={!agentPinned}
-                sourceTab={tab}
-                onClose={handleAgentClose}
-              />
-            ) : null}
-          </main>
-          <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        </div>
+        <AgentRunProvider>
+          <div className="app">
+            <Header
+              activeTab={tab}
+              onTabChange={navigateTab}
+              agentOpen={agentVisible}
+              agentPinned={agentPinned}
+              onAgentToggle={handleAgentToggle}
+              settingsOpen={settingsOpen}
+              onSettingsOpen={() => setSettingsOpen(true)}
+            />
+            <main className="app-main" aria-label={tab}>
+              <div className="app-main__content">
+                <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
+              </div>
+                <DojoAgentPanel
+                  open={agentVisible}
+                  pinned={agentPinned}
+                  interactive={!agentPinned}
+                  sourceTab={tab}
+                  onClose={handleAgentClose}
+                />
+            </main>
+            <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          </div>
+        </AgentRunProvider>
       </AgentModelProvider>
     </LocaleProvider>
   );

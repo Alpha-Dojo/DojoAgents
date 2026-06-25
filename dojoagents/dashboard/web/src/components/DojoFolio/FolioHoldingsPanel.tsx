@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPortfolioDetail } from '../../api/dojoFolio';
-import type { FolioAllocationStrategy } from '../../types/dojoFolio';
 import type { AppTab } from '../../navigation/appTab';
 import { openCoreTicker } from '../../navigation/openCoreTicker';
 import type { MarketCode } from '../../types/dojoMesh';
@@ -16,7 +15,6 @@ import {
 import { formatStockPrice } from '../../utils/marketStats';
 import { localizedStockName } from '../../utils/stockDisplay';
 import { FolioAddHoldingSearch } from './FolioAddHoldingSearch';
-import { FolioAllocateMenu } from './FolioAllocateMenu';
 import { FolioHoldingNameCell } from './FolioHoldingNameCell';
 import { FolioHoldingOpenDatePicker } from './FolioHoldingOpenDatePicker';
 import { FolioLockableField } from './FolioLockableField';
@@ -28,7 +26,6 @@ interface FolioHoldingsPanelProps {
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
   addingTicker?: boolean;
-  allocating?: boolean;
   onNavigateTab?: (tab: AppTab) => void;
   onApplyShares: (sharesByTicker: Record<string, number>) => void;
   onToggleSharesLock: (ticker: string, locked: boolean) => void;
@@ -38,7 +35,6 @@ interface FolioHoldingsPanelProps {
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
-  onAutoAllocate: (market: MarketCode, strategy: FolioAllocationStrategy) => void;
   removingTicker?: string | null;
 }
 
@@ -101,7 +97,6 @@ export function FolioHoldingsPanel({
   portfolio,
   loading = false,
   addingTicker = false,
-  allocating = false,
   onNavigateTab,
   onApplyShares,
   onToggleSharesLock,
@@ -111,7 +106,6 @@ export function FolioHoldingsPanel({
   onApplyOpenDate,
   onAddHolding,
   onRemoveHolding,
-  onAutoAllocate,
   removingTicker = null,
 }: FolioHoldingsPanelProps) {
   const { t, locale } = useTranslation();
@@ -269,22 +263,14 @@ export function FolioHoldingsPanel({
                 return (
                   <section key={market} className={`folio-holdings__market folio-holdings__market--${market}`}>
                     <header className="folio-holdings__market-head">
-                      <div className="folio-holdings__market-head-leading">
-                        <FolioMarketLabel market={market} />
-                        <FolioAddHoldingSearch
-                          market={market}
-                          existingTickers={existingTickersByMarket[market]}
-                          adding={addingTicker}
-                          onAdd={onAddHolding}
-                        />
-                      </div>
-                      {rows.length > 0 ? (
-                        <FolioAllocateMenu
-                          market={market}
-                          disabled={allocating}
-                          onAllocate={onAutoAllocate}
-                        />
-                      ) : null}
+                      <FolioMarketLabel market={market} />
+                      <FolioAddHoldingSearch
+                        market={market}
+                        existingTickers={existingTickersByMarket[market]}
+                        adding={addingTicker}
+                        placement="trailing"
+                        onAdd={onAddHolding}
+                      />
                     </header>
 
                     {rows.length > 0 ? (

@@ -426,10 +426,9 @@
 
 .folio-sidebar__stats-flag {
   display: inline-block;
-  width: 11px;
-  height: 11px;
   margin-right: 1px;
-  object-fit: contain;
+  font-size: 11px;
+  line-height: 1;
   vertical-align: middle;
 }
 
@@ -852,10 +851,16 @@
 .folio-detail-tabs__head {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 8px;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--border-dim);
+}
+
+.folio-detail-tabs__actions {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-bottom: 4px;
 }
 
 .folio-detail-tabs__confirm,
@@ -1047,10 +1052,8 @@
 }
 
 .folio-performance__inline-flag {
-  width: 11px;
-  height: 11px;
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
   opacity: 0.92;
 }
 
@@ -1302,10 +1305,7 @@
 }
 
 .folio-risk__market-flag {
-  width: 10px;
-  height: 10px;
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: 10px;
 }
 
 .folio-risk__market-code {
@@ -1736,10 +1736,8 @@
 }
 
 .folio-market-label__flag {
-  width: 12px;
-  height: 12px;
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .folio-market-label__code {
@@ -2093,6 +2091,12 @@
   flex: 0 1 132px;
   max-width: 148px;
   min-width: 108px;
+}
+
+.folio-add-holding--trailing {
+  flex: 0 1 168px;
+  max-width: 184px;
+  min-width: 148px;
 }
 
 .folio-add-holding__search {

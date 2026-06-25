@@ -14,7 +14,9 @@ interface AgentModelContextValue {
   models: AgentModelItem[];
   selectedModelId: string;
   selectedModel: AgentModelItem | null;
+  agentReady: boolean;
   geminiConfigured: boolean;
+  zhipuConfigured: boolean;
   loading: boolean;
   error: string | null;
   setSelectedModelId: (modelId: string) => void;
@@ -25,8 +27,10 @@ const AgentModelContext = createContext<AgentModelContextValue | null>(null);
 
 export function AgentModelProvider({ children }: { children: ReactNode }) {
   const [models, setModels] = useState<AgentModelItem[]>([]);
-  const [selectedModelId, setSelectedModelIdState] = useState('gpt-4.1');
-  const [geminiConfigured, setGeminiConfigured] = useState(true);
+  const [selectedModelId, setSelectedModelIdState] = useState('gemini-3.5');
+  const [agentReady, setAgentReady] = useState(false);
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [zhipuConfigured, setZhipuConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +40,9 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
     try {
       const data = await fetchAgentModels();
       setModels(data.models);
+      setAgentReady(data.agent_ready);
       setGeminiConfigured(data.gemini_configured);
+      setZhipuConfigured(data.zhipu_configured);
       setSelectedModelIdState((current) => {
         const currentModel = data.models.find((model) => model.id === current);
         if (currentModel?.available) {
@@ -48,16 +54,6 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
         return fallback?.id ?? data.default_model_id;
       });
     } catch (err) {
-      setGeminiConfigured(true);
-      setModels([
-        {
-          id: 'gpt-4.1',
-          label: 'openai:gpt-4.1',
-          provider: 'openai',
-          available: true,
-        },
-      ]);
-      setSelectedModelIdState('gpt-4.1');
       setError(err instanceof Error ? err.message : 'Failed to load agent models');
     } finally {
       setLoading(false);
@@ -89,7 +85,9 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       models,
       selectedModelId,
       selectedModel,
+      agentReady,
       geminiConfigured,
+      zhipuConfigured,
       loading,
       error,
       setSelectedModelId,
@@ -99,7 +97,9 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       models,
       selectedModelId,
       selectedModel,
+      agentReady,
       geminiConfigured,
+      zhipuConfigured,
       loading,
       error,
       setSelectedModelId,

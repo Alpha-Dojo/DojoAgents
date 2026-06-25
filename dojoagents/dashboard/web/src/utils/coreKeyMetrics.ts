@@ -1,7 +1,7 @@
 import type { MarketCode } from '../types/dojoMesh';
 import type { CoreKeyMetric, CoreKlineBar, CorePeBandPoint, StockFinIndicatorRow } from '../types/dojoCore';
 import type { CoreTickerQuoteResponse } from '../api/dojoCore';
-import { extractReportDate, resolveHkPeriodFinRow } from './coreFinIndicators';
+import { extractReportDate, resolveHkPeriodFinRow, resolveRollingTtmNetProfit } from './coreFinIndicators';
 import { resolvePeBandPeForDate } from './corePeBand';
 import { formatMarketCap, formatPe, formatStockPrice } from './marketStats';
 
@@ -90,7 +90,7 @@ export function buildCoreKeyMetrics(input: {
   /** Snapshot fields not always present in quarterly fin indicators (e.g. CN A-shares). */
   quoteDetail?: Pick<
     CoreTickerQuoteResponse,
-    'market_cap' | 'total_shares' | 'pb' | 'turn_rate' | 'volume' | 'dividend_yield'
+    'market_cap' | 'total_shares' | 'pb' | 'turn_rate' | 'volume' | 'dividend_yield' | 'pe'
   > | null;
 }): CoreKeyMetric[][] {
   const currency = resolveCurrency(input.currency ?? (input.market ? MARKET_CURRENCY[input.market] : null));
@@ -115,8 +115,17 @@ export function buildCoreKeyMetrics(input: {
       : marketCap != null && lastClose != null
         ? marketCap / lastClose
         : null;
-  const peTtm = resolvePeBandPeForDate(input.peBandPoints ?? [], input.chartAnchorDate);
-  const peDynamic = peTtm;
+  const rollingTtmProfit = resolveRollingTtmNetProfit(input.finRows, input.market);
+  const peTtm =
+    marketCap != null && rollingTtmProfit != null && rollingTtmProfit > 0
+      ? marketCap / rollingTtmProfit
+      : rollingTtmProfit != null &&
+          rollingTtmProfit > 0 &&
+          totalShares != null &&
+          lastClose != null
+        ? (totalShares * lastClose) / rollingTtmProfit
+        : resolvePeBandPeForDate(input.peBandPoints ?? [], input.chartAnchorDate);
+  const peDynamic = isValidNumber(input.quoteDetail?.pe) ? input.quoteDetail.pe : null;
   const pb =
     isValidSignedNumber(latestRawFin?.pb_ttm)
       ? latestRawFin.pb_ttm

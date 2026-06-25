@@ -8,6 +8,8 @@ export interface AgentModelItem {
 export interface AgentModelsResponse {
   default_model_id: string;
   gemini_configured: boolean;
+  zhipu_configured: boolean;
+  agent_ready: boolean;
   models: AgentModelItem[];
 }
 
@@ -37,11 +39,21 @@ export interface AgentThinkBlock {
   done: boolean;
 }
 
+export type AgentActivityStep =
+  | { kind: 'think'; id: string; block: AgentThinkBlock }
+  | { kind: 'tool'; id: string; item: AgentToolActivityItem }
+  | { kind: 'eval'; id: string; hint: AgentEvalHintItem };
+
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
+  /** Chronological stream of thinking, tools, and eval hints. */
+  activitySteps?: AgentActivityStep[];
+  /** @deprecated Migrated into activitySteps for display order. */
   toolActivity?: AgentToolActivityItem[];
+  /** @deprecated Migrated into activitySteps for display order. */
   thinkBlocks?: AgentThinkBlock[];
+  /** @deprecated Migrated into activitySteps for display order. */
   evalHints?: AgentEvalHintItem[];
 }
 
@@ -86,26 +98,8 @@ export interface AgentSessionStore {
   sessions: AgentSession[];
 }
 
-export interface ChatCompletionChunk {
-  choices: Array<{
-    delta?: {
-      content?: string;
-      tool_calls?: Array<{
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-    };
-    finish_reason?: string;
-  }>;
-  dojo_event?: unknown;
-}
-
 export type AgentStreamEvent =
   | { type: 'delta'; text: string }
-  | { type: 'content_delta'; content: string; chunk: ChatCompletionChunk }
-  | { type: 'tool_call_delta'; chunk: ChatCompletionChunk }
   | { type: 'think_start' }
   | { type: 'think_delta'; text: string }
   | { type: 'think_end' }
@@ -129,7 +123,5 @@ export type AgentStreamEvent =
       viz_blocks?: import('./agentViz').AgentVizBlock[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
-  | { type: 'dojo_event'; dojoEvent: unknown; chunk: ChatCompletionChunk }
-  | { type: 'message_end'; chunk: ChatCompletionChunk }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }
   | { type: 'error'; message: string };

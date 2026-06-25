@@ -25,6 +25,10 @@ export function publishFolioListRefresh(options?: {
   action?: FolioUpdateAction;
 }) {
   invalidateCache(cacheKeys.folioPortfolios());
+  if (options?.portfolioId) {
+    invalidateCache(cacheKeys.folioPortfolioLite(options.portfolioId));
+    invalidateCachePrefix(`folio-portfolio:${options.portfolioId}:`);
+  }
   dispatchFolioUpdated({
     portfolioId: options?.portfolioId,
     action: options?.action,
