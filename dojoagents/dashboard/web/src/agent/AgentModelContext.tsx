@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { fetchAgentModels } from '../api/agent';
+import { updateSettingsConfig } from '../api/settings';
 import type { AgentModelItem } from '../types/agent';
 
 interface AgentModelContextValue {
@@ -18,8 +19,9 @@ interface AgentModelContextValue {
   geminiConfigured: boolean;
   zhipuConfigured: boolean;
   loading: boolean;
+  saving: boolean;
   error: string | null;
-  setSelectedModelId: (modelId: string) => void;
+  setSelectedModelId: (modelId: string) => Promise<void>;
   refreshModels: () => Promise<void>;
 }
 
@@ -32,6 +34,7 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [zhipuConfigured, setZhipuConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshModels = useCallback(async () => {
@@ -43,11 +46,7 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       setAgentReady(data.agent_ready);
       setGeminiConfigured(data.gemini_configured);
       setZhipuConfigured(data.zhipu_configured);
-      setSelectedModelIdState((current) => {
-        const currentModel = data.models.find((model) => model.id === current);
-        if (currentModel?.available) {
-          return current;
-        }
+      setSelectedModelIdState(() => {
         const fallback =
           data.models.find((model) => model.id === data.default_model_id && model.available) ??
           data.models.find((model) => model.available);
@@ -65,14 +64,25 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
   }, [refreshModels]);
 
   const setSelectedModelId = useCallback(
-    (modelId: string) => {
+    async (modelId: string) => {
       const model = models.find((item) => item.id === modelId);
       if (!model?.available) {
         return;
       }
+      const previousModelId = selectedModelId;
+      setSaving(true);
+      setError(null);
       setSelectedModelIdState(modelId);
+      try {
+        await updateSettingsConfig({ llm_provider: { default: modelId } });
+      } catch (err) {
+        setSelectedModelIdState(previousModelId);
+        setError(err instanceof Error ? err.message : 'Failed to update default model');
+      } finally {
+        setSaving(false);
+      }
     },
-    [models],
+    [models, selectedModelId],
   );
 
   const selectedModel = useMemo(
@@ -89,6 +99,7 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       geminiConfigured,
       zhipuConfigured,
       loading,
+      saving,
       error,
       setSelectedModelId,
       refreshModels,
@@ -101,6 +112,7 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       geminiConfigured,
       zhipuConfigured,
       loading,
+      saving,
       error,
       setSelectedModelId,
       refreshModels,

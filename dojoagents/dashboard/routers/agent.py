@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from dojoagents.dashboard.schemas.agent import AgentModelsResponse
-from dojoagents.dashboard.services.agent_models import AGENT_MODEL_CATALOG, DEFAULT_AGENT_MODEL_ID
+from dojoagents.dashboard.services.agent_models import DEFAULT_AGENT_MODEL_ID, list_configured_agent_models
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -18,27 +18,23 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 )
 async def get_agent_models(request: Request) -> dict[str, Any]:
     store = getattr(request.app.state, "config_store", None)
-    raw_config = store.raw() if store else {}
-    providers_config = raw_config.get("providers", {})
+    if store is None:
+        return {
+            "default_model_id": DEFAULT_AGENT_MODEL_ID,
+            "gemini_configured": False,
+            "zhipu_configured": False,
+            "agent_ready": False,
+            "models": [],
+        }
 
-    models = []
-    any_configured = False
-    gemini_configured = "google" in providers_config
+    config = store.snapshot()
+    models = list_configured_agent_models(config.llm_provider)
+    any_configured = any(model.available for model in models)
 
-    for model_def in AGENT_MODEL_CATALOG:
-        provider = model_def.provider
-        # A model is available if its provider is configured in ~/.dojo/agents.yaml
-        is_avail = provider in providers_config
-        if is_avail:
-            any_configured = True
-
-        models.append(
-            {
-                "id": model_def.id,
-                "label": model_def.label,
-                "provider": provider,
-                "available": is_avail,
-            }
-        )
-
-    return {"default_model_id": DEFAULT_AGENT_MODEL_ID, "gemini_configured": gemini_configured, "agent_ready": any_configured, "models": models}
+    return {
+        "default_model_id": config.llm_provider.default,
+        "gemini_configured": "gemini" in config.llm_provider.providers,
+        "zhipu_configured": any(provider in config.llm_provider.providers for provider in ("glm", "zhipu", "zhipuai")),
+        "agent_ready": any_configured,
+        "models": models,
+    }

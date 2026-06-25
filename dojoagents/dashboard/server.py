@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,7 @@ from dojoagents.agent.events import AgentEventSink
 from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.agent.providers import OpenAICompatibleProvider
 
 
 def _jsonable(value: Any) -> Any:
@@ -58,6 +59,50 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _jsonable(item) for key, item in value.items()}
     return value
+
+
+def _sync_agent_model_with_default_provider(config: dict[str, Any]) -> dict[str, Any]:
+    llm_provider = config.get("llm_provider")
+    if not isinstance(llm_provider, dict):
+        return config
+    default_provider = llm_provider.get("default")
+    providers = llm_provider.get("providers")
+    if not isinstance(default_provider, str) or not isinstance(providers, dict):
+        return config
+    provider = providers.get(default_provider)
+    if not isinstance(provider, dict):
+        return config
+    model = provider.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return config
+    agent = config.setdefault("agent", {})
+    if isinstance(agent, dict):
+        agent["model"] = model
+    return config
+
+
+def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> str:
+    store = getattr(runtime, "config_store", None)
+    agent = getattr(runtime, "agent", None)
+    if store is None or agent is None:
+        return provider_name or "default"
+
+    config = store.snapshot()
+    selected_provider = (provider_name or config.llm_provider.default or "").strip()
+    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
+        selected_provider = config.llm_provider.default
+    provider_cfg = config.llm_provider.providers.get(selected_provider)
+    if provider_cfg is None:
+        return selected_provider or "default"
+
+    llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+    llm_provider.name = selected_provider
+    agent.llm_provider = llm_provider
+    if is_dataclass(getattr(agent, "config", None)):
+        agent.config = replace(agent.config, model=provider_cfg.model)
+    elif hasattr(agent, "config"):
+        agent.config.model = provider_cfg.model
+    return provider_cfg.model
 
 
 def _chat_request(payload: dict[str, Any]) -> ChatRequest:
@@ -263,6 +308,8 @@ def create_app(
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
     app.state.agent_run_manager = AgentRunManager()
+    app.state.config_store = store
+    app.state.financial_registry = registry
 
     app.include_router(utility.router, prefix="/api/v1")
     app.include_router(market.router, prefix="/api/v1")
@@ -321,9 +368,19 @@ def create_app(
         # Deep-merge payload into existing raw config, then save
         from dojoagents.config.loader import _deep_merge
 
-        current_raw = store.raw
+        current_raw = store.raw()
         merged = _deep_merge(current_raw, payload)
-        store.save_raw(merged)
+        _sync_agent_model_with_default_provider(merged)
+        try:
+            store.save_raw(merged)
+        except PermissionError as exc:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": f"Configuration file is not writable: {store.path}",
+                    "detail": str(exc),
+                },
+            )
         return store.redacted()
 
     @app.get("/api/jobs")
@@ -346,6 +403,7 @@ def create_app(
         is_stream = info["stream"]
         model = info["model"]
         event_format = info.get("event_format", "openai.v1")
+        _sync_runtime_agent_from_config(runtime, model)
 
         if is_stream:
             # SSE streaming mode
@@ -411,6 +469,7 @@ def create_app(
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
         manager: AgentRunManager = app.state.agent_run_manager
+        _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
         record = await manager.create_run(
             request=req,
             model=info.get("model", "default"),

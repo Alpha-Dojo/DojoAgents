@@ -9,7 +9,9 @@ class AgentModelItem(BaseModel):
     id: str = Field(..., description="Stable model identifier for API requests")
     label: str = Field(..., description="Display name, e.g. Gemini-3.5")
     provider: str = Field(..., description="Provider slug: google, openai, anthropic, …")
+    model: str = Field("", description="Concrete provider model id")
     available: bool = Field(..., description="Whether the model can be selected and used")
+    unavailable_reason: str | None = Field(None, description="Reason the model cannot be selected")
 
 
 class AgentModelsResponse(BaseModel):
@@ -17,6 +19,10 @@ class AgentModelsResponse(BaseModel):
     gemini_configured: bool = Field(
         False,
         description="True when GEMINI_API_KEY is set on the server",
+    )
+    zhipu_configured: bool = Field(
+        False,
+        description="True when a Zhipu/GLM provider is configured on the server",
     )
     agent_ready: bool = Field(
         False,
