@@ -713,7 +713,6 @@ async def build_sector_analysis(
 
     if getattr(registry, "kline_store", None) is not None and getattr(registry.kline_store, "sector_precomputed_store", None) is None:
         registry.kline_store.sector_precomputed_store = registry.sector_precomputed_store
-    await registry.kline_store.prioritize_sector_path(path, market=None)
     metrics = await registry.dojo_sphere_service.metrics(
         f"{level1_id}/{level2_id}/{level3_id}",
         compute_metrics_payload,
