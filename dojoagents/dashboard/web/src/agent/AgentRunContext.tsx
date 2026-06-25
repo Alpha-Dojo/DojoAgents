@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -16,6 +17,8 @@ import {
 import {
   clearActiveRunDraft,
   clearStreamDraft,
+  loadActiveRunDraft,
+  loadStreamDraft,
   saveActiveRunDraft,
   saveStreamDraft,
 } from './agentStorage';
@@ -27,6 +30,7 @@ import {
   appendThinkStart,
   appendToolStart,
   finalizeThinkSteps,
+  resolveCurrentThinkId,
   resolveToolResult,
   toggleThinkStep,
   toolItemsFromSteps,
@@ -48,6 +52,7 @@ interface InternalRunState {
   livePhase: AgentLivePhase;
   retryNotice: string | null;
   error: string | null;
+  cursor: number;
   eventCursor: number;
   subscribeAbort: AbortController | null;
   uiLocale: 'zh' | 'en';
@@ -121,8 +126,15 @@ function emptyView(): SessionRunView {
   };
 }
 
+function noopRetry(attempt: number, max: number) {
+  return `${attempt}/${max}`;
+}
+
 export function AgentRunProvider({ children }: { children: ReactNode }) {
   const runsRef = useRef<Map<string, InternalRunState>>(new Map());
+  const subscribeRunRef = useRef<(state: InternalRunState, startCursor: number) => Promise<void>>(
+    async () => {},
+  );
   const [version, setVersion] = useState(0);
   const notify = useCallback(() => setVersion((value) => value + 1), []);
 
@@ -168,11 +180,86 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
     [notify],
   );
 
+  const finalizeRunFromState = useCallback(
+    (state: InternalRunState) => {
+      const tools = toolItemsFromSteps(state.assistantSteps);
+      syncFolioAfterAgentSession(
+        tools.map((item) => ({
+          tool: item.tool,
+          ok: item.status === 'done',
+        })),
+      );
+      state.livePhase = 'done';
+      state.retryNotice = null;
+      state.currentThinkId = null;
+      state.assistantSteps = finalizeThinkSteps(state.assistantSteps);
+      const fallbackContent =
+        state.assistantText ||
+        (tools.length > 0 ? state.toolsCompleteLabel : state.responseCompleteLabel);
+      const base = state.draftMessages.slice(0, -1);
+      finishRun(state, [
+        ...base,
+        {
+          role: 'assistant' as const,
+          content: fallbackContent,
+          activitySteps: state.assistantSteps.length > 0 ? state.assistantSteps : undefined,
+        },
+      ]);
+    },
+    [finishRun],
+  );
+
+  const continueRunAfterStream = useCallback(
+    (state: InternalRunState, status: { status: string; event_count: number }) => {
+      state.cursor = status.event_count;
+      state.eventCursor = Math.max(state.eventCursor, status.event_count);
+      saveActiveRunDraft({
+        sessionId: state.sessionId,
+        runId: state.runId,
+        modelId: state.modelId,
+        cursor: state.eventCursor,
+        updatedAt: Date.now(),
+      });
+      if (!runsRef.current.has(state.sessionId)) {
+        return;
+      }
+      if (status.status === 'done' && state.livePhase !== 'done') {
+        finalizeRunFromState(state);
+        return;
+      }
+      if (status.status === 'error' || status.status === 'cancelled') {
+        if (state.livePhase !== 'done') {
+          state.error =
+            status.status === 'cancelled' ? state.stoppedLabel : 'Agent run failed';
+          state.livePhase = null;
+          state.retryNotice = null;
+          state.assistantSteps = finalizeThinkSteps(state.assistantSteps);
+          const base = state.draftMessages.slice(0, -1);
+          finishRun(state, [
+            ...base,
+            {
+              role: 'assistant' as const,
+              content: state.assistantText || state.error,
+              activitySteps:
+                state.assistantSteps.length > 0 ? state.assistantSteps : undefined,
+            },
+          ]);
+        }
+        return;
+      }
+      if (status.status === 'running') {
+        void subscribeRunRef.current(state, status.event_count);
+      }
+    },
+    [finalizeRunFromState, finishRun],
+  );
+
   const subscribeRun = useCallback(
     async (state: InternalRunState, startCursor: number) => {
       state.subscribeAbort?.abort();
       const controller = new AbortController();
       state.subscribeAbort = controller;
+      state.cursor = startCursor;
       state.eventCursor = startCursor;
 
       const consumeEvent = (apply: () => void) => {
@@ -187,10 +274,17 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
             notify();
           });
         },
-        onRetry: ({ attempt, max_attempts }: { attempt: number; max_attempts: number }) => {
+        onRetry: ({
+          attempt,
+          max_attempts,
+        }: {
+          attempt: number;
+          max_attempts: number;
+        }) => {
           consumeEvent(() => {
             state.retryNotice = state.formatRetryNotice(attempt, max_attempts);
-            patchRunDraft(state);
+            state.livePhase = 'planning';
+            notify();
           });
         },
         onThinkStart: () => {
@@ -267,6 +361,11 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         },
         onDone: () => {
           consumeEvent(() => {
+            finalizeRunFromState(state);
+          });
+        },
+        onError: (message: string) => {
+          consumeEvent(() => {
             const tools = toolItemsFromSteps(state.assistantSteps);
             syncFolioAfterAgentSession(
               tools.map((item) => ({
@@ -274,57 +373,143 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
                 ok: item.status === 'done',
               })),
             );
-            state.livePhase = 'done';
-            state.retryNotice = null;
-            state.currentThinkId = null;
-            state.assistantSteps = finalizeThinkSteps(state.assistantSteps);
-            const fallbackContent =
-              state.assistantText ||
-              (tools.length > 0 ? state.toolsCompleteLabel : state.responseCompleteLabel);
-            const base = state.draftMessages.slice(0, -1);
-            finishRun(state, [
-              ...base,
-              {
-                role: 'assistant' as const,
-                content: fallbackContent,
-                activitySteps: state.assistantSteps.length > 0 ? state.assistantSteps : undefined,
-              },
-            ]);
-          });
-        },
-        onError: (message: string) => {
-          consumeEvent(() => {
             state.error = message;
             state.livePhase = null;
             state.retryNotice = null;
             state.assistantSteps = finalizeThinkSteps(state.assistantSteps);
-            const base = state.draftMessages.slice(0, -1);
-            finishRun(state, [
-              ...base,
-              {
-                role: 'assistant' as const,
-                content: state.assistantText || message,
-                activitySteps: state.assistantSteps.length > 0 ? state.assistantSteps : undefined,
-              },
-            ]);
+            if (state.assistantText || state.assistantSteps.length > 0) {
+              const base = state.draftMessages.slice(0, -1);
+              finishRun(state, [
+                ...base,
+                {
+                  role: 'assistant' as const,
+                  content: state.assistantText || message,
+                  activitySteps:
+                    state.assistantSteps.length > 0 ? state.assistantSteps : undefined,
+                },
+              ]);
+            } else {
+              runsRef.current.delete(state.sessionId);
+              clearActiveRunDraft();
+              clearStreamDraft();
+              notify();
+            }
           });
         },
       };
 
-      const result = await streamAgentRunEvents(state.runId, startCursor, handlers, controller.signal);
-      if (result === 'done' || result === 'error' || controller.signal.aborted) {
-        return;
-      }
-      const status = await fetchAgentRunStatus(state.runId);
-      if (status.status === 'running') {
-        await subscribeRun(state, status.event_count);
+      try {
+        const result = await streamAgentRunEvents(
+          state.runId,
+          startCursor,
+          handlers,
+          controller.signal,
+        );
+        if (
+          controller.signal.aborted ||
+          result === 'aborted' ||
+          !runsRef.current.has(state.sessionId)
+        ) {
+          return;
+        }
+        const status = await fetchAgentRunStatus(state.runId);
+        continueRunAfterStream(state, status);
+      } catch {
+        if (!controller.signal.aborted && runsRef.current.has(state.sessionId)) {
+          try {
+            const status = await fetchAgentRunStatus(state.runId);
+            continueRunAfterStream(state, status);
+          } catch {
+            // ignore reconnect errors
+          }
+        }
       }
     },
-    [finishRun, notify, patchRunDraft],
+    [continueRunAfterStream, finalizeRunFromState, finishRun, notify, patchRunDraft],
   );
+
+  subscribeRunRef.current = subscribeRun;
+
+  const attachExistingRun = useCallback(
+    async (
+      sessionId: string,
+      runId: string,
+      modelId: string,
+      draftMessages: AgentChatMessage[],
+      cursor: number,
+      onComplete: (finalMessages: AgentChatMessage[]) => void,
+    ) => {
+      if (runsRef.current.has(sessionId)) return;
+      const last = draftMessages[draftMessages.length - 1];
+      const assistantSteps = last?.role === 'assistant' ? last.activitySteps ?? [] : [];
+      const state: InternalRunState = {
+        sessionId,
+        runId,
+        modelId,
+        draftMessages,
+        assistantText: last?.role === 'assistant' ? last.content : '',
+        assistantSteps,
+        currentThinkId: resolveCurrentThinkId(assistantSteps),
+        livePhase: 'planning',
+        retryNotice: null,
+        error: null,
+        cursor,
+        eventCursor: cursor,
+        subscribeAbort: null,
+        uiLocale: 'zh',
+        toolsCompleteLabel: '',
+        responseCompleteLabel: '',
+        stoppedLabel: '',
+        formatRetryNotice: noopRetry,
+        onComplete,
+      };
+      runsRef.current.set(sessionId, state);
+      notify();
+      void subscribeRun(state, cursor);
+    },
+    [notify, subscribeRun],
+  );
+
+  useEffect(() => {
+    const active = loadActiveRunDraft();
+    if (!active) return;
+    const streamDraft = loadStreamDraft();
+    if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
+
+    void (async () => {
+      try {
+        const status = await fetchAgentRunStatus(active.runId);
+        if (status.status === 'cancelled') {
+          clearActiveRunDraft();
+          clearStreamDraft();
+          return;
+        }
+        // streamDraft already reflects events up to eventCursor — only subscribe for new ones
+        const resumeCursor = streamDraft.eventCursor ?? active.cursor ?? status.event_count;
+        await attachExistingRun(
+          active.sessionId,
+          active.runId,
+          active.modelId,
+          streamDraft.messages,
+          resumeCursor,
+          (finalMessages) => {
+            persistSessionMessagesSync(active.sessionId, finalMessages, active.modelId);
+          },
+        );
+      } catch {
+        clearActiveRunDraft();
+      }
+    })();
+  }, [attachExistingRun]);
 
   const startRun = useCallback(
     async (params: StartRunParams) => {
+      const existing = runsRef.current.get(params.sessionId);
+      if (existing) {
+        existing.subscribeAbort?.abort();
+        runsRef.current.delete(params.sessionId);
+      }
+
       const { run_id: runId } = await createAgentRun({
         model_id: params.modelId,
         locale: params.locale,
@@ -342,6 +527,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         livePhase: 'planning',
         retryNotice: null,
         error: null,
+        cursor: 0,
         eventCursor: 0,
         subscribeAbort: null,
         onComplete: params.onComplete,

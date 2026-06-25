@@ -7,6 +7,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { FolioHoldingsPanel } from './FolioHoldingsPanel';
 import { FolioReturnAttributionPanel } from './FolioReturnAttributionPanel';
 import { FolioRiskExposurePanel } from './FolioRiskExposurePanel';
+import { FolioAllocateMenu } from './FolioAllocateMenu';
 
 type FolioDetailTab = 'holdings' | 'attribution' | 'risk';
 
@@ -27,7 +28,7 @@ interface FolioDetailTabsProps {
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
-  onAutoAllocate: (market: MarketCode, strategy: FolioAllocationStrategy) => void;
+  onAutoAllocate: (strategy: FolioAllocationStrategy) => void;
 }
 
 export function FolioDetailTabs({
@@ -57,6 +58,7 @@ export function FolioDetailTabs({
     { id: 'attribution', label: t('folio.attributionTitle') },
     { id: 'risk', label: t('folio.riskExposureTitle') },
   ];
+  const hasHoldings = portfolio.holdings.length > 0;
 
   return (
     <article className="folio-card folio-detail-tabs">
@@ -77,6 +79,11 @@ export function FolioDetailTabs({
             </button>
           ))}
         </div>
+        {activeTab === 'holdings' && hasHoldings ? (
+          <div className="folio-detail-tabs__actions">
+            <FolioAllocateMenu disabled={allocating} onAllocate={onAutoAllocate} />
+          </div>
+        ) : null}
       </header>
 
       <div className="folio-detail-tabs__body">
@@ -93,7 +100,6 @@ export function FolioDetailTabs({
               loading={loading}
               addingTicker={addingTicker}
               removingTicker={removingTicker}
-              allocating={allocating}
               onNavigateTab={onNavigateTab}
               onApplyShares={onApplyShares}
               onToggleSharesLock={onToggleSharesLock}
@@ -103,7 +109,6 @@ export function FolioDetailTabs({
               onApplyOpenDate={onApplyOpenDate}
               onAddHolding={onAddHolding}
               onRemoveHolding={onRemoveHolding}
-              onAutoAllocate={onAutoAllocate}
             />
           </div>
         ) : null}

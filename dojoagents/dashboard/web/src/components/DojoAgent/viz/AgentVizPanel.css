@@ -41,10 +41,8 @@
 }
 
 .agent-market-badge__flag {
-  width: 11px;
-  height: 11px;
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .agent-viz-block {
@@ -172,7 +170,7 @@
   gap: 2px;
   padding: 5px 6px;
   border-radius: 6px;
-  background: var(--color-surface-subtle);
+  background: rgba(30, 58, 95, 0.28);
   min-width: 0;
 }
 
@@ -209,13 +207,13 @@
 
 .agent-viz-kpi__item--positive .agent-viz-kpi__value,
 .agent-viz-kpi__item--positive .agent-viz-kpi__delta {
-  color: var(--green);
+  color: #00e676;
 }
 
 .agent-viz-kpi__item--negative .agent-viz-kpi__value,
 .agent-viz-kpi__item--negative .agent-viz-kpi__delta,
 .agent-viz-kpi__item--risk .agent-viz-kpi__delta {
-  color: var(--red);
+  color: #ef5350;
 }
 
 .agent-viz-quote {
@@ -275,11 +273,11 @@
 }
 
 .agent-viz-quote__chg--up {
-  color: var(--green);
+  color: #00e676;
 }
 
 .agent-viz-quote__chg--down {
-  color: var(--red);
+  color: #ef5350;
 }
 
 .agent-viz-quote__grid {
@@ -307,19 +305,19 @@
 .agent-viz-table-group--hk {
   padding: 6px;
   border-radius: 8px;
-  background: var(--color-surface-subtle);
+  background: rgba(15, 28, 48, 0.35);
 }
 
 .agent-viz-table-group--us {
-  border: 1px solid color-mix(in srgb, var(--market-us-line) 18%, transparent);
+  border: 1px solid rgba(94, 184, 255, 0.18);
 }
 
 .agent-viz-table-group--cn {
-  border: 1px solid color-mix(in srgb, var(--market-cn-line) 18%, transparent);
+  border: 1px solid rgba(255, 159, 107, 0.18);
 }
 
 .agent-viz-table-group--hk {
-  border: 1px solid color-mix(in srgb, var(--market-hk-line) 18%, transparent);
+  border: 1px solid rgba(255, 209, 102, 0.18);
 }
 
 .agent-viz-table-wrap {
@@ -356,11 +354,11 @@
 }
 
 .agent-viz-table__pct--up {
-  color: var(--green);
+  color: #00e676;
 }
 
 .agent-viz-table__pct--down {
-  color: var(--red);
+  color: #ef5350;
 }
 
 .agent-viz-sparkline__meta {
@@ -382,11 +380,11 @@
 }
 
 .agent-viz-sparkline__chg--up {
-  color: var(--green);
+  color: #00e676;
 }
 
 .agent-viz-sparkline__chg--down {
-  color: var(--red);
+  color: #ef5350;
 }
 
 .agent-viz-sparkline__chart {
@@ -400,11 +398,11 @@
 }
 
 .agent-viz-sparkline__path--up {
-  stroke: var(--green);
+  stroke: #00e676;
 }
 
 .agent-viz-sparkline__path--down {
-  stroke: var(--red);
+  stroke: #ef5350;
 }
 
 .agent-viz-sparkline__path--flat {
@@ -481,6 +479,68 @@
   width: 100%;
   height: 120px;
   display: block;
+}
+
+.agent-viz-line path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.agent-viz-price-kline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-viz-price-kline__price,
+.agent-viz-price-kline__volume {
+  width: 100%;
+  display: block;
+}
+
+.agent-viz-price-kline__price {
+  height: 96px;
+}
+
+.agent-viz-price-kline__volume {
+  height: 28px;
+}
+
+.agent-viz-price-kline__bg {
+  fill: rgba(8, 14, 24, 0.9);
+}
+
+.agent-viz-price-kline__wick {
+  stroke-width: 1;
+}
+
+.agent-viz-price-kline__wick--up,
+.agent-viz-price-kline__body--up,
+.agent-viz-price-kline__vol--up {
+  stroke: #ef5350;
+  fill: #ef5350;
+}
+
+.agent-viz-price-kline__wick--down,
+.agent-viz-price-kline__body--down,
+.agent-viz-price-kline__vol--down {
+  stroke: #26a69a;
+  fill: #26a69a;
+}
+
+.agent-viz-price-kline__wick--flat,
+.agent-viz-price-kline__body--flat,
+.agent-viz-price-kline__vol--flat {
+  stroke: #90a4ae;
+  fill: #90a4ae;
+}
+
+.agent-viz-price-kline__body {
+  stroke: none;
+}
+
+.agent-viz-price-kline__vol {
+  opacity: 0.72;
 }
 
 .agent-viz-line__legend {
@@ -596,11 +656,11 @@
 }
 
 .agent-viz-hbar__fill--up {
-  background: var(--green);
+  background: #00e676;
 }
 
 .agent-viz-hbar__fill--down {
-  background: var(--red);
+  background: #ef5350;
 }
 
 .agent-viz-hbar__value {
@@ -610,11 +670,11 @@
 }
 
 .agent-viz-hbar__value--up {
-  color: var(--green);
+  color: #00e676;
 }
 
 .agent-viz-hbar__value--down {
-  color: var(--red);
+  color: #ef5350;
 }
 
 .agent-viz-donut {

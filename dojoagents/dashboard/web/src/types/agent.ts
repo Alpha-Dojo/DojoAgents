@@ -8,6 +8,8 @@ export interface AgentModelItem {
 export interface AgentModelsResponse {
   default_model_id: string;
   gemini_configured: boolean;
+  zhipu_configured: boolean;
+  agent_ready: boolean;
   models: AgentModelItem[];
 }
 
@@ -45,9 +47,13 @@ export type AgentActivityStep =
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
+  /** Chronological stream of thinking, tools, and eval hints. */
   activitySteps?: AgentActivityStep[];
+  /** @deprecated Migrated into activitySteps for display order. */
   toolActivity?: AgentToolActivityItem[];
+  /** @deprecated Migrated into activitySteps for display order. */
   thinkBlocks?: AgentThinkBlock[];
+  /** @deprecated Migrated into activitySteps for display order. */
   evalHints?: AgentEvalHintItem[];
 }
 

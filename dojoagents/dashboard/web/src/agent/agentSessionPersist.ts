@@ -21,6 +21,7 @@ function sortSessions(sessions: AgentSession[]): AgentSession[] {
   return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Persist session messages without React state — used when run finishes off-panel. */
 export function persistSessionMessagesSync(
   sessionId: string,
   messages: AgentChatMessage[],

@@ -18,6 +18,10 @@ class AgentModelsResponse(BaseModel):
         False,
         description="True when GEMINI_API_KEY is set on the server",
     )
+    agent_ready: bool = Field(
+        False,
+        description="True when at least one model is available",
+    )
     models: List[AgentModelItem] = Field(default_factory=list)
 
 

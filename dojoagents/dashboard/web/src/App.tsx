@@ -108,15 +108,13 @@ export default function App() {
               <div className="app-main__content">
                 <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
               </div>
-              {agentVisible ? (
                 <DojoAgentPanel
-                  open
+                  open={agentVisible}
                   pinned={agentPinned}
                   interactive={!agentPinned}
                   sourceTab={tab}
                   onClose={handleAgentClose}
                 />
-              ) : null}
             </main>
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           </div>

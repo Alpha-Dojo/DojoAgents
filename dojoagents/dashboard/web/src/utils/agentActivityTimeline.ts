@@ -18,6 +18,7 @@ function findLastRunningToolIndex(steps: AgentActivityStep[], tool: string): num
   return -1;
 }
 
+/** Normalize legacy messages (separate arrays) into a single timeline. */
 export function resolveActivitySteps(message: AgentChatMessage): AgentActivityStep[] {
   if (message.activitySteps?.length) {
     return message.activitySteps;
@@ -36,10 +37,15 @@ export function resolveActivitySteps(message: AgentChatMessage): AgentActivitySt
   return steps;
 }
 
+export function messageHasAssistantActivity(message: AgentChatMessage): boolean {
+  const steps = resolveActivitySteps(message);
+  return steps.length > 0 || Boolean(message.content.trim());
+}
+
 export function toolItemsFromSteps(steps: AgentActivityStep[]): AgentToolActivityItem[] {
-  return steps
-    .filter((step): step is Extract<AgentActivityStep, { kind: 'tool' }> => step.kind === 'tool')
-    .map((step) => step.item);
+  return steps.filter((step): step is Extract<AgentActivityStep, { kind: 'tool' }> => step.kind === 'tool').map(
+    (step) => step.item,
+  );
 }
 
 export function appendThinkStart(
@@ -152,10 +158,9 @@ export function resolveToolResult(
     error: ok ? null : error ?? null,
     resultSummary,
     vizBlocks: ok && vizBlocks?.length ? vizBlocks : undefined,
-    arguments:
-      runningIndex >= 0 && steps[runningIndex]?.kind === 'tool'
-        ? steps[runningIndex].item.arguments
-        : undefined,
+    arguments: runningIndex >= 0 && steps[runningIndex]?.kind === 'tool'
+      ? steps[runningIndex].item.arguments
+      : undefined,
   };
 
   if (runningIndex >= 0) {
@@ -176,14 +181,21 @@ export function resolveToolResult(
 export function appendEvalHint(steps: AgentActivityStep[], issues: string[]): AgentActivityStep[] {
   if (issues.length === 0) return steps;
   const key = issues.join('\u0001');
-  if (steps.some((step) => step.kind === 'eval' && step.hint.issues.join('\u0001') === key)) {
+  if (
+    steps.some(
+      (step) => step.kind === 'eval' && step.hint.issues.join('\u0001') === key,
+    )
+  ) {
     return steps;
   }
   const hint: AgentEvalHintItem = { id: crypto.randomUUID(), issues: [...issues] };
   return [...steps, { kind: 'eval', id: hint.id, hint }];
 }
 
-export function toggleThinkStep(steps: AgentActivityStep[], blockId: string): AgentActivityStep[] {
+export function toggleThinkStep(
+  steps: AgentActivityStep[],
+  blockId: string,
+): AgentActivityStep[] {
   return steps.map((step) =>
     step.kind === 'think' && step.block.id === blockId
       ? { ...step, block: { ...step.block, collapsed: !step.block.collapsed } }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useAgentModel } from '../../agent/AgentModelContext';
+import { useAgentRun } from '../../agent/AgentRunContext';
 import {
   AGENT_DRAFT_STORAGE_KEY,
   AGENT_SESSIONS_STORAGE_KEY,
@@ -8,31 +9,24 @@ import {
   saveStreamDraft,
 } from '../../agent/agentStorage';
 import { useAgentSessions } from '../../agent/useAgentSessions';
-import { streamAgentChat } from '../../api/agent';
 import { useAgentPanelWidth } from '../../hooks/useAgentPanelWidth';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AppTab } from '../../navigation/appTab';
-import type {
-  AgentChatMessage,
-  AgentEvalHintItem,
-  AgentThinkBlock,
-  AgentToolActivityItem,
-} from '../../types/agent';
+import type { AgentChatMessage } from '../../types/agent';
 import { AgentModelSwitcher } from '../AgentModelSwitcher';
 import '../AgentModelSwitcher.css';
-import { AgentEvalHints } from './AgentEvalHints';
+import { AgentActivityTimeline } from './AgentActivityTimeline';
 import { AgentMarkdown } from './AgentMarkdown';
 import { AgentSuggestedQuestions } from './AgentSuggestedQuestions';
-import { AgentThinking } from './AgentThinking';
-import { AgentToolActivity } from './AgentToolActivity';
-import type { AgentVizBlock } from '../../types/agentViz';
-import { syncFolioAfterAgentSession, syncFolioFromAgentTool } from '../../utils/agentFolioSync';
+import {
+  resolveActivitySteps,
+  toggleThinkStep,
+} from '../../utils/agentActivityTimeline';
 import {
   finalizeIncompleteAssistantMessages,
   messagesForSessionPersist,
   prepareMessagesForApi,
 } from '../../utils/agentMessages';
-import { formatToolResultData } from '../../utils/agentToolDetail';
 import './DojoAgentPanel.css';
 
 interface DojoAgentPanelProps {
@@ -127,74 +121,6 @@ function TrashIcon() {
   );
 }
 
-function updateAssistantMessage(
-  messages: AgentChatMessage[],
-  patch: Partial<AgentChatMessage>,
-): AgentChatMessage[] {
-  if (messages.length === 0) return messages;
-  const updated = [...messages];
-  const last = updated[updated.length - 1];
-  if (last.role !== 'assistant') return messages;
-  updated[updated.length - 1] = { ...last, ...patch };
-  return updated;
-}
-
-function appendToolStart(
-  activity: AgentToolActivityItem[] | undefined,
-  tool: string,
-  args: Record<string, unknown>,
-): AgentToolActivityItem[] {
-  return [...(activity ?? []), { tool, status: 'running', arguments: args }];
-}
-
-function resolveToolResult(
-  activity: AgentToolActivityItem[] | undefined,
-  tool: string,
-  ok: boolean,
-  latencyMs: number,
-  locale: 'zh' | 'en',
-  error?: string | null,
-  data?: {
-    portfolio_id?: string;
-    name?: string;
-    holdings_count?: number;
-    holdings_by_market?: Record<string, number>;
-    tickers?: string[];
-  } | null,
-  vizBlocks?: AgentVizBlock[],
-): AgentToolActivityItem[] {
-  const items = [...(activity ?? [])];
-  const runningIndex = items.findIndex((item) => item.tool === tool && item.status === 'running');
-  const resultSummary = ok ? formatToolResultData(data, locale) : null;
-  const next: AgentToolActivityItem = {
-    tool,
-    status: ok ? 'done' : 'error',
-    latencyMs,
-    error: ok ? null : error ?? null,
-    resultSummary,
-    vizBlocks: ok && vizBlocks?.length ? vizBlocks : undefined,
-    arguments: runningIndex >= 0 ? items[runningIndex].arguments : undefined,
-  };
-  if (runningIndex >= 0) {
-    items[runningIndex] = { ...items[runningIndex], ...next };
-    return items;
-  }
-  return [...items, next];
-}
-
-function appendEvalHint(
-  hints: AgentEvalHintItem[] | undefined,
-  issues: string[],
-): AgentEvalHintItem[] {
-  if (issues.length === 0) return hints ?? [];
-  const key = issues.join('\u0001');
-  const existing = hints ?? [];
-  if (existing.some((hint) => hint.issues.join('\u0001') === key)) {
-    return existing;
-  }
-  return [...existing, { id: crypto.randomUUID(), issues: [...issues] }];
-}
-
 export function DojoAgentPanel({
   open,
   pinned = false,
@@ -204,7 +130,7 @@ export function DojoAgentPanel({
 }: DojoAgentPanelProps) {
   const { t, locale } = useTranslation();
   const { width: panelWidth, resizing, onResizeStart } = useAgentPanelWidth();
-  const { selectedModelId, geminiConfigured, setSelectedModelId } = useAgentModel();
+  const { selectedModelId, agentReady, selectedModel, setSelectedModelId } = useAgentModel();
   const {
     sessions,
     activeSessionId,
@@ -214,31 +140,26 @@ export function DojoAgentPanel({
     ensureActiveSession,
     replaceSessionMessages,
     deleteSession,
+    reloadFromStorage,
   } = useAgentSessions();
+  const { getSessionRun, startRun, stopRun, isSessionRunning, wireRunCallbacks, toggleRunThinkBlock } =
+    useAgentRun();
 
   const [input, setInput] = useState('');
-  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
-  const [draftMessages, setDraftMessages] = useState<AgentChatMessage[]>([]);
-  const [livePhase, setLivePhase] = useState<
-    'planning' | 'tools' | 'answering' | 'done' | null
-  >(null);
-  const [retryNotice, setRetryNotice] = useState<string | null>(null);
   const [recoveredNotice, setRecoveredNotice] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const streamingSessionIdRef = useRef<string | null>(null);
-  const draftMessagesRef = useRef<AgentChatMessage[]>([]);
 
-  const messages = activeSession?.messages ?? draftMessages;
-
-  useEffect(() => {
-    draftMessagesRef.current = draftMessages;
-  }, [draftMessages]);
+  const sessionRun = getSessionRun(activeSessionId);
+  const streaming = isSessionRunning(activeSessionId);
+  const messages = streaming ? sessionRun.draftMessages : activeSession?.messages ?? [];
+  const livePhase = sessionRun.livePhase;
+  const retryNotice = sessionRun.retryNotice;
+  const panelError = error ?? sessionRun.error;
 
   useEffect(() => {
     const draft = loadStreamDraft();
@@ -261,32 +182,8 @@ export function DojoAgentPanel({
   }, [recoveredNotice]);
 
   useEffect(() => {
-    const flushOnUnload = () => {
-      const sessionId = streamingSessionIdRef.current;
-      const msgs = draftMessagesRef.current;
-      if (!sessionId || msgs.length === 0) return;
-      replaceSessionMessages(sessionId, msgs, selectedModelId);
-      saveStreamDraft({
-        sessionId,
-        modelId: selectedModelId,
-        messages: msgs,
-        updatedAt: Date.now(),
-        interrupted: true,
-      });
-    };
-    window.addEventListener('beforeunload', flushOnUnload);
-    return () => window.removeEventListener('beforeunload', flushOnUnload);
-  }, [replaceSessionMessages, selectedModelId]);
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streaming, draftMessages]);
-
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
+  }, [messages, streaming, sessionRun.draftMessages]);
 
   const flushPersistDraft = useCallback(
     (sessionId: string, nextMessages: AgentChatMessage[], interrupted = false) => {
@@ -324,25 +221,40 @@ export function DojoAgentPanel({
         window.clearTimeout(persistTimerRef.current);
         persistTimerRef.current = null;
       }
-      streamingSessionIdRef.current = null;
       replaceSessionMessages(sessionId, nextMessages, selectedModelId);
       clearStreamDraft();
-      setDraftMessages([]);
     },
     [replaceSessionMessages, selectedModelId],
   );
 
+  useEffect(() => {
+    if (!open) return;
+    reloadFromStorage();
+  }, [open, reloadFromStorage]);
+
+  useEffect(() => {
+    if (!activeSessionId || !isSessionRunning(activeSessionId)) return;
+    wireRunCallbacks(activeSessionId, {
+      onComplete: (finalMessages) => {
+        persistMessages(activeSessionId, finalMessages);
+      },
+      onPersistDraft: (draft) => {
+        schedulePersistDraft(activeSessionId, draft);
+      },
+    });
+  }, [
+    activeSessionId,
+    isSessionRunning,
+    persistMessages,
+    schedulePersistDraft,
+    wireRunCallbacks,
+  ]);
+
   const handleNewSession = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setStreaming(false);
     setError(null);
     setInput('');
     setHistoryOpen(false);
-    setLivePhase(null);
-    setRetryNotice(null);
     setRecoveredNotice(false);
-    setDraftMessages([]);
     clearStreamDraft();
     createSession(selectedModelId);
   }, [createSession, selectedModelId]);
@@ -354,12 +266,8 @@ export function DojoAgentPanel({
         return;
       }
       setSwitchingSessionId(sessionId);
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setStreaming(false);
       setError(null);
       setInput('');
-      setDraftMessages([]);
       const session = sessions.find((item) => item.id === sessionId);
       if (session) {
         setSelectedModelId(session.modelId);
@@ -375,231 +283,67 @@ export function DojoAgentPanel({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || !geminiConfigured) return;
+    if (!text || streaming || !selectedModel?.available) return;
 
     const sessionId = ensureActiveSession(selectedModelId);
     const userMessage: AgentChatMessage = { role: 'user', content: text };
     const pendingAssistant: AgentChatMessage = {
       role: 'assistant',
       content: '',
-      toolActivity: [],
-      thinkBlocks: [],
-      evalHints: [],
+      activitySteps: [],
     };
     const nextMessages = [...messages, userMessage, pendingAssistant];
+    const uiLocale = locale === 'zh' ? 'zh' : 'en';
 
-    setDraftMessages(nextMessages);
-    streamingSessionIdRef.current = sessionId;
-    flushPersistDraft(sessionId, nextMessages, false);
     setInput('');
-    setStreaming(true);
     setError(null);
 
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let assistantText = '';
-    let assistantTools: AgentToolActivityItem[] = [];
-    let assistantThinkBlocks: AgentThinkBlock[] = [];
-    let assistantEvalHints: AgentEvalHintItem[] = [];
-    let currentThinkId: string | null = null;
-    const uiLocale = locale === 'zh' ? 'zh' : 'en';
-    setLivePhase('planning');
-    setRetryNotice(null);
-
-    const patchAssistant = (patch: Partial<AgentChatMessage>) => {
-      setDraftMessages((prev) => {
-        const updated = updateAssistantMessage(prev, {
-          content: assistantText,
-          toolActivity: assistantTools,
-          thinkBlocks: assistantThinkBlocks,
-          evalHints: assistantEvalHints,
-          ...patch,
-        });
-        schedulePersistDraft(sessionId, updated);
-        return updated;
-      });
-    };
-
-    await streamAgentChat(
-      {
-        model_id: selectedModelId,
+    try {
+      await startRun({
+        sessionId,
+        modelId: selectedModelId,
         locale,
-        messages: prepareMessagesForApi(
+        draftMessages: nextMessages,
+        apiMessages: prepareMessagesForApi(
           [...messages, userMessage],
           t('agent.toolsComplete'),
         ),
-      },
-      {
-        onPhase: (phase) => {
-          setLivePhase(phase);
-        },
-        onRetry: ({ attempt, max_attempts }) => {
-          setRetryNotice(t('agent.retrying', { attempt, max: max_attempts }));
-          setLivePhase('planning');
-        },
-        onThinkStart: () => {
-          if (currentThinkId) {
-            assistantThinkBlocks = assistantThinkBlocks.map((block) =>
-              block.id === currentThinkId
-                ? { ...block, done: true, collapsed: true }
-                : block,
-            );
-          }
-          currentThinkId = crypto.randomUUID();
-          assistantThinkBlocks = [
-            ...assistantThinkBlocks,
-            { id: currentThinkId, text: '', collapsed: false, done: false },
-          ];
-          patchAssistant({});
-        },
-        onThinkDelta: (text) => {
-          if (!currentThinkId) return;
-          assistantThinkBlocks = assistantThinkBlocks.map((block) =>
-            block.id === currentThinkId ? { ...block, text: block.text + text } : block,
-          );
-          patchAssistant({});
-        },
-        onThinkEnd: () => {
-          if (!currentThinkId) return;
-          assistantThinkBlocks = assistantThinkBlocks.map((block) =>
-            block.id === currentThinkId
-              ? { ...block, done: true, collapsed: true }
-              : block,
-          );
-          currentThinkId = null;
-          patchAssistant({});
-        },
-        onDelta: (delta) => {
-          assistantText += delta;
-          patchAssistant({});
-        },
-        onToolStart: (tool, args) => {
-          assistantTools = appendToolStart(assistantTools, tool, args);
-          patchAssistant({});
-        },
-        onToolResult: ({ tool, ok, latency_ms, error: toolError, data, viz_blocks }) => {
-          assistantTools = resolveToolResult(
-            assistantTools,
-            tool,
-            ok,
-            latency_ms,
-            uiLocale,
-            toolError,
-            data,
-            viz_blocks,
-          );
-          patchAssistant({});
-          // @ts-ignore - data parameter type from streaming is unknown
-          void syncFolioFromAgentTool(tool, ok, data);
-        },
-        onEvalHint: ({ issues }) => {
-          assistantEvalHints = appendEvalHint(assistantEvalHints, issues);
-          patchAssistant({});
-        },
-        onDone: () => {
-          syncFolioAfterAgentSession(
-            assistantTools.map((item) => ({
-              tool: item.tool,
-              ok: item.status === 'done',
-            })),
-          );
-          setLivePhase('done');
-          setRetryNotice(null);
-          assistantThinkBlocks = assistantThinkBlocks.map((block) => ({
-            ...block,
-            done: true,
-            collapsed: true,
-          }));
-          const fallbackContent =
-            assistantText ||
-            (assistantTools.length > 0 ? t('agent.toolsComplete') : t('agent.responseComplete'));
-          const finalMessages = [
-            ...messages,
-            userMessage,
-            {
-              role: 'assistant' as const,
-              content: fallbackContent,
-              toolActivity: assistantTools.length > 0 ? assistantTools : undefined,
-              thinkBlocks: assistantThinkBlocks.length > 0 ? assistantThinkBlocks : undefined,
-              evalHints: assistantEvalHints.length > 0 ? assistantEvalHints : undefined,
-            },
-          ];
+        toolsCompleteLabel: t('agent.toolsComplete'),
+        responseCompleteLabel: t('agent.responseComplete'),
+        stoppedLabel: t('agent.stopped'),
+        uiLocale,
+        formatRetryNotice: (attempt, max) => t('agent.retrying', { attempt, max }),
+        onComplete: (finalMessages) => {
           persistMessages(sessionId, finalMessages);
-          setStreaming(false);
-          abortRef.current = null;
-          window.setTimeout(() => setLivePhase(null), 1200);
           textareaRef.current?.focus();
         },
-        onError: (message) => {
-          syncFolioAfterAgentSession(
-            assistantTools.map((item) => ({
-              tool: item.tool,
-              ok: item.status === 'done',
-            })),
-          );
-          setError(message);
-          setLivePhase(null);
-          setRetryNotice(null);
-          if (assistantText || assistantTools.length > 0 || assistantThinkBlocks.length > 0) {
-            const partialMessages = [
-              ...messages,
-              userMessage,
-              {
-                role: 'assistant' as const,
-                content: assistantText || message,
-                toolActivity: assistantTools.length > 0 ? assistantTools : undefined,
-                thinkBlocks: assistantThinkBlocks.length > 0 ? assistantThinkBlocks : undefined,
-                evalHints: assistantEvalHints.length > 0 ? assistantEvalHints : undefined,
-              },
-            ];
-            persistMessages(sessionId, partialMessages);
-          } else {
-            setInput(text);
-          }
-          setDraftMessages([]);
-          setStreaming(false);
-          abortRef.current = null;
-          textareaRef.current?.focus();
+        onPersistDraft: (draft) => {
+          schedulePersistDraft(sessionId, draft);
         },
-      },
-      controller.signal,
-    );
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('agent.sendFailed'));
+      setInput(text);
+    }
   }, [
     ensureActiveSession,
-    flushPersistDraft,
-    geminiConfigured,
-    input,
     locale,
     messages,
     persistMessages,
     schedulePersistDraft,
-    selectedModelId,
+    selectedModel?.available,
+    input,
+    startRun,
     streaming,
+    selectedModelId,
     t,
   ]);
 
   const handleStop = useCallback(() => {
-    if (!streaming) return;
-    abortRef.current?.abort();
-    abortRef.current = null;
-    const sessionId = ensureActiveSession(selectedModelId);
-    setDraftMessages((prev) => {
-      if (prev.length === 0) return prev;
-      const finalized = prev.map((message, index) =>
-        index === prev.length - 1 && message.role === 'assistant'
-          ? { ...message, content: message.content || t('agent.stopped') }
-          : message,
-      );
-      persistMessages(sessionId, finalized);
-      return [];
-    });
-    setStreaming(false);
-    setLivePhase(null);
-    setRetryNotice(null);
+    if (!streaming || !activeSessionId) return;
+    void stopRun(activeSessionId);
     textareaRef.current?.focus();
-  }, [ensureActiveSession, persistMessages, selectedModelId, streaming, t]);
+  }, [activeSessionId, stopRun, streaming]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -608,28 +352,41 @@ export function DojoAgentPanel({
     }
   };
 
-  const canSend = geminiConfigured && input.trim().length > 0 && !streaming;
-  const displayMessages = draftMessages.length > 0 ? draftMessages : messages;
+  const canSend = Boolean(selectedModel?.available) && input.trim().length > 0 && !streaming;
+  const displayMessages = messages;
 
   const toggleThinkBlock = useCallback(
     (messageIndex: number, blockId: string) => {
-      const source = draftMessages.length > 0 ? draftMessages : messages;
-      const next = source.map((message, index) => {
-        if (index !== messageIndex || !message.thinkBlocks) return message;
+      if (!activeSessionId) return;
+      const isStreamingAssistant =
+        streaming &&
+        displayMessages[messageIndex]?.role === 'assistant' &&
+        messageIndex === displayMessages.length - 1;
+      if (isStreamingAssistant) {
+        toggleRunThinkBlock(activeSessionId, blockId);
+        return;
+      }
+      const next = displayMessages.map((message, index) => {
+        if (index !== messageIndex) return message;
+        const steps = resolveActivitySteps(message);
+        if (!steps.some((step) => step.kind === 'think' && step.block.id === blockId)) {
+          return message;
+        }
         return {
           ...message,
-          thinkBlocks: message.thinkBlocks.map((block) =>
-            block.id === blockId ? { ...block, collapsed: !block.collapsed } : block,
-          ),
+          activitySteps: toggleThinkStep(steps, blockId),
         };
       });
-      if (draftMessages.length > 0) {
-        setDraftMessages(next);
-      } else if (activeSessionId) {
-        replaceSessionMessages(activeSessionId, next, selectedModelId);
-      }
+      replaceSessionMessages(activeSessionId, next, selectedModelId);
     },
-    [activeSessionId, draftMessages, messages, replaceSessionMessages, selectedModelId],
+    [
+      activeSessionId,
+      displayMessages,
+      replaceSessionMessages,
+      selectedModelId,
+      streaming,
+      toggleRunThinkBlock,
+    ],
   );
 
   const isOpen = pinned || open;
@@ -801,18 +558,12 @@ export function DojoAgentPanel({
               streaming &&
               message.role === 'assistant' &&
               index === displayMessages.length - 1;
-            const toolActivity = message.toolActivity ?? [];
-            const thinkBlocks = message.thinkBlocks ?? [];
-            const evalHints = message.evalHints ?? [];
-            const hasToolActivity = toolActivity.length > 0;
-            const hasThinkBlocks = thinkBlocks.length > 0;
-            const hasEvalHints = evalHints.length > 0;
+            const activitySteps = resolveActivitySteps(message);
+            const hasActivity = activitySteps.length > 0;
             const showAssistantBubble =
               message.role === 'assistant' &&
               (message.content ||
-                hasToolActivity ||
-                hasThinkBlocks ||
-                hasEvalHints ||
+                hasActivity ||
                 (isStreamingAssistant && livePhase));
 
             if (message.role === 'assistant' && !showAssistantBubble) {
@@ -833,24 +584,20 @@ export function DojoAgentPanel({
                     <p className="dojo-agent-panel__user-text">{message.content}</p>
                   ) : (
                     <>
-                      <AgentThinking
-                        blocks={thinkBlocks}
+                      <AgentActivityTimeline
+                        steps={activitySteps}
                         phase={isStreamingAssistant ? livePhase : null}
                         streaming={isStreamingAssistant}
                         retryNotice={isStreamingAssistant ? retryNotice : null}
-                        onToggleBlock={(blockId) => toggleThinkBlock(index, blockId)}
+                        onToggleThinkBlock={(blockId) => toggleThinkBlock(index, blockId)}
                       />
-                      {evalHints.map((hint) => (
-                        <AgentEvalHints key={hint.id} issues={hint.issues} />
-                      ))}
-                      <AgentToolActivity items={toolActivity} />
                       {message.content ? (
                         <AgentMarkdown
                           content={message.content}
                           streaming={isStreamingAssistant && !!message.content}
                         />
                       ) : null}
-                      {isStreamingAssistant && !message.content && !livePhase && !hasToolActivity ? (
+                      {isStreamingAssistant && !message.content && !livePhase && !hasActivity ? (
                         <p className="dojo-agent-panel__waiting">{t('agent.waiting')}</p>
                       ) : null}
                     </>
@@ -864,17 +611,17 @@ export function DojoAgentPanel({
       </div>
 
       <footer className="dojo-agent-panel__composer">
-        {!geminiConfigured && (
+        {!agentReady && (
           <p className="dojo-agent-panel__hint">{t('agent.apiNotConfigured')}</p>
         )}
-        {error && <p className="dojo-agent-panel__error">{error}</p>}
+        {panelError && <p className="dojo-agent-panel__error">{panelError}</p>}
         <textarea
           ref={textareaRef}
           className="dojo-agent-panel__input"
           rows={3}
           value={input}
           placeholder={t('agent.placeholder')}
-          disabled={!geminiConfigured || streaming}
+          disabled={!selectedModel?.available || streaming}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
         />

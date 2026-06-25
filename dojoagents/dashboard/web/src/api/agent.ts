@@ -2,7 +2,7 @@ import { ApiError } from './http';
 import type { AgentChatRequest, AgentModelsResponse, AgentStreamEvent } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
-const API_PREFIX = '/api';
+const API_PREFIX = '/api/v1';
 
 export type AgentStreamHandlers = {
   onDelta: (text: string) => void;
@@ -33,19 +33,15 @@ export type AgentStreamHandlers = {
 };
 
 export async function fetchAgentModels(): Promise<AgentModelsResponse> {
-  return {
-    default_model_id: 'gpt-4.1',
-    gemini_configured: true,
-    models: [
-      {
-        id: 'gpt-4.1',
-        label: 'openai:gpt-4.1',
-        provider: 'openai',
-        available: true,
-      },
-    ],
-  };
+  const res = await fetch(`${API_PREFIX}/agent/models`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status);
+  }
+  return res.json() as Promise<AgentModelsResponse>;
 }
+
 
 function parseSseBlock(block: string): AgentStreamEvent | null {
   const dataLine = block
@@ -61,14 +57,15 @@ function parseSseBlock(block: string): AgentStreamEvent | null {
 async function readErrorMessage(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as {
-      error?: string;
       detail?: string | { msg?: string; loc?: (string | number)[] }[];
     };
-    if (typeof body.error === 'string') return body.error;
     if (typeof body.detail === 'string') return body.detail;
     if (Array.isArray(body.detail) && body.detail.length > 0) {
       const first = body.detail[0];
       if (first && typeof first.msg === 'string') {
+        if (first.msg.includes('at least 1 character')) {
+          return 'Conversation history contains an empty message. Refresh the chat or start a new session.';
+        }
         return first.msg;
       }
     }
@@ -78,10 +75,7 @@ async function readErrorMessage(res: Response): Promise<string> {
   return `Request failed: ${res.status} ${res.statusText}`;
 }
 
-function dispatchStreamEvent(
-  event: AgentStreamEvent,
-  handlers: AgentStreamHandlers,
-): 'continue' | 'done' | 'error' {
+function dispatchStreamEvent(event: AgentStreamEvent, handlers: AgentStreamHandlers): 'continue' | 'done' | 'error' {
   if (event.type === 'delta') {
     handlers.onDelta(event.text);
     return 'continue';
@@ -190,6 +184,9 @@ async function consumeSseResponse(
   return 'eof';
 }
 
+
+
+
 export async function createAgentRun(
   body: AgentChatRequest,
 ): Promise<{ run_id: string; session_id: string; status: string; model: string }> {
@@ -262,27 +259,20 @@ export async function streamAgentRunEvents(
   return consumeSseResponse(res, handlers, signal);
 }
 
+
+/** @deprecated Prefer createAgentRun + streamAgentRunEvents for UI-decoupled runs. */
 export async function streamAgentChat(
   body: AgentChatRequest,
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
 ): Promise<SseConsumeResult> {
-  const res = await fetch(`${API_PREFIX}/chat`, {
+  const res = await fetch(`${API_PREFIX}/agent/chat/stream`, {
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: body.model_id,
-      messages: body.messages,
-      stream: true,
-      metadata: {
-        session_id: crypto.randomUUID(),
-        locale: body.locale ?? 'zh',
-        event_format: 'dojo.v2',
-      },
-    }),
+    body: JSON.stringify({ use_tools: true, ...body }),
     signal,
   });
   return consumeSseResponse(res, handlers, signal);

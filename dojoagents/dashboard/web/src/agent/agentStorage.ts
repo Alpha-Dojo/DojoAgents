@@ -12,9 +12,11 @@ export interface AgentStreamDraft {
   messages: AgentChatMessage[];
   updatedAt: number;
   interrupted: boolean;
+  /** Number of server events already reflected in `messages`. */
   eventCursor?: number;
 }
 
+/** Active background run — survives UI navigation. */
 export const AGENT_ACTIVE_RUN_STORAGE_KEY = 'dojo-agent-active-run-v1';
 
 export interface AgentActiveRunDraft {

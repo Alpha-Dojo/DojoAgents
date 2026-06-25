@@ -97,7 +97,7 @@ export const zhMessages = {
     placeholder: '输入问题，Enter 发送，Shift+Enter 换行',
     send: '发送',
     sending: '发送中…',
-    apiNotConfigured: '服务端未配置 GEMINI_API_KEY，暂无法对话。',
+    apiNotConfigured: '服务端未配置任何大模型 Provider，暂无法对话。',
     sendFailed: '发送失败，请稍后重试。',
     history: '历史会话',
     newChat: '新对话',

@@ -18,6 +18,7 @@ export function persistSphereViewState(
 ) {
   persistedSelection = selection;
   persistedScopeLevel = scopeLevel;
+  window.dispatchEvent(new CustomEvent('alphadojo-sphere-selection'));
 }
 
 export function clearPersistedSphereViewState() {

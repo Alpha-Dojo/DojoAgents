@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioAllocationStrategy } from '../../types/dojoFolio';
-import type { MarketCode } from '../../types/dojoMesh';
 
 const STRATEGY_NAME_KEYS: Record<FolioAllocationStrategy, string> = {
   market_cap: 'folio.allocateStrategyNameMarketCap',
@@ -16,9 +15,8 @@ const STRATEGY_DESC_KEYS: Record<FolioAllocationStrategy, string> = {
 };
 
 interface FolioAllocateMenuProps {
-  market: MarketCode;
   disabled?: boolean;
-  onAllocate: (market: MarketCode, strategy: FolioAllocationStrategy) => void;
+  onAllocate: (strategy: FolioAllocationStrategy) => void;
 }
 
 function ChevronIcon() {
@@ -36,7 +34,7 @@ function ChevronIcon() {
   );
 }
 
-export function FolioAllocateMenu({ market, disabled = false, onAllocate }: FolioAllocateMenuProps) {
+export function FolioAllocateMenu({ disabled = false, onAllocate }: FolioAllocateMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -83,7 +81,7 @@ export function FolioAllocateMenu({ market, disabled = false, onAllocate }: Foli
                 className="folio-allocate-menu__option"
                 onClick={() => {
                   setOpen(false);
-                  onAllocate(market, strategy);
+                  onAllocate(strategy);
                 }}
               >
                 <span className="folio-allocate-menu__option-line">

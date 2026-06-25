@@ -211,3 +211,54 @@ def test_dojo_v2_stream_emits_phase_event():
     data_lines = [l for l in lines if l.startswith("data:") and "[DONE]" not in l]  # noqa
     events = [json.loads(dl.replace("data: ", "", 1)).get("dojo_event") for dl in data_lines]
     assert any(event and event.get("type") == "phase" for event in events)
+
+
+def test_dojo_v2_stream_tool_events_include_call_id():
+    class ToolAgent(FakeStreamingAgent):
+        async def run(self, request, *, event_sink=None):
+            from dojoagents.agent.models import AgentResponse
+
+            if event_sink:
+                event_sink.phase("tools")
+                event_sink.tool_start(
+                    call_id="call-123",
+                    tool="portfolio_write_create",
+                    arguments={"name": "Quality"},
+                )
+                event_sink.tool_result(
+                    call_id="call-123",
+                    tool="portfolio_write_create",
+                    ok=True,
+                    content="created",
+                    latency_ms=10,
+                )
+                event_sink.done(
+                    model_id="fake-model",
+                    tool_trace=[{"call_id": "call-123", "tool": "portfolio_write_create", "ok": True}],
+                    tool_steps=1,
+                )
+            return AgentResponse(
+                content="created",
+                session_id=request.session_id,
+                metadata={"usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}},
+            )
+
+    client = TestClient(_make_app(ToolAgent()))
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={
+            "model": "gpt-4.1",
+            "messages": [{"role": "user", "content": "create portfolio"}],
+            "stream": True,
+            "metadata": {"session_id": "s1", "event_format": "dojo.v2"},
+        },
+    ) as response:
+        lines = [l.strip() for l in response.iter_lines() if l.strip()]  # noqa
+
+    data_lines = [l for l in lines if l.startswith("data:") and "[DONE]" not in l]  # noqa
+    events = [json.loads(dl.replace("data: ", "", 1)).get("dojo_event") for dl in data_lines]
+    tool_start = next(event for event in events if event and event.get("type") == "tool_start")
+    tool_result = next(event for event in events if event and event.get("type") == "tool_result")
+    assert tool_start["call_id"] == "call-123"
+    assert tool_result["call_id"] == "call-123"

@@ -231,6 +231,43 @@ export function buildOneDayReturnSnapshotForDate(
   return { anchorDate: date, markets: chips };
 }
 
+/** Latest cumulative return (index level) per market — matches Folio risk metrics table. */
+export function buildLatestCumulativeSnapshot(
+  rebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>,
+  markets: MarketCode[] = PERFORMANCE_MARKETS,
+): PerformanceHeadSnapshot | null {
+  const chips: MarketPerformanceChip[] = [];
+
+  for (const market of markets) {
+    const series = rebasedByMarket[market];
+    if (!series?.length) continue;
+    const last = series[series.length - 1];
+    chips.push({ market, date: last.date, value: last.value });
+  }
+
+  if (chips.length === 0) return null;
+  return { markets: chips };
+}
+
+/** Cumulative return (index level) at a calendar date per market. */
+export function buildCumulativeSnapshotForDate(
+  date: string,
+  rebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>,
+  markets: MarketCode[] = PERFORMANCE_MARKETS,
+): PerformanceHeadSnapshot | null {
+  const hover = buildHoverSnapshotForDate(date, rebasedByMarket, markets);
+  if (!hover) return null;
+
+  const chips = markets.flatMap((market) => {
+    const value = hover.values[market];
+    if (value == null) return [];
+    return [{ market, date: hover.date, value }];
+  });
+
+  if (chips.length === 0) return null;
+  return { anchorDate: hover.date, markets: chips };
+}
+
 /** One-day return between the last two points in each market series. */
 export function buildLatestOneDayReturnSnapshot(
   rebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>,
@@ -321,6 +358,24 @@ export function sliceMarketSeriesByDateRange(
 ): MarketSeriesPoint[] {
   if (!points.length) return [];
   return points.filter((point) => point.date >= startDate && point.date <= endDate);
+}
+
+/** Align a market NAV series onto a shared master date axis (forward-filled). */
+export function alignMarketSeriesToMasterDates(
+  dates: string[],
+  source: MarketSeriesPoint[],
+): MarketSeriesPoint[] {
+  if (!dates.length || !source.length) return [];
+
+  let carry: number | null = null;
+  const aligned: MarketSeriesPoint[] = [];
+  for (const date of dates) {
+    const hit = lookupMarketValueOnOrBefore(source, date);
+    if (hit) carry = hit.value;
+    if (carry == null) continue;
+    aligned.push({ date, value: carry });
+  }
+  return aligned;
 }
 
 export function indexToChartX(

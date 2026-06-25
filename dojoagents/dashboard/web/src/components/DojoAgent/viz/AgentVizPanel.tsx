@@ -21,6 +21,7 @@ import {
 } from '../../../utils/agentVizMarket';
 import type {
   AgentVizDonutSlice,
+  AgentVizKlineBar,
   AgentVizKpiItem,
   AgentVizLineSeries,
   AgentVizMarketKpiGroup,
@@ -32,6 +33,11 @@ import type {
 import { formatMarketCap } from '../../../utils/marketStats';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { localizeAgentVizBlocks } from '../../../utils/agentVizI18n';
+import {
+  barDirection,
+  buildAgentPriceKlineLayout,
+  candleGeometry,
+} from '../../../utils/agentPriceKlineChart';
 import { AgentMarketBadge } from './AgentMarketBadge';
 import './AgentVizPanel.css';
 
@@ -354,6 +360,102 @@ function PortfolioNavLineBlock({ block, series }: { block: AgentVizBlock; series
   );
 }
 
+function PriceKlineBlock({ block }: { block: AgentVizBlock }) {
+  const rawBars = (block.payload.bars as AgentVizKlineBar[] | undefined) ?? [];
+  const bars = rawBars.filter(
+    (bar) =>
+      bar &&
+      typeof bar.date === 'string' &&
+      [bar.open, bar.high, bar.low, bar.close].every((v) => typeof v === 'number' && Number.isFinite(v)),
+  );
+  const layout = buildAgentPriceKlineLayout(bars);
+  if (!layout) return null;
+
+  const startDate = bars[0]?.date;
+  const endDate = bars[bars.length - 1]?.date;
+  const market = normalizeAgentMarket(block.payload.market);
+
+  return (
+    <BlockShell block={block}>
+      <div className="agent-viz-price-kline">
+        <svg
+          viewBox={`0 0 ${layout.width} ${layout.priceHeight}`}
+          className="agent-viz-price-kline__price"
+          role="img"
+          aria-label={block.title}
+          preserveAspectRatio="none"
+        >
+          <rect
+            x={0}
+            y={0}
+            width={layout.width}
+            height={layout.priceHeight}
+            className="agent-viz-price-kline__bg"
+          />
+          {bars.map((bar, index) => {
+            const geom = candleGeometry(bar, index, bars.length, layout);
+            const direction = barDirection(bar);
+            return (
+              <g key={`${bar.date}-${index}`} shapeRendering="crispEdges">
+                <line
+                  x1={geom.cx}
+                  x2={geom.cx}
+                  y1={geom.highY}
+                  y2={geom.lowY}
+                  className={`agent-viz-price-kline__wick agent-viz-price-kline__wick--${direction}`}
+                />
+                <rect
+                  x={geom.cx - geom.barW / 2}
+                  y={geom.bodyTop}
+                  width={geom.barW}
+                  height={geom.bodyHeight}
+                  className={`agent-viz-price-kline__body agent-viz-price-kline__body--${direction}`}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        <svg
+          viewBox={`0 0 ${layout.width} ${layout.volumeHeight}`}
+          className="agent-viz-price-kline__volume"
+          role="presentation"
+          preserveAspectRatio="none"
+        >
+          {bars.map((bar, index) => {
+            const geom = candleGeometry(bar, index, bars.length, layout);
+            const direction = barDirection(bar);
+            if (!geom.volumeHeight) return null;
+            return (
+              <rect
+                key={`vol-${bar.date}-${index}`}
+                x={geom.cx - geom.barW / 2}
+                y={geom.volumeY}
+                width={geom.barW}
+                height={geom.volumeHeight}
+                className={`agent-viz-price-kline__vol agent-viz-price-kline__vol--${direction}`}
+              />
+            );
+          })}
+        </svg>
+      </div>
+      {startDate && endDate ? (
+        <div className="agent-viz-line__axis">
+          <span>{startDate}</span>
+          <span>{endDate}</span>
+        </div>
+      ) : null}
+      {market ? (
+        <div className="agent-viz-line__legend">
+          <span className="agent-viz-line__legend-item">
+            <i style={{ background: agentMarketLineColor(market) }} />
+            {String(block.payload.ticker ?? block.title)}
+          </span>
+        </div>
+      ) : null}
+    </BlockShell>
+  );
+}
+
 function LineBlock({ block }: { block: AgentVizBlock }) {
   const series = (block.payload.series as AgentVizLineSeries[] | undefined) ?? [];
   const benchmark = (block.payload.benchmark_series as AgentVizLineSeries[] | undefined) ?? [];
@@ -382,9 +484,9 @@ function LineBlock({ block }: { block: AgentVizBlock }) {
             d={entry.path}
             fill="none"
             stroke={entry.color}
-            strokeWidth={entry.dashed ? 1.5 : 2.25}
-            strokeDasharray={entry.dashed ? '5 4' : undefined}
-            opacity={entry.dashed ? 0.75 : 1}
+            strokeWidth={2.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         ))}
       </svg>
@@ -578,6 +680,8 @@ export function AgentVizBlockView({ block }: { block: AgentVizBlock }) {
       return <SparklineBlock block={block} />;
     case 'line':
       return <LineBlock block={block} />;
+    case 'price_kline':
+      return <PriceKlineBlock block={block} />;
     case 'bar':
       return <BarBlock block={block} />;
     case 'hbar_rank':
