@@ -37,9 +37,15 @@ export interface AgentThinkBlock {
   done: boolean;
 }
 
+export type AgentActivityStep =
+  | { kind: 'think'; id: string; block: AgentThinkBlock }
+  | { kind: 'tool'; id: string; item: AgentToolActivityItem }
+  | { kind: 'eval'; id: string; hint: AgentEvalHintItem };
+
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
+  activitySteps?: AgentActivityStep[];
   toolActivity?: AgentToolActivityItem[];
   thinkBlocks?: AgentThinkBlock[];
   evalHints?: AgentEvalHintItem[];
@@ -57,6 +63,7 @@ export interface AgentChatRequest {
 }
 
 export interface AgentToolTraceItem {
+  call_id?: string;
   tool: string;
   arguments: Record<string, unknown>;
   ok: boolean;
@@ -86,34 +93,17 @@ export interface AgentSessionStore {
   sessions: AgentSession[];
 }
 
-export interface ChatCompletionChunk {
-  choices: Array<{
-    delta?: {
-      content?: string;
-      tool_calls?: Array<{
-        function?: {
-          name?: string;
-          arguments?: string;
-        };
-      }>;
-    };
-    finish_reason?: string;
-  }>;
-  dojo_event?: unknown;
-}
-
 export type AgentStreamEvent =
   | { type: 'delta'; text: string }
-  | { type: 'content_delta'; content: string; chunk: ChatCompletionChunk }
-  | { type: 'tool_call_delta'; chunk: ChatCompletionChunk }
   | { type: 'think_start' }
   | { type: 'think_delta'; text: string }
   | { type: 'think_end' }
   | { type: 'phase'; phase: 'planning' | 'tools' | 'answering' }
   | { type: 'retry'; attempt: number; max_attempts: number; text: string }
-  | { type: 'tool_start'; tool: string; arguments: Record<string, unknown> }
+  | { type: 'tool_start'; call_id?: string; tool: string; arguments: Record<string, unknown> }
   | {
       type: 'tool_result';
+      call_id?: string;
       tool: string;
       ok: boolean;
       latency_ms: number;
@@ -129,7 +119,5 @@ export type AgentStreamEvent =
       viz_blocks?: import('./agentViz').AgentVizBlock[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
-  | { type: 'dojo_event'; dojoEvent: unknown; chunk: ChatCompletionChunk }
-  | { type: 'message_end'; chunk: ChatCompletionChunk }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }
   | { type: 'error'; message: string };
