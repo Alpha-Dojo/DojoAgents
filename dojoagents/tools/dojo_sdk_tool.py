@@ -129,7 +129,8 @@ class DojoSDKToolManager:
                     "type": "object",
                     "properties": {
                         "symbol": {"type": "string", "description": "Target stock ticker symbol"},
-                        "limit": {"type": "integer", "description": "Max news items", "default": 10},
+                        "page": {"type": "integer", "description": "Page number", "default": 1},
+                        "page_size": {"type": "integer", "description": "Page size", "default": 10},
                     },
                     "required": ["symbol"],
                 },

@@ -75,7 +75,6 @@ async def sector_constituents(
     ),
     sector_store: SectorStore = Depends(get_sector_store),
     stock_store: StockStore = Depends(get_stock_store),
-    kline_store: KlineStore = Depends(get_kline_store),
     sector_precomputed_store: Any = Depends(get_sector_precomputed_store),
 ) -> SectorConstituentsResponse:
     """L1/L2/L3 constituent rows from stock profile and quote."""
@@ -87,7 +86,6 @@ async def sector_constituents(
         )
     return await list_sector_constituents(
         stock_store,
-        kline_store,
         sector_precomputed_store,
         path,
         scope=scope,

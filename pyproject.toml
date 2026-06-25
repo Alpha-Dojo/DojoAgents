@@ -28,6 +28,7 @@ dependencies = [
     "dojosdk==0.1.2",
     "exchange-calendars>=4,<5",
     "portalocker",
+    "ddgs",
 ]
 
 

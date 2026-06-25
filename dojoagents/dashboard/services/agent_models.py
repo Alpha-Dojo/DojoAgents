@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Optional
+from typing import Any, Optional
 
 from dojoagents.dashboard.schemas.agent import AgentModelItem
 
@@ -84,32 +84,6 @@ _PROVIDER_LABELS = {
     "ollama": "Ollama",
     "minimax": "MiniMax",
 }
-
-
-def iter_agent_models() -> Iterable[AgentModelDefinition]:
-    return AGENT_MODEL_CATALOG
-
-
-def get_agent_model(model_id: str) -> Optional[AgentModelDefinition]:
-    needle = model_id.strip().lower()
-    for model in AGENT_MODEL_CATALOG:
-        if model.id.lower() == needle:
-            return model
-    return None
-
-
-def list_agent_model_items() -> List[AgentModelItem]:
-    return [
-        AgentModelItem(
-            id=model.id,
-            label=model.label,
-            provider=model.provider,
-            model=model.api_model_id or model.id,
-            available=model.available,
-            unavailable_reason=None if model.available else "Provider is not configured",
-        )
-        for model in AGENT_MODEL_CATALOG
-    ]
 
 
 def _provider_label(provider: str) -> str:

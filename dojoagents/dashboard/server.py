@@ -288,6 +288,7 @@ def create_app(
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry
+            app.state.agent_run_manager = AgentRunManager()
 
             # Start background refresh loop
             # schedule = MarketCloseSchedule()
@@ -307,7 +308,6 @@ def create_app(
                 reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
-    app.state.agent_run_manager = AgentRunManager()
     app.state.config_store = store
     app.state.financial_registry = registry
 

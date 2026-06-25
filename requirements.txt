@@ -21,3 +21,4 @@ yfinance
 openpyxl
 dojosdk==0.1.2
 portalocker
+ddgs

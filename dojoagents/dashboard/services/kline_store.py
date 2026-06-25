@@ -1,9 +1,7 @@
 from __future__ import annotations
 import asyncio
-from dataclasses import dataclass
 from dojoagents.logging import LOGGER
 
-from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 import pandas as pd
@@ -25,19 +23,6 @@ from dojoagents.dashboard.services.sector_constituents import (
     collect_sector_scope_tickers,
 )
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
-
-DISK_READ_CONCURRENCY = 16
-
-
-@dataclass
-class KlineBar:
-    bar_time: str
-    open: float
-    high: float
-    low: float
-    close: float
-    vol: float
-    change_p: float
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -78,9 +63,6 @@ class KlineStore:
         stock_store: StockStore,
         stock_sector_store: StockSectorStore,
         sector_precomputed_store: Any = None,
-        *,
-        data_root: Path | None = None,
-        schema_version: int = 2,
     ):
         self.client = client
         gateway_method = getattr(type(client), "stock_klines", None)
@@ -95,7 +77,6 @@ class KlineStore:
         self.last_full_refresh_at: Optional[str] = None
         self.last_incremental_refresh_at: Optional[str] = None
         self.member_symbols = 0
-        self._disk_read_semaphore = asyncio.Semaphore(DISK_READ_CONCURRENCY)
 
     async def get_or_fetch_kline(
         self,
@@ -156,13 +137,6 @@ class KlineStore:
 
         return response
 
-    def get_local_kline(self, symbol: str, limit: int = 252) -> Optional[List[StockKlineBar]]:
-        cache_key = f"{symbol.strip().upper()}_None_None_None_None_{limit}"
-        if cache_key in self._cache:
-            return self._cache[cache_key].bars
-        # Fallback to loading it to cache via synchronous call is not possible here
-        return None
-
     async def get_kline(self, symbol: str, limit: int = 252) -> Optional[StockKlineResponse]:
         return await self.get_or_fetch_kline(symbol, limit=limit)
 
@@ -192,19 +166,14 @@ class KlineStore:
 
         canonical_symbols = [s.strip().upper() for s in symbols]
 
-        # We can read all from Parquet that are missing from cache in a single batch
         missing_cache = [s for s in canonical_symbols if f"{s}_None_None_None_{None}_{limit}" not in self._cache]
-        # Determine which symbols still need network fetch
         results = await self.gateway.stock_klines(canonical_symbols, limit=limit)
-        df_parquet = results.data
+        df_all = results.data
 
-        # Now we have all data locally (in parquet or memory updates)
-        # We can construct the response for each symbol concurrently without network calls
+        # Build each symbol's response from the single batched gateway result to avoid per-symbol fetches.
         async def build_response(s: str) -> None:
-            # First check if we can satisfy it entirely from df_parquet + _in_memory_updates to avoid another parquet read
             if s in missing_cache:
-                # Manually build response from df_parquet and _in_memory_updates to avoid disk read in get_or_fetch_kline
-                df_sym = df_parquet[df_parquet["symbol"] == s] if not df_parquet.empty else pd.DataFrame()
+                df_sym = df_all[df_all["symbol"] == s] if not df_all.empty else pd.DataFrame()
 
                 if not df_sym.empty:
                     df_sym = df_sym.sort_values(by="bar_time")
@@ -275,7 +244,7 @@ class KlineStore:
     async def stats(self) -> ConstituentKlineStatsResponse:
         return ConstituentKlineStatsResponse(
             member_symbols=self.member_symbols,
-            tracked_symbols=len(self._in_memory_updates),  # approximated
+            tracked_symbols=len(self._cache),
             loaded_symbols=len(self._cache),
             initial_load_in_progress=self.initial_load_in_progress,
             initial_load_complete=self.initial_load_complete,
