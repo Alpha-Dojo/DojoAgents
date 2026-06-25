@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -22,8 +23,10 @@ from dojoagents.dashboard.routers import (
     sectors,
     ticker,
     utility,
+    agent,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
+from dojoagents.dashboard.agent_runs import AgentRunManager
 from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
@@ -259,6 +262,7 @@ def create_app(
                 reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
+    app.state.agent_run_manager = AgentRunManager()
 
     app.include_router(utility.router, prefix="/api/v1")
     app.include_router(market.router, prefix="/api/v1")
@@ -271,6 +275,7 @@ def create_app(
     app.include_router(dojo_sphere.router, prefix="/api/v1")
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
+    app.include_router(agent.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -398,6 +403,84 @@ def create_app(
         body["content"] = response.content
         body["session_id"] = response.session_id
         return body
+
+    @app.post("/api/chat/runs")
+    async def create_chat_run(payload: dict[str, Any]) -> Any:
+        try:
+            req, info = _completion_request(payload)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
+        manager: AgentRunManager = app.state.agent_run_manager
+        record = await manager.create_run(
+            request=req,
+            model=info.get("model", "default"),
+            agent=runtime.agent,
+        )
+        return {
+            "run_id": record.id,
+            "session_id": record.session_id,
+            "status": record.status,
+            "model": record.model,
+        }
+
+    @app.get("/api/chat/runs/{run_id}")
+    async def get_chat_run(run_id: str) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        record = manager.get(run_id)
+        if record is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+        return {
+            "run_id": record.id,
+            "session_id": record.session_id,
+            "status": record.status,
+            "event_count": len(record.events),
+            "model": record.model,
+        }
+
+    @app.post("/api/chat/runs/{run_id}/cancel")
+    async def cancel_chat_run(run_id: str) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        cancelled = await manager.cancel_run(run_id)
+        if not cancelled:
+            record = manager.get(run_id)
+            if record is None:
+                return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+            return JSONResponse(status_code=400, content={"error": f"Run is not active: {record.status}"})
+        return {"cancelled": True}
+
+    @app.get("/api/chat/runs/{run_id}/events")
+    async def stream_chat_run_events(run_id: str, cursor: int = 0) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
+        record = manager.get(run_id)
+        if record is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+
+        safe_cursor = max(0, cursor)
+
+        async def _generate():
+            index = safe_cursor
+            while True:
+                current = manager.get(run_id)
+                if current is None:
+                    yield f'data: {{"type":"error","message":"Unknown run: {run_id}"}}\n\n'
+                    return
+
+                while index < len(current.events):
+                    yield f"data: {json.dumps(current.events[index], ensure_ascii=False)}\n\n"
+                    index += 1
+
+                if current.status != "running":
+                    return
+
+                _, status = await current.wait_for_events(index)
+                if status != "running" and index >= len(current.events):
+                    return
+
+        return StreamingResponse(
+            _generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # Set up and auto-build frontend static files
     web_dir = Path(__file__).parent / "web"
