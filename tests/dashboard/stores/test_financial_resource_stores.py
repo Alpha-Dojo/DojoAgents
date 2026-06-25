@@ -162,7 +162,7 @@ async def test_forex_store_uses_gateway_symbol_contract(tmp_path) -> None:
         "sdk_online",
         False,
     )
-    store = ForexStore(tmp_path, gateway)
+    store = ForexStore(gateway)
 
     rows = await store._fetch_remote("USDCNY", limit=30)
 

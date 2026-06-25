@@ -46,8 +46,22 @@ class SandboxConfig:
 
 
 @dataclass(frozen=True)
+class WebToolsConfig:
+    search_backend: str | None = None
+    extract_backend: str | None = None
+    search_base_url: str | None = None
+    extract_base_url: str | None = None
+    max_extract_urls: int = 5
+    max_content_bytes: int = 2_000_000
+    summary_threshold_chars: int = 6000
+    max_summary_chars: int = 2500
+    debug: bool = False
+
+
+@dataclass(frozen=True)
 class ToolsConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    web: WebToolsConfig = field(default_factory=WebToolsConfig)
 
 
 @dataclass(frozen=True)

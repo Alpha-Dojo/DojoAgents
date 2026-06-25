@@ -4,7 +4,6 @@ import math
 from typing import Any
 
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
-from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 from dojoagents.dashboard.services.stock_store import StockStore
@@ -34,14 +33,12 @@ def _market_candidates(market: str | None) -> list[str | None]:
 
 async def list_sector_constituents(
     stock_store: StockStore,
-    kline_store: KlineStore,
     sector_precomputed_store: Any,
     path: ResolvedSectorPath,
     *,
     scope: SectorLevel = "L3",
     market: str | None = None,
     days: int | None = None,
-    window_start: str | None = None,
 ) -> SectorConstituentsResponse:
     """Constituents for L1/L2/L3 scope of the selected sector path."""
     if scope not in ("L1", "L2", "L3"):
@@ -79,11 +76,8 @@ async def list_sector_constituents(
 
     tickers = [c["ticker"] for c in constituents]
 
-    if days and days > 0:
-        ticker_returns = sector_precomputed_store.get_ticker_daily_by_window(days, tickers)
-    else:
-        # TODO handle window_start if needed, or fallback to default
-        ticker_returns = sector_precomputed_store.get_ticker_daily_by_window(365, tickers)
+    window_days = days if days and days > 0 else 365
+    ticker_returns = sector_precomputed_store.get_ticker_daily_by_window(window_days, tickers)
 
     ticker_return_map = {tr["ticker"]: tr["daily_return_pct"] for tr in ticker_returns}
 

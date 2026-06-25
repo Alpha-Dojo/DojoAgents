@@ -7,6 +7,7 @@ from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
+from dojoagents.agent.harness import HarnessLoopState
 from dojoagents.agent.models import AgentResponse, ChatRequest, ToolCall
 from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
@@ -87,6 +88,8 @@ class DojoBridgedTool(AgentTool):
             res = results[0]
         else:
             res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+
+        invocation_state.setdefault("_dojo_tool_results", []).append(res)
 
         if self.event_sink is not None:
             self.event_sink.tool_result(
@@ -267,6 +270,7 @@ class AgentLoop:
         config: AgentConfig,
         stream_delta_callback: Callable[[Any], None] | None = None,
         plan_activation_hook: Any | None = None,
+        task_harnesses: list[Any] | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -276,6 +280,7 @@ class AgentLoop:
         self.config = config
         self.stream_delta_callback = stream_delta_callback
         self._plan_activation_hook = plan_activation_hook
+        self.task_harnesses = list(task_harnesses or [])
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -292,6 +297,12 @@ class AgentLoop:
         active_phase = ""
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
+        harness_state = HarnessLoopState(request=request)
+        active_harness = next(
+            (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
+            None,
+        )
+        invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
 
         def emit_phase(phase: str) -> None:
             nonlocal active_phase
@@ -523,6 +534,23 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
+            if event.tool_use and active_harness is not None:
+                tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or event.tool_use.get("name") or "tool"
+                repaired_calls = active_harness.repair_tool_calls(
+                    [
+                        ToolCall(
+                            id=str(tool_use_id),
+                            name=str(event.tool_use.get("name") or "tool"),
+                            arguments=dict(event.tool_use.get("input") or {}),
+                        )
+                    ],
+                    harness_state,
+                )
+                if repaired_calls:
+                    repaired = repaired_calls[0]
+                    event.tool_use["name"] = repaired.name
+                    event.tool_use["input"] = dict(repaired.arguments)
+                    harness_state.tool_calls.append(repaired)
             if event.tool_use:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
@@ -574,13 +602,20 @@ class AgentLoop:
                     event.result["content"] = [{"type": "text", "text": warned_content}]
 
             if event.tool_use:
+                call_id = event.tool_use.get("toolUseId") or event.tool_use.get("id")
+                for index, result in enumerate(invocation_state.get("_dojo_tool_results", [])):
+                    if result.call_id == call_id:
+                        harness_state.tool_results.append(result)
+                        del invocation_state["_dojo_tool_results"][index]
+                        break
                 tool_trace.append(
                     {
-                        "call_id": event.tool_use.get("toolUseId") or event.tool_use.get("id"),
+                        "call_id": call_id,
                         "tool": tool_name,
                         "ok": not is_failed,
                     }
                 )
+                harness_state.tool_trace = tool_trace
 
         hooks.append(check_guardrails_before)
         hooks.append(check_guardrails_after)
@@ -621,8 +656,6 @@ class AgentLoop:
         )
 
         # 7. Run Agent
-        invocation_state = {"session_id": request.session_id, "channel": request.channel}
-
         try:
             result = await agent.invoke_async(prompt=request.message, invocation_state=invocation_state, limits=limits)
             response_text = str(result).strip()
@@ -686,6 +719,16 @@ class AgentLoop:
         metadata["used_tokens"] = used_tokens
         metadata["remaining_tokens"] = remaining_tokens
         metadata["tool_trace"] = tool_trace
+
+        harness_state.final_response = response_text
+        if active_harness is not None:
+            locale = str(request.metadata.get("locale") or "en")
+            decision = active_harness.validate_progress(harness_state)
+            if not decision.complete:
+                response_text = active_harness.build_recovery_prompt(decision, locale)
+                metadata["stopped"] = decision.stop_code
+                if event_sink is not None:
+                    event_sink.eval_hint(response_text, decision.issues)
 
         if event_sink is not None:
             event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))

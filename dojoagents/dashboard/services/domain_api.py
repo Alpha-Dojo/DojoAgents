@@ -818,7 +818,6 @@ async def build_sector_constituents_v1(
     # Removed performance_cache usage
     response = await list_sector_constituents(
         registry.stock_store,
-        registry.kline_store,
         registry.sector_precomputed_store,
         path,
         scope=scope,

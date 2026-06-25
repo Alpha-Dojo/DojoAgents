@@ -2,7 +2,6 @@ from dojoagents.logging import LOGGER
 import asyncio
 from datetime import date
 from typing import Dict, List, Optional, Tuple
-from pathlib import Path
 
 from dojo.client.async_client import AsyncDojo
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
@@ -22,7 +21,6 @@ MAX_FOREX_FETCH_LIMIT = 600
 class ForexStore:
     def __init__(
         self,
-        data_root: Path,
         client: AsyncDojo,
     ) -> None:
         gateway_method = getattr(type(client), "forex", None)

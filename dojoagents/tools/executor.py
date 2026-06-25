@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-
 from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
+from dojoagents.logging import LOGGER
 
 
 class ToolExecutor:
@@ -33,6 +33,7 @@ class ToolExecutor:
     async def execute_one(self, call: ToolCall, *, session_id: str = "") -> ToolResult:
         spec = self.registry.get(call.name)
         if spec is None:
+            LOGGER.error(f"Tool '{call.name}' is not registered")
             return ToolResult(
                 call_id=call.id,
                 name=call.name,
@@ -52,6 +53,7 @@ class ToolExecutor:
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             return self._coerce_result(call, raw, session_id=session_id, latency_ms=latency_ms)
         except Exception as exc:
+            LOGGER.exception(f"Error executing tool '{call.name}' (call_id: {call.id})")
             return ToolResult(
                 call_id=call.id,
                 name=call.name,
