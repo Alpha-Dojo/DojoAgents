@@ -157,6 +157,31 @@ button {
   height: 32px;
 }
 
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  appearance: none;
+  -webkit-appearance: none;
+  display: none;
+}
+
+.base-search-input {
+  background-color: transparent;
+}
+
+.base-select {
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  justify-content: space-between;
+  background-color: transparent;
+}
+
+.base-select:hover,
+.base-select:focus {
+  border: 1px solid var(--green);
+}
+
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: var(--scrollbar-size, 10px);

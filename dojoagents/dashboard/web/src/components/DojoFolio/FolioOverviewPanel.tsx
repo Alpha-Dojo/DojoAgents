@@ -6,6 +6,7 @@ import type { FolioPortfolioDetail } from '../../api/dojoFolio';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../../types/dojoFolio';
 import { DEFAULT_FOLIO_CONFIG, FOLIO_MARKETS } from '../../types/dojoFolio';
+import { DojoButton, DojoDropdownSelect } from '../ui';
 import { FolioDetailTabs } from './FolioDetailTabs';
 import { FolioMarketCapitalLabel } from './FolioMarketCapitalLabel';
 import { FolioNavCurveSection } from './FolioNavCurveChart';
@@ -104,6 +105,14 @@ export function FolioOverviewPanel({
     () => flattenBenchmarkOptions(benchmarkCatalog),
     [benchmarkCatalog],
   );
+  const benchmarkSelectOptions = useMemo(
+    () =>
+      benchmarkOptions.map((option) => ({
+        value: option.symbol,
+        label: text({ zh: option.label, en: option.label }),
+      })),
+    [benchmarkOptions, text],
+  );
 
   const selectedBenchmark =
     benchmarkSymbol ??
@@ -158,14 +167,14 @@ export function FolioOverviewPanel({
               />
             </label>
           ))}
-          <button
-            type="button"
-            className="folio-config__apply"
+          <DojoButton
+            variant="primary"
+            size="sm"
             disabled={!configDirty}
             onClick={() => onApplyConfig(draftConfig)}
           >
             {t('folio.applyConfig')}
-          </button>
+          </DojoButton>
         </div>
         <p className="folio-config__hint">{t('folio.configHint')}</p>
       </article>
@@ -187,17 +196,13 @@ export function FolioOverviewPanel({
                 <div className="folio-performance__controls">
                   <label className="folio-performance__benchmark">
                     <span className="folio-performance__benchmark-label">{t('sphere.benchmarkLabel')}</span>
-                    <select
+                    <DojoDropdownSelect
+                      aria-label={t('sphere.benchmarkLabel')}
                       className="folio-performance__benchmark-select"
                       value={selectedBenchmark}
-                      onChange={(event) => onBenchmarkChange(event.target.value || null)}
-                    >
-                      {benchmarkOptions.map((option) => (
-                        <option key={`${option.market}-${option.symbol}`} value={option.symbol}>
-                          {text({ zh: option.label, en: option.label })}
-                        </option>
-                      ))}
-                    </select>
+                      options={benchmarkSelectOptions}
+                      onChange={(value) => onBenchmarkChange(value || null)}
+                    />
                   </label>
                 </div>
               }

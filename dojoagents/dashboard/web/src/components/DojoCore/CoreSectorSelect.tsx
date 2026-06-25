@@ -7,6 +7,7 @@ import {
   listLevel2Options,
   listLevel3Options,
 } from '../../utils/sectorTaxonomy';
+import { DojoDropdownSelect } from '../ui';
 
 interface CoreSectorSelectProps {
   level: SectorLevelKey;
@@ -24,12 +25,21 @@ export function CoreSectorSelect({
   onOpenSphereLevel,
 }: CoreSectorSelectProps) {
   const { locale, t } = useTranslation();
+  const labelFor = (zh: string, en: string) => (locale === 'zh' ? zh || en : en || zh);
 
   const options = useMemo(() => {
     if (level === 'L1') return listLevel1Options(taxonomy);
     if (level === 'L2') return listLevel2Options(taxonomy, selection.level1Id);
     return listLevel3Options(taxonomy, selection.level1Id, selection.level2Id);
   }, [level, taxonomy, selection.level1Id, selection.level2Id]);
+  const dropdownOptions = useMemo(
+    () =>
+      options.map((item) => ({
+        value: item.id,
+        label: labelFor(item.name.zh, item.name.en),
+      })),
+    [options, locale],
+  );
 
   const value =
     level === 'L1'
@@ -37,8 +47,6 @@ export function CoreSectorSelect({
       : level === 'L2'
         ? selection.level2Id
         : selection.level3Id;
-
-  const labelFor = (zh: string, en: string) => (locale === 'zh' ? zh || en : en || zh);
 
   const levelLabelKey =
     level === 'L1' ? 'sphere.level1' : level === 'L2' ? 'sphere.level2' : 'sphere.level3';
@@ -82,18 +90,13 @@ export function CoreSectorSelect({
       >
         {level}
       </button>
-      <select
+      <DojoDropdownSelect
         className="core-sector-field__control"
         value={value}
         aria-label={t(levelLabelKey)}
-        onChange={(event) => handleChange(event.target.value)}
-      >
-        {options.map((item) => (
-          <option key={item.id} value={item.id}>
-            {labelFor(item.name.zh, item.name.en)}
-          </option>
-        ))}
-      </select>
+        options={dropdownOptions}
+        onChange={handleChange}
+      />
     </div>
   );
 }
