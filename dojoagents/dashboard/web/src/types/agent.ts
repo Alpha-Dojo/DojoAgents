@@ -20,6 +20,7 @@ export type AgentChatRole = 'user' | 'assistant';
 export type AgentToolActivityStatus = 'running' | 'done' | 'error';
 
 export interface AgentToolActivityItem {
+  callId?: string;
   tool: string;
   status: AgentToolActivityStatus;
   latencyMs?: number;
@@ -78,6 +79,10 @@ export interface AgentToolTraceItem {
   latency_ms: number;
   truncated: boolean;
   error?: string | null;
+  data?: Record<string, unknown> | null;
+  viz_blocks?: import('./agentViz').AgentVizBlock[];
+  artifacts?: Record<string, unknown>[];
+  resource_changes?: Record<string, unknown>[];
 }
 
 export interface AgentChatResponse {
@@ -117,13 +122,7 @@ export type AgentStreamEvent =
       latency_ms: number;
       truncated: boolean;
       error?: string | null;
-      data?: {
-        portfolio_id?: string;
-        name?: string;
-        holdings_count?: number;
-        holdings_by_market?: Record<string, number>;
-        tickers?: string[];
-      } | null;
+      data?: Record<string, unknown> | null;
       viz_blocks?: import('./agentViz').AgentVizBlock[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }

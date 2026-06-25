@@ -24,10 +24,15 @@ import "../AgentModelSwitcher.css";
 import { AgentActivityTimeline } from "./AgentActivityTimeline";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
+import { AgentVizPanel } from "./viz/AgentVizPanel";
 import {
   resolveActivitySteps,
   toggleThinkStep,
 } from "../../utils/agentActivityTimeline";
+import {
+  collectVizBlocksFromSteps,
+  stripRenderedChartBlocks,
+} from "../../utils/agentVizContent";
 import {
   finalizeIncompleteAssistantMessages,
   messagesForSessionPersist,
@@ -613,9 +618,20 @@ export function DojoAgentPanel({
                 index === displayMessages.length - 1;
               const activitySteps = resolveActivitySteps(message);
               const hasActivity = activitySteps.length > 0;
+              const messageVizBlocks =
+                message.role === "assistant"
+                  ? collectVizBlocksFromSteps(activitySteps)
+                  : [];
+              const displayContent =
+                message.role === "assistant"
+                  ? stripRenderedChartBlocks(
+                      message.content,
+                      messageVizBlocks.length > 0,
+                    )
+                  : message.content;
               const showAssistantBubble =
                 message.role === "assistant" &&
-                (message.content ||
+                (displayContent ||
                   hasActivity ||
                   (isStreamingAssistant && livePhase));
 
@@ -652,16 +668,19 @@ export function DojoAgentPanel({
                             toggleThinkBlock(index, blockId)
                           }
                         />
-                        {message.content ? (
+                        {messageVizBlocks.length > 0 ? (
+                          <AgentVizPanel blocks={messageVizBlocks} />
+                        ) : null}
+                        {displayContent ? (
                           <AgentMarkdown
-                            content={message.content}
+                            content={displayContent}
                             streaming={
-                              isStreamingAssistant && !!message.content
+                              isStreamingAssistant && !!displayContent
                             }
                           />
                         ) : null}
                         {isStreamingAssistant &&
-                        !message.content &&
+                        !displayContent &&
                         !livePhase &&
                         !hasActivity ? (
                           <p className="dojo-agent-panel__waiting">

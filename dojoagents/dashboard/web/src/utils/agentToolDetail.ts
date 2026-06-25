@@ -107,24 +107,31 @@ export function formatToolArguments(
 }
 
 export function formatToolResultData(
-  data: AgentToolResultData | null | undefined,
+  data: (AgentToolResultData & Record<string, unknown>) | Record<string, unknown> | null | undefined,
   locale: 'zh' | 'en',
 ): string | null {
   if (!data) return null;
   const parts: string[] = [];
-  if (data.portfolio_id) {
-    parts.push(`${locale === 'zh' ? '组合' : 'Portfolio'} ${data.portfolio_id.slice(0, 12)}`);
+  const portfolioId = typeof data.portfolio_id === 'string' ? data.portfolio_id : null;
+  const name = typeof data.name === 'string' ? data.name : null;
+  const holdingsByMarket =
+    data.holdings_by_market && typeof data.holdings_by_market === 'object' && !Array.isArray(data.holdings_by_market)
+      ? (data.holdings_by_market as Record<string, number>)
+      : null;
+  const tickers = Array.isArray(data.tickers) ? data.tickers.filter((item): item is string => typeof item === 'string') : [];
+  if (portfolioId) {
+    parts.push(`${locale === 'zh' ? '组合' : 'Portfolio'} ${portfolioId.slice(0, 12)}`);
   }
-  if (data.name) {
-    parts.push(data.name);
+  if (name) {
+    parts.push(name);
   }
-  if (data.holdings_by_market && Object.keys(data.holdings_by_market).length > 0) {
-    parts.push(formatMarketCounts(data.holdings_by_market, locale));
+  if (holdingsByMarket && Object.keys(holdingsByMarket).length > 0) {
+    parts.push(formatMarketCounts(holdingsByMarket, locale));
   } else if (typeof data.holdings_count === 'number') {
     parts.push(locale === 'zh' ? `共 ${data.holdings_count} 只` : `${data.holdings_count} holdings`);
   }
-  if (data.tickers && data.tickers.length > 0) {
-    parts.push(previewTickers(data.tickers, 8));
+  if (tickers.length > 0) {
+    parts.push(previewTickers(tickers, 8));
   }
   return parts.length > 0 ? parts.join(' · ') : null;
 }

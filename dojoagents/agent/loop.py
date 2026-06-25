@@ -603,18 +603,31 @@ class AgentLoop:
 
             if event.tool_use:
                 call_id = event.tool_use.get("toolUseId") or event.tool_use.get("id")
+                matched_result = None
                 for index, result in enumerate(invocation_state.get("_dojo_tool_results", [])):
                     if result.call_id == call_id:
+                        matched_result = result
                         harness_state.tool_results.append(result)
                         del invocation_state["_dojo_tool_results"][index]
                         break
-                tool_trace.append(
-                    {
-                        "call_id": call_id,
-                        "tool": tool_name,
-                        "ok": not is_failed,
-                    }
-                )
+                trace_item = {
+                    "call_id": call_id,
+                    "tool": tool_name,
+                    "ok": matched_result.ok if matched_result is not None else not is_failed,
+                }
+                if matched_result is not None:
+                    trace_item.update(
+                        {
+                            "latency_ms": matched_result.latency_ms,
+                            "truncated": matched_result.truncated,
+                            "error": matched_result.error or None,
+                            "data": matched_result.data,
+                            "viz_blocks": list(matched_result.viz_blocks),
+                            "artifacts": list(matched_result.artifacts),
+                            "resource_changes": list(matched_result.resource_changes),
+                        }
+                    )
+                tool_trace.append(trace_item)
                 harness_state.tool_trace = tool_trace
 
         hooks.append(check_guardrails_before)

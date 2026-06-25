@@ -43,6 +43,20 @@ The build output is served by the FastAPI dashboard backend.
 dojoagents dashboard --host 127.0.0.1 --port 8765
 ```
 
+### Development Run
+
+For active development, you can run the CLI entry point directly without installing the package globally:
+
+Using `uv run`:
+```bash
+uv run dojoagents/cli/main.py dashboard --host 127.0.0.1 --port 8765
+```
+
+Or using `python`:
+```bash
+python dojoagents/cli/main.py dashboard --host 127.0.0.1 --port 8765
+```
+
 Then open:
 
 ```text
@@ -50,3 +64,6 @@ http://127.0.0.1:8765/
 ```
 
 Additional documentation lives under `docs/`.
+
+
+

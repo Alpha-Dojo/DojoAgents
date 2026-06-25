@@ -95,8 +95,8 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             timeout_seconds=float(sandbox_raw.get("timeout_seconds", 120)),
         ),
         web=WebToolsConfig(
-            search_backend=web_raw.get("search_backend"),
-            extract_backend=web_raw.get("extract_backend"),
+            search_backend=web_raw.get("search_backend") or "ddgs",
+            extract_backend=web_raw.get("extract_backend") or "fetch",
             search_base_url=web_raw.get("search_base_url"),
             extract_base_url=web_raw.get("extract_base_url"),
             max_extract_urls=int(web_raw.get("max_extract_urls", 5)),

@@ -12,7 +12,7 @@ DojoAgents Dashboard 采用 **FastAPI 后端** + **静态单页 Web 前端** 架
 - **前端页面 (Frontend UI)**：左侧折叠菜单栏、右侧分为主力画布面板 (Canvas Panel) 和 Chatbot 对话框 (Chat Panel)。
 - **后端服务端 (FastAPI Server)**：提供 Web 服务与 RESTful API，承载 `/api/chat` 和 `/api/chat/runs/*` 路由，桥接 Agent 运行实例。
 - **Agent 运行循环 (Agent Loop)**：驱动 LLM 决策，控制并执行各类工具 (Tools)，并接入 TaskHarness 做任务完成度校验。
-- **工具箱 (Quant Tools)**：数据获取工具 (如 `get_kline_data`) 和图表渲染代码生成工具 (如 `generate_chart_code`)。
+- **工具箱 (Quant Tools)**：数据获取工具、`agent_viz_build` 可视化块生成工具，以及保留的画布渲染技能链路。
 - **TaskHarness 层**：按任务域修复工具参数、补发评估提示、阻断“看起来完成但实际未验证”的最终答复。
 
 ### 1.2 交互时序图
@@ -41,6 +41,9 @@ sequenceDiagram
     Skill-->>Agent: 返回 DOJO_CHART 协议说明 + ECharts 模板
     Agent->>Tools: 调用 dojo.sdk.get_stock_kline(symbol="AAPL")
     Tools-->>Agent: 返回 K线数据 (JSON)
+    Agent->>Tools: 调用 agent_viz_build(kind="price_kline")
+    Tools-->>BE: SSE 推送: tool_result.viz_blocks
+    BE-->>FE_Chat: 渲染 AgentVizPanel 内联图表
     Agent-->>BE: SSE 推送: text_delta (说明文字 + DOJO_CHART 代码块)
     BE-->>FE_Chat: SSE 流式推送文本
     Note over FE_Chat: 解析 DOJO_CHART 代码块，提取 {data, script}
@@ -90,7 +93,7 @@ sequenceDiagram
 | `phase` | Agent 当前阶段 | `phase: "planning" \| "tools" \| "answering"` |
 | `delta` | 文本增量镜像 | `text` |
 | `tool_start` | 工具开始执行 | `call_id`, `tool`, `arguments` |
-| `tool_result` | 工具完成并返回结构化结果 | `call_id`, `ok`, `content`, `error`, `latency_ms`, `data`, `resource_changes` |
+| `tool_result` | 工具完成并返回结构化结果 | `call_id`, `ok`, `content`, `error`, `latency_ms`, `data`, `viz_blocks`, `resource_changes` |
 | `retry` | 重试提示 | `attempt`, `max_attempts`, `text` |
 | `eval_hint` | 评估提示 | `text`, `issues` |
 | `done` | 正常结束 | `model_id`, `tool_trace`, `tool_steps` |
@@ -158,6 +161,21 @@ data: [DONE]
 > Agent 内部执行工具后会自动进入下一轮 LLM 调用（agentic loop）。在 `dojo.v2` 中，这个过程不再只表现为文本流，而会以 `phase`、`tool_start`、`tool_result`、`eval_hint`、`done` 等显式事件暴露给前端；标准 OpenAI 客户端则仍可忽略 `dojo_event`，只消费 `choices[0]`。Dashboard 当前由 `AgentRunContext` 管理 `run_id`、`cursor`、停止控制和草稿恢复。
 
 ---
+
+### 3.3 Agent Visualization Blocks
+
+Dashboard Agent 面板支持结构化 `viz_blocks`。`viz_blocks` 不是由 presenter 隐式生成，而是通过普通工具 `agent_viz_build` 生成并作为 `ToolResult.viz_blocks` 透传到 `dojo_event.tool_result`。
+
+推荐流程：
+
+1. Agent 调用数据工具，例如 `dojo.sdk.get_stock_kline`、portfolio read 工具或 web 工具
+2. Agent 选择性调用 `agent_viz_build`，传入紧凑结构化 `data`、`kind="auto"` 或明确的 block kind
+3. 后端按普通工具结果发出 `tool_result.viz_blocks`
+4. 前端在工具活动时间线中渲染 `AgentVizPanel`
+
+支持的 block kind 包括：`kpi_row`、`sparkline`、`line`、`price_kline`、`bar`、`hbar_rank`、`donut`、`table`、`timeline`、`quote_card`。
+
+`DOJO_CHART` 画布协议仍然保留，用于模型主动生成完整画布脚本；`agent_viz_build` 更适合从结构化数据生成内联、受控、可复用的 Agent 面板可视化。
 
 ## 4. Canvas 画布沙箱渲染引擎 (Canvas Sandboxed Renderer)
 
