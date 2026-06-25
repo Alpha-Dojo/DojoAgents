@@ -11,7 +11,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPerformanceView } from '../../types/dojoFolio';
 import type { MarketCode } from '../../types/dojoMesh';
 import { formatSignedPercent, priceTickValues } from '../../utils/coreCharts';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
@@ -363,9 +363,7 @@ export function FolioNavCurveMarketHead({
             key={market}
             className={`folio-performance__inline-market folio-performance__inline-market--${PERFORMANCE_MARKET_CLASS[market]}`}
           >
-            <span className="folio-performance__inline-flag" aria-hidden>
-              {MARKET_FLAG[market]}
-            </span>
+            <img className="folio-performance__inline-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
             <span className="folio-performance__inline-code">{MARKET_CODE[market]}</span>
             <span
               className={`folio-performance__inline-return folio-performance__inline-return--${

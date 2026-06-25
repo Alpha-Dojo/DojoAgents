@@ -263,9 +263,9 @@ export function DojoMeshView({
     );
   }
 
-  const columnPanelProps = (code: MarketCode, flag: string, label: string) => ({
+  const columnPanelProps = (code: MarketCode, flagSrc: string, label: string) => ({
     market: code,
-    flag,
+    flagSrc,
     label,
     column: data.markets[code],
     sectorDays: sectorFilters.days,
@@ -284,12 +284,11 @@ export function DojoMeshView({
     <section className="dojo-mesh-view" aria-label="DojoMesh">
       <div className="dojo-mesh-view__layout">
         <div className="dojo-mesh-view__hero-row">
-          {orderedColumns.map(({ code, flag, label }) => (
+          {orderedColumns.map(({ code, flagSrc, label }) => (
             <DraggableMarketColumn
               key={code}
               market={code}
               isDragging={draggingMarket === code}
-              isDropTarget={dropTargetMarket === code}
               dropSide={dropTargetMarket === code ? dropTargetSide : null}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
@@ -298,7 +297,7 @@ export function DojoMeshView({
             >
               {(brandDrag) => (
                 <MarketColumnPanel
-                  {...columnPanelProps(code, flag, label)}
+                  {...columnPanelProps(code, flagSrc, label)}
                   section="hero"
                   brandDrag={brandDrag}
                 />
@@ -326,13 +325,13 @@ export function DojoMeshView({
         </div>
 
         <div className="dojo-mesh-view__sector-row">
-          {orderedColumns.map(({ code, flag, label }) => (
+          {orderedColumns.map(({ code, flagSrc, label }) => (
             <div
               key={code}
               className="mesh-market-column-wrap mesh-market-column-wrap--sectors"
             >
               <MarketColumnPanel
-                {...columnPanelProps(code, flag, label)}
+                {...columnPanelProps(code, flagSrc, label)}
                 section="sectors"
               />
             </div>

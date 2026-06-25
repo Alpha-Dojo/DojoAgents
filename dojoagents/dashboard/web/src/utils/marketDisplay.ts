@@ -1,9 +1,12 @@
 import type { MarketCode } from '../types/dojoMesh';
+import cnFlag from '../assets/images/cn.png';
+import hkFlag from '../assets/images/hk.png';
+import usFlag from '../assets/images/us.png';
 
-export const MARKET_FLAG: Record<MarketCode, string> = {
-  us: '🇺🇸',
-  cn: '🇨🇳',
-  hk: '🇭🇰',
+export const MARKET_FLAG_IMAGE: Record<MarketCode, string> = {
+  us: usFlag,
+  cn: cnFlag,
+  hk: hkFlag,
 };
 
 export const MARKET_CODE: Record<MarketCode, string> = {

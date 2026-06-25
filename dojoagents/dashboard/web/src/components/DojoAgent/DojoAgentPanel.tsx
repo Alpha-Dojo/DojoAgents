@@ -491,7 +491,8 @@ export function DojoAgentPanel({
             viz_blocks,
           );
           patchAssistant({});
-          void syncFolioFromAgentTool(tool, ok, data ?? null);
+          // @ts-ignore - data parameter type from streaming is unknown
+          void syncFolioFromAgentTool(tool, ok, data);
         },
         onEvalHint: ({ issues }) => {
           assistantEvalHints = appendEvalHint(assistantEvalHints, issues);

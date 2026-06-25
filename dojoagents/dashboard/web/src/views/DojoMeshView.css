@@ -316,8 +316,10 @@
 }
 
 .market-hero__flag {
-  font-size: 20px;
-  line-height: 1;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .market-hero__label {
@@ -644,7 +646,8 @@
 
 @container (max-width: 360px) {
   .market-hero__flag {
-    font-size: 18px;
+    width: 18px;
+    height: 18px;
   }
 
   .market-hero__label {

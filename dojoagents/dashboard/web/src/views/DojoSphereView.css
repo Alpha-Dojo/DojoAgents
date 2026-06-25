@@ -144,8 +144,10 @@
 }
 
 .sphere-constituents-col__flag {
-  font-size: calc(12px * var(--sphere-scale, 1));
-  line-height: 1;
+  width: calc(12px * var(--sphere-scale, 1));
+  height: calc(12px * var(--sphere-scale, 1));
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .sphere-constituents-col__code {
@@ -586,8 +588,9 @@
 
 .sphere-level-risk__market-flag {
   flex-shrink: 0;
-  font-size: calc(11px * var(--sphere-scale, 1));
-  line-height: 1;
+  width: calc(11px * var(--sphere-scale, 1));
+  height: calc(11px * var(--sphere-scale, 1));
+  object-fit: contain;
 }
 
 .sphere-level-risk__market-code {
@@ -723,8 +726,10 @@
 }
 
 .sphere-level-sparkline__inline-flag {
-  font-size: calc(10px * var(--sphere-scale, 1));
-  line-height: 1;
+  width: calc(10px * var(--sphere-scale, 1));
+  height: calc(10px * var(--sphere-scale, 1));
+  object-fit: contain;
+  flex-shrink: 0;
   opacity: 0.92;
 }
 
@@ -985,8 +990,10 @@
 }
 
 .sphere-metric-panel__flag {
-  font-size: calc(12px * var(--sphere-scale, 1));
-  line-height: 1;
+  width: calc(12px * var(--sphere-scale, 1));
+  height: calc(12px * var(--sphere-scale, 1));
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .sphere-metric-panel__code {

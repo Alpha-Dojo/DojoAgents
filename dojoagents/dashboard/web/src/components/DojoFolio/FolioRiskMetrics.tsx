@@ -3,7 +3,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPerformanceStats, FolioPerformanceView } from '../../types/dojoFolio';
 import type { MarketCode } from '../../types/dojoMesh';
 import { resolveBenchmarkStats } from '../../utils/folioPerformanceStats';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 
 interface FolioRiskMetricsProps {
   performance: FolioPerformanceView | null | undefined;
@@ -127,9 +127,7 @@ export function FolioRiskMetrics({
                 <tr key={market}>
                   <th scope="row" className={`folio-risk__market-row folio-risk__market-row--${market}`}>
                     <span className="folio-risk__market-label">
-                      <span className="folio-risk__market-flag" aria-hidden>
-                        {MARKET_FLAG[market]}
-                      </span>
+                      <img className="folio-risk__market-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
                       <span className="folio-risk__market-code">{MARKET_CODE[market]}</span>
                     </span>
                   </th>
