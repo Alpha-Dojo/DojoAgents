@@ -47,8 +47,8 @@ class SandboxConfig:
 
 @dataclass(frozen=True)
 class WebToolsConfig:
-    search_backend: str | None = None
-    extract_backend: str | None = None
+    search_backend: str = "ddgs"
+    extract_backend: str = "fetch"
     search_base_url: str | None = None
     extract_base_url: str | None = None
     max_extract_urls: int = 5

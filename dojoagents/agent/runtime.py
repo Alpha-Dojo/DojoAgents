@@ -111,6 +111,11 @@ class Runtime:
         for spec in get_web_searcher_specs(config.tools.web):
             tool_registry.register(spec)
 
+        from dojoagents.tools.agent_viz import get_agent_viz_specs
+
+        for spec in get_agent_viz_specs():
+            tool_registry.register(spec)
+
         # Multi-Agent setup
         pool = None
         if config.multi_agent.enabled:

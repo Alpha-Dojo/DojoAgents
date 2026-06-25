@@ -56,3 +56,6 @@ docs/plans/
 *node_modules/
 dojo
 source/
+
+# debug
+out/

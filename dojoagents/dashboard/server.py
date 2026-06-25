@@ -23,7 +23,6 @@ from dojoagents.dashboard.routers import (
     sectors,
     ticker,
     utility,
-    agent,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager
@@ -322,7 +321,6 @@ def create_app(
     app.include_router(dojo_sphere.router, prefix="/api/v1")
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
-    app.include_router(agent.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,

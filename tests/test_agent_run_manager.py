@@ -29,6 +29,17 @@ class FakeBackgroundAgent:
                 content="created",
                 latency_ms=12,
                 data={"portfolio_id": "p-1", "name": "Quality"},
+                viz_blocks=[
+                    {
+                        "id": "viz-portfolio",
+                        "kind": "table",
+                        "title": "Portfolio",
+                        "subtitle": None,
+                        "source_tool": "agent_viz_build",
+                        "truncated": False,
+                        "payload": {"rows": [{"name": "Quality"}]},
+                    }
+                ],
                 resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": "p-1"}],
             )
             if self._hold:
@@ -63,8 +74,11 @@ class FakeRuntime:
 
 def _make_app(agent=None):
     from dojoagents.dashboard.server import create_app
+    from dojoagents.dashboard.agent_runs import AgentRunManager
 
-    return create_app(FakeRuntime(agent))
+    app = create_app(FakeRuntime(agent))
+    app.state.agent_run_manager = AgentRunManager()
+    return app
 
 
 def _parse_sse_events(response) -> list[dict]:
@@ -107,6 +121,8 @@ def test_create_background_run_and_fetch_status_and_events():
     assert [payload["type"] for payload in payloads][-1] == "done"
     assert any(payload["type"] == "tool_start" and payload["call_id"] == "call-1" for payload in payloads)
     assert any(payload["type"] == "tool_result" and payload["call_id"] == "call-1" for payload in payloads)
+    tool_result = next(payload for payload in payloads if payload["type"] == "tool_result")
+    assert tool_result["viz_blocks"][0]["kind"] == "table"
 
 
 def test_background_run_events_respect_cursor():

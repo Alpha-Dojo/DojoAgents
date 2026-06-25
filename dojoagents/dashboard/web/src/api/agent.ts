@@ -1,10 +1,10 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
-import { USE_INTERACTIVE_MOCKS } from '../mocks/interactiveMockData';
+
 import type { AgentChatRequest, AgentModelsResponse, AgentStreamEvent } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
-const API_PREFIX = '/api/v1';
+
 const CHAT_API_PREFIX = '/api';
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -30,7 +30,7 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-async function fetchMockAgentModels(): Promise<AgentModelsResponse> {
+export async function fetchAgentModels(): Promise<AgentModelsResponse> {
   const config = await fetchSettingsConfig();
   const llmProvider = asRecord(config.llm_provider);
   const providers = asRecord(llmProvider.providers);
@@ -67,20 +67,15 @@ export type AgentStreamHandlers = {
   onThinkEnd?: () => void;
   onPhase?: (phase: 'planning' | 'tools' | 'answering') => void;
   onRetry?: (payload: { attempt: number; max_attempts: number; text: string }) => void;
-  onToolStart?: (tool: string, args: Record<string, unknown>) => void;
+  onToolStart?: (tool: string, args: Record<string, unknown>, callId?: string) => void;
   onToolResult?: (payload: {
+    call_id?: string;
     tool: string;
     ok: boolean;
     latency_ms: number;
     truncated: boolean;
     error?: string | null;
-    data?: {
-      portfolio_id?: string;
-      name?: string;
-      holdings_count?: number;
-      holdings_by_market?: Record<string, number>;
-      tickers?: string[];
-    } | null;
+    data?: Record<string, unknown> | null;
     viz_blocks?: AgentVizBlock[];
   }) => void;
   onEvalHint?: (payload: { text: string; issues: string[] }) => void;
@@ -88,17 +83,6 @@ export type AgentStreamHandlers = {
   onError: (message: string) => void;
 };
 
-export async function fetchAgentModels(): Promise<AgentModelsResponse> {
-  if (USE_INTERACTIVE_MOCKS) return fetchMockAgentModels();
-
-  const res = await fetch(`${API_PREFIX}/agent/models`, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) {
-    throw new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status);
-  }
-  return res.json() as Promise<AgentModelsResponse>;
-}
 
 
 function parseSseBlock(block: string): AgentStreamEvent | null {
@@ -165,11 +149,12 @@ function dispatchStreamEvent(event: AgentStreamEvent, handlers: AgentStreamHandl
     return 'continue';
   }
   if (event.type === 'tool_start') {
-    handlers.onToolStart?.(event.tool, event.arguments);
+    handlers.onToolStart?.(event.tool, event.arguments, event.call_id);
     return 'continue';
   }
   if (event.type === 'tool_result') {
     handlers.onToolResult?.({
+      call_id: event.call_id,
       tool: event.tool,
       ok: event.ok,
       latency_ms: event.latency_ms,
