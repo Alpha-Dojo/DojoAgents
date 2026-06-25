@@ -68,6 +68,7 @@ class CoreTickerQuoteResponse(BaseModel):
     pe: float = Field(..., description="Price-to-earnings ratio")
     forward_pe: Optional[float] = Field(None, description="Forward P/E from stock basic profile")
     pb: float = Field(..., description="Price-to-book ratio")
+    dividend_yield: Optional[float] = Field(None, description="dividend yield")
     turn_rate: float = Field(..., description="Turnover rate")
     exchange_name: Optional[str] = Field(None, description="Listing exchange name")
     industry: Optional[str] = Field(None, description="Industry classification")

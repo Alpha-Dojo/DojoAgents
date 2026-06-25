@@ -49,6 +49,7 @@ def resolve_core_ticker_quote(
         forward_pe=stock.forward_pe,
         pb=quote.pb,
         turn_rate=quote.turn_rate,
+        dividend_yield=quote.dividend_yield,
         exchange_name=stock.full_exchange_name,
         industry=stock.industry,
         sector=stock.sector,
