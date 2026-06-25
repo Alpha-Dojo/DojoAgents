@@ -6,6 +6,7 @@ import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorLevelKey, SectorPerformancePoint } from '../../types/dojoSphere';
 import type { ResolvedSectorPath } from '../../types/sectorTaxonomy';
 import { scopeChartTitle } from '../../utils/sphereSectorTitle';
+import { DojoDropdownSelect } from '../ui';
 
 interface SpherePerformanceChartProps {
   path: ResolvedSectorPath;
@@ -183,13 +184,11 @@ export function SpherePerformanceChart({
   const [selectedMarkets, setSelectedMarkets] = useState<MarketCode[]>([...MARKET_OPTIONS]);
   const [benchmarkSymbol, setBenchmarkSymbol] = useState('');
   const [marketsOpen, setMarketsOpen] = useState(false);
-  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [benchmarkCatalog, setBenchmarkCatalog] = useState<Awaited<ReturnType<typeof fetchBenchmarkCatalog>> | null>(
     null,
   );
   const marketsRef = useRef<HTMLDivElement>(null);
-  const benchmarkRef = useRef<HTMLDivElement>(null);
   const chartWrapRef = useRef<HTMLDivElement>(null);
 
   const chartTitle = useMemo(() => scopeChartTitle(path, scope, locale), [path, scope, locale]);
@@ -212,9 +211,6 @@ export function SpherePerformanceChart({
     const handlePointerDown = (event: MouseEvent) => {
       if (!marketsRef.current?.contains(event.target as Node)) {
         setMarketsOpen(false);
-      }
-      if (!benchmarkRef.current?.contains(event.target as Node)) {
-        setBenchmarkOpen(false);
       }
     };
     window.addEventListener('mousedown', handlePointerDown);
@@ -365,62 +361,21 @@ export function SpherePerformanceChart({
               </ul>
             )}
           </div>
-          <div className="sphere-performance__markets" ref={benchmarkRef}>
-            <button
-              type="button"
-              className={`sphere-performance__markets-trigger sphere-performance__benchmark-trigger ${benchmarkOpen ? 'sphere-performance__markets-trigger--open' : ''}`}
-              aria-haspopup="listbox"
-              aria-expanded={benchmarkOpen}
+          <div className="sphere-performance__markets">
+            <DojoDropdownSelect
               aria-label={t('sphere.benchmarkLabel')}
-              onClick={() => setBenchmarkOpen((prev) => !prev)}
-            >
-              <span>{benchmarkLabel}</span>
-              <ChevronIcon />
-            </button>
-            {benchmarkOpen && (
-              <ul className="sphere-performance__markets-menu" role="listbox" aria-label={t('sphere.benchmarkLabel')}>
-                <li role="presentation">
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={!benchmarkSymbol}
-                    className={`sphere-performance__markets-option ${!benchmarkSymbol ? 'sphere-performance__markets-option--active' : ''}`}
-                    onClick={() => {
-                      setBenchmarkSymbol('');
-                      setBenchmarkOpen(false);
-                    }}
-                  >
-                    <span className="sphere-performance__markets-check" aria-hidden>
-                      {!benchmarkSymbol ? '✓' : ''}
-                    </span>
-                    {t('sphere.benchmarkNone')}
-                  </button>
-                </li>
-                {benchmarkOptions.map((item) => {
-                  const label = locale === 'zh' ? item.name.zh || item.name.en : item.name.en || item.name.zh;
-                  const checked = benchmarkSymbol === item.symbol;
-                  return (
-                    <li key={item.symbol} role="presentation">
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={checked}
-                        className={`sphere-performance__markets-option ${checked ? 'sphere-performance__markets-option--active' : ''}`}
-                        onClick={() => {
-                          setBenchmarkSymbol(item.symbol);
-                          setBenchmarkOpen(false);
-                        }}
-                      >
-                        <span className="sphere-performance__markets-check" aria-hidden>
-                          {checked ? '✓' : ''}
-                        </span>
-                        {label}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+              className="sphere-performance__benchmark-select"
+              value={benchmarkSymbol}
+              onChange={setBenchmarkSymbol}
+              dropdownMinWidth={180}
+              options={[
+                { value: '', label: t('sphere.benchmarkNone') },
+                ...benchmarkOptions.map((item) => ({
+                  value: item.symbol,
+                  label: locale === 'zh' ? item.name.zh || item.name.en : item.name.en || item.name.zh,
+                })),
+              ]}
+            />
           </div>
         </div>
       </div>

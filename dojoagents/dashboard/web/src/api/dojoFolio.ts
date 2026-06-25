@@ -526,7 +526,7 @@ export async function addFolioHolding(
       portfolio_id: portfolioId,
       holding_details: {
         ticker: payload.ticker,
-        market: payload.market,
+        market: payload.market === 'cn' ? 'sh' : payload.market,
         shares: payload.shares,
       },
     }),
@@ -545,7 +545,7 @@ export async function removeFolioHolding(
     body: JSON.stringify({
       portfolio_id: portfolioId,
       ticker: payload.ticker,
-      market: payload.market,
+      market: payload.market === 'cn' ? 'sh' : payload.market,
     }),
   });
   const summary = await fetchPortfolioSummary(portfolioId);

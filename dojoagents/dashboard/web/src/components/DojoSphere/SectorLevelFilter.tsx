@@ -6,6 +6,7 @@ import {
   listLevel2Options,
   listLevel3Options,
 } from '../../utils/sectorTaxonomy';
+import { DojoDropdownSelect } from '../ui';
 import './SectorLevelFilter.css';
 
 interface SectorLevelFilterProps {
@@ -39,13 +40,13 @@ export function SectorLevelFilter({
 
   return (
     <div className="sphere-level-filter" role="group" aria-label={t('sphere.filterLabel')}>
-      <label className="sphere-level-filter__field">
+      <div className="sphere-level-filter__field">
         <span className="sphere-level-filter__label">{t('sphere.level1')}</span>
-        <select
+        <DojoDropdownSelect
+          aria-label={t('sphere.level1')}
           className="sphere-level-filter__select"
           value={level1Id}
-          onChange={(event) => {
-            const nextL1 = event.target.value;
+          onChange={(nextL1) => {
             const l2 = listLevel2Options(taxonomy, nextL1)[0];
             const l3 = l2 ? listLevel3Options(taxonomy, nextL1, l2.id)[0] : undefined;
             onChange({
@@ -54,22 +55,20 @@ export function SectorLevelFilter({
               level3Id: l3?.id ?? '',
             });
           }}
-        >
-          {level1Options.map((item) => (
-            <option key={item.id} value={item.id}>
-              {labelFor(item.name.zh, item.name.en)}
-            </option>
-          ))}
-        </select>
-      </label>
+          options={level1Options.map((item) => ({
+            value: item.id,
+            label: labelFor(item.name.zh, item.name.en),
+          }))}
+        />
+      </div>
 
-      <label className="sphere-level-filter__field">
+      <div className="sphere-level-filter__field">
         <span className="sphere-level-filter__label">{t('sphere.level2')}</span>
-        <select
+        <DojoDropdownSelect
+          aria-label={t('sphere.level2')}
           className="sphere-level-filter__select"
           value={level2Id}
-          onChange={(event) => {
-            const nextL2 = event.target.value;
+          onChange={(nextL2) => {
             const l3 = listLevel3Options(taxonomy, level1Id, nextL2)[0];
             onChange({
               level1Id,
@@ -77,31 +76,26 @@ export function SectorLevelFilter({
               level3Id: l3?.id ?? '',
             });
           }}
-        >
-          {level2Options.map((item) => (
-            <option key={item.id} value={item.id}>
-              {labelFor(item.name.zh, item.name.en)}
-            </option>
-          ))}
-        </select>
-      </label>
+          options={level2Options.map((item) => ({
+            value: item.id,
+            label: labelFor(item.name.zh, item.name.en),
+          }))}
+        />
+      </div>
 
-      <label className="sphere-level-filter__field">
+      <div className="sphere-level-filter__field">
         <span className="sphere-level-filter__label">{t('sphere.level3')}</span>
-        <select
+        <DojoDropdownSelect
+          aria-label={t('sphere.level3')}
           className="sphere-level-filter__select"
           value={level3Id}
-          onChange={(event) => {
-            onChange({ level1Id, level2Id, level3Id: event.target.value });
-          }}
-        >
-          {level3Options.map((item) => (
-            <option key={item.id} value={item.id}>
-              {labelFor(item.name.zh, item.name.en)}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={(level3Id) => onChange({ level1Id, level2Id, level3Id })}
+          options={level3Options.map((item) => ({
+            value: item.id,
+            label: labelFor(item.name.zh, item.name.en),
+          }))}
+        />
+      </div>
     </div>
   );
 }

@@ -157,33 +157,87 @@
 
 .folio-portfolio-search__icon {
   position: absolute;
-  left: 8px;
+  left: 11px;
   top: 50%;
+  width: 14px;
+  height: 14px;
+  background: var(--text-dim);
+  font-size: 0;
   transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--text-dim);
+  -webkit-mask: url("../assets/icons/search.svg") center / contain no-repeat;
+  mask: url("../assets/icons/search.svg") center / contain no-repeat;
   pointer-events: none;
+  transition: background 0.15s ease;
 }
 
 .folio-portfolio-search__input {
   width: 100%;
-  padding: 6px 8px 6px 24px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  height: 34px;
+  padding: 0 32px 0 34px;
+  border: 1px solid var(--color-border-default);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .folio-portfolio-search__input::placeholder {
-  color: var(--text-dim);
+  color: #7d8da5;
+  opacity: 1;
 }
 
 .folio-portfolio-search__input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.35);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-color: var(--color-accent-float);
+  box-shadow: 0 0 0 1px rgb(0 224 162 / 18%);
+}
+
+.folio-portfolio-search:focus-within .folio-portfolio-search__icon {
+  background: var(--color-accent-float);
+}
+
+.folio-portfolio-search__clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.folio-portfolio-search__clear::before {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  background: currentColor;
+  content: "";
+  -webkit-mask: url("../assets/svg/close.svg") center / contain no-repeat;
+  mask: url("../assets/svg/close.svg") center / contain no-repeat;
+}
+
+.folio-portfolio-search__clear:hover,
+.folio-portfolio-search__clear:focus-visible {
+  outline: none;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .folio-portfolio-search__panel {
@@ -192,17 +246,18 @@
   top: calc(100% + 4px);
   left: 0;
   right: 0;
+  padding: 4px;
   max-height: 220px;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: rgba(8, 14, 24, 0.98);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 36%);
 }
 
 .folio-portfolio-search__list {
   margin: 0;
-  padding: 4px;
+  padding: 0;
   list-style: none;
 }
 
@@ -214,23 +269,28 @@
 
 .folio-portfolio-search__option {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 7px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-muted);
   font: inherit;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .folio-portfolio-search__option:hover,
 .folio-portfolio-search__option:focus-visible {
-  background: rgba(0, 229, 255, 0.08);
+  color: var(--text-primary);
+  background: var(--color-surface-muted);
   outline: none;
 }
 
@@ -267,13 +327,12 @@
 }
 
 .folio-sidebar__item:hover {
-  border-color: rgba(0, 229, 255, 0.22);
-  background: rgba(0, 229, 255, 0.04);
+  border-color: #02af7f66;
 }
 
-.folio-sidebar__item--active {
-  border-color: rgba(0, 229, 255, 0.45);
-  background: rgba(0, 229, 255, 0.08);
+.folio-sidebar__item--active,
+.folio-sidebar__item--active:hover {
+  border-color: var(--green);
   box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
 }
 
@@ -367,8 +426,8 @@
 }
 
 .folio-sidebar__icon-svg {
-  width: 11px;
-  height: 11px;
+  width: 14px;
+  height: 14px;
 }
 
 .folio-sidebar__stats-table {
@@ -591,13 +650,21 @@
 .folio-config__input {
   width: 100%;
   min-width: 0;
-  padding: 5px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.25);
   color: var(--text-primary);
   font: inherit;
   font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .folio-config__input[type='number'] {
@@ -609,6 +676,21 @@
 .folio-config__input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+.folio-config__input::placeholder {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.folio-config__input:hover {
+  border-color: var(--green);
+}
+
+.folio-config__input:focus-visible {
+  outline: none;
+  border-color: var(--green);
 }
 
 .folio-config__apply {
@@ -875,7 +957,11 @@
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--border-dim);
-  border-radius: 6px;
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
   background: rgba(0, 0, 0, 0.18);
 }
 
@@ -895,10 +981,11 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
-.folio-detail-tabs__tab--active {
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.12);
+.folio-detail-tabs__tab--active,
+.folio-detail-tabs__tab--active:hover {
   box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.22);
+  color: var(--color-accent-primary);
+  background: rgb(2 175 127 / 10%);
 }
 
 .folio-detail-tabs__body {
@@ -1097,14 +1184,24 @@
 }
 
 .folio-performance__benchmark-select {
-  min-width: 140px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  min-width: 110px;
+}
+
+.folio-performance__benchmark-select .dojo-dropdown-select__trigger {
+  min-height: 28px;
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
-  color: var(--text-primary);
-  font-size: 10px;
+  justify-content: space-between;
+  background-color: transparent;
+}
+
+.folio-performance__benchmark-select .dojo-dropdown-select__trigger:hover,
+.folio-performance__benchmark-select .dojo-dropdown-select__trigger:focus {
+  border-color: var(--green);
+}
+
+.folio-performance__benchmark-select .dojo-dropdown-select__value {
+  font-size: 11px;
 }
 
 .folio-performance__legend {
@@ -1762,7 +1859,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 6px 8px;
+  padding: 8px 6px 8px;
 }
 
 .folio-holdings__table-scroll {
@@ -1949,10 +2046,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  border: 1px solid rgba(0, 229, 255, 0.28);
+  padding: 4px 8px;
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 229, 255, 0.06);
+  background: transparent;
   color: var(--cyan);
   font-size: 10px;
   font-weight: 600;
@@ -1962,7 +2059,8 @@
 
 .folio-allocate-menu__trigger:hover:not(:disabled),
 .folio-allocate-menu__trigger--open {
-  background: rgba(0, 229, 255, 0.12);
+  /* background: rgba(0, 229, 255, 0.12); */
+  border-color: var(--green);
 }
 
 .folio-allocate-menu__trigger:disabled {
@@ -2105,24 +2203,37 @@
 
 .folio-add-holding__icon {
   position: absolute;
-  left: 6px;
+  left: 8px;
   top: 50%;
+  width: 10px;
+  height: 10px;
+  background: var(--text-dim);
+  font-size: 0;
   transform: translateY(-50%);
-  font-size: 11px;
-  color: var(--text-dim);
+  -webkit-mask: url("../assets/icons/search.svg") center / contain no-repeat;
+  mask: url("../assets/icons/search.svg") center / contain no-repeat;
   pointer-events: none;
+  transition: background 0.15s ease;
 }
 
 .folio-add-holding__input {
   width: 100%;
   box-sizing: border-box;
-  padding: 4px 22px 4px 20px;
-  border: 1px solid rgba(0, 229, 255, 0.22);
+  height: 20px;
+  padding: 0 26px 0 27px;
+  border: 1px solid var(--color-border-default);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
 }
 
 .folio-add-holding__input:disabled {
@@ -2132,29 +2243,47 @@
 
 .folio-add-holding__input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.4);
-  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.12);
+  border-color: var(--color-accent-float);
+  box-shadow: 0 0 0 1px rgb(0 224 162 / 18%);
+}
+
+.folio-add-holding__search:focus-within .folio-add-holding__icon {
+  background: var(--color-accent-float);
 }
 
 .folio-add-holding__input::placeholder {
-  color: var(--text-dim);
-  font-size: 10px;
+  color: #7d8da5;
+  font-size: 11px;
+  opacity: 1;
 }
 
 .folio-add-holding__clear {
   position: absolute;
-  right: 2px;
+  right: 5px;
   top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   border: none;
   border-radius: 3px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 13px;
-  line-height: 1;
   cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.folio-add-holding__clear::before {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  background: currentColor;
+  content: "";
+  -webkit-mask: url("../assets/svg/close.svg") center / contain no-repeat;
+  mask: url("../assets/svg/close.svg") center / contain no-repeat;
 }
 
 .folio-add-holding__clear:hover {
@@ -2163,21 +2292,17 @@
 }
 
 .folio-add-holding__panel {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 220px;
-  max-width: 280px;
-  max-height: 180px;
+  position: fixed;
+  z-index: 1000;
+  max-height: 220px;
   margin: 0;
   padding: 4px;
   overflow: auto;
   list-style: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: rgba(8, 14, 24, 0.98);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 36%);
 }
 
 .folio-add-holding__status {
@@ -2188,23 +2313,28 @@
 
 .folio-add-holding__option {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-muted);
   font: inherit;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .folio-add-holding__option:hover,
 .folio-add-holding__option:focus-visible {
-  background: rgba(0, 229, 255, 0.08);
+  color: var(--text-primary);
+  background: var(--color-surface-muted);
   outline: none;
 }
 
@@ -2216,13 +2346,18 @@
 .folio-add-holding__option-ticker {
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  color: var(--cyan);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .folio-add-holding__option-name {
-  font-size: 10px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
   color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .folio-table--compact thead th {
@@ -2240,9 +2375,7 @@
 }
 
 .folio-table--compact .folio-table__shares-input {
-  width: 52px;
-  padding: 2px 4px;
-  font-size: 10px;
+  width: 100%;
 }
 
 .folio-table__date-cell {
@@ -2253,16 +2386,23 @@
   width: 100%;
   min-width: 0;
   max-width: none;
-  padding: 2px 2px 2px 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.25);
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--sphere-table-size, 10px);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-align: center;
   color-scheme: dark;
   box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .folio-table__date-input::-webkit-calendar-picker-indicator {
@@ -2277,7 +2417,11 @@
 
 .folio-table__date-input:focus-visible {
   outline: none;
-  border-color: rgba(0, 229, 255, 0.35);
+  border-color: var(--green);
+}
+
+.folio-table__date-input:hover {
+  border-color: var(--green);
 }
 
 .folio-table {
@@ -2464,18 +2608,35 @@
   width: 100%;
   min-width: 0;
   max-width: none;
-  padding: 2px 3px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.25);
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--sphere-table-size, 10px);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: center;
   box-sizing: border-box;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+.folio-table__shares-input:hover,
+.folio-table__cost-input:hover {
+  border-color: var(--green);
+}
+
+.folio-table__shares-input:focus-visible,
+.folio-table__cost-input:focus-visible {
+  outline: none;
+  border-color: var(--green);
 }
 
 .folio-table__shares-input::-webkit-outer-spin-button,
