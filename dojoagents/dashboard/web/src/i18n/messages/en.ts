@@ -100,7 +100,7 @@ export const enMessages: MessageTree = {
     placeholder: 'Type a message. Enter to send, Shift+Enter for newline.',
     send: 'Send',
     sending: 'Sending…',
-    apiNotConfigured: 'GEMINI_API_KEY is not configured on the server.',
+    apiNotConfigured: 'No model provider is configured on the server.',
     sendFailed: 'Failed to send. Please try again.',
     history: 'Chat history',
     newChat: 'New chat',

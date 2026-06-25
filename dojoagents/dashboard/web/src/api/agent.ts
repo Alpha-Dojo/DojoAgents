@@ -42,6 +42,7 @@ export async function fetchAgentModels(): Promise<AgentModelsResponse> {
   return res.json() as Promise<AgentModelsResponse>;
 }
 
+
 function parseSseBlock(block: string): AgentStreamEvent | null {
   const dataLine = block
     .split('\n')
@@ -49,7 +50,7 @@ function parseSseBlock(block: string): AgentStreamEvent | null {
     .find((line) => line.startsWith('data:'));
   if (!dataLine) return null;
   const raw = dataLine.slice(5).trim();
-  if (!raw) return null;
+  if (!raw || raw === '[DONE]') return null;
   return JSON.parse(raw) as AgentStreamEvent;
 }
 
@@ -183,27 +184,43 @@ async function consumeSseResponse(
   return 'eof';
 }
 
+
+
+
 export async function createAgentRun(
   body: AgentChatRequest,
-): Promise<{ run_id: string; model_id: string }> {
-  const res = await fetch(`${API_PREFIX}/agent/runs`, {
+): Promise<{ run_id: string; session_id: string; status: string; model: string }> {
+  const res = await fetch(`${API_PREFIX}/chat/runs`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ use_tools: true, ...body }),
+    body: JSON.stringify({
+      model: body.model_id,
+      messages: body.messages,
+      metadata: {
+        session_id: crypto.randomUUID(),
+        locale: body.locale ?? 'zh',
+        event_format: 'dojo.v2',
+      },
+    }),
   });
   if (!res.ok) {
     throw new ApiError(await readErrorMessage(res), res.status);
   }
-  return res.json() as Promise<{ run_id: string; model_id: string }>;
+  return res.json() as Promise<{
+    run_id: string;
+    session_id: string;
+    status: string;
+    model: string;
+  }>;
 }
 
 export async function fetchAgentRunStatus(
   runId: string,
-): Promise<{ run_id: string; model_id: string; status: string; event_count: number }> {
-  const res = await fetch(`${API_PREFIX}/agent/runs/${runId}`, {
+): Promise<{ run_id: string; session_id: string; status: string; event_count: number; model: string }> {
+  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -211,14 +228,15 @@ export async function fetchAgentRunStatus(
   }
   return res.json() as Promise<{
     run_id: string;
-    model_id: string;
+    session_id: string;
     status: string;
     event_count: number;
+    model: string;
   }>;
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
-  const res = await fetch(`${API_PREFIX}/agent/runs/${runId}/cancel`, {
+  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}/cancel`, {
     method: 'POST',
     headers: { Accept: 'application/json' },
   });
@@ -233,13 +251,14 @@ export async function streamAgentRunEvents(
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
 ): Promise<SseConsumeResult> {
-  const res = await fetch(`${API_PREFIX}/agent/runs/${runId}/events?cursor=${cursor}`, {
+  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}/events?cursor=${cursor}`, {
     method: 'GET',
     headers: { Accept: 'text/event-stream' },
     signal,
   });
   return consumeSseResponse(res, handlers, signal);
 }
+
 
 /** @deprecated Prefer createAgentRun + streamAgentRunEvents for UI-decoupled runs. */
 export async function streamAgentChat(

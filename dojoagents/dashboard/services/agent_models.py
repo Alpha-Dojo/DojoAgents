@@ -47,6 +47,24 @@ AGENT_MODEL_CATALOG: tuple[AgentModelDefinition, ...] = (
         provider="deepseek",
         available=False,
     ),
+    AgentModelDefinition(
+        id="glm-4",
+        label="GLM-4",
+        provider="glm",
+        available=True,
+    ),
+    AgentModelDefinition(
+        id="minimax-abab6.5",
+        label="MiniMax abab6.5",
+        provider="minimax",
+        available=True,
+    ),
+    AgentModelDefinition(
+        id="kimi-moonshot",
+        label="Kimi (Moonshot)",
+        provider="kimi",
+        available=True,
+    ),
 )
 
 DEFAULT_AGENT_MODEL_ID = "gemini-3.5"

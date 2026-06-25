@@ -11,6 +11,19 @@ from typing import Any, AsyncGenerator
 from dojoagents.agent.events import AgentEvent, AgentEventSink
 
 
+def make_stream_delta_callback(queue: asyncio.Queue):
+    """Backward-compatible callback that pushes raw text deltas onto a queue."""
+
+    def callback(delta: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(queue.put_nowait, delta)
+        except RuntimeError:
+            pass
+
+    return callback
+
+
 def make_event_queue_sink(
     queue: asyncio.Queue,
     *,
@@ -99,9 +112,25 @@ async def stream_completion_chunks(
         if item is None:
             break
         if isinstance(item, Exception):
-            terminal_error = {"type": "error", "message": str(item), "code": "runtime_error"}
-            break
+            raise item
+        if isinstance(item, str):
+            yield _make_chunk_line(
+                completion_id,
+                created,
+                model,
+                {"delta": {"content": item}, "finish_reason": None},
+            )
+            continue
         if not isinstance(item, dict):
+            continue
+
+        if "tool_calls" in item:
+            yield _make_chunk_line(
+                completion_id,
+                created,
+                model,
+                {"delta": item, "finish_reason": None},
+            )
             continue
 
         event_type = item.get("type")

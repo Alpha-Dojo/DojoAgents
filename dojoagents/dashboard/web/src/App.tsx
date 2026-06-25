@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
-import { AgentModelProvider } from './agent/AgentModelContext';
 import { AgentRunProvider } from './agent/AgentRunContext';
+import { AgentModelProvider } from './agent/AgentModelContext';
 import { Header } from './components/Header';
 import { DojoAgentPanel } from './components/DojoAgent/DojoAgentPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
