@@ -88,13 +88,13 @@
 
 .sphere-bottom-panel__tab:hover {
   color: var(--text-primary);
-  background: var(--color-surface-muted);
+  background: rgba(30, 58, 95, 0.28);
 }
 
 .sphere-bottom-panel__tab--active {
-  color: var(--color-accent-primary);
-  border-bottom-color: var(--color-accent-primary);
-  background: rgb(2 175 127 / 8%);
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+  background: rgba(0, 229, 255, 0.06);
   font-weight: var(--panel-title-weight, 700);
 }
 
@@ -144,10 +144,8 @@
 }
 
 .sphere-constituents-col__flag {
-  width: calc(12px * var(--sphere-scale, 1));
-  height: calc(12px * var(--sphere-scale, 1));
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: calc(12px * var(--sphere-scale, 1));
+  line-height: 1;
 }
 
 .sphere-constituents-col__code {
@@ -588,9 +586,8 @@
 
 .sphere-level-risk__market-flag {
   flex-shrink: 0;
-  width: calc(11px * var(--sphere-scale, 1));
-  height: calc(11px * var(--sphere-scale, 1));
-  object-fit: contain;
+  font-size: calc(11px * var(--sphere-scale, 1));
+  line-height: 1;
 }
 
 .sphere-level-risk__market-code {
@@ -726,10 +723,8 @@
 }
 
 .sphere-level-sparkline__inline-flag {
-  width: calc(10px * var(--sphere-scale, 1));
-  height: calc(10px * var(--sphere-scale, 1));
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: calc(10px * var(--sphere-scale, 1));
+  line-height: 1;
   opacity: 0.92;
 }
 
@@ -990,10 +985,8 @@
 }
 
 .sphere-metric-panel__flag {
-  width: calc(12px * var(--sphere-scale, 1));
-  height: calc(12px * var(--sphere-scale, 1));
-  object-fit: contain;
-  flex-shrink: 0;
+  font-size: calc(12px * var(--sphere-scale, 1));
+  line-height: 1;
 }
 
 .sphere-metric-panel__code {

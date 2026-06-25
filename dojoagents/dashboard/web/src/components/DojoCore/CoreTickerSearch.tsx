@@ -5,7 +5,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { CoreTickerSearchItem } from '../../types/dojoCore';
 import type { SectorPathSelection } from '../../types/sectorTaxonomy';
-import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { MARKET_FLAG } from '../../utils/marketDisplay';
 import { sortCoreTickerItems } from '../../utils/coreTickerSort';
 
 const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
@@ -165,7 +165,9 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
                       aria-selected={item.ticker === ticker && item.market === market}
                       onClick={() => handlePick(item)}
                     >
-                      <img className="core-ticker-search__option-flag" src={MARKET_FLAG_IMAGE[item.market]} alt="" aria-hidden />
+                      <span className="core-ticker-search__option-flag" aria-hidden>
+                        {MARKET_FLAG[item.market]}
+                      </span>
                       <span className="core-ticker-search__option-ticker">{item.ticker}</span>
                       <span className="core-ticker-search__option-name">
                         {locale === 'zh'

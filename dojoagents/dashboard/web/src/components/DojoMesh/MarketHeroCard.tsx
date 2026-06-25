@@ -6,7 +6,7 @@ import type { MarketBrandDragProps } from './DraggableMarketColumn';
 import { Sparkline } from './Sparkline';
 
 interface MarketHeroCardProps {
-  flagSrc: string;
+  flag: string;
   label: string;
   stats: MarketStats;
   benchmarks: BenchmarkCard[];
@@ -25,7 +25,7 @@ function capLabelKey(market: MarketCode): 'marketCapUs' | 'marketCapSh' | 'marke
 }
 
 export function MarketHeroCard({
-  flagSrc,
+  flag,
   label,
   stats,
   benchmarks,
@@ -65,7 +65,7 @@ export function MarketHeroCard({
           className={`market-hero__brand${brandDrag ? ' market-hero__brand--draggable' : ''}`}
           {...brandDrag}
         >
-          <img className="market-hero__flag" src={flagSrc} alt="" aria-hidden />
+          <span className="market-hero__flag">{flag}</span>
           <span className="market-hero__label">{label}</span>
         </div>
         <div className="market-hero__stats" role="group" aria-label={t('market.statsLabel')}>

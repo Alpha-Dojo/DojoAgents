@@ -22,7 +22,7 @@
 .tz-menu__trigger:hover,
 .tz-menu__trigger--open {
   color: var(--text-primary);
-  background: var(--color-surface-muted);
+  background: rgba(30, 58, 95, 0.35);
 }
 
 .tz-menu__time {
@@ -62,10 +62,10 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border-accent);
   border-radius: 8px;
-  background: var(--bg-panel);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 36%);
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
 
 .tz-menu__option {
@@ -89,15 +89,15 @@
 
 .tz-menu__option:hover {
   color: var(--text-primary);
-  background: var(--color-surface-muted);
+  background: rgba(30, 58, 95, 0.45);
 }
 
 .tz-menu__option--active {
-  background: rgb(2 175 127 / 10%);
+  background: rgba(0, 229, 255, 0.08);
 }
 
 .tz-menu__option--active .tz-menu__option-label {
-  color: var(--color-accent-primary);
+  color: var(--cyan);
 }
 
 .tz-menu__option-label {

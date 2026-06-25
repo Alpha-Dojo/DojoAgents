@@ -19,7 +19,6 @@ import type {
   MarketStats,
   SectorItem,
 } from '../types/dojoMesh';
-import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../utils/marketDisplay';
 import { findSectorPathByLinkKey, selectionFromPath } from '../utils/sectorTaxonomy';
 import { fetchSectorConstituents, fetchSectorTaxonomy } from './dojoSphere';
 
@@ -168,10 +167,10 @@ function buildMarketColumn(
   return column;
 }
 
-export const MARKET_COLUMNS: { code: MarketCode; flagSrc: string; label: string }[] = [
-  { code: 'us', flagSrc: MARKET_FLAG_IMAGE.us, label: MARKET_CODE.us },
-  { code: 'cn', flagSrc: MARKET_FLAG_IMAGE.cn, label: MARKET_CODE.cn },
-  { code: 'hk', flagSrc: MARKET_FLAG_IMAGE.hk, label: MARKET_CODE.hk },
+export const MARKET_COLUMNS: { code: MarketCode; flag: string; label: string }[] = [
+  { code: 'us', flag: '🇺🇸', label: 'US' },
+  { code: 'cn', flag: '🇨🇳', label: 'CN' },
+  { code: 'hk', flag: '🇭🇰', label: 'HK' },
 ];
 
 export async function fetchDojoMeshOverview(

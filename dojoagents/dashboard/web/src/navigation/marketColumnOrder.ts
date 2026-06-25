@@ -2,7 +2,6 @@ import type { MarketCode } from '../types/dojoMesh';
 
 const STORAGE_KEY = 'alphadojo-market-order';
 export const DEFAULT_MARKET_ORDER: MarketCode[] = ['us', 'cn', 'hk'];
-export type MarketDropSide = 'left' | 'right';
 
 export function isMarketCode(value: unknown): value is MarketCode {
   return value === 'us' || value === 'cn' || value === 'hk';
@@ -55,12 +54,11 @@ export function reorderMarkets(
   order: MarketCode[],
   from: MarketCode,
   to: MarketCode,
-  side: MarketDropSide = 'left',
 ): MarketCode[] {
   if (from === to) return order;
   const next = order.filter((code) => code !== from);
   const toIndex = next.indexOf(to);
   if (toIndex === -1) return order;
-  next.splice(side === 'right' ? toIndex + 1 : toIndex, 0, from);
+  next.splice(toIndex, 0, from);
   return normalizeMarketOrder(next);
 }

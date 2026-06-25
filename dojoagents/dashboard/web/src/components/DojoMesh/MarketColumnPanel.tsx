@@ -8,7 +8,7 @@ import { SectorBlock } from './SectorBlock';
 
 interface MarketColumnPanelProps {
   market: MarketCode;
-  flagSrc: string;
+  flag: string;
   label: string;
   column: MarketColumn;
   sectorDays?: number;
@@ -27,7 +27,7 @@ interface MarketColumnPanelProps {
 
 export function MarketColumnPanel({
   market,
-  flagSrc,
+  flag,
   label,
   column,
   sectorDays = 1,
@@ -74,7 +74,7 @@ export function MarketColumnPanel({
     >
       {showHero ? (
         <MarketHeroCard
-          flagSrc={flagSrc}
+          flag={flag}
           label={label}
           stats={column.stats}
           benchmarks={column.benchmarks}

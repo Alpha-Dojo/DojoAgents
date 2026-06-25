@@ -1,7 +1,7 @@
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorPerformanceResponse } from '../../types/dojoSphere';
-import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
 
 interface SphereLevelRiskMetricsProps {
   performance: SectorPerformanceResponse | null | undefined;
@@ -97,7 +97,9 @@ export function SphereLevelRiskMetrics({ performance, loading }: SphereLevelRisk
               <tr key={market}>
                 <th scope="row" className={`sphere-level-risk__market-row sphere-level-risk__market-row--${market}`}>
                   <span className="sphere-level-risk__market-label">
-                    <img className="sphere-level-risk__market-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
+                    <span className="sphere-level-risk__market-flag" aria-hidden>
+                      {MARKET_FLAG[market]}
+                    </span>
                     <span className="sphere-level-risk__market-code">{MARKET_CODE[market]}</span>
                   </span>
                 </th>

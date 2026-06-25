@@ -7,7 +7,7 @@ import type {
   SectorPerformanceResponse,
   SectorScopeMetricsResponse,
 } from '../../types/dojoSphere';
-import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
 import { formatMarketCapChart, formatPeChart } from '../../utils/marketStats';
 import { SphereLevelPerformanceSparkline } from './SphereLevelPerformanceSparkline';
 import { SphereLevelRiskMetrics } from './SphereLevelRiskMetrics';
@@ -85,7 +85,9 @@ function VerticalColumnPanel({ title, columns, loading, hasMetrics }: VerticalCo
               />
             </div>
             <div className="sphere-metric-panel__market">
-              <img className="sphere-metric-panel__flag" src={MARKET_FLAG_IMAGE[col.market]} alt="" aria-hidden />
+              <span className="sphere-metric-panel__flag" aria-hidden>
+                {MARKET_FLAG[col.market]}
+              </span>
               <span className="sphere-metric-panel__code">{MARKET_CODE[col.market]}</span>
             </div>
           </div>
