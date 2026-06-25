@@ -43,7 +43,7 @@ function ChevronIcon() {
 
 export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'composer' | 'header' }) {
   const { t } = useTranslation();
-  const { models, selectedModel, selectedModelId, loading, setSelectedModelId } = useAgentModel();
+  const { models, selectedModel, selectedModelId, loading, saving, setSelectedModelId } = useAgentModel();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -60,8 +60,11 @@ export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'compos
     return () => window.removeEventListener('mousedown', handlePointerDown);
   }, [open]);
 
+  const disabled = loading || saving;
   const label = loading
     ? t('agentModel.loading')
+    : saving
+      ? 'Saving model...'
     : (selectedModel?.label ?? t('agentModel.label'));
 
   return (
@@ -72,7 +75,7 @@ export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'compos
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t('agentModel.label')}
-        disabled={loading}
+        disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
       >
         <SparkIcon />
@@ -82,32 +85,32 @@ export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'compos
       {open && (
         <ul className="model-menu__dropdown" role="listbox" aria-label={t('agentModel.label')}>
           {models.map((model) => {
-            const disabled = !model.available;
+            const optionDisabled = !model.available || saving;
             return (
               <li key={model.id} role="presentation">
                 <button
                   type="button"
                   role="option"
                   aria-selected={selectedModelId === model.id}
-                  aria-disabled={disabled}
-                  disabled={disabled}
-                  title={disabled ? t('agentModel.comingSoon') : undefined}
+                  aria-disabled={optionDisabled}
+                  disabled={optionDisabled}
+                  title={optionDisabled ? (model.unavailable_reason ?? t('agentModel.comingSoon')) : undefined}
                   className={[
                     'model-menu__option',
                     selectedModelId === model.id ? 'model-menu__option--active' : '',
-                    disabled ? 'model-menu__option--disabled' : '',
+                    optionDisabled ? 'model-menu__option--disabled' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')}
                   onClick={() => {
-                    if (disabled) return;
-                    setSelectedModelId(model.id);
+                    if (optionDisabled) return;
+                    void setSelectedModelId(model.id);
                     setOpen(false);
                   }}
                 >
                   <span className="model-menu__option-label">{model.label}</span>
-                  {disabled && (
-                    <span className="model-menu__option-badge">{t('agentModel.comingSoon')}</span>
+                  {optionDisabled && (
+                    <span className="model-menu__option-badge">{model.unavailable_reason ?? t('agentModel.comingSoon')}</span>
                   )}
                 </button>
               </li>

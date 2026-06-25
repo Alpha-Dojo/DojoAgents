@@ -1,8 +1,64 @@
 import { ApiError } from './http';
+import { fetchSettingsConfig } from './settings';
+import { USE_INTERACTIVE_MOCKS } from '../mocks/interactiveMockData';
 import type { AgentChatRequest, AgentModelsResponse, AgentStreamEvent } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 const API_PREFIX = '/api/v1';
+const CHAT_API_PREFIX = '/api';
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Google Gemini',
+  deepseek: 'DeepSeek',
+  qwen: 'Alibaba Tongyi',
+  dashscope: 'Alibaba Tongyi',
+  glm: 'Zhipu GLM',
+  zhipu: 'Zhipu GLM',
+  zhipuai: 'Zhipu GLM',
+  moonshot: 'Moonshot',
+  kimi: 'Kimi',
+  ollama: 'Ollama',
+  minimax: 'MiniMax',
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+async function fetchMockAgentModels(): Promise<AgentModelsResponse> {
+  const config = await fetchSettingsConfig();
+  const llmProvider = asRecord(config.llm_provider);
+  const providers = asRecord(llmProvider.providers);
+  const models = Object.entries(providers)
+    .map(([provider, rawConfig]) => {
+      const providerConfig = asRecord(rawConfig);
+      const model = asString(providerConfig.model).trim();
+      if (!model) return null;
+      const providerLabel = PROVIDER_LABELS[provider] ?? provider;
+      return {
+        id: provider,
+        label: `${providerLabel} · ${model}`,
+        provider,
+        model,
+        available: true,
+        unavailable_reason: null,
+      };
+    })
+    .filter((model): model is NonNullable<typeof model> => model !== null);
+
+  return {
+    default_model_id: asString(llmProvider.default) || models[0]?.id || 'openai',
+    gemini_configured: providers.gemini !== undefined,
+    zhipu_configured: providers.glm !== undefined || providers.zhipu !== undefined || providers.zhipuai !== undefined,
+    agent_ready: models.length > 0,
+    models,
+  };
+}
 
 export type AgentStreamHandlers = {
   onDelta: (text: string) => void;
@@ -33,6 +89,8 @@ export type AgentStreamHandlers = {
 };
 
 export async function fetchAgentModels(): Promise<AgentModelsResponse> {
+  if (USE_INTERACTIVE_MOCKS) return fetchMockAgentModels();
+
   const res = await fetch(`${API_PREFIX}/agent/models`, {
     headers: { Accept: 'application/json' },
   });
@@ -58,7 +116,9 @@ async function readErrorMessage(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as {
       detail?: string | { msg?: string; loc?: (string | number)[] }[];
+      error?: string;
     };
+    if (typeof body.error === 'string') return body.error;
     if (typeof body.detail === 'string') return body.detail;
     if (Array.isArray(body.detail) && body.detail.length > 0) {
       const first = body.detail[0];
@@ -190,7 +250,7 @@ async function consumeSseResponse(
 export async function createAgentRun(
   body: AgentChatRequest,
 ): Promise<{ run_id: string; session_id: string; status: string; model: string }> {
-  const res = await fetch(`${API_PREFIX}/chat/runs`, {
+  const res = await fetch(`${CHAT_API_PREFIX}/chat/runs`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -220,7 +280,7 @@ export async function createAgentRun(
 export async function fetchAgentRunStatus(
   runId: string,
 ): Promise<{ run_id: string; session_id: string; status: string; event_count: number; model: string }> {
-  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}`, {
+  const res = await fetch(`${CHAT_API_PREFIX}/chat/runs/${runId}`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -236,7 +296,7 @@ export async function fetchAgentRunStatus(
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
-  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}/cancel`, {
+  const res = await fetch(`${CHAT_API_PREFIX}/chat/runs/${runId}/cancel`, {
     method: 'POST',
     headers: { Accept: 'application/json' },
   });
@@ -251,7 +311,7 @@ export async function streamAgentRunEvents(
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
 ): Promise<SseConsumeResult> {
-  const res = await fetch(`${API_PREFIX}/chat/runs/${runId}/events?cursor=${cursor}`, {
+  const res = await fetch(`${CHAT_API_PREFIX}/chat/runs/${runId}/events?cursor=${cursor}`, {
     method: 'GET',
     headers: { Accept: 'text/event-stream' },
     signal,
@@ -266,7 +326,7 @@ export async function streamAgentChat(
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
 ): Promise<SseConsumeResult> {
-  const res = await fetch(`${API_PREFIX}/agent/chat/stream`, {
+  const res = await fetch(`${CHAT_API_PREFIX}/chat`, {
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',

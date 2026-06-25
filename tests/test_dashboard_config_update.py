@@ -125,6 +125,20 @@ def test_put_config_no_config_store_returns_503():
     assert resp.status_code == 503
 
 
+def test_put_config_permission_denied_returns_403(tmp_path):
+    """PUT returns a clear 403 when the config file cannot be written."""
+    runtime, _ = _make_runtime_with_config(tmp_path, {"version": 1})
+    runtime.config_store.save_raw = MagicMock(side_effect=PermissionError("denied"))
+    app = create_app(runtime)
+    client = TestClient(app)
+
+    resp = client.put("/api/config", json={"logging": {"level": "DEBUG"}})
+
+    assert resp.status_code == 403
+    body = resp.json()
+    assert "Configuration file is not writable" in body["error"]
+
+
 def test_put_config_redacts_api_keys(tmp_path):
     """PUT response redacts sensitive api_key values."""
     runtime, _ = _make_runtime_with_config(tmp_path, {
@@ -197,3 +211,76 @@ def test_get_config_still_works_after_put(tmp_path):
     resp = client.get("/api/config")
     assert resp.status_code == 200
     assert resp.json()["logging"]["level"] == "DEBUG"
+
+
+def test_agent_models_reflect_configured_llm_providers(tmp_path):
+    """GET /api/v1/agent/models derives selectable models from llm_provider.providers."""
+    runtime, _ = _make_runtime_with_config(tmp_path, {
+        "version": 1,
+        "llm_provider": {
+            "default": "deepseek",
+            "providers": {
+                "openai": {
+                    "model": "gpt-4.1",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
+                "deepseek": {
+                    "model": "deepseek-chat",
+                    "base_url": "https://api.deepseek.com/v1",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                },
+            },
+        },
+    })
+    app = create_app(runtime)
+    client = TestClient(app)
+
+    resp = client.get("/api/v1/agent/models")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["default_model_id"] == "deepseek"
+    assert body["agent_ready"] is True
+    assert body["models"] == [
+        {
+            "id": "openai",
+            "label": "OpenAI · gpt-4.1",
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "available": True,
+            "unavailable_reason": None,
+        },
+        {
+            "id": "deepseek",
+            "label": "DeepSeek · deepseek-chat",
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "available": True,
+            "unavailable_reason": None,
+        },
+    ]
+
+
+def test_put_config_default_provider_updates_agent_model(tmp_path):
+    """PUT /api/config keeps agent.model aligned with the selected default provider."""
+    runtime, _ = _make_runtime_with_config(tmp_path, {
+        "version": 1,
+        "llm_provider": {
+            "default": "openai",
+            "providers": {
+                "openai": {"model": "gpt-4.1", "api_key_env": "OPENAI_API_KEY"},
+                "deepseek": {"model": "deepseek-chat", "api_key_env": "DEEPSEEK_API_KEY"},
+            },
+        },
+        "agent": {"model": "gpt-4.1", "max_iterations": 8},
+    })
+    app = create_app(runtime)
+    client = TestClient(app)
+
+    resp = client.put("/api/config", json={"llm_provider": {"default": "deepseek"}})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["llm_provider"]["default"] == "deepseek"
+    assert body["agent"]["model"] == "deepseek-chat"

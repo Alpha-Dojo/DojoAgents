@@ -2,7 +2,9 @@ export interface AgentModelItem {
   id: string;
   label: string;
   provider: string;
+  model: string;
   available: boolean;
+  unavailable_reason?: string | null;
 }
 
 export interface AgentModelsResponse {
