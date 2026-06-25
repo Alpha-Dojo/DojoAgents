@@ -4,6 +4,7 @@ import { AgentModelProvider } from './agent/AgentModelContext';
 import { AgentRunProvider } from './agent/AgentRunContext';
 import { Header } from './components/Header';
 import { DojoAgentPanel } from './components/DojoAgent/DojoAgentPanel';
+import { SettingsModal } from './components/settings/SettingsModal';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { useAppTab } from './hooks/useAppTab';
 import type { AppTab } from './navigation/appTab';
@@ -14,6 +15,8 @@ import { DojoSphereView } from './views/DojoSphereView';
 import './styles/marketDirection.css';
 import './styles/chartDate.css';
 import './styles/panelTitle.css';
+import './styles/uiPrimitives.css';
+
 
 function MainView({
   tab,
@@ -57,6 +60,7 @@ function MainView({
 export default function App() {
   const { tab, setTab } = useAppTab('mesh');
   const [userAgentOpen, setUserAgentOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const agentPinned = tab === 'folio';
   const agentVisible = agentPinned || userAgentOpen;
 
@@ -90,27 +94,30 @@ export default function App() {
     <LocaleProvider>
       <AgentModelProvider>
         <AgentRunProvider>
-        <div className="app">
-          <Header
-            activeTab={tab}
-            onTabChange={navigateTab}
-            agentOpen={agentVisible}
-            agentPinned={agentPinned}
-            onAgentToggle={handleAgentToggle}
-          />
-          <main className="app-main" aria-label={tab}>
-            <div className="app-main__content">
-              <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
-            </div>
-            <DojoAgentPanel
-              open={agentVisible}
-              pinned={agentPinned}
-              interactive={!agentPinned}
-              sourceTab={tab}
-              onClose={handleAgentClose}
+          <div className="app">
+            <Header
+              activeTab={tab}
+              onTabChange={navigateTab}
+              agentOpen={agentVisible}
+              agentPinned={agentPinned}
+              onAgentToggle={handleAgentToggle}
+              settingsOpen={settingsOpen}
+              onSettingsOpen={() => setSettingsOpen(true)}
             />
-          </main>
-        </div>
+            <main className="app-main" aria-label={tab}>
+              <div className="app-main__content">
+                <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
+              </div>
+                <DojoAgentPanel
+                  open={agentVisible}
+                  pinned={agentPinned}
+                  interactive={!agentPinned}
+                  sourceTab={tab}
+                  onClose={handleAgentClose}
+                />
+            </main>
+            <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          </div>
         </AgentRunProvider>
       </AgentModelProvider>
     </LocaleProvider>

@@ -5,7 +5,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorConstituentItem, SectorLevelKey } from '../../types/dojoSphere';
 import type { SectorPathSelection } from '../../types/sectorTaxonomy';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import {
   formatMarketCap,
   formatPe,
@@ -184,9 +184,7 @@ function ConstituentsMarketColumn({
   return (
     <section className="sphere-constituents-col" aria-label={MARKET_CODE[market]}>
       <header className="sphere-constituents-col__head">
-        <span className="sphere-constituents-col__flag" aria-hidden>
-          {MARKET_FLAG[market]}
-        </span>
+        <img className="sphere-constituents-col__flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
         <span className="sphere-constituents-col__code">{MARKET_CODE[market]}</span>
       </header>
       <div className="sphere-table-wrap sphere-table-wrap--split">

@@ -62,6 +62,21 @@ export const zhMessages = {
   header: {
     agent: 'Agent',
     openAgent: '打开 DojoAgent',
+    settings: '设置',
+    openSettings: '打开设置',
+  },
+  settings: {
+    eyebrow: 'SYSTEM',
+    title: '系统设置',
+    loading: '加载配置中…',
+    loadFailed: '配置加载失败',
+    retry: '重试',
+    close: '关闭设置',
+    cancel: '取消',
+    save: '保存配置',
+    saving: '保存中…',
+    saveSuccess: '配置已保存。',
+    saveFailed: '配置保存失败。',
   },
   agentModel: {
     label: '模型',
@@ -82,7 +97,7 @@ export const zhMessages = {
     placeholder: '输入问题，Enter 发送，Shift+Enter 换行',
     send: '发送',
     sending: '发送中…',
-    apiNotConfigured: '服务端未配置 GEMINI_API_KEY 或 ZHIPU_API_KEY，暂无法对话。',
+    apiNotConfigured: '服务端未配置 GEMINI_API_KEY，暂无法对话。',
     sendFailed: '发送失败，请稍后重试。',
     history: '历史会话',
     newChat: '新对话',
@@ -95,7 +110,6 @@ export const zhMessages = {
     thinkDone: '思考过程',
     thinkChars: '{count} 字',
     phasePlanning: '规划中…',
-    phaseElapsed: '已等待 {seconds}s',
     phaseTools: '执行工具中…',
     phaseAnswering: '生成回答中…',
     phaseDone: '已完成',
@@ -203,7 +217,7 @@ export const zhMessages = {
     riskReturnMetrics: '收益指标',
     oneYearWindow: '近1年',
     metricLabel: '指标',
-    metricCumulativeReturn: '总收益',
+    metricCumulativeReturn: '加权累计收益',
     metricVolatility: '年化波动率',
     metricSharpe: '夏普比率',
     metricMaxDrawdown: '最大回撤',
@@ -562,6 +576,7 @@ export type MessageTree = {
   market: Record<keyof typeof zhMessages.market, string>;
   mesh: Record<keyof typeof zhMessages.mesh, string>;
   header: Record<keyof typeof zhMessages.header, string>;
+  settings: Record<keyof typeof zhMessages.settings, string>;
   agentModel: Record<keyof typeof zhMessages.agentModel, string>;
   agent: Record<keyof typeof zhMessages.agent, string>;
   agentViz: {

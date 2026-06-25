@@ -8,8 +8,8 @@
   gap: 2px;
   padding: 2px 4px;
   border: 1px solid var(--border-dim);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  background: var(--color-surface-subtle);
 }
 
 .header-util__sep {
@@ -40,12 +40,12 @@
 
 .header-util__agent:hover {
   color: var(--text-primary);
-  background: rgba(30, 58, 95, 0.35);
+  background: var(--color-surface-muted);
 }
 
 .header-util__agent--active {
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.08);
+  color: var(--color-accent-primary);
+  background: rgb(2 175 127 / 10%);
 }
 
 .header-util__agent-icon {

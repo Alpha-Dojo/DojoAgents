@@ -1,21 +1,49 @@
 :root {
-  --bg-deep: #060d18;
-  --bg-panel: #0a1424;
-  --bg-elevated: #0f1c30;
-  --border-dim: #152238;
-  --border-accent: #1e3a5f;
-  --text-primary: #e3f2fd;
-  --text-muted: #8eb4d9;
-  --text-dim: #5a7a9a;
-  --green: #00e676;
-  --red: #ff5252;
-  --market-up-bg: rgba(0, 230, 118, 0.1);
-  --market-down-bg: rgba(255, 82, 82, 0.1);
-  --market-up-bg-emphasis: rgba(0, 230, 118, 0.12);
-  --market-down-bg-emphasis: rgba(255, 82, 82, 0.12);
-  --market-up-fill-soft: rgba(0, 230, 118, 0.28);
-  --market-down-fill-soft: rgba(255, 82, 82, 0.28);
-  /* Market identity — high-contrast hues: blue (US) / orange (CN) / gold (HK) */
+  /* Accent primary and states */
+  --color-accent-float: #00e0a2;
+  --color-accent-primary: #02af7f;
+  --color-accent-pressed: #03835f;
+  --color-accent-disabled: #00513a;
+
+  /* Status and semantic colors */
+  --color-status-danger: #bb2934;
+  --color-status-warning: #dc9400;
+  --color-action-link: #226bd0;
+
+  /* Text colors */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+  --color-text-disabled: #334155;
+
+  /* Background surfaces */
+  --color-surface-page: #070f15;
+  --color-surface-panel: rgb(7 16 26 / 95%);
+  --color-surface-raised: #0b1824;
+  --color-surface-subtle: rgb(0 0 0 / 10%);
+  --color-surface-muted: rgb(255 255 255 / 4%);
+
+  /* Border colors */
+  --color-border-default: rgb(255 255 255 / 10%);
+  --color-border-muted: color-mix(in srgb, #334155 68%, transparent);
+  --color-border-accent: color-mix(in srgb, #226BD0 58%, #070F15);
+  --color-border-primary: rgb(2 175 127 / 35%);
+  --color-border-warning: rgb(220 148 0 / 40%);
+  --color-border-danger: rgb(187 41 52 / 40%);
+
+  /* Compatible Aliases */
+  --bg-deep: var(--color-surface-page);
+  --bg-panel: var(--color-surface-panel);
+  --bg-elevated: var(--color-surface-raised);
+  --border-dim: var(--color-border-default);
+  --border-accent: var(--color-border-accent);
+  --text-primary: var(--color-text-primary);
+  --text-muted: var(--color-text-secondary);
+  --text-dim: var(--color-text-tertiary);
+  --green: var(--color-accent-primary);
+  --red: var(--color-status-danger);
+
+  /* Market identity colors */
   --market-us-line: #5eb8ff;
   --market-cn-line: #ff9f6b;
   --market-hk-line: #ffd166;
@@ -28,17 +56,40 @@
   --market-us-label: #7ec8ff;
   --market-cn-label: #ffb088;
   --market-hk-label: #ffe08a;
-  --cyan: #00e5ff;
-  --cyan-dim: #4dd0e1;
+
+  /* Market up/down/gain/loss colors */
+  --market-up-bg: rgb(2 175 127 / 10%);
+  --market-down-bg: rgb(187 41 52 / 10%);
+  --market-up-bg-emphasis: rgb(2 175 127 / 12%);
+  --market-down-bg-emphasis: rgb(187 41 52 / 12%);
+  --market-up-fill-soft: rgb(2 175 127 / 28%);
+  --market-down-fill-soft: rgb(187 41 52 / 28%);
+
+  /* Temporary compatibility for cyan */
+  --cyan: var(--color-accent-float);
+  --cyan-dim: var(--color-accent-primary);
+
+  /* Font settings */
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+
+  /* Chart Date settings */
   --chart-date-color: var(--text-muted);
-  --chart-date-color-active: var(--cyan);
+  --chart-date-color-active: var(--color-accent-primary);
   --chart-date-size: 10px;
   --chart-date-size-head: 11px;
   --chart-date-size-compact: 9px;
   --chart-date-weight: 500;
   --chart-date-weight-active: 600;
+
+  /* Scrollbars */
+  --scrollbar-size: 10px;
+  --scrollbar-track: rgb(7 15 21 / 54%);
+  --scrollbar-track-hover: rgb(11 24 36 / 82%);
+  --scrollbar-thumb: rgb(100 116 139 / 52%);
+  --scrollbar-thumb-hover: rgb(2 175 127 / 62%);
+  --scrollbar-thumb-active: rgb(2 175 127 / 82%);
+  --scrollbar-corner: rgb(7 15 21 / 72%);
 }
 
 *,
@@ -74,8 +125,8 @@ button {
   align-items: center;
   gap: 12px;
   padding: 7px 14px;
-  background: linear-gradient(180deg, #0c1828 0%, var(--bg-panel) 100%);
-  border-bottom: 1px solid var(--border-accent);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-dim);
   flex-shrink: 0;
 }
 
@@ -95,8 +146,50 @@ button {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: linear-gradient(90deg, var(--text-primary), var(--cyan));
+  background: linear-gradient(90deg, var(--text-primary), var(--color-accent-primary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.app-header__logo {
+  width: auto;
+  height: 32px;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size, 10px);
+  height: var(--scrollbar-size, 10px);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-track:hover {
+  background: var(--scrollbar-track-hover);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-corner);
 }

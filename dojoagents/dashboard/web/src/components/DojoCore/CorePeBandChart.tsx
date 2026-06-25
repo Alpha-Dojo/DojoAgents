@@ -20,7 +20,7 @@ import {
   CORE_CHART_PAD_TOP as PAD_TOP,
 } from '../../utils/coreChartLayout';
 import { formatKlineAxisDate, formatKlineDate } from '../../utils/klineDate';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import { formatPe } from '../../utils/marketStats';
 import { PERFORMANCE_MARKET_CLASS } from '../../utils/spherePerformanceSeries';
 import type { SectorLevelKey } from '../../types/dojoSphere';
@@ -632,9 +632,7 @@ export function CorePeBandChart({
                       sectorPeLoading ? ' core-pe-band__sector-pe-item--loading' : ''
                     }`}
                   >
-                    <span className="core-pe-band__sector-pe-flag" aria-hidden>
-                      {MARKET_FLAG[item.market]}
-                    </span>
+                    <img className="core-pe-band__sector-pe-flag" src={MARKET_FLAG_IMAGE[item.market]} alt="" aria-hidden />
                     <span className="core-pe-band__sector-pe-code">{MARKET_CODE[item.market]}</span>
                     <span className="core-pe-band__sector-pe-metric">{t('core.peRatio')}</span>
                     <span className="core-pe-band__sector-pe-sep">·</span>

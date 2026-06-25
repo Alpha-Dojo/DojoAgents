@@ -1,72 +1,107 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchCrossMarketSectors, MARKET_COLUMNS } from '../api/dojoMesh';
-import { AddMarketSlot } from '../components/DojoMesh/AddMarketSlot';
-import { DraggableMarketColumn } from '../components/DojoMesh/DraggableMarketColumn';
-import { useDojoMeshOverview } from '../hooks/useDojoMeshOverview';
-import { useSectorTaxonomy } from '../hooks/useSectorTaxonomy';
-import { useTranslation } from '../hooks/useTranslation';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchCrossMarketSectors, MARKET_COLUMNS } from "../api/dojoMesh";
+import { AddMarketSlot } from "../components/DojoMesh/AddMarketSlot";
+import { DraggableMarketColumn } from "../components/DojoMesh/DraggableMarketColumn";
+import { useDojoMeshOverview } from "../hooks/useDojoMeshOverview";
+import { useSectorTaxonomy } from "../hooks/useSectorTaxonomy";
+import { useTranslation } from "../hooks/useTranslation";
 import {
   readStoredMarketOrder,
   reorderMarkets,
   storeMarketOrder,
-} from '../navigation/marketColumnOrder';
-import { saveSphereSectorContext } from '../navigation/sphereContext';
-import { openCoreTicker } from '../navigation/openCoreTicker';
-import { clearPersistedSphereViewState } from '../cache/sphereViewState';
-import { MeshSectorMoversBar } from '../components/DojoMesh/MeshSectorMoversBar';
-import { MarketColumnPanel } from '../components/DojoMesh/MarketColumnPanel';
-import type { AppTab } from '../navigation/appTab';
-import type { MarketCode, SectorItem, SectorMemberItem } from '../types/dojoMesh';
-import type { CrossMarketLink, CrossMarketLookup } from '../utils/sectorLink';
-import { sectorLinkKey } from '../utils/sectorLink';
-import { findSectorPathByLinkKey, selectionFromPath } from '../utils/sectorTaxonomy';
-import { resolveAlignedKlineYearWindowsFromBars } from '../utils/klineDate';
+  type MarketDropSide,
+} from "../navigation/marketColumnOrder";
+import { saveSphereSectorContext } from "../navigation/sphereContext";
+import { openCoreTicker } from "../navigation/openCoreTicker";
+import { clearPersistedSphereViewState } from "../cache/sphereViewState";
+import { MeshSectorMoversBar } from "../components/DojoMesh/MeshSectorMoversBar";
+import { MarketColumnPanel } from "../components/DojoMesh/MarketColumnPanel";
+import type { AppTab } from "../navigation/appTab";
+import type {
+  MarketCode,
+  SectorItem,
+  SectorMemberItem,
+} from "../types/dojoMesh";
+import type { CrossMarketLink, CrossMarketLookup } from "../utils/sectorLink";
+import { sectorLinkKey } from "../utils/sectorLink";
+import {
+  findSectorPathByLinkKey,
+  selectionFromPath,
+} from "../utils/sectorTaxonomy";
+import { resolveAlignedKlineYearWindowsFromBars } from "../utils/klineDate";
 import {
   readMeshSectorFilters,
   storeMeshSectorFilters,
   type MeshSectorFilterState,
-} from '../utils/meshSectorFilters';
-import './DojoMeshView.css';
+} from "../utils/meshSectorFilters";
+import "./DojoMeshView.css";
 
 interface DojoMeshViewProps {
   onNavigateTab?: (tab: AppTab) => void;
   agentOpen?: boolean;
 }
 
-export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewProps) {
+export function DojoMeshView({
+  onNavigateTab,
+  agentOpen = false,
+}: DojoMeshViewProps) {
   const { t } = useTranslation();
-  const [sectorFilters, setSectorFilters] = useState<MeshSectorFilterState>(readMeshSectorFilters);
+  const [sectorFilters, setSectorFilters] = useState<MeshSectorFilterState>(
+    readMeshSectorFilters,
+  );
   const { data, loading, error, reload } = useDojoMeshOverview(sectorFilters);
   const { taxonomy } = useSectorTaxonomy();
-  const [crossMarketLink, setCrossMarketLink] = useState<CrossMarketLink | null>(null);
-  const [crossMarketLookup, setCrossMarketLookup] = useState<CrossMarketLookup>({});
+  const [crossMarketLink, setCrossMarketLink] =
+    useState<CrossMarketLink | null>(null);
+  const [crossMarketLookup, setCrossMarketLookup] = useState<CrossMarketLookup>(
+    {},
+  );
   const [chartHoverDate, setChartHoverDate] = useState<string | null>(null);
-  const [marketOrder, setMarketOrder] = useState<MarketCode[]>(readStoredMarketOrder);
+  const [marketOrder, setMarketOrder] = useState<MarketCode[]>(
+    readStoredMarketOrder,
+  );
   const [draggingMarket, setDraggingMarket] = useState<MarketCode | null>(null);
-  const [dropTargetMarket, setDropTargetMarket] = useState<MarketCode | null>(null);
+  const [dropTargetMarket, setDropTargetMarket] = useState<MarketCode | null>(
+    null,
+  );
+  const [dropTargetSide, setDropTargetSide] = useState<MarketDropSide | null>(
+    null,
+  );
 
   const orderedColumns = useMemo(() => {
-    const metaByCode = new Map(MARKET_COLUMNS.map((column) => [column.code, column]));
+    const metaByCode = new Map(
+      MARKET_COLUMNS.map((column) => [column.code, column]),
+    );
     return marketOrder
       .map((code) => metaByCode.get(code))
-      .filter((column): column is (typeof MARKET_COLUMNS)[number] => column !== undefined);
+      .filter(
+        (column): column is (typeof MARKET_COLUMNS)[number] =>
+          column !== undefined,
+      );
   }, [marketOrder]);
 
-  const updateSectorFilters = useCallback((patch: Partial<MeshSectorFilterState>) => {
-    setSectorFilters((prev) => {
-      const next = { ...prev, ...patch };
-      storeMeshSectorFilters(next);
-      return next;
-    });
-  }, []);
+  const updateSectorFilters = useCallback(
+    (patch: Partial<MeshSectorFilterState>) => {
+      setSectorFilters((prev) => {
+        const next = { ...prev, ...patch };
+        storeMeshSectorFilters(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   const chartWindowsByMarket = useMemo(() => {
-    if (!data) return {} as Partial<Record<MarketCode, { start: string; end: string }>>;
-    const barsByMarket: Partial<Record<MarketCode, { datetime: string }[]>> = {};
-    for (const code of ['us', 'cn', 'hk'] as MarketCode[]) {
+    if (!data)
+      return {} as Partial<Record<MarketCode, { start: string; end: string }>>;
+    const barsByMarket: Partial<Record<MarketCode, { datetime: string }[]>> =
+      {};
+    for (const code of ["us", "cn", "hk"] as MarketCode[]) {
       const column = data.markets[code];
       if (!column) continue;
-      barsByMarket[code] = column.benchmarks.flatMap((benchmark) => benchmark.kline);
+      barsByMarket[code] = column.benchmarks.flatMap(
+        (benchmark) => benchmark.kline,
+      );
     }
     return resolveAlignedKlineYearWindowsFromBars(barsByMarket) as Partial<
       Record<MarketCode, { start: string; end: string }>
@@ -76,28 +111,41 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
   const handleDragStart = useCallback((market: MarketCode) => {
     setDraggingMarket(market);
     setDropTargetMarket(null);
+    setDropTargetSide(null);
   }, []);
 
   const handleDragEnd = useCallback(() => {
     setDraggingMarket(null);
     setDropTargetMarket(null);
+    setDropTargetSide(null);
   }, []);
 
-  const handleDragOver = useCallback((market: MarketCode) => {
-    if (!draggingMarket || draggingMarket === market) return;
-    setDropTargetMarket(market);
-  }, [draggingMarket]);
+  const handleDragOver = useCallback(
+    (market: MarketCode, side: MarketDropSide) => {
+      if (!draggingMarket || draggingMarket === market) return;
+      setDropTargetMarket(market);
+      setDropTargetSide(side);
+    },
+    [draggingMarket],
+  );
 
   const handleDrop = useCallback(
-    (market: MarketCode) => {
+    (market: MarketCode, side: MarketDropSide) => {
       if (!draggingMarket) return;
+      if (draggingMarket === market) {
+        setDraggingMarket(null);
+        setDropTargetMarket(null);
+        setDropTargetSide(null);
+        return;
+      }
       setMarketOrder((prev) => {
-        const next = reorderMarkets(prev, draggingMarket, market);
+        const next = reorderMarkets(prev, draggingMarket, market, side);
         storeMarketOrder(next);
         return next;
       });
       setDraggingMarket(null);
       setDropTargetMarket(null);
+      setDropTargetSide(null);
     },
     [draggingMarket],
   );
@@ -111,37 +159,40 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
     setCrossMarketLookup({ us: undefined, cn: undefined, hk: undefined });
     let cancelled = false;
 
-    fetchCrossMarketSectors(crossMarketLink.linkKey, { days: sectorFilters.days }).then(
-      (markets) => {
-        if (!cancelled) setCrossMarketLookup(markets);
-      },
-    );
+    fetchCrossMarketSectors(crossMarketLink.linkKey, {
+      days: sectorFilters.days,
+    }).then((markets) => {
+      if (!cancelled) setCrossMarketLookup(markets);
+    });
 
     return () => {
       cancelled = true;
     };
   }, [crossMarketLink, sectorFilters.days]);
 
-  const handleSectorSelect = useCallback((sector: SectorItem, market: MarketCode) => {
-    const linkKey = sectorLinkKey(sector.concept_code);
-    if (!linkKey) return;
+  const handleSectorSelect = useCallback(
+    (sector: SectorItem, market: MarketCode) => {
+      const linkKey = sectorLinkKey(sector.concept_code);
+      if (!linkKey) return;
 
-    setCrossMarketLink((prev) => {
-      if (
-        prev?.sourceMarket === market &&
-        prev.sourceConceptCode === sector.concept_code
-      ) {
-        return null;
-      }
-      return {
-        linkKey,
-        sourceMarket: market,
-        sourceConceptCode: sector.concept_code,
-        sourceName: sector.name,
-        sourceChangePercent: sector.change_percent,
-      };
-    });
-  }, []);
+      setCrossMarketLink((prev) => {
+        if (
+          prev?.sourceMarket === market &&
+          prev.sourceConceptCode === sector.concept_code
+        ) {
+          return null;
+        }
+        return {
+          linkKey,
+          sourceMarket: market,
+          sourceConceptCode: sector.concept_code,
+          sourceName: sector.name,
+          sourceChangePercent: sector.change_percent,
+        };
+      });
+    },
+    [],
+  );
 
   const handleSectorJump = useCallback(
     (sector: SectorItem, market: MarketCode) => {
@@ -156,7 +207,7 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
         link_key: linkKey,
       });
       clearPersistedSphereViewState();
-      onNavigateTab?.('sphere');
+      onNavigateTab?.("sphere");
     },
     [onNavigateTab],
   );
@@ -164,13 +215,14 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
   const handleTickerClick = useCallback(
     (member: SectorMemberItem, market: MarketCode, sector: SectorItem) => {
       const linkKey = sectorLinkKey(sector.concept_code);
-      const path = linkKey && taxonomy ? findSectorPathByLinkKey(taxonomy, linkKey) : null;
+      const path =
+        linkKey && taxonomy ? findSectorPathByLinkKey(taxonomy, linkKey) : null;
       openCoreTicker(onNavigateTab, {
         ticker: member.ticker,
         market,
         name_zh: member.name?.zh,
         name_en: member.name?.en,
-        sector_source: path ? 'navigation' : 'search',
+        sector_source: path ? "navigation" : "search",
         sector_selection: path ? selectionFromPath(path) : undefined,
       });
     },
@@ -179,8 +231,11 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
 
   if (loading && !data) {
     return (
-      <section className="dojo-mesh-view dojo-mesh-view--loading" aria-busy="true">
-        <p className="dojo-mesh-view__status">{t('mesh.loading')}</p>
+      <section
+        className="dojo-mesh-view dojo-mesh-view--loading"
+        aria-busy="true"
+      >
+        <p className="dojo-mesh-view__status">{t("mesh.loading")}</p>
       </section>
     );
   }
@@ -188,9 +243,13 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
   if (error && !data) {
     return (
       <section className="dojo-mesh-view dojo-mesh-view--error">
-        <p className="dojo-mesh-view__status">{t('mesh.loadFailed')}</p>
-        <button type="button" className="dojo-mesh-view__retry" onClick={reload}>
-          {t('mesh.retry')}
+        <p className="dojo-mesh-view__status">{t("mesh.loadFailed")}</p>
+        <button
+          type="button"
+          className="dojo-mesh-view__retry"
+          onClick={reload}
+        >
+          {t("mesh.retry")}
         </button>
       </section>
     );
@@ -199,14 +258,14 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
   if (!data) {
     return (
       <section className="dojo-mesh-view dojo-mesh-view--empty">
-        <p className="dojo-mesh-view__status">{t('mesh.noData')}</p>
+        <p className="dojo-mesh-view__status">{t("mesh.noData")}</p>
       </section>
     );
   }
 
-  const columnPanelProps = (code: MarketCode, flag: string, label: string) => ({
+  const columnPanelProps = (code: MarketCode, flagSrc: string, label: string) => ({
     market: code,
-    flag,
+    flagSrc,
     label,
     column: data.markets[code],
     sectorDays: sectorFilters.days,
@@ -225,12 +284,12 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
     <section className="dojo-mesh-view" aria-label="DojoMesh">
       <div className="dojo-mesh-view__layout">
         <div className="dojo-mesh-view__hero-row">
-          {orderedColumns.map(({ code, flag, label }) => (
+          {orderedColumns.map(({ code, flagSrc, label }) => (
             <DraggableMarketColumn
               key={code}
               market={code}
               isDragging={draggingMarket === code}
-              isDropTarget={dropTargetMarket === code}
+              dropSide={dropTargetMarket === code ? dropTargetSide : null}
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
               onDragOver={handleDragOver}
@@ -238,7 +297,7 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
             >
               {(brandDrag) => (
                 <MarketColumnPanel
-                  {...columnPanelProps(code, flag, label)}
+                  {...columnPanelProps(code, flagSrc, label)}
                   section="hero"
                   brandDrag={brandDrag}
                 />
@@ -256,18 +315,30 @@ export function DojoMeshView({ onNavigateTab, agentOpen = false }: DojoMeshViewP
             loading={loading}
             onDaysChange={(days) => updateSectorFilters({ days })}
             onMinCapYiChange={(minCapYi) => updateSectorFilters({ minCapYi })}
-            onSectorLimitChange={(sectorLimit) => updateSectorFilters({ sectorLimit })}
+            onSectorLimitChange={(sectorLimit) =>
+              updateSectorFilters({ sectorLimit })
+            }
           />
-          {!agentOpen ? <div className="mesh-market-add-spacer" aria-hidden="true" /> : null}
+          {!agentOpen ? (
+            <div className="mesh-market-add-spacer" aria-hidden="true" />
+          ) : null}
         </div>
 
         <div className="dojo-mesh-view__sector-row">
-          {orderedColumns.map(({ code, flag, label }) => (
-            <div key={code} className="mesh-market-column-wrap mesh-market-column-wrap--sectors">
-              <MarketColumnPanel {...columnPanelProps(code, flag, label)} section="sectors" />
+          {orderedColumns.map(({ code, flagSrc, label }) => (
+            <div
+              key={code}
+              className="mesh-market-column-wrap mesh-market-column-wrap--sectors"
+            >
+              <MarketColumnPanel
+                {...columnPanelProps(code, flagSrc, label)}
+                section="sectors"
+              />
             </div>
           ))}
-          {!agentOpen ? <div className="mesh-market-add-spacer" aria-hidden="true" /> : null}
+          {!agentOpen ? (
+            <div className="mesh-market-add-spacer" aria-hidden="true" />
+          ) : null}
         </div>
       </div>
     </section>
