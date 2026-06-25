@@ -283,7 +283,7 @@ class SectorPrecomputedStore:
     def _normalize_constituents_frame(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        normalized = df.copy()
+        normalized = df
         for col in ("market", "ticker", "level1_id", "level2_id", "level3_id"):
             if col in normalized.columns:
                 normalized[col] = normalized[col].astype(str)
@@ -293,7 +293,7 @@ class SectorPrecomputedStore:
     def _normalize_sector_daily_frame(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        normalized = df.copy()
+        normalized = df
         for col in ("scope", "market", "level1_id", "level2_id", "level3_id", "trade_date"):
             if col in normalized.columns:
                 normalized[col] = normalized[col].astype(str)
@@ -303,7 +303,7 @@ class SectorPrecomputedStore:
     def _normalize_ticker_daily_frame(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        normalized = df.copy()
+        normalized = df
         for col in ("market", "ticker", "trade_date"):
             if col in normalized.columns:
                 normalized[col] = normalized[col].astype(str)
@@ -323,7 +323,7 @@ class SectorPrecomputedStore:
         sort_cols = [*group_cols, "trade_date"]
         df_sorted = df.sort_values(by=sort_cols).reset_index(drop=True)
         if days <= 1:
-            return df_sorted.groupby(group_cols, sort=False, as_index=False).tail(1).copy()
+            return df_sorted.groupby(group_cols, sort=False, as_index=False).tail(1)
 
         group_sizes = df_sorted.groupby(group_cols, sort=False)["trade_date"].transform("size")
         positions = df_sorted.groupby(group_cols, sort=False).cumcount()
@@ -331,7 +331,7 @@ class SectorPrecomputedStore:
         start_positions = (group_sizes - days).clip(lower=0)
         start_mask = positions == start_positions
 
-        latest_rows = df_sorted[latest_mask].copy()
+        latest_rows = df_sorted[latest_mask]
         start_rows = df_sorted[start_mask][group_cols + [value_col]].rename(columns={value_col: "_window_start_value"})
         merged = latest_rows.merge(start_rows, on=group_cols, how="left")
 

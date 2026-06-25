@@ -24,8 +24,8 @@ from dojoagents.dashboard.routers import (
     utility,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
-from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop
+from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
+from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_portfolio_tools
 
@@ -242,8 +242,8 @@ def create_app(
             app.state.financial_registry = registry
 
             # Start background refresh loop
-            schedule = MarketCloseSchedule()
-            refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
+            # schedule = MarketCloseSchedule()
+            # refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
 
             yield
         finally:

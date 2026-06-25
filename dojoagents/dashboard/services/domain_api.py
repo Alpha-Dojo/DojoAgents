@@ -101,10 +101,7 @@ def _stats_snapshot(stats: Any, *, market: Optional[str] = None) -> MarketStatsS
 def _benchmark_snapshot(benchmark: Any) -> BenchmarkSnapshot:
     data = _model_dict(benchmark)
     bars = list(data.get("kline") or [])
-    dates = [
-        str((_model_dict(bar).get("datetime") or _model_dict(bar).get("date") or "")).strip()
-        for bar in bars
-    ]
+    dates = [str((_model_dict(bar).get("datetime") or _model_dict(bar).get("date") or "")).strip() for bar in bars]
     dates = [item for item in dates if item]
     return BenchmarkSnapshot(
         market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
@@ -296,10 +293,7 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
     nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
     benchmark_by_market: dict[str, list[SectorPerformancePoint]] = {}
     stats_by_market: dict[str, SectorPerformanceStats] = {}
-    benchmark_symbol_by_market = {
-        to_native_market_code(market) or market: str(symbol)
-        for market, symbol in (performance.get("benchmark_symbol_by_market") or {}).items()
-    }
+    benchmark_symbol_by_market = {to_native_market_code(market) or market: str(symbol) for market, symbol in (performance.get("benchmark_symbol_by_market") or {}).items()}
     for market, series in (performance.get("series_by_market") or {}).items():
         series_data = _model_dict(series)
         market_key = to_native_market_code(market) or market
@@ -318,10 +312,7 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         subtitle=data.get("subtitle"),
         benchmark=data.get("benchmark"),
         start_date=config.get("start_date"),
-        capital_by_market={
-            to_native_market_code(market) or market: float(value or 0.0)
-            for market, value in (config.get("capital_by_market") or {}).items()
-        },
+        capital_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (config.get("capital_by_market") or {}).items()},
         holdings=[_holding_row(item) for item in data.get("holdings") or []],
         kpis=[_portfolio_kpi(item) for item in data.get("kpis") or []],
         performance_window_start=performance.get("window_start"),
@@ -330,14 +321,8 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         benchmark_by_market=benchmark_by_market,
         benchmark_symbol_by_market=benchmark_symbol_by_market,
         stats_by_market=stats_by_market,
-        net_value_by_market={
-            to_native_market_code(market) or market: float(value or 0.0)
-            for market, value in (data.get("net_value_by_market") or {}).items()
-        },
-        cost_basis_by_market={
-            to_native_market_code(market) or market: float(value or 0.0)
-            for market, value in (data.get("cost_basis_by_market") or {}).items()
-        },
+        net_value_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (data.get("net_value_by_market") or {}).items()},
+        cost_basis_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (data.get("cost_basis_by_market") or {}).items()},
     )
 
 
@@ -392,6 +377,25 @@ def _fallback_precomputed_sector_path(
     return None
 
 
+def resolve_sector_analysis_path(
+    registry: Any,
+    *,
+    level1_id: str,
+    level2_id: str,
+    level3_id: str,
+) -> Any | None:
+    path = registry.sector_store.find_resolved_path(level1_id, level2_id, level3_id)
+    if path is not None:
+        return path
+    return _fallback_precomputed_sector_path(
+        registry,
+        level1_id=level1_id,
+        level2_id=level2_id,
+        level3_id=level3_id,
+        market=None,
+    )
+
+
 async def search_company_ticker(
     registry,
     *,
@@ -408,10 +412,7 @@ async def search_company_ticker(
         market=internal_market,
         limit=limit,
     )
-    mapped = [
-        _model_dict(item) | {"market": _normalize_native_market(item.market) or item.market}
-        for item in items
-    ]
+    mapped = [_model_dict(item) | {"market": _normalize_native_market(item.market) or item.market} for item in items]
     return CompanyTickerSearchResponse(query=q.strip(), items=mapped)
 
 
@@ -694,23 +695,13 @@ def _build_sector_movers_fallback_sync(
 
 async def build_sector_analysis(
     registry,
+    path,
     *,
-    level1_id: str,
-    level2_id: str,
-    level3_id: str,
     scope: str,
 ) -> SectorAnalysisResponse:
-    path = registry.sector_store.find_resolved_path(level1_id, level2_id, level3_id)
-    if path is None:
-        path = _fallback_precomputed_sector_path(
-            registry,
-            level1_id=level1_id,
-            level2_id=level2_id,
-            level3_id=level3_id,
-            market=None,
-        )
-    if path is None:
-        raise ValueError(f"unknown sector path: {level1_id}/{level2_id}/{level3_id}")
+    level1_id = str(path.level1_id)
+    level2_id = str(path.level2_id)
+    level3_id = str(path.level3_id)
 
     async def compute_metrics_payload() -> dict[str, Any]:
         result = await compute_sector_scope_metrics(
@@ -765,7 +756,8 @@ async def build_sector_analysis(
         if not isinstance(market_values, dict):
             continue
         metrics_by_scope[scope_key] = {
-            to_native_market_code(market_key) or market_key: {
+            to_native_market_code(market_key)
+            or market_key: {
                 **_model_dict(metric),
                 "market": to_native_market_code(_model_dict(metric).get("market") or market_key) or market_key,
             }
@@ -781,14 +773,8 @@ async def build_sector_analysis(
                 to_native_market_code(market_key) or market_key: _performance_points(points)
                 for market_key, points in (perf.get("series_by_market") or perf.get("performance_by_market") or {}).items()
             },
-            stats_by_market={
-                to_native_market_code(market_key) or market_key: _risk_stats(stats)
-                for market_key, stats in (perf.get("stats_by_market") or {}).items()
-            },
-            members_by_market={
-                to_native_market_code(market_key) or market_key: int(count or 0)
-                for market_key, count in (perf.get("members_by_market") or {}).items()
-            },
+            stats_by_market={to_native_market_code(market_key) or market_key: _risk_stats(stats) for market_key, stats in (perf.get("stats_by_market") or {}).items()},
+            members_by_market={to_native_market_code(market_key) or market_key: int(count or 0) for market_key, count in (perf.get("members_by_market") or {}).items()},
         )
     return SectorAnalysisResponse(
         level1_id=level1_id,
@@ -802,14 +788,8 @@ async def build_sector_analysis(
             to_native_market_code(market_key) or market_key: _performance_points(points)
             for market_key, points in (selected_performance.get("series_by_market") or selected_performance.get("performance_by_market") or {}).items()
         },
-        stats_by_market={
-            to_native_market_code(market_key) or market_key: _risk_stats(stats)
-            for market_key, stats in (selected_performance.get("stats_by_market") or {}).items()
-        },
-        members_by_market={
-            to_native_market_code(market_key) or market_key: int(count or 0)
-            for market_key, count in (selected_performance.get("members_by_market") or {}).items()
-        },
+        stats_by_market={to_native_market_code(market_key) or market_key: _risk_stats(stats) for market_key, stats in (selected_performance.get("stats_by_market") or {}).items()},
+        members_by_market={to_native_market_code(market_key) or market_key: int(count or 0) for market_key, count in (selected_performance.get("members_by_market") or {}).items()},
         performance_by_scope=performance_by_scope,
         scopes=scopes,
     )
@@ -847,10 +827,7 @@ async def build_sector_constituents_v1(
         days=days,
     )
     native_market = to_native_market_code(response.market) if response.market else None
-    items = [
-        item.model_dump(mode="json") | {"market": to_native_market_code(item.market) or item.market}
-        for item in response.items
-    ]
+    items = [item.model_dump(mode="json") | {"market": to_native_market_code(item.market) or item.market} for item in response.items]
     return SectorConstituentsResponseV1(
         level1_id=response.level1_id,
         level2_id=response.level2_id,
@@ -879,10 +856,7 @@ async def build_ticker_quote_v1(registry, *, ticker: str, market: Optional[str])
     payload = quote.model_dump()
     payload["market"] = to_native_market_code(quote.market) or quote.market
     payload["name"] = _safe_stock_bilingual_name(stock, quote.ticker)
-    payload["sector_paths"] = [
-        _sector_option_to_path(option)
-        for option in (sector_response.sector_options if sector_response else [])
-    ]
+    payload["sector_paths"] = [_sector_option_to_path(option) for option in (sector_response.sector_options if sector_response else [])]
     return TickerQuoteResponseV1(**payload)
 
 
