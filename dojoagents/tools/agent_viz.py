@@ -44,6 +44,14 @@ def _group_rows_by_market(rows: list[dict[str, Any]]) -> dict[str, list[dict[str
     return grouped
 
 
+def _market_label(market: str) -> str:
+    return {
+        "us": "US",
+        "cn": "CN",
+        "hk": "HK",
+    }.get(market, market.upper())
+
+
 def _block(
     kind: VizKind,
     payload: dict[str, Any],
@@ -203,10 +211,13 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
     if not isinstance(markets, dict) or not markets:
         return []
     market_groups = []
+    ordered_markets: list[str] = []
+    weighted_pe_values: list[float | None] = []
     for raw_market, stats in markets.items():
         if not isinstance(stats, dict):
             continue
         market = _normalize_market(raw_market) or str(raw_market).lower()
+        ordered_markets.append(market)
         items = [
             {
                 "key": "market_cap",
@@ -243,9 +254,14 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
                     }
                 )
         market_groups.append({"market": market, "items": items})
+        weighted_pe_values.append(_num(stats.get("weighted_pe")))
     if not market_groups:
         return []
-    return [
+    ordered_pairs = sorted(
+        zip(ordered_markets, weighted_pe_values, strict=False),
+        key=lambda item: _MARKETS.index(item[0]) if item[0] in _MARKETS else len(_MARKETS),
+    )
+    blocks = [
         _block(
             "kpi_row",
             {"layout": "by_market", "markets": market_groups},
@@ -255,6 +271,27 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
             truncated=truncated,
         )
     ]
+    comparable_pairs = [(market, value) for market, value in ordered_pairs if value is not None]
+    if len(comparable_pairs) >= 2:
+        blocks.append(
+            _block(
+                "bar",
+                {
+                    "categories": [_market_label(market) for market, _ in comparable_pairs],
+                    "series": [
+                        {
+                            "label": "Weighted PE",
+                            "values": [value for _, value in comparable_pairs],
+                        }
+                    ],
+                },
+                title="Valuation comparison",
+                subtitle="Weighted PE",
+                source_tool="get_market_overview",
+                truncated=truncated,
+            )
+        )
+    return blocks
 
 
 def _map_sector_movers(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:

@@ -6,6 +6,14 @@ export interface AgentToolResultData {
   tickers?: string[];
 }
 
+function previewValues(values: string[], limit = 4): string {
+  const items = values.map((value) => value.trim()).filter(Boolean);
+  if (items.length === 0) return '';
+  const head = items.slice(0, limit).join(', ');
+  if (items.length <= limit) return head;
+  return `${head} +${items.length - limit}`;
+}
+
 function formatMarketCounts(counts: Record<string, number>, locale: 'zh' | 'en'): string {
   const parts = Object.entries(counts)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -21,6 +29,19 @@ function previewTickers(tickers: string[], limit = 6): string {
   return `${head} +${tickers.length - limit}`;
 }
 
+function parseSymbolList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 export function formatToolArguments(
   tool: string,
   args: Record<string, unknown> | undefined,
@@ -30,8 +51,18 @@ export function formatToolArguments(
 
   const ticker = typeof args.ticker === 'string' ? args.ticker : null;
   const market = typeof args.market === 'string' ? args.market.toUpperCase() : null;
+  const symbol = typeof args.symbol === 'string' ? args.symbol : null;
+  const symbols = parseSymbolList(args.symbols);
+  const interval = typeof args.kline_t === 'string' ? args.kline_t.toUpperCase() : null;
   const action = typeof args.action === 'string' ? args.action : null;
   const name = typeof args.name === 'string' ? args.name : null;
+  const query =
+    typeof args.q === 'string'
+      ? args.q
+      : typeof args.query === 'string'
+        ? args.query
+        : null;
+  const url = typeof args.url === 'string' ? args.url : null;
   const portfolioId =
     typeof args.portfolio_id === 'string' ? args.portfolio_id.slice(0, 12) : null;
   const strategy =
@@ -46,6 +77,50 @@ export function formatToolArguments(
       if (ticker && market) return `${ticker} · ${market}`;
       if (ticker) return ticker;
       return null;
+    case 'dojo.sdk.benchmark.kline':
+    case 'dojo.sdk.stock.kline':
+    case 'dojo.sdk.forex.kline': {
+      const bits = [symbol, market, interval].filter(Boolean);
+      return bits.length > 0 ? bits.join(' · ') : null;
+    }
+    case 'dojo.sdk.stock.current_quote':
+      return symbols.length > 0 ? previewValues(symbols) : null;
+    case 'dojo.sdk.stock.ystock_info': {
+      const bits = [];
+      if (symbols.length > 0) bits.push(previewValues(symbols));
+      if (market) bits.push(market);
+      return bits.length > 0 ? bits.join(' · ') : null;
+    }
+    case 'dojo.sdk.stock.news':
+    case 'dojo.sdk.stock.event_remind':
+    case 'dojo.sdk.stock.main_income':
+    case 'dojo.sdk.stock.fin_indicators': {
+      const bits = [symbol, market].filter(Boolean);
+      if (typeof args.report_type === 'string') bits.push(args.report_type);
+      return bits.length > 0 ? bits.join(' · ') : null;
+    }
+    case 'web_search':
+      return query;
+    case 'web_extract':
+      return url;
+    case 'agent_viz_build': {
+      const title = typeof args.title === 'string' ? args.title.trim() : null;
+      const subtitle = typeof args.subtitle === 'string' ? args.subtitle.trim() : null;
+      const mappingHint = typeof args.mapping_hint === 'string' ? args.mapping_hint : null;
+      const kind = typeof args.kind === 'string' ? args.kind : null;
+      if (title) return title;
+      if (subtitle) return subtitle;
+      return kind ?? mappingHint;
+    }
+    case 'get_market_overview':
+    case 'get_sector_movers': {
+      const bits: string[] = [];
+      if (market) bits.push(market);
+      if (typeof args.days === 'number') {
+        bits.push(`${args.days}${locale === 'zh' ? '日' : 'D'}`);
+      }
+      return bits.length > 0 ? bits.join(' · ') : null;
+    }
     case 'filter_sector_constituents':
       return market ? `${locale === 'zh' ? '市场' : 'Market'} ${market}` : null;
     case 'screen_market_stocks': {
@@ -75,7 +150,7 @@ export function formatToolArguments(
       return bits.length > 0 ? bits.join(' · ') : null;
     }
     case 'search_company_ticker':
-      return typeof args.q === 'string' ? args.q : null;
+      return query;
     case 'manage_portfolio':
       if (action === 'create' && name) {
         return locale === 'zh' ? `创建 · ${name}` : `Create · ${name}`;
@@ -100,6 +175,12 @@ export function formatToolArguments(
     case 'get_portfolio_analysis':
       return portfolioId;
     default:
+      if (symbol && interval) return `${symbol} · ${interval}`;
+      if (symbols.length > 0 && market) return `${previewValues(symbols)} · ${market}`;
+      if (symbols.length > 0) return previewValues(symbols);
+      if (query) return query;
+      if (url) return url;
+      if (symbol && market) return `${symbol} · ${market}`;
       if (ticker && market) return `${ticker} · ${market}`;
       if (market) return market;
       return null;

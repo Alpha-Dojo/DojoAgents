@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall
+from dojoagents.tools.dojo_sdk_tool import DojoSDKToolManager
 from dojoagents.tools.agent_viz import build_viz_blocks, get_agent_viz_specs
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
@@ -242,6 +244,32 @@ async def test_agent_viz_build_generic_bar_accepts_label_value_arrays() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_viz_build_market_overview_returns_kpis_and_weighted_pe_bar() -> None:
+    result = await _call_build(
+        {
+            "source_tool": "get_market_overview",
+            "data": {
+                "days": 5,
+                "markets": {
+                    "hk": {"market": "hk", "listed_count": 2899, "total_market_cap": 103.0e12, "weighted_pe": 10.38},
+                    "cn": {"market": "cn", "listed_count": 5245, "total_market_cap": 129.0e12, "weighted_pe": 17.24},
+                    "us": {"market": "us", "listed_count": 13166, "total_market_cap": 109.0e12, "weighted_pe": 23.74},
+                },
+                "benchmarks": {},
+            },
+        }
+    )
+
+    assert result["data"] == {"block_count": 2, "kinds": ["kpi_row", "bar"]}
+    kpi_block, bar_block = result["viz_blocks"]
+    assert kpi_block["kind"] == "kpi_row"
+    assert bar_block["kind"] == "bar"
+    assert bar_block["title"] == "Valuation comparison"
+    assert bar_block["payload"]["categories"] == ["US", "CN", "HK"]
+    assert bar_block["payload"]["series"] == [{"label": "Weighted PE", "values": [23.74, 17.24, 10.38]}]
+
+
+@pytest.mark.asyncio
 async def test_agent_viz_build_unknown_data_returns_empty_blocks() -> None:
     result = await _call_build({"kind": "auto", "data": {"message": "plain text only"}})
 
@@ -253,6 +281,83 @@ async def test_agent_viz_build_unknown_data_returns_empty_blocks() -> None:
 def test_build_viz_blocks_rejects_invalid_kind() -> None:
     with pytest.raises(RuntimeError, match="Unsupported visualization kind"):
         build_viz_blocks({"rows": []}, kind="bubble")
+
+
+def test_presenter_auto_generates_quote_card_for_sdk_quote() -> None:
+    normalized = ToolResultPresenterRegistry().normalize(
+        "dojo.sdk.stock.current_quote",
+        {
+            "data": {
+                "quotes": [
+                    {
+                        "symbol": "AAPL",
+                        "market": "us",
+                        "name": {"en": "Apple"},
+                        "last_price": 200,
+                        "change_percent": 1.5,
+                    }
+                ]
+            }
+        },
+    )
+
+    assert normalized["viz_blocks"][0]["kind"] == "quote_card"
+    assert normalized["viz_blocks"][0]["payload"]["ticker"] == "AAPL"
+
+
+def test_presenter_auto_generates_price_kline_for_sdk_kline() -> None:
+    normalized = ToolResultPresenterRegistry().normalize(
+        "dojo.sdk.benchmark.kline",
+        {
+            "data": {
+                "symbol": "HSI",
+                "market": "hk",
+                "chart_change_pct": -1.59,
+                "klines_chart": [
+                    {"datetime": "2026-06-11", "open": 120.0, "high": 125.0, "low": 118.0, "close": 121.45, "volume": 1000},
+                    {"datetime": "2026-06-12", "open": 121.0, "high": 123.0, "low": 117.0, "close": 119.12, "volume": 900},
+                ],
+            }
+        },
+    )
+
+    assert normalized["viz_blocks"][0]["kind"] == "price_kline"
+    assert normalized["viz_blocks"][0]["subtitle"] == "-1.59%"
+
+
+def test_presenter_preserves_explicit_viz_blocks() -> None:
+    explicit = [{"id": "viz-1", "kind": "table", "title": "Rows", "payload": {"rows": []}}]
+    normalized = ToolResultPresenterRegistry().normalize(
+        "agent_viz_build",
+        {"data": {"block_count": 1}, "viz_blocks": explicit},
+    )
+
+    assert normalized["viz_blocks"] == explicit
+
+
+def test_presenter_ignores_auto_viz_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args, **kwargs):
+        raise RuntimeError("mapper broke")
+
+    monkeypatch.setattr("dojoagents.agent.presenters.build_viz_blocks", boom)
+    normalized = ToolResultPresenterRegistry().normalize(
+        "dojo.sdk.stock.current_quote",
+        {"data": {"symbol": "AAPL", "last_price": 200}},
+    )
+
+    assert normalized["viz_blocks"] == []
+
+
+@pytest.mark.asyncio
+async def test_dojo_sdk_ok_includes_structured_data() -> None:
+    manager = DojoSDKToolManager()
+    payload = {"symbol": "AAPL", "last_price": 200}
+
+    result = await manager._ok(payload)
+
+    assert result["data"] == payload
+    assert result["metadata"] == {"ok": True}
+    assert '"symbol": "AAPL"' in result["content"]
 
 
 @pytest.mark.asyncio

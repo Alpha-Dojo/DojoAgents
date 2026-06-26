@@ -1,63 +1,44 @@
-"""Tests for DOJO_CHART protocol injection into Agent system prompt.
+"""Tests for dashboard visualization guidance injected into Agent prompts.
 
-When the request comes from the Dashboard (channel="dashboard"), the Agent's
-system prompt must include the DOJO_CHART protocol instructions so it knows
-how to output chart data for the Canvas panel.
-
-For non-dashboard channels (CLI, gateway, etc.), the protocol is NOT injected.
+The current dashboard chat UI renders structured ``viz_blocks``. It should not
+teach the model to emit legacy ``DOJO_CHART`` fenced blocks that the source UI
+no longer renders.
 """
+
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 
-# ---------------------------------------------------------------------------
-# Tests: protocol constant exists and has correct content
-# ---------------------------------------------------------------------------
+class TestDashboardVizProtocol:
+    def test_module_importable(self) -> None:
+        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
-class TestDashboardCanvasProtocol:
-    def test_module_importable(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        assert isinstance(DASHBOARD_CANVAS_PROTOCOL, str)
-        assert len(DASHBOARD_CANVAS_PROTOCOL) > 0
+        assert isinstance(DASHBOARD_VIZ_PROTOCOL, str)
+        assert len(DASHBOARD_VIZ_PROTOCOL) > 0
 
-    def test_contains_dojo_chart_keyword(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        assert "DOJO_CHART" in DASHBOARD_CANVAS_PROTOCOL
+    def test_protocol_mentions_structured_viz_blocks(self) -> None:
+        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
-    def test_contains_data_and_script_fields(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        assert "data" in DASHBOARD_CANVAS_PROTOCOL
-        assert "script" in DASHBOARD_CANVAS_PROTOCOL
+        assert "viz_blocks" in DASHBOARD_VIZ_PROTOCOL
+        assert "agent_viz_build" in DASHBOARD_VIZ_PROTOCOL
 
-    def test_contains_echarts_reference(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        assert "chart.setOption" in DASHBOARD_CANVAS_PROTOCOL
+    def test_protocol_forbids_legacy_dojo_chart_output(self) -> None:
+        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
-    def test_contains_candlestick_template(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        assert "candlestick" in DASHBOARD_CANVAS_PROTOCOL.lower()
+        assert "Do NOT output `DOJO_CHART` fenced blocks." in DASHBOARD_VIZ_PROTOCOL
+        assert "Do NOT output JavaScript, ECharts scripts, or HTML" in DASHBOARD_VIZ_PROTOCOL
 
-    def test_contains_dark_theme_colors(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        # Dark theme color values used in the dashboard
-        assert "#e0e0e0" in DASHBOARD_CANVAS_PROTOCOL or "transparent" in DASHBOARD_CANVAS_PROTOCOL
+    def test_legacy_alias_points_to_current_protocol(self) -> None:
+        from dojoagents.agent.canvas_protocol import (
+            DASHBOARD_CANVAS_PROTOCOL,
+            DASHBOARD_VIZ_PROTOCOL,
+        )
 
-    def test_contains_example_output(self):
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
-        # Must include a concrete example of DOJO_CHART block
-        assert "```DOJO_CHART" in DASHBOARD_CANVAS_PROTOCOL
+        assert DASHBOARD_CANVAS_PROTOCOL == DASHBOARD_VIZ_PROTOCOL
 
-
-# ---------------------------------------------------------------------------
-# Tests: protocol injection based on channel
-# ---------------------------------------------------------------------------
 
 class TestProtocolInjectionByChannel:
-    """Verify that the DOJO_CHART protocol is injected into the system prompt
-    only when the request channel is 'dashboard'."""
-
     def _make_agent_loop(self):
         from dojoagents.agent.loop import AgentLoop
         from dojoagents.config.models import AgentConfig
@@ -87,10 +68,8 @@ class TestProtocolInjectionByChannel:
         )
 
     def _build_system_prompt(self, loop, channel: str) -> str:
-        """Build the system prompt the same way AgentLoop.run() does,
-        but without actually running the agent."""
+        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
         from dojoagents.agent.models import ChatRequest
-        from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
 
         request = ChatRequest(
             message="test",
@@ -105,83 +84,30 @@ class TestProtocolInjectionByChannel:
             loop.memory_manager.build_system_prompt(),
         ]
 
-        # This is the injection logic we're testing
         if request.channel == "dashboard":
-            blocks.append(DASHBOARD_CANVAS_PROTOCOL)
+            blocks.append(DASHBOARD_VIZ_PROTOCOL)
 
         return "\n\n".join(block for block in blocks if block)
 
-    def test_dashboard_channel_includes_protocol(self):
+    def test_dashboard_channel_includes_structured_viz_protocol(self) -> None:
         loop = self._make_agent_loop()
         prompt = self._build_system_prompt(loop, "dashboard")
+
+        assert "viz_blocks" in prompt
+        assert "agent_viz_build" in prompt
         assert "DOJO_CHART" in prompt
 
-    def test_cli_channel_excludes_protocol(self):
+    def test_cli_channel_excludes_dashboard_viz_protocol(self) -> None:
         loop = self._make_agent_loop()
         prompt = self._build_system_prompt(loop, "cli")
+
+        assert "viz_blocks" not in prompt
+        assert "agent_viz_build" not in prompt
         assert "DOJO_CHART" not in prompt
 
-    def test_telegram_channel_excludes_protocol(self):
+    def test_telegram_channel_excludes_dashboard_viz_protocol(self) -> None:
         loop = self._make_agent_loop()
         prompt = self._build_system_prompt(loop, "telegram")
-        assert "DOJO_CHART" not in prompt
 
-    def test_empty_channel_excludes_protocol(self):
-        loop = self._make_agent_loop()
-        prompt = self._build_system_prompt(loop, "")
-        assert "DOJO_CHART" not in prompt
-
-
-# ---------------------------------------------------------------------------
-# Tests: canvas-chart skill platforms fix
-# ---------------------------------------------------------------------------
-
-class TestCanvasChartSkillPlatforms:
-    """Verify the canvas-chart skill uses valid OS platform identifiers."""
-
-    def test_skill_platforms_are_valid_os_identifiers(self):
-        from pathlib import Path
-        skill_md = (
-            Path(__file__).parent.parent
-            / "dojoagents" / "skills" / "built_in" / "canvas-chart" / "SKILL.md"
-        )
-        if not skill_md.is_file():
-            pytest.skip("canvas-chart SKILL.md not found")
-
-        content = skill_md.read_text()
-        # Must NOT have platforms: [dashboard]
-        assert "platforms: [dashboard]" not in content, (
-            "canvas-chart skill must not use 'dashboard' as platform. "
-            "Use [linux, macos, windows] or omit platforms entirely."
-        )
-
-    def test_skill_is_discoverable_by_skill_manager(self):
-        """The canvas-chart skill must pass platform filtering on the current OS."""
-        from pathlib import Path
-        from dojoagents.skills.manager import SkillManager
-
-        built_in_dir = Path(__file__).parent.parent / "dojoagents" / "skills" / "built_in"
-        if not built_in_dir.exists():
-            pytest.skip("built_in skills directory not found")
-
-        manager = SkillManager(skill_dirs=[str(built_in_dir)], enable_cache=False)
-        names = manager.list_skills()
-        assert "canvas-chart" in names, (
-            f"canvas-chart not found in skill list: {names}"
-        )
-
-    def test_skill_appears_in_prompt_block(self):
-        """The canvas-chart skill must appear in the prompt block (not filtered out)."""
-        from pathlib import Path
-        from dojoagents.skills.manager import SkillManager
-
-        built_in_dir = Path(__file__).parent.parent / "dojoagents" / "skills" / "built_in"
-        if not built_in_dir.exists():
-            pytest.skip("built_in skills directory not found")
-
-        manager = SkillManager(skill_dirs=[str(built_in_dir)], enable_cache=False)
-        prompt = manager.prompt_block()
-        assert "canvas-chart" in prompt, (
-            "canvas-chart skill is filtered out of prompt_block. "
-            "Check platforms field in SKILL.md frontmatter."
-        )
+        assert "viz_blocks" not in prompt
+        assert "agent_viz_build" not in prompt

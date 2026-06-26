@@ -29,7 +29,7 @@ from dojoagents.dashboard.agent_runs import AgentRunManager
 from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
-from dojoagents.dashboard.tools import register_dashboard_portfolio_tools
+from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -253,6 +253,7 @@ def create_app(
 ) -> FastAPI:
     registry = store_registry or FinancialDomainRegistry()
     if hasattr(runtime, "agent") and hasattr(runtime.agent, "tool_executor"):
+        register_dashboard_domain_tools(runtime.agent.tool_executor.registry, registry)
         register_dashboard_portfolio_tools(runtime.agent.tool_executor.registry, registry)
 
     store = getattr(runtime, "config_store", None)
