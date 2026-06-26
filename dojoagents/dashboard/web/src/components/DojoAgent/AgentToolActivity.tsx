@@ -10,14 +10,16 @@ import { AgentVizBlockView } from './viz/AgentVizPanel';
 function ToolStepResults({
   blocks,
   running,
+  summary,
 }: {
   blocks: AgentVizBlock[];
   running: boolean;
+  summary?: string | null;
 }) {
   const { t, locale } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  if (!blocks.length || running) return null;
+  if (running || (!blocks.length && !summary)) return null;
 
   const localizedBlocks = localizeAgentVizBlocks(blocks, t, locale);
 
@@ -33,6 +35,11 @@ function ToolStepResults({
       </button>
       {expanded ? (
         <div className="dojo-agent-tool-activity__results-body">
+          {summary ? (
+            <p className="dojo-agent-tool-activity__detail dojo-agent-tool-activity__detail--result">
+              {summary}
+            </p>
+          ) : null}
           {localizedBlocks.map((block) => (
             <AgentVizBlockView key={block.id} block={block} />
           ))}
@@ -53,6 +60,7 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
     item.arguments != null ? formatToolArguments(item.tool, item.arguments, uiLocale) : null;
   const resultDetail = item.resultSummary ?? null;
   const vizBlocks = item.vizBlocks ?? [];
+  const showInlineResult = Boolean(resultDetail) && vizBlocks.length === 0;
 
   return (
     <div className={`dojo-agent-tool-activity__step dojo-agent-tool-activity__step--${item.status}`}>
@@ -82,14 +90,18 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
             )}
           </div>
           {argDetail ? <p className="dojo-agent-tool-activity__detail">{argDetail}</p> : null}
-          {resultDetail && item.status === 'done' ? (
+          {showInlineResult && item.status === 'done' ? (
             <p className="dojo-agent-tool-activity__detail dojo-agent-tool-activity__detail--result">
               {resultDetail}
             </p>
           ) : null}
         </div>
       </div>
-      <ToolStepResults blocks={vizBlocks} running={item.status === 'running'} />
+      <ToolStepResults
+        blocks={vizBlocks}
+        running={item.status === 'running'}
+        summary={item.status === 'done' ? resultDetail : null}
+      />
     </div>
   );
 }

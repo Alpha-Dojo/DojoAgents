@@ -801,6 +801,48 @@
   gap: 4px;
 }
 
+.dojo-agent-tool-activity__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 16px;
+}
+
+.dojo-agent-tool-activity__group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dojo-agent-tool-activity__group-toggle:hover {
+  color: var(--text-primary);
+}
+
+.dojo-agent-tool-activity__group-summary {
+  min-width: 0;
+  font-size: 10px;
+}
+
+.dojo-agent-tool-activity__group-meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-tool-activity__group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .dojo-agent-tool-activity__results {
   margin: 0 0 0 16px;
 }

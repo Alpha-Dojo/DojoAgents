@@ -247,6 +247,11 @@ class DojoStrandsModelBridge(Model):
             stop_reason = "tool_use"
 
         reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
+        event_sink = (invocation_state or {}).get("_dojo_event_sink")
+        if event_sink is not None and isinstance(reasoning_content, str) and reasoning_content.strip():
+            event_sink.thinking_start()
+            event_sink.thinking_delta(reasoning_content)
+            event_sink.thinking_end()
 
         yield {"messageStop": {"stopReason": stop_reason, "additionalModelResponseFields": {"reasoning_content": reasoning_content or ""}}}
 
@@ -404,11 +409,11 @@ class AgentLoop:
         if request.quant is not None:
             blocks.append(request.quant.prompt_block())
             blocks.append(self.extension_registry.prompt_context(request.quant))
-        # Inject Dashboard Canvas protocol when channel is "dashboard"
+        # Inject dashboard-specific structured visualization guidance.
         if request.channel == "dashboard":
-            from dojoagents.agent.canvas_protocol import DASHBOARD_CANVAS_PROTOCOL
+            from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
-            blocks.append(DASHBOARD_CANVAS_PROTOCOL)
+            blocks.append(DASHBOARD_VIZ_PROTOCOL)
         system = "\n\n".join(block for block in blocks if block)
 
         # Plan activation check
@@ -712,6 +717,7 @@ class AgentLoop:
                 trace_item = {
                     "call_id": call_id,
                     "tool": tool_name,
+                    "arguments": dict(event.tool_use.get("input") or {}),
                     "ok": matched_result.ok if matched_result is not None else not is_failed,
                 }
                 if matched_result is not None:
