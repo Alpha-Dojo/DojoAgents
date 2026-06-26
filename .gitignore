@@ -51,6 +51,7 @@ docs/hermes/
 docs/plans/
 .superpowers/
 .qoder/
+.cursor/
 
 # front
 *node_modules/

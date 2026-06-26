@@ -61,11 +61,13 @@ def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
     api_key = raw.get("api_key")
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
+    context_window = raw.get("context_window")
     return LLMProviderConfig(
         model=raw.get("model", "gpt-4.1"),
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        context_window=int(context_window) if context_window is not None else None,
     )
 
 
@@ -79,10 +81,22 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     )
     default_provider = llm.providers.get(llm.default) or next(iter(llm.providers.values()))
     agent_raw = raw.get("agent", {})
+    compression_ratio = agent_raw.get("compression_threshold_ratio", agent_raw.get("threshold_ratio", 0.8))
+    cap_raw = agent_raw.get("session_max_tokens_cap")
     agent = AgentConfig(
         model=agent_raw.get("model", default_provider.model),
-        max_iterations=int(agent_raw.get("max_iterations", 8)),
+        max_iterations=int(agent_raw.get("max_iterations", 100)),
         max_tool_workers=int(agent_raw.get("max_tool_workers", 4)),
+        lazy_skills=bool(agent_raw.get("lazy_skills", True)),
+        enable_skill_cache=bool(agent_raw.get("enable_skill_cache", True)),
+        enable_guardrails=bool(agent_raw.get("enable_guardrails", True)),
+        enable_think_scrubbing=bool(agent_raw.get("enable_think_scrubbing", True)),
+        enable_context_compression=bool(agent_raw.get("enable_context_compression", True)),
+        compression_threshold_ratio=float(compression_ratio),
+        session_max_tokens_cap=int(cap_raw) if cap_raw is not None else None,
+        default_context_window=int(agent_raw.get("default_context_window", 32768)),
+        session_max_tokens=int(agent_raw.get("session_max_tokens", 100000)),
+        threshold_ratio=float(compression_ratio),
         default_skills=list(agent_raw.get("default_skills", ["dojo-quant-analyst"])),
     )
     sandbox_raw = raw.get("tools", {}).get("sandbox", {})

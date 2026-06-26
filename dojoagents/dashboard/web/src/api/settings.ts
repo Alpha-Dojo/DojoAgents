@@ -33,6 +33,9 @@ let mockConfig: SettingsConfig = {
     enable_guardrails: true,
     enable_think_scrubbing: true,
     enable_context_compression: true,
+    compression_threshold_ratio: 0.8,
+    default_context_window: 32768,
+    session_max_tokens_cap: null,
   },
   multi_agent: {
     enabled: true,

@@ -1,5 +1,6 @@
 import json
 from typing import Any, Protocol, Callable
+from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 
@@ -75,6 +76,23 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
         self.base_url = base_url
 
+    @staticmethod
+    def _usage_dict(usage: Any) -> dict[str, int] | None:
+        if usage is None:
+            return None
+        prompt = getattr(usage, "prompt_tokens", None)
+        completion = getattr(usage, "completion_tokens", None)
+        total = getattr(usage, "total_tokens", None)
+        if prompt is None and completion is None:
+            return None
+        prompt_i = int(prompt or 0)
+        completion_i = int(completion or 0)
+        return {
+            "prompt_tokens": prompt_i,
+            "completion_tokens": completion_i,
+            "total_tokens": int(total if total is not None else prompt_i + completion_i),
+        }
+
     async def chat(
         self,
         messages: list[dict],
@@ -94,13 +112,30 @@ class OpenAICompatibleProvider:
 
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[{"type": "function", "function": tool} for tool in tools] or None,
-                stream=stream,
-            )
+            create_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "tools": [{"type": "function", "function": tool} for tool in tools] or None,
+                "stream": stream,
+            }
+            if stream:
+                create_kwargs["stream_options"] = {"include_usage": True}
+            response = await client.chat.completions.create(**create_kwargs)
         except Exception as e:
+            err_msg = str(e)
+            max_context, requested = parse_context_length_error(err_msg)
+            if max_context is not None or requested is not None:
+                LOGGER.warning(
+                    "Context length exceeded for model %s: max=%s requested=%s",
+                    model,
+                    max_context,
+                    requested,
+                )
+                raise ContextLengthExceededError(
+                    err_msg,
+                    max_context=max_context,
+                    requested_tokens=requested,
+                ) from e
             LOGGER.exception(f"Error calling OpenAI API: {e}, messages: {messages}, tools: {tools}, model: {model}")
             raise e
 
@@ -108,7 +143,11 @@ class OpenAICompatibleProvider:
             full_content = []
             full_reasoning = []
             tool_calls_buffer: dict[int, dict[str, Any]] = {}
+            stream_usage: dict[str, int] | None = None
             async for chunk in response:
+                chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
+                if chunk_usage is not None:
+                    stream_usage = chunk_usage
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_delta = getattr(delta, "reasoning_content", None) or (
@@ -141,13 +180,18 @@ class OpenAICompatibleProvider:
                     except json.JSONDecodeError:
                         args_dict = {"raw_arguments": tc["arguments"]}
                 final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict))
+            metadata: dict[str, Any] = {
+                "provider": self.name,
+                "reasoning_content": "".join(full_reasoning),
+            }
+            if stream_usage is not None:
+                metadata["usage"] = stream_usage
+            else:
+                metadata["usage_available"] = False
             return LLMResult(
                 content="".join(full_content),
                 tool_calls=final_tool_calls,
-                metadata={
-                    "provider": self.name,
-                    "reasoning_content": "".join(full_reasoning),
-                },
+                metadata=metadata,
             )
         else:
             message = response.choices[0].message
@@ -164,13 +208,19 @@ class OpenAICompatibleProvider:
                         except json.JSONDecodeError:
                             args_dict = {"raw_arguments": tc.function.arguments}
                     final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict))
+            result_metadata: dict[str, Any] = {
+                "provider": self.name,
+                "reasoning_content": reasoning_content or "",
+            }
+            usage_dict = self._usage_dict(getattr(response, "usage", None))
+            if usage_dict is not None:
+                result_metadata["usage"] = usage_dict
+            else:
+                result_metadata["usage_available"] = False
             return LLMResult(
                 content=message.content or "",
                 tool_calls=final_tool_calls,
-                metadata={
-                    "provider": self.name,
-                    "reasoning_content": reasoning_content or "",
-                },
+                metadata=result_metadata,
             )
 
 

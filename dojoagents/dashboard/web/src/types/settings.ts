@@ -20,6 +20,9 @@ export interface SettingsFormState {
     enable_guardrails: boolean;
     enable_think_scrubbing: boolean;
     enable_context_compression: boolean;
+    compression_threshold_ratio: number;
+    default_context_window: number;
+    session_max_tokens_cap: number | null;
   };
   tools: {
     sandbox: {
