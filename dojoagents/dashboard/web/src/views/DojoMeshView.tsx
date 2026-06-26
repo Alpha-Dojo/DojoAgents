@@ -283,31 +283,67 @@ export function DojoMeshView({
   return (
     <section className="dojo-mesh-view" aria-label="DojoMesh">
       <div className="dojo-mesh-view__layout">
-        <div className="dojo-mesh-view__hero-row">
-          {orderedColumns.map(({ code, flagSrc, label }) => (
-            <DraggableMarketColumn
-              key={code}
-              market={code}
-              isDragging={draggingMarket === code}
-              dropSide={dropTargetMarket === code ? dropTargetSide : null}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-            >
-              {(brandDrag) => (
+        <div className="dojo-mesh-view__desktop-layout">
+          <div className="dojo-mesh-view__hero-row">
+            {orderedColumns.map(({ code, flagSrc, label }) => (
+              <DraggableMarketColumn
+                key={code}
+                market={code}
+                isDragging={draggingMarket === code}
+                dropSide={dropTargetMarket === code ? dropTargetSide : null}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                {(brandDrag) => (
+                  <MarketColumnPanel
+                    {...columnPanelProps(code, flagSrc, label)}
+                    section="hero"
+                    brandDrag={brandDrag}
+                  />
+                )}
+              </DraggableMarketColumn>
+            ))}
+            {!agentOpen && <AddMarketSlot />}
+          </div>
+
+          <div className="dojo-mesh-view__toolbar-row">
+            <MeshSectorMoversBar
+              days={sectorFilters.days}
+              minCapYi={sectorFilters.minCapYi}
+              sectorLimit={sectorFilters.sectorLimit}
+              loading={loading}
+              onDaysChange={(days) => updateSectorFilters({ days })}
+              onMinCapYiChange={(minCapYi) => updateSectorFilters({ minCapYi })}
+              onSectorLimitChange={(sectorLimit) =>
+                updateSectorFilters({ sectorLimit })
+              }
+            />
+            {!agentOpen ? (
+              <div className="mesh-market-add-spacer" aria-hidden="true" />
+            ) : null}
+          </div>
+
+          <div className="dojo-mesh-view__sector-row">
+            {orderedColumns.map(({ code, flagSrc, label }) => (
+              <div
+                key={code}
+                className="mesh-market-column-wrap mesh-market-column-wrap--sectors"
+              >
                 <MarketColumnPanel
                   {...columnPanelProps(code, flagSrc, label)}
-                  section="hero"
-                  brandDrag={brandDrag}
+                  section="sectors"
                 />
-              )}
-            </DraggableMarketColumn>
-          ))}
-          {!agentOpen && <AddMarketSlot />}
+              </div>
+            ))}
+            {!agentOpen ? (
+              <div className="mesh-market-add-spacer" aria-hidden="true" />
+            ) : null}
+          </div>
         </div>
 
-        <div className="dojo-mesh-view__toolbar-row">
+        <div className="dojo-mesh-view__mobile-layout">
           <MeshSectorMoversBar
             days={sectorFilters.days}
             minCapYi={sectorFilters.minCapYi}
@@ -319,26 +355,16 @@ export function DojoMeshView({
               updateSectorFilters({ sectorLimit })
             }
           />
-          {!agentOpen ? (
-            <div className="mesh-market-add-spacer" aria-hidden="true" />
-          ) : null}
-        </div>
-
-        <div className="dojo-mesh-view__sector-row">
           {orderedColumns.map(({ code, flagSrc, label }) => (
-            <div
-              key={code}
-              className="mesh-market-column-wrap mesh-market-column-wrap--sectors"
-            >
+            <div key={code} className="dojo-mesh-view__mobile-market">
               <MarketColumnPanel
                 {...columnPanelProps(code, flagSrc, label)}
-                section="sectors"
+                section="all"
+                chartIdSuffix="-mobile"
               />
             </div>
           ))}
-          {!agentOpen ? (
-            <div className="mesh-market-add-spacer" aria-hidden="true" />
-          ) : null}
+          {!agentOpen && <AddMarketSlot />}
         </div>
       </div>
     </section>

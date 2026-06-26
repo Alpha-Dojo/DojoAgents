@@ -17,7 +17,8 @@ export function useCoreViewportLayout(viewRef: RefObject<HTMLElement | null>): R
       const width = view.clientWidth;
       if (height <= 0 || width <= 0) return;
 
-      const scale = clamp(Math.min(height / 780, width / 960), 0.88, 1.06);
+      const minScale = width < 520 ? 0.8 : width < 760 ? 0.84 : width < 960 ? 0.88 : 0.9;
+      const scale = clamp(Math.min(height / 780, width / 960), minScale, 1.06);
       const gap = Math.max(4, Math.round(6 * scale));
 
       setVars({

@@ -16,6 +16,7 @@ interface MarketHeroCardProps {
   linkedHoverDate?: string | null;
   onLinkedHoverDateChange?: (date: string | null) => void;
   brandDrag?: MarketBrandDragProps;
+  chartIdSuffix?: string;
 }
 
 function capLabelKey(market: MarketCode): 'marketCapUs' | 'marketCapSh' | 'marketCapHk' {
@@ -35,6 +36,7 @@ export function MarketHeroCard({
   linkedHoverDate,
   onLinkedHoverDateChange,
   brandDrag,
+  chartIdSuffix = '',
 }: MarketHeroCardProps) {
   const { t } = useTranslation();
   const initialSymbol = defaultSymbol ?? benchmarks[0]?.symbol ?? '';
@@ -56,7 +58,7 @@ export function MarketHeroCard({
     [benchmarks, symbol],
   );
 
-  const chartId = `${stats.market}-hero`.replace(/[^a-zA-Z0-9-]/g, '');
+  const chartId = `${stats.market}-hero${chartIdSuffix}`.replace(/[^a-zA-Z0-9-]/g, '');
 
   return (
     <article className="market-hero">

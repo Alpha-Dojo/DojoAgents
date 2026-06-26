@@ -116,3 +116,18 @@
 .tz-menu__option--active .tz-menu__option-city {
   color: var(--text-muted);
 }
+
+@media (max-width: 1024px) {
+  .tz-menu__trigger {
+    gap: 4px;
+    padding: 5px 6px;
+  }
+
+  .tz-menu__label {
+    display: none;
+  }
+
+  .tz-menu__time {
+    font-size: 11px;
+  }
+}

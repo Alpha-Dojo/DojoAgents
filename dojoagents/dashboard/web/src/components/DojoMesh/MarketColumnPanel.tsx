@@ -23,6 +23,7 @@ interface MarketColumnPanelProps {
   onLinkedHoverDateChange?: (date: string | null) => void;
   brandDrag?: MarketBrandDragProps;
   section?: 'all' | 'hero' | 'sectors';
+  chartIdSuffix?: string;
 }
 
 export function MarketColumnPanel({
@@ -42,6 +43,7 @@ export function MarketColumnPanel({
   onLinkedHoverDateChange,
   brandDrag,
   section = 'all',
+  chartIdSuffix,
 }: MarketColumnPanelProps) {
   const { t } = useTranslation();
   const gainerRows = orderSectorsWithLink(
@@ -61,6 +63,7 @@ export function MarketColumnPanel({
 
   const showHero = section === 'all' || section === 'hero';
   const showSectors = section === 'all' || section === 'sectors';
+  const sectorSubtitle = section === 'all' ? label : undefined;
   const scrollToLinkKey =
     crossMarketLink && market !== crossMarketLink.sourceMarket
       ? crossMarketLink.linkKey
@@ -84,6 +87,7 @@ export function MarketColumnPanel({
           linkedHoverDate={linkedHoverDate}
           onLinkedHoverDateChange={onLinkedHoverDateChange}
           brandDrag={brandDrag}
+          chartIdSuffix={chartIdSuffix}
         />
       ) : null}
       {showSectors ? (
@@ -93,6 +97,7 @@ export function MarketColumnPanel({
             variant="gain"
             lookbackDays={sectorDays}
             title={t('sector.gainers')}
+            subtitle={sectorSubtitle}
             rows={gainerRows}
             scrollToLinkKey={scrollToLinkKey}
             onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
@@ -104,6 +109,7 @@ export function MarketColumnPanel({
             variant="loss"
             lookbackDays={sectorDays}
             title={t('sector.losers')}
+            subtitle={sectorSubtitle}
             rows={loserRows}
             scrollToLinkKey={scrollToLinkKey}
             onSectorSelect={(sector) => onSectorSelect?.(sector, market)}

@@ -2458,3 +2458,522 @@
   line-height: 1.35;
   color: var(--text-muted);
 }
+
+@media (max-width: 1280px) { 
+  .core-ticker-search {
+    max-width: 140px;
+  }
+  .core-sector-toolbar--primary .core-sector-field:first-child {
+    min-width: 95px;
+  }
+  .core-sector-field__control .dojo-dropdown-select__trigger {
+    padding-left: 0;
+    padding-right: 8px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .core-snapshot__metrics-row:last-child .core-snapshot__metric:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 1024px) {
+  .core-snapshot__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .core-snapshot__controls {
+    max-width: 100%;
+  }
+  .core-sector-field {
+    flex: 1 1 160px;
+    max-width: none;
+  }
+  .core-ticker-search {
+    max-width: 220px;
+    width: 100%;
+  }
+}
+
+@media (max-width: 960px) {
+  .dojo-core-view {
+    padding: 10px 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .dojo-core-view__grid {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .dojo-core-view__chart-row {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    gap: 10px;
+    --core-synced-main-plot-h: 180px;
+  }
+
+  .core-card {
+    height: auto;
+    min-height: 240px;
+  }
+
+  .core-card--kline,
+  .core-card--pe-band {
+    min-height: 300px;
+  }
+
+  .core-card--revenue,
+  .core-card--income-distribution {
+    min-height: 300px;
+  }
+
+  .core-card--events,
+  .core-card--news {
+    min-height: 260px;
+  }
+
+  .core-card__body {
+    min-height: 0;
+  }
+
+  .core-snapshot {
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .core-snapshot__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .core-snapshot__lead,
+  .core-snapshot__controls {
+    width: 100%;
+    max-width: none;
+  }
+
+  .core-snapshot__lead {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .core-snapshot__identity {
+    max-width: min(100%, 520px);
+  }
+
+  .core-snapshot__controls {
+    align-items: stretch;
+  }
+
+  .core-snapshot__controls-row {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .core-sector-toolbar {
+    flex: 1;
+  }
+
+  .core-sector-field {
+    flex: 1 1 160px;
+    max-width: none;
+  }
+
+  .core-ticker-search {
+    flex: 1 1 220px;
+    width: auto;
+    min-width: 180px;
+  }
+
+  .core-snapshot__metrics-row {
+    display: contents;
+  }
+
+  .core-snapshot__metrics-panel {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px 0;
+  }
+
+  .core-snapshot__metrics-row + .core-snapshot__metrics-row {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .core-snapshot__metrics-row:last-child .core-snapshot__metric:last-child {
+    grid-column: auto;
+  }
+
+  .core-snapshot__metric {
+    padding: 0 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric:first-child {
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric.core-snapshot__metric--flat-start-5 {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .core-income {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .core-income__chart {
+    min-width: 180px;
+  }
+
+  .core-events__list,
+  .core-news__list {
+    max-height: 240px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dojo-core-view {
+    padding: 10px;
+  }
+
+  .dojo-core-view__chart-row {
+    --core-synced-main-plot-h: 160px;
+  }
+
+  .core-ticker-search {
+    max-width: 120px;
+  }
+
+
+  .core-card--kline,
+  .core-card--pe-band {
+    min-height: 278px;
+  }
+
+  .core-snapshot__metrics-row {
+    display: contents;
+  }
+
+  .core-snapshot__metrics-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .core-snapshot__metric {
+    min-height: 28px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 0 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric.core-snapshot__metric--flat-start-5 {
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric.core-snapshot__metric--flat-start-3 {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .core-snapshot__metric dt,
+  .core-snapshot__metric dd {
+    white-space: normal;
+  }
+
+  .core-snapshot__metric dd {
+    width: 100%;
+  }
+
+  .core-sector-toolbar {
+    gap: 6px;
+  }
+
+  .core-add-folio {
+    margin-left: 23px;
+  }
+
+  .core-revenue__columns {
+    overflow-x: auto;
+    min-width: 0;
+  }
+
+  .core-revenue__col {
+    min-width: 54px;
+  }
+
+  .core-risk {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .core-risk__status {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .core-snapshot__controls-row {
+    align-items: stretch;
+  }
+
+  .core-sector-toolbar {
+    flex: 1 1 calc(100% - 34px);
+  }
+
+  .core-ticker-search {
+    order: 3;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .core-snapshot__metrics-row {
+    display: contents;
+  }
+
+  .core-snapshot__metrics-panel {
+    gap: 8px;
+  }
+
+  .core-snapshot__metrics-row + .core-snapshot__metrics-row {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .core-snapshot__metric:nth-child(odd) {
+    border-left: none;
+  }
+
+  .core-snapshot__metric:nth-child(even) {
+    border-left: none;
+  }
+
+  .core-snapshot__metrics-row:last-child .core-snapshot__metric:last-child {
+    grid-column: auto;
+  }
+
+  .core-snapshot__metric {
+    min-height: 46px;
+    padding: 7px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.1);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric.core-snapshot__metric--flat-start-3 {
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metric dt {
+    font-size: 10px;
+  }
+
+  .core-snapshot__metric dd {
+    font-size: 11px;
+  }
+
+  .core-card--revenue,
+  .core-card--income-distribution {
+    min-height: 320px;
+  }
+
+  .core-income {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .core-income__chart {
+    min-width: 0;
+    padding: 0;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding-bottom: 12px;
+  }
+
+  .core-income__chart + .core-income__chart {
+    padding-top: 12px;
+  }
+
+  .core-income__chart:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .core-events__item,
+  .core-news__item {
+    align-items: flex-start;
+  }
+
+  .core-events__item {
+    flex-direction: column;
+  }
+
+  .core-news__item {
+    flex-wrap: wrap;
+  }
+
+  .core-events__content,
+  .core-news__link,
+  .core-news__title {
+    white-space: normal;
+  }
+}
+
+@media (max-width: 520px) {
+  .dojo-core-view {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .dojo-core-view__grid,
+  .dojo-core-view__chart-row {
+    gap: 8px;
+  }
+
+  .dojo-core-view__chart-row {
+    --core-synced-main-plot-h: 138px;
+    --core-chart-axis-w: 46px;
+  }
+
+  .core-card {
+    border-radius: 6px;
+  }
+
+  .core-card__head {
+    padding: 6px 8px 5px;
+  }
+
+  .core-card__body {
+    padding: 6px 8px 8px;
+  }
+
+  .core-card--kline .core-card__body,
+  .core-card--pe-band .core-card__body {
+    padding: 0 5px 5px;
+  }
+
+  .core-snapshot {
+    border-radius: 6px;
+    padding: 8px;
+  }
+
+  .core-snapshot__ticker {
+    font-size: 16px;
+  }
+
+  .core-snapshot__name {
+    font-size: 12px;
+  }
+
+  .core-snapshot__price {
+    font-size: 14px;
+  }
+
+  .core-snapshot__change {
+    font-size: 10px;
+  }
+
+  .core-snapshot__metrics-panel {
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .core-snapshot__metrics-row {
+    min-width: 0;
+    display: contents;
+  }
+
+  .core-snapshot__metrics-row:last-child .core-snapshot__metric:last-child {
+    grid-column: auto;
+  }
+
+  .core-snapshot__metric {
+    min-height: 48px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 7px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.1);
+  }
+
+  .core-snapshot__metric:nth-child(odd),
+  .core-snapshot__metric:nth-child(even) {
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metrics-row .core-snapshot__metric:first-child {
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .core-snapshot__metric dt,
+  .core-snapshot__metric dd {
+    white-space: normal;
+  }
+
+  .core-snapshot__metric dt {
+    line-height: 1.2;
+  }
+
+  .core-snapshot__metric dd {
+    width: 100%;
+    line-height: 1.25;
+  }
+
+  .core-sector-field {
+    flex-basis: 100%;
+  }
+
+  .core-ticker-search {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .core-add-folio {
+    margin-left: 0;
+  }
+
+  .core-kline__topbar {
+    padding: 0 6px;
+  }
+
+  .core-kline__topbar-title {
+    padding-right: 8px;
+    margin-right: 4px;
+  }
+
+  .core-pe-band__sector-pe-item {
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 420px) {
+  .core-snapshot__metrics-row {
+    display: contents;
+  }
+
+  .core-snapshot__metrics-row:last-child .core-snapshot__metric:last-child {
+    grid-column: auto;
+  }
+}

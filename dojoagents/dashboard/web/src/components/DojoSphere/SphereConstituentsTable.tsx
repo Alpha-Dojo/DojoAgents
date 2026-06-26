@@ -34,6 +34,7 @@ const TABLE_COLGROUP = (
     <col className="sphere-table__col-cap" />
     <col className="sphere-table__col-pe" />
     <col className="sphere-table__col-pb" />
+    <col className="sphere-table__col-scrollbar" />
   </colgroup>
 );
 
@@ -204,6 +205,7 @@ function ConstituentsMarketColumn({
                 {renderSortHeader('market_cap', t('sphere.colMarketCap'))}
                 {renderSortHeader('pe', t('sphere.colPe'))}
                 {renderSortHeader('pb', t('sphere.colPb'))}
+                <th className="sphere-table__scrollbar-cell" aria-hidden />
               </tr>
             </thead>
           </table>
@@ -254,6 +256,7 @@ function ConstituentsMarketColumn({
                     <td className={isNegativeValuationRatio(row.pb) ? 'sphere-table__ratio--negative' : undefined}>
                       {formatPe(row.pb)}
                     </td>
+                    <td className="sphere-table__scrollbar-cell" aria-hidden />
                   </tr>
                 );
               })}

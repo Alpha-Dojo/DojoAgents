@@ -856,11 +856,12 @@
   border-radius: 999px;
   background: transparent;
   transition: background 0.15s ease;
+  opacity: 0.5;
 }
 
 .folio-overview__resize-handle:hover::after,
 .folio-overview__split--resizing .folio-overview__resize-handle::after {
-  background: rgba(0, 229, 255, 0.55);
+  background: var(--cyan);
 }
 
 .folio-overview__detail {
@@ -2981,5 +2982,435 @@
 
   .folio-attr__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .dojo-folio-view {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .dojo-folio-view__layout {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .folio-sidebar {
+    flex: 0 0 auto;
+    max-height: 320px;
+  }
+
+  .folio-sidebar__body {
+    min-height: 0;
+  }
+
+  .folio-sidebar__list {
+    max-height: 150px;
+  }
+
+  .folio-overview {
+    min-height: auto;
+  }
+
+  .folio-overview__split {
+    min-height: 780px;
+  }
+
+  .folio-config__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  }
+
+  .folio-sector__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 0;
+  }
+
+  .folio-sector__chart:nth-child(2n) {
+    padding-right: 0;
+    border-right: none;
+  }
+
+  .folio-sector__chart:nth-child(2n + 1) {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .dojo-folio-view {
+    padding: 10px 12px;
+  }
+
+  .folio-card {
+    height: auto;
+  }
+
+  .folio-sidebar {
+    max-height: none;
+  }
+
+  .folio-sidebar__body,
+  .folio-sidebar__list {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .folio-overview {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .folio-overview__split {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    overflow: visible;
+    gap: 10px;
+  }
+
+  .folio-overview__performance {
+    flex: 0 0 auto !important;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .folio-overview__resize-handle {
+    display: none;
+  }
+
+  .folio-overview__detail {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .folio-overview__detail > .folio-detail-tabs,
+  .folio-detail-tabs,
+  .folio-detail-tabs__panel,
+  .folio-holdings,
+  .folio-holdings--embedded {
+    height: auto;
+    min-height: 0;
+  }
+
+  .folio-detail-tabs__body,
+  .folio-detail-tabs__panel {
+    overflow: visible;
+  }
+
+  .folio-holdings__table-card,
+  .folio-holdings--embedded .folio-holdings__table-wrap {
+    flex: 0 0 auto;
+  }
+
+  .folio-holdings__table-wrap {
+    overflow: visible;
+  }
+
+  .folio-performance__chart-stage {
+    height: 180px;
+  }
+
+  .folio-performance__metrics-block {
+    overflow-x: auto;
+  }
+
+  .folio-risk__table {
+    min-width: 560px;
+  }
+
+  .folio-risk-exp__table {
+    min-width: 620px;
+  }
+
+  .folio-detail-tabs__panel--scroll {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 760px) {
+  .dojo-folio-view {
+    padding: 10px;
+  }
+
+  .folio-config__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .folio-config__grid > .dojo-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .folio-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .folio-performance__head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .folio-performance__head-tail {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .folio-performance__inline-markets {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .folio-performance__benchmark {
+    flex-wrap: wrap;
+  }
+
+  .folio-performance__benchmark-select {
+    min-width: 180px;
+  }
+
+  .folio-sector__grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .folio-sector__chart,
+  .folio-sector__chart:first-child,
+  .folio-sector__chart:last-child,
+  .folio-sector__chart:nth-child(2n),
+  .folio-sector__chart:nth-child(2n + 1) {
+    padding: 0;
+    border-right: none;
+  }
+
+  .folio-sector__chart + .folio-sector__chart {
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .folio-sector__chart-body {
+    display: grid;
+    grid-template-columns: minmax(112px, 140px) minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .folio-attr__rank-item {
+    grid-template-columns: minmax(0, 1fr) minmax(64px, 86px) 48px;
+    gap: 6px;
+  }
+
+  .folio-risk-exp__radar {
+    width: min(100%, 280px);
+  }
+}
+
+@media (max-width: 640px) {
+  .dojo-folio-view {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .dojo-folio-view__layout,
+  .folio-overview,
+  .folio-overview__split {
+    gap: 8px;
+  }
+
+  .folio-card {
+    border-radius: 6px;
+  }
+
+  .folio-card__head,
+  .folio-detail-tabs__head,
+  .folio-holdings__embedded-toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .folio-detail-tabs__tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .folio-detail-tabs__tab {
+    flex: 1 0 auto;
+    min-width: max-content;
+  }
+
+  .folio-detail-tabs__actions,
+  .folio-detail-tabs__confirm,
+  .folio-detail-tabs__sector-levels {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .folio-config {
+    padding: 8px;
+  }
+
+  .folio-config__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .folio-config__input {
+    text-align: left;
+  }
+
+  .folio-config__hint {
+    font-size: 10px;
+  }
+
+  .folio-kpi-grid {
+    gap: 6px;
+  }
+
+  .folio-kpi {
+    padding: 7px 8px;
+  }
+
+  .folio-kpi__value {
+    font-size: 14px;
+  }
+
+  .folio-performance__chart-wrap {
+    padding: 6px 8px 4px;
+  }
+
+  .folio-performance__chart-stage {
+    height: 150px;
+  }
+
+  .folio-performance__return-axis {
+    flex-basis: 38px;
+    width: 38px;
+  }
+
+  .folio-holdings__market-head {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .folio-holdings__market-head > .folio-market-label {
+    flex: 1 1 auto;
+  }
+
+  .folio-add-holding--trailing,
+  .folio-add-holding--inline {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .folio-add-holding__input {
+    height: 26px;
+  }
+
+  .folio-holdings__table-wrap {
+    padding: 6px;
+  }
+
+  .folio-holdings__market {
+    padding: 7px;
+  }
+
+  .folio-table--holdings {
+    min-width: 560px;
+  }
+
+  .folio-panel__status,
+  .folio-detail-tabs__panel--scroll {
+    padding: 8px;
+  }
+
+  .folio-attr__waterfall-wrap,
+  .folio-attr__rank-block {
+    padding: 8px;
+  }
+
+  .folio-attr__rank-item {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+
+  .folio-attr__rank-bar-track {
+    display: none;
+  }
+
+  .folio-risk-exp__table {
+    min-width: 560px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dojo-folio-view {
+    padding: 8px 6px;
+  }
+
+  .folio-sidebar__body,
+  .folio-sidebar__footer,
+  .folio-card__head,
+  .folio-detail-tabs__head,
+  .folio-holdings__embedded-toolbar {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .folio-sidebar__item {
+    padding: 7px;
+  }
+
+  .folio-sidebar__stats-table {
+    min-width: 420px;
+  }
+
+  .folio-config__field {
+    gap: 4px;
+  }
+
+  .folio-performance__chart-stage {
+    height: 132px;
+  }
+
+  .folio-performance__controls,
+  .folio-performance__benchmark {
+    width: 100%;
+  }
+
+  .folio-performance__benchmark-select {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .folio-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .folio-sector__chart-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .folio-sector__donut-wrap {
+    max-width: 150px;
+  }
+
+  .folio-risk__table,
+  .folio-risk-exp__table {
+    min-width: 520px;
+  }
+
+  .folio-table__date-input,
+  .folio-table__shares-input,
+  .folio-table__cost-input {
+    height: 24px;
+    padding: 0 6px;
   }
 }

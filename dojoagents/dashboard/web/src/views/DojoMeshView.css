@@ -40,6 +40,19 @@
   min-width: 0;
 }
 
+.dojo-mesh-view__desktop-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.dojo-mesh-view__mobile-layout {
+  display: none;
+}
+
 .dojo-mesh-view__hero-row,
 .dojo-mesh-view__toolbar-row,
 .dojo-mesh-view__sector-row {
@@ -220,26 +233,6 @@
 .mesh-add-market-dialog__action:hover {
   background: rgba(0, 229, 255, 0.14);
   border-color: rgba(0, 229, 255, 0.45);
-}
-
-@media (max-width: 1100px) {
-  .dojo-mesh-view__hero-row,
-  .dojo-mesh-view__toolbar-row,
-  .dojo-mesh-view__sector-row,
-  .dojo-mesh-view__grid {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-
-  .mesh-market-column-wrap,
-  .mesh-market-column-wrap--sectors {
-    flex: 0 0 auto;
-  }
-
-  .mesh-market-add {
-    align-self: center;
-    margin-top: 0;
-  }
 }
 
 .mesh-market-column {
@@ -857,26 +850,6 @@
   user-select: none;
 }
 
-@media (max-width: 1100px) {
-  .mesh-sector-movers-bar {
-    flex-wrap: wrap;
-    row-gap: 8px;
-    min-height: 0;
-    padding: 10px 12px;
-  }
-
-  .mesh-sector-movers-bar__filters {
-    width: 100%;
-    padding-left: 0;
-    flex-wrap: wrap;
-    gap: 10px 14px;
-  }
-
-  .mesh-market-add-spacer {
-    display: none;
-  }
-}
-
 .mesh-sector-row__members-status {
   margin: 0;
   padding: 10px 8px;
@@ -1365,4 +1338,188 @@
 
 .mesh-sector-row__member-col--chg {
   font-size: 9px;
+}
+
+@media (max-width: 960px) {
+  .dojo-mesh-view {
+    padding: 12px 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .dojo-mesh-view__layout {
+    flex: 0 0 auto;
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .dojo-mesh-view__desktop-layout {
+    display: none;
+  }
+
+  .dojo-mesh-view__mobile-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .dojo-mesh-view__mobile-market {
+    min-width: 0;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-market-column {
+    gap: 8px;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-market-column__sectors {
+    grid-template-rows: none;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    flex: 0 0 auto;
+    min-height: auto;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-sector-block {
+    height: auto;
+    min-height: 280px;
+    overflow: visible;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-sector-block__list {
+    overflow: visible;
+  }
+
+  .mesh-sector-movers-bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .mesh-sector-movers-bar__filters {
+    width: 100%;
+    margin-left: 0;
+    padding-left: 0;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .mesh-sector-movers-bar__item {
+    flex: 0 1 auto;
+  }
+
+  .mesh-market-add {
+    align-self: center;
+    margin-top: 0;
+  }
+
+  .mesh-market-add-spacer {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .dojo-mesh-view {
+    padding: 10px;
+  }
+
+  .dojo-mesh-view__mobile-layout {
+    gap: 10px;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-market-column__sectors {
+    grid-template-columns: 1fr;
+  }
+
+  .dojo-mesh-view__mobile-market .mesh-sector-block {
+    min-height: 0;
+  }
+
+  .market-hero {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .market-hero__meta {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 8px;
+  }
+
+  .market-hero__brand {
+    width: 100%;
+    padding-right: 0;
+    margin-right: 0;
+    border-right: none;
+  }
+
+  .market-hero__stats {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .market-hero__chart {
+    height: 58px;
+    min-height: 58px;
+  }
+
+  .mesh-sector-movers-bar {
+    padding: 9px 10px;
+  }
+
+  .mesh-sector-movers-bar__filters {
+    gap: 8px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dojo-mesh-view {
+    padding: 8px;
+  }
+
+  .market-hero__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 8px;
+  }
+
+  .market-hero__stat {
+    min-height: 34px;
+  }
+
+  .market-hero__stat:nth-child(2) {
+    border-right: none;
+  }
+
+  .market-hero__chart-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .market-hero__chart-head-select {
+    max-width: 100%;
+  }
+
+  .market-hero__chart-head-quote {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mesh-sector-movers-bar__item {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mesh-sector-row__members-table {
+    --member-cols: minmax(0, 1fr) 46px 42px 54px;
+  }
+
+  .mesh-sector-row__members-colhead,
+  .mesh-sector-row__member {
+    column-gap: 6px;
+  }
+
+  .mesh-sector-row__member-name {
+    display: none;
+  }
 }
