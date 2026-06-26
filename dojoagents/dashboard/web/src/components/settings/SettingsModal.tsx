@@ -245,6 +245,12 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
       enable_guardrails: asBool(agent.enable_guardrails, true),
       enable_think_scrubbing: asBool(agent.enable_think_scrubbing, true),
       enable_context_compression: asBool(agent.enable_context_compression, true),
+      compression_threshold_ratio: asNumber(agent.compression_threshold_ratio, 0.8),
+      default_context_window: asNumber(agent.default_context_window, 32768),
+      session_max_tokens_cap:
+        agent.session_max_tokens_cap === null || agent.session_max_tokens_cap === undefined
+          ? null
+          : asNumber(agent.session_max_tokens_cap, 32768),
     },
     tools: {
       sandbox: {
@@ -619,6 +625,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <CheckboxField label="Enable Think Scrubbing" checked={form.agent.enable_think_scrubbing} onChange={(checked) => updateField((draft) => { draft.agent.enable_think_scrubbing = checked; })} />
                   <CheckboxField label="Enable Context Compression" checked={form.agent.enable_context_compression} onChange={(checked) => updateField((draft) => { draft.agent.enable_context_compression = checked; })} />
                 </div>
+                <Field label="Compression Threshold Ratio (0-1)">
+                  {numberInput(form.agent.compression_threshold_ratio, (value) => updateField((draft) => { draft.agent.compression_threshold_ratio = value; }), 0.1)}
+                </Field>
+                <Field label="Default Context Window (fallback tokens)">
+                  {numberInput(form.agent.default_context_window, (value) => updateField((draft) => { draft.agent.default_context_window = value; }), 1024)}
+                </Field>
               </Section>
 
               <Section title="Multi-Agent">

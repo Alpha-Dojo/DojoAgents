@@ -51,7 +51,7 @@ async def test_agent_viz_build_ticker_quote_returns_quote_card() -> None:
 async def test_agent_viz_build_ticker_kline_returns_price_kline() -> None:
     result = await _call_build(
         {
-            "source_tool": "dojo.sdk.get_stock_kline",
+            "source_tool": "dojo.sdk.stock.kline",
             "data": {
                 "ticker": "002008.SZ",
                 "market": "cn",
@@ -156,6 +156,89 @@ async def test_agent_viz_build_generic_sparkline() -> None:
 
     assert result["viz_blocks"][0]["kind"] == "sparkline"
     assert result["viz_blocks"][0]["payload"]["points"] == [{"value": 1}, {"value": 2}, {"value": 3}]
+
+
+@pytest.mark.asyncio
+async def test_agent_viz_build_generic_kpi_row_accepts_metrics() -> None:
+    result = await _call_build(
+        {
+            "kind": "kpi_row",
+            "title": "核心指标",
+            "data": {
+                "metrics": [
+                    {"label": "加权平均 PE", "value": "13.50x", "trend": "down"},
+                    {"label": "加权股息率", "value": "5.73%", "trend": "up"},
+                ]
+            },
+        }
+    )
+
+    assert result["data"] == {"block_count": 1, "kinds": ["kpi_row"]}
+    assert result["viz_blocks"][0]["kind"] == "kpi_row"
+    assert result["viz_blocks"][0]["payload"]["items"][0]["tone"] == "negative"
+    assert result["viz_blocks"][0]["payload"]["items"][1]["tone"] == "positive"
+
+
+@pytest.mark.asyncio
+async def test_agent_viz_build_generic_hbar_rank_accepts_items() -> None:
+    result = await _call_build(
+        {
+            "kind": "hbar_rank",
+            "title": "股息率排名",
+            "data": {
+                "items": [
+                    {"label": "PFE 辉瑞", "value": 7.15, "sub": "PE: 18.37"},
+                    {"label": "BMY 施贵宝", "value": 4.56, "sub": "PE: 15.41"},
+                ]
+            },
+        }
+    )
+
+    assert result["data"] == {"block_count": 1, "kinds": ["hbar_rank"]}
+    assert result["viz_blocks"][0]["kind"] == "hbar_rank"
+    assert len(result["viz_blocks"][0]["payload"]["gainers"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_viz_build_generic_hbar_rank_falls_back_to_bar_for_series_comparison() -> None:
+    result = await _call_build(
+        {
+            "kind": "hbar_rank",
+            "title": "估值对比",
+            "data": {
+                "categories": ["恒生指数", "标普500"],
+                "series": [
+                    {"name": "当前PE", "label": "当前PE", "values": [9.8, 31.68]},
+                    {"name": "历史中位数PE", "label": "历史中位数PE", "values": [12.5, 15.08]},
+                ],
+            },
+        }
+    )
+
+    assert result["data"] == {"block_count": 1, "kinds": ["bar"]}
+    assert result["viz_blocks"][0]["kind"] == "bar"
+
+
+@pytest.mark.asyncio
+async def test_agent_viz_build_generic_bar_accepts_label_value_arrays() -> None:
+    result = await _call_build(
+        {
+            "kind": "bar",
+            "title": "当前PE vs 历史中位数",
+            "data": {
+                "labels": ["恒生指数", "沪深300", "标普500"],
+                "pe_current": [9.8, 13.2, 31.68],
+                "pe_median": [12.5, 13.5, 15.08],
+            },
+        }
+    )
+
+    assert result["data"] == {"block_count": 1, "kinds": ["bar"]}
+    block = result["viz_blocks"][0]
+    assert block["kind"] == "bar"
+    assert block["payload"]["categories"] == ["恒生指数", "沪深300", "标普500"]
+    assert block["payload"]["series"][0]["label"] == "当前PE"
+    assert block["payload"]["series"][1]["label"] == "历史中位数PE"
 
 
 @pytest.mark.asyncio

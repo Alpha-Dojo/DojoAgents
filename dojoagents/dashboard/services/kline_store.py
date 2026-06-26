@@ -127,7 +127,8 @@ class KlineStore:
             df = df.tail(limit)
 
         bars = [b for row in df.to_dict(orient="records") if (b := parse_kline_bar(row)) is not None]
-
+        if not bars:
+            return None
         as_of = bars[-1].bar_time
         response = StockKlineResponse(symbol=symbol, as_of=as_of, bars=bars)
 

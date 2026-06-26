@@ -192,6 +192,7 @@ class Runtime:
             config=config.agent,
             plan_activation_hook=plan_hook,
             task_harnesses=[PortfolioTaskHarness()],
+            provider_config=provider_cfg,
         )
 
         # Wire pool runtime reference after agent creation

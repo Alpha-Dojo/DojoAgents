@@ -27,6 +27,7 @@ def test_args_truncation():
     shrunken = _truncate_tool_call_args_json(args_json, head_chars=50)
 
     import json
+
     parsed = json.loads(shrunken)
     assert parsed["path"] == "config.py"
     assert len(parsed["content"]) == 64  # 50 + len("...[truncated]")
@@ -90,16 +91,15 @@ class MockLLMProvider:
 
 @pytest.mark.asyncio
 async def test_compression_trigger():
-    # Low threshold of 5 tokens to force compression
-    compressor = ContextCompressor(threshold_tokens=5, protect_first_n=1, protect_last_n=1)
+    compressor = ContextCompressor(protect_first_n=1, protect_last_n=1)
     provider = MockLLMProvider("Summary of middle history")
 
     messages = [
         {"role": "system", "content": "System message"},  # Head
-        {"role": "user", "content": "Middle user 1"},     # Middle
+        {"role": "user", "content": "Middle user 1"},  # Middle
         {"role": "assistant", "content": "Middle assistant 1"},  # Middle
-        {"role": "user", "content": "Middle user 2"},     # Middle
-        {"role": "user", "content": "Tail user"},         # Tail
+        {"role": "user", "content": "Middle user 2"},  # Middle
+        {"role": "user", "content": "Tail user"},  # Tail
     ]
 
     compressed = await compressor.compress(messages, provider, "gpt-4")

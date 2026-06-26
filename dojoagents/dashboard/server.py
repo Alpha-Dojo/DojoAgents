@@ -48,6 +48,8 @@ from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_ch
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.model_context import ModelContextRegistry
+from dojoagents.agent.token_ledger import SessionTokenLedger
 
 
 def _jsonable(value: Any) -> Any:
@@ -97,10 +99,26 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
     llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
     llm_provider.name = selected_provider
     agent.llm_provider = llm_provider
+    agent.provider_config = provider_cfg
     if is_dataclass(getattr(agent, "config", None)):
-        agent.config = replace(agent.config, model=provider_cfg.model)
+        agent.config = replace(
+            agent.config,
+            model=provider_cfg.model,
+            enable_context_compression=config.agent.enable_context_compression,
+            compression_threshold_ratio=config.agent.compression_threshold_ratio,
+            session_max_tokens_cap=config.agent.session_max_tokens_cap,
+            default_context_window=config.agent.default_context_window,
+        )
     elif hasattr(agent, "config"):
         agent.config.model = provider_cfg.model
+        agent.config.enable_context_compression = config.agent.enable_context_compression
+        agent.config.compression_threshold_ratio = config.agent.compression_threshold_ratio
+        agent.config.session_max_tokens_cap = config.agent.session_max_tokens_cap
+        agent.config.default_context_window = config.agent.default_context_window
+    if hasattr(agent, "model_context_registry"):
+        agent.model_context_registry = ModelContextRegistry(
+            default_context_window=config.agent.default_context_window,
+        )
     return provider_cfg.model
 
 
@@ -479,6 +497,19 @@ def create_app(
             "status": record.status,
             "model": record.model,
         }
+
+    @app.get("/api/chat/sessions/{session_id}/tokens")
+    async def get_chat_session_tokens(session_id: str) -> Any:
+        from dojoagents.agent.token_ledger import SessionTokenState
+
+        ledger = SessionTokenLedger()
+        path = ledger._store.path_for(session_id)
+        if not path.exists():
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        raw = ledger._store._read_sync(path, session_id)
+        if not isinstance(raw, dict):
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        return SessionTokenState(**raw).snapshot()
 
     @app.get("/api/chat/runs/{run_id}")
     async def get_chat_run(run_id: str) -> Any:

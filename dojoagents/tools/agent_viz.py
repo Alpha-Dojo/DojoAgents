@@ -829,6 +829,26 @@ def _generic_kpi_row(data: dict[str, Any], truncated: bool) -> list[dict[str, An
         return [_block("kpi_row", {"layout": "by_market", "markets": data["markets"]}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
     if isinstance(data.get("items"), list) and data["items"]:
         return [_block("kpi_row", {"items": data["items"]}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
+    metrics = data.get("metrics")
+    if isinstance(metrics, list) and metrics:
+        items = []
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                continue
+            trend = str(metric.get("trend") or "").strip().lower()
+            tone = "positive" if trend == "up" else "negative" if trend == "down" else "neutral" if trend else None
+            items.append(
+                {
+                    "key": metric.get("key"),
+                    "label": str(metric.get("label") or metric.get("name") or metric.get("key") or ""),
+                    "value": metric.get("value"),
+                    "meta": metric.get("meta"),
+                    "delta": metric.get("delta"),
+                    "tone": tone,
+                }
+            )
+        if items:
+            return [_block("kpi_row", {"items": items}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
     return []
 
 
@@ -839,6 +859,37 @@ def _generic_bar(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
                 "bar", {"categories": data["categories"], "series": data["series"]}, title=str(data.get("title") or "Bar chart"), subtitle=data.get("subtitle"), truncated=truncated
             )
         ]
+    labels = data.get("labels")
+    if isinstance(labels, list) and labels:
+        categories = [str(label) for label in labels]
+        series = []
+        preferred = [
+            ("pe_current", "当前PE"),
+            ("pe_median", "历史中位数PE"),
+            ("current", "Current"),
+            ("median", "Median"),
+        ]
+        for key, label in preferred:
+            values = data.get(key)
+            if isinstance(values, list):
+                series.append({"name": key, "label": label, "values": [_num(value) for value in values]})
+        if not series:
+            for key, values in data.items():
+                if key in {"labels", "title", "subtitle", "market"}:
+                    continue
+                if isinstance(values, list):
+                    series.append({"name": key, "label": key.replace("_", " ").title(), "values": [_num(value) for value in values]})
+        if series:
+            return [
+                _block(
+                    "bar",
+                    {"categories": categories, "series": series},
+                    title=str(data.get("title") or "Bar chart"),
+                    subtitle=data.get("subtitle"),
+                    truncated=truncated,
+                    market=_normalize_market(data.get("market")),
+                )
+            ]
     return []
 
 
@@ -853,6 +904,33 @@ def _generic_hbar_rank(data: dict[str, Any], truncated: bool) -> list[dict[str, 
                 truncated=truncated,
             )
         ]
+    items = data.get("items")
+    if isinstance(items, list) and items:
+        gainers = []
+        losers = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            value = _num(item.get("value"))
+            if value is None:
+                continue
+            row = {"label": str(item.get("label") or item.get("name") or item.get("key") or ""), "value": value}
+            if value >= 0:
+                gainers.append(row)
+            else:
+                losers.append(row)
+        if gainers or losers:
+            return [
+                _block(
+                    "hbar_rank",
+                    {"gainers": gainers, "losers": losers},
+                    title=str(data.get("title") or "Rank"),
+                    subtitle=data.get("subtitle"),
+                    truncated=truncated,
+                )
+            ]
+    if isinstance(data.get("categories"), list) and isinstance(data.get("series"), list):
+        return _generic_bar(data, truncated)
     return []
 
 
@@ -890,10 +968,11 @@ _ALIASES = {
     "add_portfolio_holding": "portfolio_analysis",
     "add_portfolio_holdings": "portfolio_analysis",
     "auto_allocate_portfolio": "portfolio_analysis",
-    "dojo.sdk.get_stock_quote": "ticker_quote",
-    "dojo.sdk.get_stock_kline": "ticker_kline",
-    "dojo.sdk.get_kline": "ticker_kline",
-    "dojo.sdk.get_stock_news": "news_timeline",
+    "dojo.sdk.stock.current_quote": "ticker_quote",
+    "dojo.sdk.stock.kline": "ticker_kline",
+    "dojo.sdk.forex.kline": "ticker_kline",
+    "dojo.sdk.benchmark.kline": "ticker_kline",
+    "dojo.sdk.stock.news": "news_timeline",
     "portfolio_read_list": "portfolio_list",
     "portfolio_read_search": "portfolio_list",
     "portfolio_read_detail": "portfolio_analysis",

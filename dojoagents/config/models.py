@@ -14,6 +14,7 @@ class LLMProviderConfig:
     base_url: str | None = None
     api_key_env: str | None = "OPENAI_API_KEY"
     api_key: str | None = None
+    context_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,11 @@ class AgentConfig:
     enable_guardrails: bool = True
     enable_think_scrubbing: bool = True
     enable_context_compression: bool = True
-    session_max_tokens: int = 100000
-    threshold_ratio: float = 0.9
+    compression_threshold_ratio: float = 0.8
+    session_max_tokens_cap: int | None = None
+    default_context_window: int = 32768
+    session_max_tokens: int = 100000  # legacy cap fallback when session_max_tokens_cap unset
+    threshold_ratio: float = 0.8  # legacy alias for compression_threshold_ratio
     default_skills: list[str] = field(default_factory=lambda: ["dojo-quant-analyst"])
 
 

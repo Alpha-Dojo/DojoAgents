@@ -1,0 +1,4 @@
+include LICENSE
+include README.md
+recursive-exclude dojoagents/dashboard/web/node_modules *
+prune dojoagents/dashboard/web/node_modules

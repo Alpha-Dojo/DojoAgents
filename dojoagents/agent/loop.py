@@ -21,7 +21,13 @@ from dojoagents.agent.think_scrubber import StreamingThinkScrubber
 from dojoagents.agent.guardrails import (
     ToolCallGuardrailController,
 )
-from dojoagents.agent.compressor import ContextCompressor
+from dojoagents.agent.context_length import ContextLengthExceededError
+from dojoagents.agent.compressor import ContextCompressor, _estimate_tokens_rough, flatten_messages_for_compress
+from dojoagents.agent.hooks.token_compression import TokenCompressionHook
+from dojoagents.agent.model_context import ModelContextRegistry
+from dojoagents.agent.token_ledger import SessionTokenLedger
+from dojoagents.agent.token_policy import TokenCompressionPolicy
+from dojoagents.config.models import LLMProviderConfig
 
 
 from strands.models.model import Model
@@ -152,9 +158,35 @@ class DojoStrandsModelBridge(Model):
             queue.put_nowait(delta)
 
         async def run_chat():
+            nonlocal dojo_msgs
             try:
                 res = await self.llm_provider.chat(dojo_msgs, dojo_tools, model=self._model_id, stream=True, stream_callback=callback, metadata=invocation_state)
                 queue.put_nowait(res)
+            except ContextLengthExceededError as exc:
+                handler = (invocation_state or {}).get("_dojo_handle_context_length_exceeded")
+                agent = (invocation_state or {}).get("_dojo_agent")
+                retries = int((invocation_state or {}).get("_dojo_context_length_retries") or 0)
+                if handler and agent is not None and retries < 1 and invocation_state is not None:
+                    invocation_state["_dojo_context_length_retries"] = retries + 1
+                    compressed = await handler(
+                        agent,
+                        invocation_state,
+                        max_context=exc.max_context,
+                        requested_tokens=exc.requested_tokens,
+                    )
+                    if compressed:
+                        dojo_msgs = strands_to_dojo_messages(agent.messages, system_prompt)
+                        res = await self.llm_provider.chat(
+                            dojo_msgs,
+                            dojo_tools,
+                            model=self._model_id,
+                            stream=True,
+                            stream_callback=callback,
+                            metadata=invocation_state,
+                        )
+                        queue.put_nowait(res)
+                        return
+                queue.put_nowait(exc)
             except Exception as e:
                 queue.put_nowait(e)
 
@@ -173,6 +205,19 @@ class DojoStrandsModelBridge(Model):
                 yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": item}}}
             else:
                 llm_result = item
+                if invocation_state is not None:
+                    usage = (llm_result.metadata or {}).get("usage")
+                    if isinstance(usage, dict):
+                        invocation_state["_dojo_last_usage"] = dict(usage)
+                    else:
+                        prompt_est = _estimate_tokens_rough(dojo_msgs)
+                        completion_est = _estimate_tokens_rough([{"role": "assistant", "content": llm_result.content or ""}])
+                        invocation_state["_dojo_last_usage"] = {
+                            "prompt_tokens": prompt_est,
+                            "completion_tokens": completion_est,
+                            "total_tokens": prompt_est + completion_est,
+                            "usage_available": False,
+                        }
                 break
 
         if not has_text_delta and llm_result.content:
@@ -271,6 +316,7 @@ class AgentLoop:
         stream_delta_callback: Callable[[Any], None] | None = None,
         plan_activation_hook: Any | None = None,
         task_harnesses: list[Any] | None = None,
+        provider_config: LLMProviderConfig | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -281,12 +327,15 @@ class AgentLoop:
         self.stream_delta_callback = stream_delta_callback
         self._plan_activation_hook = plan_activation_hook
         self.task_harnesses = list(task_harnesses or [])
+        self.provider_config = provider_config
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
-            threshold_tokens=15000,
             protect_first_n=3,
             protect_last_n=8,
+        )
+        self.model_context_registry = ModelContextRegistry(
+            default_context_window=(config.default_context_window if isinstance(getattr(config, "default_context_window", None), int) else 32768),
         )
         self.guardrails = ToolCallGuardrailController()
 
@@ -372,8 +421,48 @@ class AgentLoop:
             plan_prompt = self._plan_activation_hook.get_plan_prompt()
             system = system + "\n\n" + plan_prompt
 
-        # 2. Build model bridge
-        model = DojoStrandsModelBridge(self.llm_provider, self.config.model)
+        # 2. Build model bridge and session token ledger
+        model_id = self.config.model if isinstance(self.config.model, str) else "gpt-4.1"
+        raw_provider_name = getattr(self.llm_provider, "name", "openai")
+        provider_name = raw_provider_name if isinstance(raw_provider_name, str) and raw_provider_name else "openai"
+        provider_cfg = (
+            self.provider_config
+            if isinstance(self.provider_config, LLMProviderConfig)
+            else LLMProviderConfig(
+                model=model_id,
+                api_key=getattr(self.llm_provider, "api_key", None),
+                base_url=getattr(self.llm_provider, "base_url", None),
+                context_window=request.metadata.get("context_window"),
+            )
+        )
+        model_context_window = await self.model_context_registry.resolve(
+            provider_name,
+            provider_cfg,
+            client=self._openai_client_for_context(provider_cfg),
+        )
+        session_max_tokens = model_context_window
+        cap = self.config.session_max_tokens_cap
+        if isinstance(cap, int) and cap > 0:
+            session_max_tokens = min(session_max_tokens, cap)
+
+        threshold_ratio = self.config.compression_threshold_ratio if isinstance(getattr(self.config, "compression_threshold_ratio", None), (int, float)) else 0.8
+        compression_enabled = bool(getattr(self.config, "enable_context_compression", True))
+        compression_policy = TokenCompressionPolicy(threshold_ratio=float(threshold_ratio))
+        token_ledger = SessionTokenLedger()
+        token_state = token_ledger.load_or_create(
+            request.session_id,
+            provider=provider_name,
+            model_id=model_id,
+            model_context_window=model_context_window,
+            session_max_tokens=session_max_tokens,
+            compression_threshold_ratio=float(threshold_ratio),
+        )
+        invocation_state["_dojo_token_ledger"] = token_ledger
+        invocation_state["_dojo_event_sink"] = event_sink
+        invocation_state["_dojo_compression_policy"] = compression_policy
+
+        model = DojoStrandsModelBridge(self.llm_provider, model_id)
+        model.update_config(context_window_limit=session_max_tokens)
 
         # 3. Convert history
         history_msgs = []
@@ -416,37 +505,35 @@ class AgentLoop:
             else:
                 history_msgs.append({"role": role, "content": content_blocks})
 
-        # Context Token Tracking & Memory Consolidation Trigger
-        from dojoagents.agent.compressor import _estimate_tokens_rough
+        # Context token tracking & run-start compression
+        temp_messages = [{"role": "system", "content": system}]
+        temp_messages.extend(history_msgs)
+        temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
 
-        session_max_tokens = getattr(self.config, "session_max_tokens", 100000)
-        threshold_ratio = getattr(self.config, "threshold_ratio", 0.9)
-        self.compressor.threshold_tokens = int(session_max_tokens * threshold_ratio)
+        estimated_prompt = _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
+        if compression_policy.should_compress(
+            max(token_state.last_prompt_tokens, estimated_prompt),
+            token_state.session_max_tokens,
+            enabled=compression_enabled,
+        ):
+            compressed_history = await self.compressor.compress(
+                history_msgs,
+                self.llm_provider,
+                self.config.model,
+                memory_manager=self.memory_manager,
+                session_id=request.session_id,
+            )
+            if compressed_history:
+                history_msgs = compressed_history
+                token_state.note_compression(_estimate_tokens_rough(flatten_messages_for_compress(compressed_history)))
+                if event_sink is not None:
+                    event_sink.context_compacted(token_state.compression_count, token_state.last_prompt_tokens)
 
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
         temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
 
-        used_tokens = _estimate_tokens_rough(temp_with_prompt)
-
-        if self.config.enable_context_compression and used_tokens >= self.compressor.threshold_tokens:
-            # Trigger compression & pluggable memory consolidation
-            compressed_temp = await self.compressor.compress(temp_messages, self.llm_provider, self.config.model, memory_manager=self.memory_manager, session_id=request.session_id)
-            # Re-split system prompt and history
-            if compressed_temp:
-                first_msg = compressed_temp[0]
-                if first_msg.get("role") == "system":
-                    system = first_msg.get("content") or ""
-                    history_msgs = compressed_temp[1:]
-                else:
-                    history_msgs = compressed_temp
-
-            # Recalculate
-            temp_messages = [{"role": "system", "content": system}]
-            temp_messages.extend(history_msgs)
-            temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
-            used_tokens = _estimate_tokens_rough(temp_with_prompt)
-
+        used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(temp_with_prompt)
         remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
@@ -501,6 +588,18 @@ class AgentLoop:
             hooks.append(memory_hook)
         else:
             hooks.append(HookProviderWrapper(memory_hook))
+
+        token_compression_hook = TokenCompressionHook(
+            compressor=self.compressor,
+            policy=compression_policy,
+            llm_provider=self.llm_provider,
+            model=self.config.model,
+            memory_manager=self.memory_manager,
+            enabled=compression_enabled,
+            model_context_registry=self.model_context_registry,
+        )
+        invocation_state["_dojo_handle_context_length_exceeded"] = token_compression_hook.handle_context_length_exceeded
+        hooks.append(HookProviderWrapper(token_compression_hook))
 
         # Bridge plugin registry to strands Plugin
         plugin_bridge = plugin_registry.as_strands_plugin()
@@ -695,7 +794,13 @@ class AgentLoop:
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
-                    metadata={"iterations": iterations, "stopped": stopped_reason, "used_tokens": used_tokens, "remaining_tokens": remaining_tokens},
+                    metadata={
+                        "iterations": iterations,
+                        "stopped": stopped_reason,
+                        "used_tokens": used_tokens,
+                        "remaining_tokens": remaining_tokens,
+                        "session_tokens": token_state.snapshot(),
+                    },
                 )
             else:
                 if event_sink is not None:
@@ -731,7 +836,9 @@ class AgentLoop:
         )
         metadata["used_tokens"] = used_tokens
         metadata["remaining_tokens"] = remaining_tokens
+        metadata["session_tokens"] = token_state.snapshot()
         metadata["tool_trace"] = tool_trace
+        token_ledger.save()
 
         harness_state.final_response = response_text
         if active_harness is not None:
@@ -829,6 +936,14 @@ class AgentLoop:
 
     def _collect_tool_specs(self) -> list[dict]:
         return self.tool_executor.registry.schema_list()
+
+    @staticmethod
+    def _openai_client_for_context(provider_cfg: LLMProviderConfig) -> Any | None:
+        if not provider_cfg.api_key:
+            return None
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
 
     def _sanitize_tool_specs(
         self,
