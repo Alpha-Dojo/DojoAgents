@@ -103,7 +103,7 @@
 | `phase` | `phase` | `planning` / `tools` / `answering` |
 | `delta` | `text` | 文本增量镜像 |
 | `tool_start` | `call_id`, `tool`, `arguments` | 工具开始 |
-| `tool_result` | `call_id`, `tool`, `ok`, `content`, `error`, `latency_ms`, `data`, `resource_changes` | 工具完成 |
+| `tool_result` | `call_id`, `tool`, `ok`, `content`, `error`, `latency_ms`, `data`, `viz_blocks`, `resource_changes` | 工具完成 |
 | `retry` | `attempt`, `max_attempts`, `text` | 重试提示 |
 | `eval_hint` | `text`, `issues` | 评估提示 |
 | `done` | `model_id`, `tool_trace`, `tool_steps` | Agent 正常完成 |
@@ -191,6 +191,34 @@
 | `resource_changes` | 对前端缓存或领域资源的刷新提示 |
 
 当前 Dashboard portfolio 写操作会产生 `resource_changes`，用于前端触发 Folio 数据刷新。
+
+`viz_blocks` 由普通工具结果透传产生。当前通用入口是 `agent_viz_build`：Agent 在获得结构化数据后，可以调用该工具把数据转换成 Dashboard 可渲染的 `kpi_row`、`table`、`line`、`price_kline`、`bar`、`hbar_rank`、`donut`、`timeline` 或 `quote_card`。该工具不访问外部数据，只转换调用参数中的紧凑结构化 `data`。
+
+典型 `agent_viz_build` 工具结果：
+
+```json
+{
+  "type": "tool_result",
+  "call_id": "call_viz_001",
+  "tool": "agent_viz_build",
+  "ok": true,
+  "content": "Built 1 visualization block(s): quote_card",
+  "data": {"block_count": 1, "kinds": ["quote_card"]},
+  "viz_blocks": [
+    {
+      "id": "abc123",
+      "kind": "quote_card",
+      "title": "AAPL",
+      "subtitle": null,
+      "source_tool": "agent_viz_build",
+      "truncated": false,
+      "payload": {"ticker": "AAPL", "last_price": 200}
+    }
+  ],
+  "artifacts": [],
+  "resource_changes": []
+}
+```
 
 此外，Agent runtime 现在支持 harness 驱动的任务校验：
 

@@ -923,21 +923,22 @@
   width: 100%;
   min-height: 72px;
   max-height: 160px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border-dim);
-  border-radius: 8px;
-  background: var(--bg-elevated);
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
   resize: vertical;
   box-sizing: border-box;
+  transition: border-color 0.2s ease-in-out;
 }
 
 .dojo-agent-panel__input:focus {
   outline: none;
-  border-color: var(--border-accent);
+  border-color: var(--green);
 }
 
 .dojo-agent-panel__input:disabled {

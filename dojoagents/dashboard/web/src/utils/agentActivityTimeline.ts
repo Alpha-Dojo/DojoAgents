@@ -8,7 +8,19 @@ import type {
 } from '../types/agent';
 import { formatToolResultData } from './agentToolDetail';
 
-function findLastRunningToolIndex(steps: AgentActivityStep[], tool: string): number {
+function findLastRunningToolIndex(
+  steps: AgentActivityStep[],
+  tool: string,
+  callId?: string,
+): number {
+  if (callId) {
+    for (let index = steps.length - 1; index >= 0; index -= 1) {
+      const step = steps[index];
+      if (step.kind === 'tool' && step.item.callId === callId && step.item.status === 'running') {
+        return index;
+      }
+    }
+  }
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const step = steps[index];
     if (step.kind === 'tool' && step.item.tool === tool && step.item.status === 'running') {
@@ -122,13 +134,14 @@ export function appendToolStart(
   steps: AgentActivityStep[],
   tool: string,
   args: Record<string, unknown>,
+  callId?: string,
 ): AgentActivityStep[] {
   return [
     ...steps,
     {
       kind: 'tool',
       id: crypto.randomUUID(),
-      item: { tool, status: 'running', arguments: args },
+      item: { callId, tool, status: 'running', arguments: args },
     },
   ];
 }
@@ -140,18 +153,14 @@ export function resolveToolResult(
   latencyMs: number,
   locale: 'zh' | 'en',
   error?: string | null,
-  data?: {
-    portfolio_id?: string;
-    name?: string;
-    holdings_count?: number;
-    holdings_by_market?: Record<string, number>;
-    tickers?: string[];
-  } | null,
+  data?: Record<string, unknown> | null,
   vizBlocks?: AgentVizBlock[],
+  callId?: string,
 ): AgentActivityStep[] {
-  const runningIndex = findLastRunningToolIndex(steps, tool);
+  const runningIndex = findLastRunningToolIndex(steps, tool, callId);
   const resultSummary = ok ? formatToolResultData(data, locale) : null;
   const nextItem: AgentToolActivityItem = {
+    callId,
     tool,
     status: ok ? 'done' : 'error',
     latencyMs,

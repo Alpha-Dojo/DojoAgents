@@ -130,6 +130,11 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
     inputRef.current?.blur();
   };
 
+  const clearQuery = () => {
+    setQuery('');
+    inputRef.current?.focus();
+  };
+
   return (
     <div className="core-ticker-search" ref={rootRef}>
       <span className="core-ticker-search__icon" aria-hidden>
@@ -138,7 +143,7 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
       <input
         ref={inputRef}
         type="search"
-        className="core-ticker-search__input"
+        className="core-ticker-search__input base-search-input"
         value={query}
         placeholder={t('core.tickerSearchPlaceholder')}
         aria-controls={panelOpen ? listId : undefined}
@@ -147,9 +152,17 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
         onChange={(event) => setQuery(event.target.value)}
         onFocus={() => setFocused(true)}
       />
+      {query ? (
+        <button
+          type="button"
+          className="core-ticker-search__clear"
+          aria-label={t('folio.cancel')}
+          onClick={clearQuery}
+        />
+      ) : null}
 
       {panelOpen ? (
-        <div className="core-ticker-search__panel">
+        <div className="core-ticker-search__panel dojo-dropdown-select__dropdown">
           <ul id={listId} className="core-ticker-search__list" role="listbox">
             {loading ? <li className="core-ticker-search__status">{t('core.searching')}</li> : null}
             {!loading && visibleItems.length === 0 ? (
@@ -157,17 +170,17 @@ export function CoreTickerSearch({ ticker, market, selection, onSelect }: CoreTi
             ) : null}
             {!loading
               ? visibleItems.map((item) => (
-                  <li key={`${item.market}:${item.ticker}`}>
+                  <li key={`${item.market}:${item.ticker}`} role="presentation">
                     <button
                       type="button"
-                      className="core-ticker-search__option"
+                      className="core-ticker-search__option dojo-dropdown-select__option"
                       role="option"
                       aria-selected={item.ticker === ticker && item.market === market}
                       onClick={() => handlePick(item)}
                     >
                       <img className="core-ticker-search__option-flag" src={MARKET_FLAG_IMAGE[item.market]} alt="" aria-hidden />
-                      <span className="core-ticker-search__option-ticker">{item.ticker}</span>
-                      <span className="core-ticker-search__option-name">
+                      <span className="core-ticker-search__option-ticker dojo-dropdown-select__option-label">{item.ticker}</span>
+                      <span className="core-ticker-search__option-name dojo-dropdown-select__option-detail">
                         {locale === 'zh'
                           ? item.name.zh || item.name.en
                           : item.name.en || item.name.zh}

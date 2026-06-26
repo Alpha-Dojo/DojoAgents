@@ -318,24 +318,19 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
             patchRunDraft(state);
           });
         },
-        onToolStart: (tool: string, args: Record<string, unknown>) => {
+        onToolStart: (tool: string, args: Record<string, unknown>, callId?: string) => {
           consumeEvent(() => {
-            state.assistantSteps = appendToolStart(state.assistantSteps, tool, args);
+            state.assistantSteps = appendToolStart(state.assistantSteps, tool, args, callId);
             patchRunDraft(state);
           });
         },
         onToolResult: (payload: {
+          call_id?: string;
           tool: string;
           ok: boolean;
           latency_ms: number;
           error?: string | null;
-          data?: {
-            portfolio_id?: string;
-            name?: string;
-            holdings_count?: number;
-            holdings_by_market?: Record<string, number>;
-            tickers?: string[];
-          } | null;
+          data?: Record<string, unknown> | null;
           viz_blocks?: import('../types/agentViz').AgentVizBlock[];
         }) => {
           consumeEvent(() => {
@@ -348,6 +343,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
               payload.error,
               payload.data,
               payload.viz_blocks,
+              payload.call_id,
             );
             patchRunDraft(state);
             void syncFolioFromAgentTool(payload.tool, payload.ok, payload.data ?? null);

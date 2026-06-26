@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { BenchmarkCard, BenchmarkKlinePoint } from '../../types/dojoMesh';
 import { formatKlineAxisDate, findKlineIndexForDate, resolveKlineBarDate, sliceKlineToWindow } from '../../utils/klineDate';
+import { DojoDropdownSelect } from '../ui';
 
 interface SparklineProps {
   kline: BenchmarkKlinePoint[];
@@ -276,20 +277,17 @@ export function Sparkline({
         className={`market-hero__chart-head${isHovering ? ' market-hero__chart-head--hover' : ''}`}
         aria-live="polite"
       >
-        <label className="market-hero__chart-head-select">
-          <span className="sr-only">切换指数</span>
-          <select
-            className="market-hero__index-select"
-            value={symbol}
-            onChange={(e) => onSymbolChange(e.target.value)}
-          >
-            {benchmarks.map((b) => (
-              <option key={b.symbol} value={b.symbol}>
-                {text(b.name)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <DojoDropdownSelect
+          aria-label="切换指数"
+          className="market-hero__chart-head-select"
+          dropdownMinWidth={132}
+          value={symbol}
+          onChange={onSymbolChange}
+          options={benchmarks.map((benchmark) => ({
+            value: benchmark.symbol,
+            label: text(benchmark.name),
+          }))}
+        />
 
         <div className="market-hero__chart-head-quote">
           {isHovering && activeBarDate && (

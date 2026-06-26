@@ -110,19 +110,6 @@ class DojoSDKToolManager:
                 handler=self.get_stock_kline_handler,
             ),
             ToolSpec(
-                name="dojo.sdk.get_stock_financials",
-                description="Retrieve fundamental financial statements/records (balance sheets, income statement, etc.) for a stock.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Target stock ticker symbol"},
-                        "lookback": {"type": "integer", "description": "Number of statements/years to return"},
-                    },
-                    "required": ["symbol"],
-                },
-                handler=self.get_stock_financials_handler,
-            ),
-            ToolSpec(
                 name="dojo.sdk.get_stock_news",
                 description="Retrieve news articles specifically related to a target stock ticker symbol.",
                 parameters={
@@ -192,7 +179,8 @@ class DojoSDKToolManager:
     async def get_stock_news_handler(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.stocks.get_news(
             symbol=args["symbol"],
-            limit=args.get("limit"),
+            page=args.get("page") or 1,
+            page_size=args.get("page_size") or 10,
         )
         return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
 

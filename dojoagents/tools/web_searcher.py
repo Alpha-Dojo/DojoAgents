@@ -168,6 +168,40 @@ async def _ddgs_search_adapter(
 register_search_backend("ddgs", _ddgs_search_adapter)
 
 
+async def _fetch_extract_adapter(
+    urls: list[str],
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    async with _make_async_client() as client:
+        for url in urls:
+            try:
+                response = await client.get(url)
+                response.raise_for_status()
+                title, content = _strip_html_to_text(response.text)
+                results.append(
+                    {
+                        "url": url,
+                        "title": title,
+                        "content": content,
+                        "error": None,
+                    }
+                )
+            except Exception as e:
+                results.append(
+                    {
+                        "url": url,
+                        "title": "",
+                        "content": "",
+                        "error": str(e),
+                    }
+                )
+    return results
+
+
+register_extract_backend("fetch", _fetch_extract_adapter)
+
+
 def get_web_searcher_specs(cfg: WebToolsConfig) -> list[ToolSpec]:
     async def web_search(args: dict[str, Any]) -> dict[str, Any]:
         backend = cfg.search_backend

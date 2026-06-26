@@ -71,7 +71,7 @@ export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'compos
     <div className={`model-menu model-menu--${variant}`} ref={rootRef}>
       <button
         type="button"
-        className={`model-menu__trigger ${open ? 'model-menu__trigger--open' : ''}`}
+        className={`model-menu__trigger base-select ${open ? 'model-menu__trigger--open' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={t('agentModel.label')}

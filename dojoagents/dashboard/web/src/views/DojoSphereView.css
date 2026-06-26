@@ -381,28 +381,40 @@
   width: 100%;
   min-width: 0;
   max-width: min(100%, 16em);
-  padding: 0 calc(14px * var(--sphere-scale, 1)) 0 2px;
+  color: inherit;
+}
+
+.sphere-level-card__sector-select .dojo-dropdown-select__trigger {
+  height: auto;
+  padding: 0 2px;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: inherit;
-  appearance: none;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font: inherit;
+  font-weight: 700;
+  line-height: inherit;
 }
 
-.sphere-level-card__sector-select:focus {
-  outline: none;
+.sphere-level-card__sector-select .dojo-dropdown-select__trigger:hover,
+.sphere-level-card__sector-select .dojo-dropdown-select__trigger--open {
+  background: transparent;
+  color: inherit;
 }
 
-.sphere-level-card__sector-select:focus-visible {
+.sphere-level-card__sector-select .dojo-dropdown-select__trigger:focus-visible {
   outline: 2px solid rgba(79, 195, 247, 0.45);
   outline-offset: 1px;
 }
 
-.sphere-level-card__sector-picker::after {
+.sphere-level-card__sector-select .dojo-dropdown-select__value {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  line-height: inherit;
+}
+
+/* .sphere-level-card__sector-picker::after {
   content: '▾';
   position: absolute;
   right: 2px;
@@ -413,7 +425,7 @@
   color: var(--text-dim);
   pointer-events: none;
   transition: color 0.15s ease;
-}
+} */
 
 .sphere-level-card__sector-picker:hover::after,
 .sphere-level-card__sector-picker:focus-within::after {
@@ -1257,6 +1269,34 @@
 
 .sphere-performance__benchmark-trigger {
   max-width: 6.5rem;
+}
+
+.sphere-performance__benchmark-select {
+  max-width: 6.5rem;
+}
+
+.sphere-performance__benchmark-select .dojo-dropdown-select__trigger {
+  max-width: 6.5rem;
+  padding: 2px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: calc(11px * var(--sphere-scale, 1));
+  line-height: 1.35;
+}
+
+.sphere-performance__benchmark-select .dojo-dropdown-select__trigger:hover,
+.sphere-performance__benchmark-select .dojo-dropdown-select__trigger--open {
+  color: var(--cyan);
+  border-color: rgba(0, 229, 255, 0.35);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.sphere-performance__benchmark-select .dojo-dropdown-select__value {
+  color: inherit;
+  font-size: calc(11px * var(--sphere-scale, 1));
+  font-weight: 500;
 }
 
 .sphere-performance__callout {

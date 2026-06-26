@@ -262,3 +262,74 @@ def test_dojo_v2_stream_tool_events_include_call_id():
     tool_result = next(event for event in events if event and event.get("type") == "tool_result")
     assert tool_start["call_id"] == "call-123"
     assert tool_result["call_id"] == "call-123"
+
+
+def test_dojo_v2_stream_tool_result_includes_viz_blocks():
+    viz_blocks = [
+        {
+            "id": "viz-1",
+            "kind": "quote_card",
+            "title": "AAPL",
+            "subtitle": None,
+            "source_tool": "agent_viz_build",
+            "truncated": False,
+            "payload": {"ticker": "AAPL", "last_price": 200},
+        }
+    ]
+
+    class VizAgent(FakeStreamingAgent):
+        async def run(self, request, *, event_sink=None):
+            from dojoagents.agent.models import AgentResponse
+
+            if event_sink:
+                event_sink.tool_start(
+                    call_id="call-viz",
+                    tool="agent_viz_build",
+                    arguments={"mapping_hint": "ticker_quote"},
+                )
+                event_sink.tool_result(
+                    call_id="call-viz",
+                    tool="agent_viz_build",
+                    ok=True,
+                    content="Built 1 visualization block(s): quote_card",
+                    latency_ms=8,
+                    data={"block_count": 1, "kinds": ["quote_card"]},
+                    viz_blocks=viz_blocks,
+                )
+                event_sink.done(
+                    model_id="fake-model",
+                    tool_trace=[
+                        {
+                            "call_id": "call-viz",
+                            "tool": "agent_viz_build",
+                            "ok": True,
+                            "viz_blocks": viz_blocks,
+                        }
+                    ],
+                    tool_steps=1,
+                )
+            return AgentResponse(
+                content="done",
+                session_id=request.session_id,
+                metadata={"usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}},
+            )
+
+    client = TestClient(_make_app(VizAgent()))
+    with client.stream(
+        "POST",
+        "/api/chat",
+        json={
+            "model": "gpt-4.1",
+            "messages": [{"role": "user", "content": "visualize AAPL"}],
+            "stream": True,
+            "metadata": {"session_id": "s1", "event_format": "dojo.v2"},
+        },
+    ) as response:
+        lines = [l.strip() for l in response.iter_lines() if l.strip()]  # noqa
+
+    data_lines = [l for l in lines if l.startswith("data:") and "[DONE]" not in l]  # noqa
+    events = [json.loads(dl.replace("data: ", "", 1)).get("dojo_event") for dl in data_lines]
+    tool_result = next(event for event in events if event and event.get("type") == "tool_result")
+    done = next(event for event in events if event and event.get("type") == "done")
+    assert tool_result["viz_blocks"] == viz_blocks
+    assert done["tool_trace"][0]["viz_blocks"] == viz_blocks

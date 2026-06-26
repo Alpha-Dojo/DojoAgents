@@ -53,7 +53,7 @@ async def test_web_search_returns_metadata_only(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_web_search_without_backend_returns_typed_error():
-    executor = _make_executor({})
+    executor = _make_executor({"tools": {"web": {"search_backend": None}}})
     result = await executor.execute_one(ToolCall(id="call-1", name="web_search", arguments={"query": "dojo agents"}))
 
     assert result.ok is False
@@ -186,3 +186,45 @@ async def test_web_search_ddgs_adapter_parses_results(monkeypatch):
 
     assert result.ok is True
     assert result.data["web"][0]["title"] == "Dojo Result"
+
+
+@pytest.mark.asyncio
+async def test_web_extract_fetch_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://example.com/page"
+        return httpx.Response(
+            200,
+            text="""
+            <html>
+            <head><title>Test Title</title></head>
+            <body>
+              <p>Hello Dojo Agents</p>
+            </body>
+            </html>
+            """,
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    def fake_client_factory(**kwargs):
+        transport = httpx.MockTransport(handler)
+        return httpx.AsyncClient(transport=transport, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"extract_backend": "fetch"}}})
+    result = await executor.execute_one(ToolCall(id="call-1", name="web_extract", arguments={"url": "https://example.com/page"}))
+
+    assert result.ok is True
+    assert result.data["results"][0]["title"] == "Test Title"
+    assert "Hello Dojo Agents" in result.data["results"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_web_extract_without_backend_returns_typed_error():
+    executor = _make_executor({"tools": {"web": {"extract_backend": None}}})
+    result = await executor.execute_one(ToolCall(id="call-1", name="web_extract", arguments={"urls": ["https://example.com/page"]}))
+
+    assert result.ok is False
+    assert "not configured" in result.error.lower()
