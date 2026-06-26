@@ -100,6 +100,8 @@ export const zhMessages = {
     apiNotConfigured: '服务端未配置任何大模型 Provider，暂无法对话。',
     sendFailed: '发送失败，请稍后重试。',
     history: '历史会话',
+    maximize: '最大化 DojoAgent',
+    minimize: '恢复 DojoAgent 宽度',
     newChat: '新对话',
     newChatTitle: '新对话',
     noHistory: '暂无历史会话',

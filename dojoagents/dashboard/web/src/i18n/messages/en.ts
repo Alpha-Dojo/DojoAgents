@@ -103,6 +103,8 @@ export const enMessages: MessageTree = {
     apiNotConfigured: 'No model provider is configured on the server.',
     sendFailed: 'Failed to send. Please try again.',
     history: 'Chat history',
+    maximize: 'Maximize DojoAgent',
+    minimize: 'Restore DojoAgent width',
     newChat: 'New chat',
     newChatTitle: 'New chat',
     noHistory: 'No past conversations',

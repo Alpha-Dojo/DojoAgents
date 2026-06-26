@@ -121,6 +121,7 @@ export function DojoAgentPanel({
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
     null,
   );
@@ -215,6 +216,11 @@ export function DojoAgentPanel({
     if (!open) return;
     reloadFromStorage();
   }, [open, reloadFromStorage]);
+
+  useEffect(() => {
+    if (open || pinned) return;
+    setMaximized(false);
+  }, [open, pinned]);
 
   useEffect(() => {
     if (!activeSessionId || !isSessionRunning(activeSessionId)) return;
@@ -340,6 +346,7 @@ export function DojoAgentPanel({
   const canSend =
     Boolean(selectedModel?.available) && input.trim().length > 0 && !streaming;
   const displayMessages = messages;
+  const maximizeLabel = t(maximized ? "agent.minimize" : "agent.maximize");
 
   const toggleThinkBlock = useCallback(
     (messageIndex: number, blockId: string) => {
@@ -380,6 +387,7 @@ export function DojoAgentPanel({
   );
 
   const isOpen = pinned || open;
+  const panelMaximized = isOpen && maximized;
 
   return (
     <aside
@@ -388,8 +396,11 @@ export function DojoAgentPanel({
         pinned ? " dojo-agent-panel--pinned" : ""
       }${interactive ? " dojo-agent-panel--interactive" : ""}${
         resizing ? " dojo-agent-panel--resizing" : ""
+      }${panelMaximized ? " dojo-agent-panel--maximized" : ""
       }`}
-      style={isOpen ? { width: panelWidth } : undefined}
+      style={
+        isOpen ? (maximized ? undefined : { width: panelWidth }) : undefined
+      }
       role="complementary"
       aria-labelledby="dojo-agent-title"
       aria-hidden={!isOpen}
@@ -438,6 +449,25 @@ export function DojoAgentPanel({
             >
               <span
                 className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--message"
+                aria-hidden
+              />
+            </DojoButton>
+            <DojoButton
+              icon
+              size="xs"
+              variant="secondary"
+              className="dojo-agent-panel__toolbar-btn"
+              aria-pressed={maximized}
+              aria-label={maximizeLabel}
+              title={maximizeLabel}
+              onClick={() => setMaximized((prev) => !prev)}
+            >
+              <span
+                className={`dojo-agent-panel__toolbar-icon ${
+                  maximized
+                    ? "dojo-agent-panel__toolbar-icon--minimize"
+                    : "dojo-agent-panel__toolbar-icon--maximize"
+                }`}
                 aria-hidden
               />
             </DojoButton>

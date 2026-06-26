@@ -74,6 +74,7 @@
   /* Font settings */
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  --app-header-height: 47px;
 
   /* Chart Date settings */
   --chart-date-color: var(--text-muted);
@@ -160,6 +161,10 @@ button {
 }
 
 @media (max-width: 1024px) {
+  :root {
+    --app-header-height: 41px;
+  }
+
   .app-header {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;

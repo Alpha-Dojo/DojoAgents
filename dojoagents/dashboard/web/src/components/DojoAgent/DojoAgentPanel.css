@@ -67,6 +67,30 @@
   border-left-color: var(--border-dim);
 }
 
+.dojo-agent-panel--maximized {
+  position: fixed;
+  top: var(--app-header-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  width: 100vw;
+  height: calc(100dvh - var(--app-header-height));
+  border-left-color: transparent;
+  border-top: 1px solid var(--border-dim);
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.38);
+}
+
+.dojo-agent-panel--maximized .dojo-agent-panel__resize-handle {
+  display: none;
+}
+
+.dojo-agent-panel--interactive.dojo-agent-panel--maximized {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
 .dojo-agent-panel__head {
   display: flex;
   align-items: center;
@@ -138,6 +162,22 @@
 .dojo-agent-panel__toolbar-icon--message {
   -webkit-mask: url("../../assets/svg/message.svg") center / contain no-repeat;
   mask: url("../../assets/svg/message.svg") center / contain no-repeat;
+}
+
+.dojo-agent-panel__toolbar-icon--maximize,
+.dojo-agent-panel__toolbar-icon--minimize {
+  width: 14px;
+  height: 14px;
+}
+
+.dojo-agent-panel__toolbar-icon--maximize {
+  -webkit-mask: url("../../assets/svg/maximization.svg") center / contain no-repeat;
+  mask: url("../../assets/svg/maximization.svg") center / contain no-repeat;
+}
+
+.dojo-agent-panel__toolbar-icon--minimize {
+  -webkit-mask: url("../../assets/svg/minimize.svg") center / contain no-repeat;
+  mask: url("../../assets/svg/minimize.svg") center / contain no-repeat;
 }
 
 .dojo-agent-panel__toolbar-icon--close {
