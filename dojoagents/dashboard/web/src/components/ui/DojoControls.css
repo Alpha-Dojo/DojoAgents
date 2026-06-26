@@ -33,10 +33,38 @@
 }
 
 .dojo-button--xs {
-  min-height: 26px;
+  min-height: 24px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+}
+
+.dojo-button--icon {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
+  aspect-ratio: 1;
+}
+
+.dojo-button--icon.dojo-button--sm {
+  width: 34px;
+  min-width: 34px;
+}
+
+.dojo-button--icon.dojo-button--xs {
+  width: 24px;
+  min-width: 24px;
+}
+
+.dojo-button--icon > svg,
+.dojo-button--icon > img {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+}
+
+.dojo-button--icon > svg {
+  display: block;
 }
 
 .dojo-button:focus-visible,
@@ -80,6 +108,24 @@
   color: #07151d;
 }
 
+.dojo-button--error {
+  background: rgb(187 41 52 / 10%);
+  border-color: var(--color-border-danger);
+  color: #ff9aa2;
+}
+
+.dojo-button--error:hover:not(:disabled) {
+  background: var(--color-status-danger);
+  border-color: var(--color-status-danger);
+  color: #fff7f8;
+}
+
+.dojo-button--error:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-status-danger) 78%, #070f15);
+  border-color: color-mix(in srgb, var(--color-status-danger) 78%, #070f15);
+  color: #fff7f8;
+}
+
 .dojo-button:disabled {
   cursor: not-allowed;
   /* opacity: 0.45; */
@@ -94,6 +140,12 @@
   background: transparent;
   border-color: var(--color-accent-disabled);
   color: var(--color-accent-disabled);
+}
+
+.dojo-button--error:disabled {
+  background: rgb(187 41 52 / 7%);
+  border-color: rgb(187 41 52 / 22%);
+  color: rgb(255 154 162 / 42%);
 }
 
 .dojo-field {

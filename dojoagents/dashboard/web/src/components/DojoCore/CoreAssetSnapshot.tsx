@@ -41,11 +41,26 @@ export function CoreAssetSnapshot({
 }: CoreAssetSnapshotProps) {
   const { t, text } = useTranslation();
   const { quote, metricRows, market, ticker } = asset;
+  const indexedMetricRows = metricRows.map((row, rowIndex) => {
+    const rowStartIndex = metricRows
+      .slice(0, rowIndex)
+      .reduce((total, currentRow) => total + currentRow.length, 0);
 
-  const renderMetricCell = (metric: (typeof metricRows)[number][number]) => (
+    return row.map((metric, metricIndex) => ({
+      metric,
+      flatIndex: rowStartIndex + metricIndex,
+    }));
+  });
+
+  const renderMetricCell = (metric: (typeof metricRows)[number][number], flatIndex: number) => (
     <div
       key={metric.labelKey}
-      className={`core-snapshot__metric${metric.title ? ' core-snapshot__metric--truncated' : ''}`}
+      className={[
+        'core-snapshot__metric',
+        flatIndex % 5 === 0 ? 'core-snapshot__metric--flat-start-5' : '',
+        flatIndex % 3 === 0 ? 'core-snapshot__metric--flat-start-3' : '',
+        metric.title ? 'core-snapshot__metric--truncated' : '',
+      ].filter(Boolean).join(' ')}
     >
       <dt>{t(`core.metrics.${metric.labelKey}` as 'core.metrics.marketCap')}</dt>
       <dd title={metric.title}>
@@ -110,9 +125,9 @@ export function CoreAssetSnapshot({
         className="core-snapshot__metrics-panel"
         style={{ '--core-metric-cols': CORE_METRIC_COLUMN_COUNT } as React.CSSProperties}
       >
-        {metricRows.map((row, rowIndex) => (
+        {indexedMetricRows.map((row, rowIndex) => (
           <dl key={rowIndex} className="core-snapshot__metrics-row">
-            {row.map((metric) => renderMetricCell(metric))}
+            {row.map(({ metric, flatIndex }) => renderMetricCell(metric, flatIndex))}
           </dl>
         ))}
       </div>

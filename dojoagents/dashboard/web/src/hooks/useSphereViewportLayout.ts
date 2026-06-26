@@ -17,7 +17,8 @@ export function useSphereScale(viewRef: RefObject<HTMLElement | null>): Record<s
       const width = view.clientWidth;
       if (height <= 0 || width <= 0) return;
 
-      const scale = clamp(Math.min(height / 820, width / 1320), 0.94, 1.12);
+      const minScale = width < 520 ? 0.82 : width < 760 ? 0.86 : width < 960 ? 0.9 : 0.94;
+      const scale = clamp(Math.min(height / 820, width / 1320), minScale, 1.12);
       const cardPad = Math.round(10 * scale);
       const gaugeHeight = clamp(Math.round(height * 0.058), 36, 56);
       const gaugeWidth = clamp(Math.round(gaugeHeight * 2.1), 72, 112);

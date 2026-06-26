@@ -89,3 +89,17 @@
   color: var(--color-accent-primary);
   background: rgb(2 175 127 / 10%);
 }
+
+
+@media (max-width: 1366px) {
+  .lang-menu .lang-menu__value {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .lang-menu__trigger {
+    gap: 4px;
+    padding: 5px 6px;
+  }
+}

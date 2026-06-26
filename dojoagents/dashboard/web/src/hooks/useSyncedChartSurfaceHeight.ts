@@ -19,6 +19,12 @@ export function useSyncedChartSurfaceHeight(rowRef: RefObject<HTMLElement | null
     if (!row) return;
 
     const measure = () => {
+      const rowStyle = getComputedStyle(row);
+      if (rowStyle.flexDirection === 'column') {
+        row.style.removeProperty('--core-synced-main-plot-h');
+        return;
+      }
+
       const cards = row.querySelectorAll<HTMLElement>(CHART_CARD_SELECTOR);
       if (cards.length < 2) return;
 
@@ -42,7 +48,10 @@ export function useSyncedChartSurfaceHeight(rowRef: RefObject<HTMLElement | null
       );
       if (mainPlotH <= 0) return;
 
-      row.style.setProperty('--core-synced-main-plot-h', `${mainPlotH}px`);
+      const nextValue = `${mainPlotH}px`;
+      if (row.style.getPropertyValue('--core-synced-main-plot-h') !== nextValue) {
+        row.style.setProperty('--core-synced-main-plot-h', nextValue);
+      }
     };
 
     measure();

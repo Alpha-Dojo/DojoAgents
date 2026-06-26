@@ -48,7 +48,7 @@ export function AgentSuggestedQuestions({ sourceTab, onSelect }: AgentSuggestedQ
           <li key={question}>
             <button
               type="button"
-              className="dojo-agent-panel__suggested-item"
+              className="dojo-agent-panel__suggested-item base-card"
               onClick={() => onSelect(question)}
             >
               {question}

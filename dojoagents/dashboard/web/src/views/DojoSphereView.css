@@ -1496,6 +1496,8 @@
 .sphere-constituents-col .sphere-table-wrap--split {
   display: flex;
   flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .sphere-constituents-col .sphere-table-head {
@@ -1513,8 +1515,10 @@
 .sphere-constituents-col .sphere-table-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 0 6px 2px;
+  scrollbar-gutter: stable;
 }
 
 .sphere-table-wrap {
@@ -1566,32 +1570,45 @@
 
 /* Constituents: ticker full width, narrow name, readable metric spacing */
 .sphere-constituents-col .sphere-table__col-code {
-  width: 10ch;
+  width: 7.5ch;
 }
 
 .sphere-constituents-col .sphere-table__col-name {
-  width: 2.75rem;
+  width: 2.25rem;
 }
 
 .sphere-constituents-col .sphere-table__col-price {
-  width: 7ch;
+  width: 5.8ch;
 }
 
 .sphere-constituents-col .sphere-table__col-day,
 .sphere-constituents-col .sphere-table__col-year {
-  width: 9.5ch;
+  width: 7ch;
 }
 
 .sphere-constituents-col .sphere-table__col-cap {
-  width: 6ch;
+  width: 5.4ch;
 }
 
 .sphere-constituents-col .sphere-table__col-pe {
-  width: 8ch;
+  width: 6.4ch;
 }
 
 .sphere-constituents-col .sphere-table__col-pb {
-  width: 6.5ch;
+  width: 5.8ch;
+}
+
+.sphere-constituents-col .sphere-table__col-scrollbar {
+  width: calc(var(--scrollbar-size, 10px) + 6px);
+}
+
+.sphere-constituents-col .sphere-table-head,
+.sphere-constituents-col .sphere-table-scroll {
+  min-width: 446px;
+}
+
+.sphere-constituents-col .sphere-table {
+  min-width: 446px;
 }
 
 .sphere-table th,
@@ -1611,8 +1628,8 @@
   text-overflow: ellipsis;
 }
 
-.sphere-table th:nth-child(n + 3),
-.sphere-table td:nth-child(n + 3) {
+.sphere-table th:nth-child(n + 3):not(.sphere-table__scrollbar-cell),
+.sphere-table td:nth-child(n + 3):not(.sphere-table__scrollbar-cell) {
   overflow: visible;
   text-overflow: clip;
   font-variant-numeric: tabular-nums;
@@ -1630,8 +1647,8 @@
   padding-right: 2px;
 }
 
-.sphere-table th:nth-child(n + 3),
-.sphere-table td:nth-child(n + 3) {
+.sphere-table th:nth-child(n + 3):not(.sphere-table__scrollbar-cell),
+.sphere-table td:nth-child(n + 3):not(.sphere-table__scrollbar-cell) {
   padding-left: 2px;
   padding-right: 2px;
   text-align: right;
@@ -1649,15 +1666,21 @@
   padding-right: 4px;
 }
 
-.sphere-constituents-col .sphere-table th:nth-child(n + 3),
-.sphere-constituents-col .sphere-table td:nth-child(n + 3) {
-  padding-left: 3px;
-  padding-right: 3px;
+.sphere-constituents-col .sphere-table th:nth-child(n + 3):not(.sphere-table__scrollbar-cell),
+.sphere-constituents-col .sphere-table td:nth-child(n + 3):not(.sphere-table__scrollbar-cell) {
+  padding-left: 2px;
+  padding-right: 2px;
 }
 
 .sphere-table th:nth-child(8),
 .sphere-table td:nth-child(8) {
-  padding-right: 1px;
+  padding-right: 4px;
+}
+
+.sphere-table__scrollbar-cell {
+  padding: 0 !important;
+  border-bottom-color: rgba(21, 34, 56, 0.85);
+  pointer-events: none;
 }
 
 .sphere-table th {
@@ -1782,4 +1805,255 @@
 .sphere-table__ratio--negative {
   color: #ffb74d;
   font-style: italic;
+}
+
+@media (max-width: 960px) {
+  .dojo-sphere-view {
+    padding: 10px 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .dojo-sphere-view__grid {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+    gap: 10px;
+  }
+
+  .sphere-sector-hero,
+  .sphere-table-card {
+    grid-column: auto;
+    grid-row: auto;
+    width: 100%;
+  }
+
+  .sphere-sector-hero {
+    align-self: stretch;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .sphere-sector-hero__top {
+    margin-bottom: 10px;
+  }
+
+  .sphere-sector-hero__heading {
+    white-space: normal;
+  }
+
+  .sphere-sector-hero__desc {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .sphere-sector-metrics__cards {
+    grid-template-columns: 1fr;
+  }
+
+  .sphere-level-card {
+    overflow: visible;
+  }
+
+  .sphere-level-card__charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sphere-level-card__analytics {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: stretch;
+  }
+
+  .sphere-level-card__module {
+    min-height: 0;
+  }
+
+  .sphere-level-sparkline__chart-wrap {
+    min-height: 72px;
+  }
+
+  .sphere-bottom-panel,
+  .sphere-bottom-panel__content,
+  .sphere-bottom-panel__content .sphere-constituents-grid,
+  .sphere-constituents-grid,
+  .sphere-constituents-col,
+  .sphere-constituents-col .sphere-table-wrap {
+    min-height: 0;
+  }
+
+  .sphere-bottom-panel {
+    overflow: visible;
+  }
+
+  .sphere-bottom-panel__content {
+    flex: 0 0 auto;
+  }
+
+  .sphere-constituents-grid {
+    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+  }
+
+  .sphere-constituents-col {
+    min-height: 280px;
+  }
+
+  .sphere-constituents-col .sphere-table-scroll {
+    max-height: 340px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dojo-sphere-view {
+    padding: 10px;
+  }
+
+  .sphere-sector-hero__top {
+    align-items: flex-start;
+  }
+
+  .sphere-sector-hero__heading {
+    display: block;
+  }
+
+  .sphere-sector-hero__title,
+  .sphere-sector-hero__desc {
+    display: block;
+  }
+
+  .sphere-sector-hero__sep {
+    display: none;
+  }
+
+  .sphere-level-card__title {
+    gap: 4px 6px;
+  }
+
+  .sphere-level-card__meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sphere-level-card__analytics {
+    grid-template-columns: 1fr;
+  }
+
+  .sphere-level-sparkline__head {
+    flex-wrap: wrap;
+  }
+
+  .sphere-level-sparkline__head-tail {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .sphere-level-sparkline__inline-markets {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .sphere-constituents-col {
+    min-height: 260px;
+  }
+
+  .sphere-constituents-col .sphere-table-head,
+  .sphere-constituents-col .sphere-table-scroll {
+    min-width: 560px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dojo-sphere-view {
+    padding: 8px;
+  }
+
+  .dojo-sphere-view__grid {
+    gap: 8px;
+  }
+
+  .sphere-card {
+    border-radius: 6px;
+  }
+
+  .sphere-sector-hero {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .sphere-sector-hero__icon {
+    display: none;
+  }
+
+  .sphere-sector-hero__top {
+    margin-top: 0;
+    margin-bottom: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  .sphere-sector-metrics__cards {
+    gap: 8px;
+  }
+
+  .sphere-level-card {
+    padding: 7px;
+  }
+
+  .sphere-level-card__charts {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .sphere-metric-panel {
+    padding: 0;
+  }
+
+  .sphere-metric-panel:first-child {
+    padding-bottom: 8px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .sphere-metric-panel__plot {
+    gap: 10px;
+  }
+
+  .sphere-level-risk__table {
+    table-layout: auto;
+  }
+
+  .sphere-level-risk__table th,
+  .sphere-level-risk__table td {
+    padding: 4px 3px;
+  }
+
+  .sphere-bottom-panel__tabs {
+    margin: 0 calc(-1 * var(--sphere-card-pad, 7px));
+    overflow-x: auto;
+  }
+
+  .sphere-bottom-panel__tab {
+    padding: 7px 10px;
+  }
+
+  .sphere-constituents-col__head {
+    padding: 6px 8px;
+  }
+
+  .sphere-constituents-col .sphere-table-head,
+  .sphere-constituents-col .sphere-table-scroll {
+    min-width: 520px;
+  }
+
+  .sphere-constituents-col .sphere-table-scroll {
+    max-height: 300px;
+  }
+
+  .sphere-table__name-tooltip {
+    display: none;
+  }
 }
