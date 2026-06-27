@@ -151,8 +151,59 @@
   line-height: 1.35;
 }
 
+.folio-sidebar__search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
 .folio-portfolio-search {
   position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.folio-sidebar__collapse-all {
+  display: inline-flex;
+  flex: 0 0 34px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.folio-sidebar__collapse-all:hover,
+.folio-sidebar__collapse-all:focus-visible {
+  border-color: var(--color-accent-float);
+  background: rgb(0 224 162 / 6%);
+  color: var(--color-accent-float);
+  outline: none;
+}
+
+.folio-sidebar__collapse-all:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.folio-sidebar__collapse-all .folio-sidebar__icon-svg {
+  width: 12px;
+  height: 12px;
+}
+
+.folio-sidebar__collapse-all .folio-sidebar__icon-svg + .folio-sidebar__icon-svg {
+  margin-top: -7px;
 }
 
 .folio-portfolio-search__icon {
@@ -340,6 +391,11 @@
   border-color: rgba(255, 204, 128, 0.28);
 }
 
+.folio-sidebar__item--collapsed .folio-sidebar__item-main {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .folio-sidebar__item-main {
   width: 100%;
   padding: 7px 8px;
@@ -419,6 +475,16 @@
   opacity: 1;
 }
 
+.folio-sidebar__collapse-one {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.folio-sidebar__collapse-one:hover,
+.folio-sidebar__collapse-one:focus-visible {
+  color: var(--color-accent-float);
+}
+
 .folio-sidebar__icon-btn--danger:hover,
 .folio-sidebar__icon-btn--danger:focus-visible {
   color: #ff8a8a;
@@ -428,6 +494,14 @@
 .folio-sidebar__icon-svg {
   width: 14px;
   height: 14px;
+}
+
+.folio-sidebar__chevron {
+  transition: transform 0.15s ease;
+}
+
+.folio-sidebar__chevron--expanded {
+  transform: rotate(180deg);
 }
 
 .folio-sidebar__stats-table {
@@ -3412,5 +3486,13 @@
   .folio-table__cost-input {
     height: 24px;
     padding: 0 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folio-sidebar__collapse-all,
+  .folio-sidebar__chevron,
+  .folio-sidebar__item {
+    transition: none;
   }
 }
