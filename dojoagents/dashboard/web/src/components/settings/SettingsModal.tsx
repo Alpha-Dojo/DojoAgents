@@ -199,6 +199,16 @@ function modelPresetValue(provider: ProviderForm, preset?: ProviderPreset): stri
   return preset.models.some((model) => model.value === provider.model) ? provider.model : CUSTOM_MODEL_VALUE;
 }
 
+function configuredProviderModel(config: SettingsConfig | null, providerName: string): string {
+  const llm = asRecord(config?.llm_provider);
+  const provider = asRecord(asRecord(llm.providers)[providerName]);
+  return asString(provider.model).trim();
+}
+
+function isConfiguredModel(model: string, configuredModel: string): boolean {
+  return configuredModel.length > 0 && model === configuredModel;
+}
+
 function buildForm(cfg: SettingsConfig): SettingsFormState {
   const llm = asRecord(cfg.llm_provider);
   const providers: Record<string, ProviderForm> = {};
@@ -565,6 +575,15 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   const provider = form.llm_provider.providers[name];
                   const preset = LLM_PROVIDER_PRESETS[name];
                   const selectedPresetValue = modelPresetValue(provider, preset);
+                  const configuredModel = configuredProviderModel(rawConfig, name);
+                  const configuredPresetValue = modelPresetValue(
+                    { ...provider, model: configuredModel },
+                    preset,
+                  );
+                  const currentModelIsConfigured = isConfiguredModel(
+                    provider.model,
+                    configuredModel,
+                  );
                   return (
                     <div className="settings-subsection" key={name}>
                       <h3>{providerLabel(name)}</h3>
@@ -585,15 +604,45 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                           options={[
                             ...(preset?.models.map((model) => ({
                               value: model.value,
-                              label: model.label,
+                              label:
+                                model.value === configuredModel
+                                  ? `${model.label} · ${t('settings.configured')}`
+                                  : model.label,
                             })) ?? []),
-                            { value: CUSTOM_MODEL_VALUE, label: 'Custom model' },
+                            {
+                              value: CUSTOM_MODEL_VALUE,
+                              label:
+                                configuredModel &&
+                                configuredPresetValue === CUSTOM_MODEL_VALUE
+                                  ? `Custom model · ${t('settings.configured')}`
+                                  : 'Custom model',
+                            },
                           ]}
                         />
                       </Field>
                       <Field label="Model">
-                        {textInput(provider.model, (value) =>
-                          updateField((draft) => { draft.llm_provider.providers[name].model = value; }))}
+                        <div
+                          className={`settings-model-control ${
+                            currentModelIsConfigured
+                              ? 'settings-model-control--configured'
+                              : ''
+                          }`}
+                        >
+                          <DojoInput
+                            size="sm"
+                            value={provider.model}
+                            onChange={(event) =>
+                              updateField((draft) => {
+                                draft.llm_provider.providers[name].model = event.target.value;
+                              })
+                            }
+                          />
+                          {provider.model === configuredModel && currentModelIsConfigured ? (
+                            <span className="settings-model-configured">
+                              {t('settings.configured')}
+                            </span>
+                          ) : null}
+                        </div>
                       </Field>
                       <Field label="Base URL">
                         {textInput(provider.base_url, (value) =>

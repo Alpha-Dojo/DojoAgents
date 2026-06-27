@@ -77,6 +77,7 @@ export const zhMessages = {
     saving: '保存中…',
     saveSuccess: '配置已保存。',
     saveFailed: '配置保存失败。',
+    configured: '已配置',
   },
   agentModel: {
     label: '模型',

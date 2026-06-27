@@ -80,6 +80,7 @@ export const enMessages: MessageTree = {
     saving: 'Saving…',
     saveSuccess: 'Configuration saved.',
     saveFailed: 'Failed to save configuration.',
+    configured: 'Configured',
   },
   agentModel: {
     label: 'Model',

@@ -126,6 +126,39 @@
   min-width: 0;
 }
 
+.settings-model-control {
+  position: relative;
+  min-width: 0;
+}
+
+.settings-model-control .dojo-input {
+  width: 100%;
+}
+
+.settings-model-control--configured .dojo-input {
+  padding-right: 76px;
+}
+
+.settings-model-configured {
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  max-width: 62px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 1px solid rgb(0 224 162 / 36%);
+  border-radius: 999px;
+  background: rgb(0 224 162 / 10%);
+  color: var(--color-accent-float);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .settings-field > span,
 .settings-check span {
   color: var(--text-muted);
