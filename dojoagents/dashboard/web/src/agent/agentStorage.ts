@@ -1,4 +1,11 @@
 import type { AgentChatMessage } from '../types/agent';
+import { compactMessagesForStorage, trySetStorage } from './agentStoragePolicy';
+import {
+  clearAgentStreamDrafts,
+  getAgentStreamDraft,
+  putAgentStreamDraft,
+} from './agentIndexedDb';
+import { chooseStreamDraft } from './agentIndexedDbPolicy';
 
 /** 历史会话列表与当前选中会话 */
 export const AGENT_SESSIONS_STORAGE_KEY = 'dojo-agent-sessions-v1';
@@ -39,8 +46,12 @@ export function loadActiveRunDraft(): AgentActiveRunDraft | null {
   }
 }
 
-export function saveActiveRunDraft(draft: AgentActiveRunDraft): void {
-  localStorage.setItem(AGENT_ACTIVE_RUN_STORAGE_KEY, JSON.stringify(draft));
+export function saveActiveRunDraft(draft: AgentActiveRunDraft): boolean {
+  return trySetStorage(
+    localStorage,
+    AGENT_ACTIVE_RUN_STORAGE_KEY,
+    JSON.stringify(draft),
+  );
 }
 
 export function clearActiveRunDraft(): void {
@@ -59,10 +70,29 @@ export function loadStreamDraft(): AgentStreamDraft | null {
   }
 }
 
-export function saveStreamDraft(draft: AgentStreamDraft): void {
-  localStorage.setItem(AGENT_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+export function saveStreamDraft(draft: AgentStreamDraft): boolean {
+  void putAgentStreamDraft(draft);
+  return trySetStorage(
+    localStorage,
+    AGENT_DRAFT_STORAGE_KEY,
+    JSON.stringify({
+      ...draft,
+      messages: compactMessagesForStorage(draft.messages),
+    }),
+  );
 }
 
 export function clearStreamDraft(): void {
   localStorage.removeItem(AGENT_DRAFT_STORAGE_KEY);
+  void clearAgentStreamDrafts();
+}
+
+export async function loadStreamDraftFull(
+  sessionId?: string,
+): Promise<AgentStreamDraft | null> {
+  const fallback = loadStreamDraft();
+  const targetSessionId = sessionId ?? fallback?.sessionId;
+  if (!targetSessionId) return fallback;
+  const archived = await getAgentStreamDraft(targetSessionId);
+  return chooseStreamDraft(fallback, archived);
 }

@@ -1,6 +1,8 @@
 import { AGENT_SESSIONS_STORAGE_KEY } from './agentStorage';
 import type { AgentChatMessage, AgentSession, AgentSessionStore } from '../types/agent';
 import { deriveSessionTitle } from './useAgentSessions';
+import { writeSessionStore } from './agentStoragePolicy';
+import { updateAgentSessionMessages } from './agentIndexedDb';
 
 function loadStore(): AgentSessionStore {
   try {
@@ -32,6 +34,8 @@ export function persistSessionMessagesSync(
   const firstUser = messages.find((message) => message.role === 'user');
   const sessions = store.sessions.map((session) => {
     if (session.id !== sessionId) return session;
+    const revision = (session.revision ?? 0) + 1;
+    void updateAgentSessionMessages(sessionId, messages, modelId, now, revision);
     return {
       ...session,
       messages,
@@ -41,11 +45,13 @@ export function persistSessionMessagesSync(
           ? deriveSessionTitle(firstUser.content)
           : session.title,
       updatedAt: now,
+      revision,
     };
   });
   if (!sessions.some((session) => session.id === sessionId)) return;
-  localStorage.setItem(
+  writeSessionStore(
+    localStorage,
     AGENT_SESSIONS_STORAGE_KEY,
-    JSON.stringify({ ...store, sessions: sortSessions(sessions) }),
+    { ...store, sessions: sortSessions(sessions) },
   );
 }

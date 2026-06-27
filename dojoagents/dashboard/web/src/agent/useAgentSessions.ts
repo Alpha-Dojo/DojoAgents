@@ -1,10 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { AGENT_SESSIONS_STORAGE_KEY } from './agentStorage';
 import type { AgentChatMessage, AgentSession, AgentSessionStore } from '../types/agent';
+import {
+  hydrateAgentSessionStore,
+  getAgentStorageStatus,
+  subscribeAgentStorageStatus,
+  syncAgentSessionStore,
+} from './agentIndexedDb';
+import {
+  compareSessionFreshness,
+  withFallbackTimeout,
+} from './agentIndexedDbPolicy';
+import {
+  MAX_AGENT_SESSIONS,
+  writeSessionStore,
+} from './agentStoragePolicy';
 
 export { AGENT_SESSIONS_STORAGE_KEY, AGENT_DRAFT_STORAGE_KEY } from './agentStorage';
 
-const MAX_SESSIONS = 50;
+const HYDRATION_INTERACTION_TIMEOUT_MS = 1_500;
 
 function createEmptyStore(): AgentSessionStore {
   return { activeSessionId: null, sessions: [] };
@@ -25,8 +46,8 @@ function loadStore(): AgentSessionStore {
   }
 }
 
-function persistStore(store: AgentSessionStore) {
-  localStorage.setItem(AGENT_SESSIONS_STORAGE_KEY, JSON.stringify(store));
+function persistStore(store: AgentSessionStore): void {
+  writeSessionStore(localStorage, AGENT_SESSIONS_STORAGE_KEY, store);
 }
 
 export function deriveSessionTitle(firstUserMessage: string, fallback = 'New chat'): string {
@@ -45,10 +66,72 @@ function newSessionId(): string {
 
 export function useAgentSessions() {
   const [store, setStore] = useState<AgentSessionStore>(() => loadStore());
+  const [indexedDbHydrated, setIndexedDbHydrated] = useState(false);
+  const [sessionsReady, setSessionsReady] = useState(false);
+  const mutationVersionRef = useRef(0);
+  const storageStatus = useSyncExternalStore(
+    subscribeAgentStorageStatus,
+    getAgentStorageStatus,
+    getAgentStorageStatus,
+  );
+
+  const markMutation = useCallback(() => {
+    mutationVersionRef.current += 1;
+  }, []);
+
+  const mergeHydratedIntoCurrent = useCallback(
+    (current: AgentSessionStore, hydrated: AgentSessionStore): AgentSessionStore => {
+      const hydratedById = new Map(
+        hydrated.sessions.map((session) => [session.id, session]),
+      );
+      return {
+        activeSessionId: current.activeSessionId,
+        sessions: current.sessions.map((session) => {
+          const full = hydratedById.get(session.id);
+          return full && compareSessionFreshness(full, session) >= 0 ? full : session;
+        }),
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     persistStore(store);
   }, [store]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const localFallback = store;
+    const hydrationMutationVersion = mutationVersionRef.current;
+    const hydrationPromise = hydrateAgentSessionStore(localFallback);
+    void withFallbackTimeout(
+      hydrationPromise,
+      localFallback,
+      HYDRATION_INTERACTION_TIMEOUT_MS,
+    ).then(() => {
+      if (!cancelled) setSessionsReady(true);
+    });
+    void (async () => {
+      const hydrated = await hydrationPromise;
+      if (cancelled) return;
+      setStore((current) => {
+        if (mutationVersionRef.current === hydrationMutationVersion) return hydrated;
+        return mergeHydratedIntoCurrent(current, hydrated);
+      });
+      setIndexedDbHydrated(true);
+      setSessionsReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Initial hydration must use the exact synchronous fallback from first render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeHydratedIntoCurrent]);
+
+  useEffect(() => {
+    if (!indexedDbHydrated) return;
+    void syncAgentSessionStore(store);
+  }, [indexedDbHydrated, store]);
 
   const activeSession = useMemo(
     () => store.sessions.find((session) => session.id === store.activeSessionId) ?? null,
@@ -56,6 +139,7 @@ export function useAgentSessions() {
   );
 
   const createSession = useCallback((modelId: string, title = '') => {
+    markMutation();
     const now = Date.now();
     const session: AgentSession = {
       id: newSessionId(),
@@ -64,22 +148,24 @@ export function useAgentSessions() {
       messages: [],
       createdAt: now,
       updatedAt: now,
+      revision: 1,
     };
     setStore((prev) => ({
       activeSessionId: session.id,
-      sessions: sortSessions([session, ...prev.sessions]).slice(0, MAX_SESSIONS),
+      sessions: sortSessions([session, ...prev.sessions]).slice(0, MAX_AGENT_SESSIONS),
     }));
     return session.id;
-  }, []);
+  }, [markMutation]);
 
   const selectSession = useCallback((sessionId: string) => {
+    markMutation();
     setStore((prev) => {
       if (!prev.sessions.some((session) => session.id === sessionId)) {
         return prev;
       }
       return { ...prev, activeSessionId: sessionId };
     });
-  }, []);
+  }, [markMutation]);
 
   const ensureActiveSession = useCallback(
     (modelId: string) => {
@@ -93,6 +179,7 @@ export function useAgentSessions() {
 
   const replaceSessionMessages = useCallback(
     (sessionId: string, messages: AgentChatMessage[], modelId?: string) => {
+      markMutation();
       setStore((prev) => {
         const now = Date.now();
         const firstUser = messages.find((message) => message.role === 'user');
@@ -107,28 +194,41 @@ export function useAgentSessions() {
                 ? deriveSessionTitle(firstUser.content)
                 : session.title,
             updatedAt: now,
+            revision: (session.revision ?? 0) + 1,
           };
         });
         return { ...prev, sessions: sortSessions(sessions) };
       });
     },
-    [],
+    [markMutation],
   );
 
   const deleteSession = useCallback((sessionId: string) => {
+    markMutation();
     setStore((prev) => {
       const sessions = prev.sessions.filter((session) => session.id !== sessionId);
       const activeSessionId =
         prev.activeSessionId === sessionId ? (sessions[0]?.id ?? null) : prev.activeSessionId;
       return { activeSessionId, sessions };
     });
-  }, []);
+  }, [markMutation]);
 
   const reloadFromStorage = useCallback(() => {
-    setStore(loadStore());
-  }, []);
+    const localFallback = loadStore();
+    const reloadMutationVersion = mutationVersionRef.current;
+    void (async () => {
+      const hydrated = await hydrateAgentSessionStore(localFallback);
+      setStore((current) =>
+        mutationVersionRef.current === reloadMutationVersion
+          ? hydrated
+          : mergeHydratedIntoCurrent(current, hydrated),
+      );
+    })();
+  }, [mergeHydratedIntoCurrent]);
 
   return {
+    sessionsHydrated: sessionsReady,
+    storageStatus,
     sessions: store.sessions,
     activeSessionId: store.activeSessionId,
     activeSession,

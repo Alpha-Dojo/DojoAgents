@@ -18,7 +18,7 @@ import {
   clearActiveRunDraft,
   clearStreamDraft,
   loadActiveRunDraft,
-  loadStreamDraft,
+  loadStreamDraftFull,
   saveActiveRunDraft,
   saveStreamDraft,
 } from './agentStorage';
@@ -469,10 +469,10 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const active = loadActiveRunDraft();
     if (!active) return;
-    const streamDraft = loadStreamDraft();
-    if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
 
     void (async () => {
+      const streamDraft = await loadStreamDraftFull(active.sessionId);
+      if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
       try {
         const status = await fetchAgentRunStatus(active.runId);
         if (status.status === 'cancelled') {
