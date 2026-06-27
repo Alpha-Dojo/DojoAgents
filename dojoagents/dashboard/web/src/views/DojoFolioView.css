@@ -829,7 +829,7 @@
   user-select: none;
 }
 
-.folio-overview__performance {
+.folio-card.folio-overview__performance {
   flex: 0 0 auto;
   min-height: 180px;
   max-height: calc(100% - 166px);
