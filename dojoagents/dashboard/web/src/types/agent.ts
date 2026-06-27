@@ -26,6 +26,7 @@ export interface AgentToolActivityItem {
   latencyMs?: number;
   error?: string | null;
   arguments?: Record<string, unknown>;
+  data?: Record<string, unknown> | null;
   resultSummary?: string | null;
   vizBlocks?: import('./agentViz').AgentVizBlock[];
 }

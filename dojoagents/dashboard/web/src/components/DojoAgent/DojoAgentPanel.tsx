@@ -24,13 +24,14 @@ import "../AgentModelSwitcher.css";
 import { AgentActivityTimeline } from "./AgentActivityTimeline";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
-import { AgentVizPanel } from "./viz/AgentVizPanel";
 import {
   resolveActivitySteps,
   toggleThinkStep,
 } from "../../utils/agentActivityTimeline";
 import {
+  attachDerivedVizBlocks,
   collectVizBlocksFromSteps,
+  hasRenderedChartBlocks,
   stripRenderedChartBlocks,
 } from "../../utils/agentVizContent";
 import {
@@ -614,7 +615,11 @@ export function DojoAgentPanel({
                 streaming &&
                 message.role === "assistant" &&
                 index === displayMessages.length - 1;
-              const activitySteps = resolveActivitySteps(message);
+              const rawActivitySteps = resolveActivitySteps(message);
+              const activitySteps =
+                message.role === "assistant"
+                  ? attachDerivedVizBlocks(rawActivitySteps)
+                  : rawActivitySteps;
               const hasActivity = activitySteps.length > 0;
               const messageVizBlocks =
                 message.role === "assistant"
@@ -624,7 +629,7 @@ export function DojoAgentPanel({
                 message.role === "assistant"
                   ? stripRenderedChartBlocks(
                       message.content,
-                      messageVizBlocks.length > 0,
+                      hasRenderedChartBlocks(messageVizBlocks),
                     )
                   : message.content;
               const showAssistantBubble =
@@ -666,9 +671,6 @@ export function DojoAgentPanel({
                             toggleThinkBlock(index, blockId)
                           }
                         />
-                        {messageVizBlocks.length > 0 ? (
-                          <AgentVizPanel blocks={messageVizBlocks} />
-                        ) : null}
                         {displayContent ? (
                           <AgentMarkdown
                             content={displayContent}

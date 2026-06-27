@@ -242,7 +242,12 @@ class DojoSDKToolManager:
         return specs
 
     async def _ok(self, res: Any) -> dict[str, Any]:
-        return {"content": json.dumps(_dump_res(res), ensure_ascii=False), "metadata": {"ok": True}}
+        payload = _dump_res(res)
+        return {
+            "content": json.dumps(payload, ensure_ascii=False),
+            "data": payload,
+            "metadata": {"ok": True},
+        }
 
     async def _benchmark_kline(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.benchmark.get_kline(

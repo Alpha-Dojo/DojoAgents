@@ -165,6 +165,7 @@ export function resolveToolResult(
     status: ok ? 'done' : 'error',
     latencyMs,
     error: ok ? null : error ?? null,
+    data: ok ? data ?? null : null,
     resultSummary,
     vizBlocks: ok && vizBlocks?.length ? vizBlocks : undefined,
     arguments: runningIndex >= 0 && steps[runningIndex]?.kind === 'tool'
