@@ -100,6 +100,8 @@ export interface AgentSession {
   messages: AgentChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** Monotonic local version used to resolve async persistence races. */
+  revision?: number;
 }
 
 export interface AgentSessionStore {

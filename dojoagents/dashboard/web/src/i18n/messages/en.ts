@@ -80,6 +80,7 @@ export const enMessages: MessageTree = {
     saving: 'Saving…',
     saveSuccess: 'Configuration saved.',
     saveFailed: 'Failed to save configuration.',
+    configured: 'Configured',
   },
   agentModel: {
     label: 'Model',
@@ -477,6 +478,10 @@ export const enMessages: MessageTree = {
     costRangeHint: 'Day range {low} – {high}',
     pinPortfolio: 'Pin portfolio',
     unpinPortfolio: 'Unpin portfolio',
+    collapseAllPortfolios: 'Collapse all portfolios',
+    expandAllPortfolios: 'Expand all portfolios',
+    collapsePortfolio: 'Collapse {name}',
+    expandPortfolio: 'Expand {name}',
     sidebarToday: "Today's P&L",
     sidebarHoldings: 'Holdings',
     sidebarNetValue: 'Total NAV',

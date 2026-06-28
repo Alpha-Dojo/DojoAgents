@@ -27,3 +27,20 @@ export function TrashIcon() {
     </svg>
   );
 }
+
+export function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`folio-sidebar__icon-svg folio-sidebar__chevron ${
+        expanded ? 'folio-sidebar__chevron--expanded' : ''
+      }`}
+      viewBox="0 0 16 16"
+      aria-hidden
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />
+    </svg>
+  );
+}

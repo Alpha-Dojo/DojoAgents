@@ -11,7 +11,7 @@ import {
   AGENT_DRAFT_STORAGE_KEY,
   AGENT_SESSIONS_STORAGE_KEY,
   clearStreamDraft,
-  loadStreamDraft,
+  loadStreamDraftFull,
   saveStreamDraft,
 } from "../../agent/agentStorage";
 import { useAgentSessions } from "../../agent/useAgentSessions";
@@ -100,6 +100,7 @@ export function DojoAgentPanel({
   const { selectedModelId, agentReady, selectedModel, setSelectedModelId } =
     useAgentModel();
   const {
+    sessionsHydrated,
     sessions,
     activeSessionId,
     activeSession,
@@ -141,16 +142,22 @@ export function DojoAgentPanel({
   const panelError = error ?? sessionRun.error;
 
   useEffect(() => {
-    const draft = loadStreamDraft();
-    if (!draft?.interrupted) return;
-    const finalized = finalizeIncompleteAssistantMessages(
-      draft.messages,
-      t("agent.interrupted"),
-    );
-    replaceSessionMessages(draft.sessionId, finalized, draft.modelId);
-    selectSession(draft.sessionId);
-    setRecoveredNotice(true);
-    clearStreamDraft();
+    let cancelled = false;
+    void (async () => {
+      const draft = await loadStreamDraftFull();
+      if (cancelled || !draft?.interrupted) return;
+      const finalized = finalizeIncompleteAssistantMessages(
+        draft.messages,
+        t("agent.interrupted"),
+      );
+      replaceSessionMessages(draft.sessionId, finalized, draft.modelId);
+      selectSession(draft.sessionId);
+      setRecoveredNotice(true);
+      clearStreamDraft();
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recover once on mount
   }, []);
 
@@ -274,7 +281,7 @@ export function DojoAgentPanel({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || !selectedModel?.available) return;
+    if (!sessionsHydrated || !text || streaming || !selectedModel?.available) return;
 
     const sessionId = ensureActiveSession(selectedModelId);
     const userMessage: AgentChatMessage = { role: "user", content: text };
@@ -323,6 +330,7 @@ export function DojoAgentPanel({
     messages,
     persistMessages,
     schedulePersistDraft,
+    sessionsHydrated,
     selectedModel?.available,
     input,
     startRun,
@@ -345,7 +353,10 @@ export function DojoAgentPanel({
   };
 
   const canSend =
-    Boolean(selectedModel?.available) && input.trim().length > 0 && !streaming;
+    sessionsHydrated &&
+    Boolean(selectedModel?.available) &&
+    input.trim().length > 0 &&
+    !streaming;
   const displayMessages = messages;
   const maximizeLabel = t(maximized ? "agent.minimize" : "agent.maximize");
 

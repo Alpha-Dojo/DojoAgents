@@ -5,7 +5,7 @@ import type { FolioPortfolioHoldingsPreview } from '../../utils/folioPortfolioSe
 import { FolioConfirmDialog } from './FolioConfirmDialog';
 import { FolioPortfolioMarketStats } from './FolioPortfolioMarketStats';
 import { FolioPortfolioSearch } from './FolioPortfolioSearch';
-import { PinIcon, TrashIcon } from './FolioSidebarIcons';
+import { ChevronIcon, PinIcon, TrashIcon } from './FolioSidebarIcons';
 
 interface FolioPortfolioSidebarProps {
   portfolios: FolioPortfolioListItem[];
@@ -132,18 +132,79 @@ export function FolioPortfolioSidebar({
   const { t } = useTranslation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [collapsedPortfolioIds, setCollapsedPortfolioIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const pendingDelete = allPortfolios.find((item) => item.id === pendingDeleteId) ?? null;
+  const allVisibleCollapsed =
+    portfolios.length > 0 &&
+    portfolios.every((portfolio) => collapsedPortfolioIds.has(portfolio.id));
+
+  useEffect(() => {
+    const portfolioIds = new Set(allPortfolios.map((portfolio) => portfolio.id));
+    setCollapsedPortfolioIds((current) => {
+      const next = new Set([...current].filter((id) => portfolioIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [allPortfolios]);
+
+  const togglePortfolioCollapsed = (portfolioId: string) => {
+    setCollapsedPortfolioIds((current) => {
+      const next = new Set(current);
+      if (next.has(portfolioId)) {
+        next.delete(portfolioId);
+      } else {
+        next.add(portfolioId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllPortfolios = () => {
+    setCollapsedPortfolioIds((current) => {
+      const next = new Set(current);
+      portfolios.forEach((portfolio) => {
+        if (allVisibleCollapsed) {
+          next.delete(portfolio.id);
+        } else {
+          next.add(portfolio.id);
+        }
+      });
+      return next;
+    });
+  };
 
   return (
     <aside className="folio-sidebar folio-card">
       <div className="folio-sidebar__body">
-        <FolioPortfolioSearch
-          portfolios={allPortfolios}
-          holdingsByPortfolioId={holdingsByPortfolioId}
-          onQueryChange={onSearchQueryChange}
-          onSelectPortfolio={onSelect}
-        />
+        <div className="folio-sidebar__search-row">
+          <FolioPortfolioSearch
+            portfolios={allPortfolios}
+            holdingsByPortfolioId={holdingsByPortfolioId}
+            onQueryChange={onSearchQueryChange}
+            onSelectPortfolio={onSelect}
+          />
+          <button
+            type="button"
+            className="folio-sidebar__collapse-all"
+            disabled={portfolios.length === 0}
+            aria-label={
+              allVisibleCollapsed
+                ? t('folio.expandAllPortfolios')
+                : t('folio.collapseAllPortfolios')
+            }
+            title={
+              allVisibleCollapsed
+                ? t('folio.expandAllPortfolios')
+                : t('folio.collapseAllPortfolios')
+            }
+            onClick={toggleAllPortfolios}
+          >
+            <ChevronIcon expanded={!allVisibleCollapsed} />
+            <ChevronIcon expanded={!allVisibleCollapsed} />
+          </button>
+        </div>
 
         {loading ? <p className="folio-sidebar__status">{t('folio.loading')}</p> : null}
 
@@ -151,6 +212,7 @@ export function FolioPortfolioSidebar({
           <ul className="folio-sidebar__list">
             {portfolios.map((portfolio) => {
               const active = portfolio.id === activeId;
+              const collapsed = collapsedPortfolioIds.has(portfolio.id);
               const hasSnapshots =
                 portfolio.marketSnapshots &&
                 Object.keys(portfolio.marketSnapshots).length > 0;
@@ -160,7 +222,7 @@ export function FolioPortfolioSidebar({
                   <div
                     className={`folio-sidebar__item ${active ? 'folio-sidebar__item--active' : ''} ${
                       portfolio.pinned ? 'folio-sidebar__item--pinned' : ''
-                    }`}
+                    } ${collapsed ? 'folio-sidebar__item--collapsed' : ''}`}
                   >
                     <button
                       type="button"
@@ -199,6 +261,27 @@ export function FolioPortfolioSidebar({
                         <div className="folio-sidebar__item-actions">
                           <button
                             type="button"
+                            className="folio-sidebar__icon-btn folio-sidebar__collapse-one"
+                            aria-expanded={!collapsed}
+                            aria-label={
+                              collapsed
+                                ? t('folio.expandPortfolio', { name: portfolio.name })
+                                : t('folio.collapsePortfolio', { name: portfolio.name })
+                            }
+                            title={
+                              collapsed
+                                ? t('folio.expandPortfolio', { name: portfolio.name })
+                                : t('folio.collapsePortfolio', { name: portfolio.name })
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              togglePortfolioCollapsed(portfolio.id);
+                            }}
+                          >
+                            <ChevronIcon expanded={!collapsed} />
+                          </button>
+                          <button
+                            type="button"
                             className={`folio-sidebar__icon-btn ${
                               portfolio.pinned ? 'folio-sidebar__icon-btn--active' : ''
                             }`}
@@ -230,8 +313,10 @@ export function FolioPortfolioSidebar({
                         </div>
                       </div>
 
-                      {hasSnapshots ? (
-                        <FolioPortfolioMarketStats snapshots={portfolio.marketSnapshots!} />
+                      {!collapsed ? (
+                        hasSnapshots ? (
+                          <FolioPortfolioMarketStats snapshots={portfolio.marketSnapshots!} />
+                        ) : null
                       ) : null}
                     </button>
                   </div>
