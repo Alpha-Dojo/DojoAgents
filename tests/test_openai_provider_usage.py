@@ -53,3 +53,19 @@ async def test_openai_provider_raises_context_length_exceeded():
 
     assert exc_info.value.max_context == 1048565
     assert exc_info.value.requested_tokens == 3037564
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_preserves_tool_call_metadata_non_stream() -> None:
+    provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
+    function = MagicMock(name="portfolio_read_list", arguments='{"market":"us"}', model_extra={"thoughtSignature": "sig-1"})
+    tool_call = MagicMock(id="call-1", function=function, model_extra={"providerTag": "gemini"})
+    message = MagicMock(content="", tool_calls=[tool_call], reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=message)], usage=None)
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        result = await provider.chat([], [], model="gpt-4.1", stream=False)
+
+    assert result.tool_calls[0].metadata["thought_signature"] == "sig-1"
+    assert result.tool_calls[0].metadata["tool_call_extra"]["providerTag"] == "gemini"

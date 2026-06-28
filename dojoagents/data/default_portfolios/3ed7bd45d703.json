@@ -1,0 +1,14 @@
+{
+  "id": "3ed7bd45d703",
+  "name": "Test Dojo Manual",
+  "subtitle": "",
+  "kind": "manual",
+  "pinned": false,
+  "start_date": "2025-01-01",
+  "capital_by_market": {
+    "us": 1000000.0,
+    "cn": 1000000.0,
+    "hk": 1000000.0
+  },
+  "holdings": []
+}

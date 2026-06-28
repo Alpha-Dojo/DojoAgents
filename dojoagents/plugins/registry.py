@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import logging
 import os
 import subprocess
 import sys
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
-
-LOGGER = logging.getLogger("dojoagents.plugins")
+from typing import Any, Callable, Dict, List, Optional
+from strands.plugins.plugin import Plugin
+from dojoagents.logging import LOGGER
 
 # 定义支持的生命周期钩子
 VALID_HOOKS = {
@@ -32,8 +31,9 @@ CLAUDE_TO_DOJO_HOOKS = {
     "UserPromptSubmit": "pre_llm_call",
     "PreToolUse": "pre_tool_call",
     "PostToolUse": "post_tool_call",
-    "SessionEnd": "on_session_end"
+    "SessionEnd": "on_session_end",
 }
+
 
 @dataclass
 class PluginManifest:
@@ -46,8 +46,10 @@ class PluginManifest:
     source: str = "user"  # "built_in" 或 "user"
     is_claude: bool = False
 
+
 class DojoPluginContext:
     """提供给插件的注册接口上下文 Facade"""
+
     def __init__(self, manifest: PluginManifest, registry: DojoPluginRegistry):
         self.manifest = manifest
         self._registry = registry
@@ -60,6 +62,7 @@ class DojoPluginContext:
 
     def register_tool(self, name: str, schema: dict, handler: Callable) -> None:
         from dojoagents.tools.registry import ToolSpec
+
         description = schema.get("description", "")
         parameters = schema.get("parameters", {"type": "object", "properties": {}})
         spec = ToolSpec(name=name, description=description, parameters=parameters, handler=handler)
@@ -69,6 +72,7 @@ class DojoPluginContext:
 
 class DojoPluginRegistry:
     """独立的插件注册表与管理器"""
+
     def __init__(self) -> None:
         self._plugins: Dict[str, Any] = {}
         self._hooks: Dict[str, List[Callable]] = {}
@@ -127,14 +131,14 @@ class DojoPluginRegistry:
         for child in path.iterdir():
             if not child.is_dir():
                 continue
-            
+
             yaml_file = child / "plugin.yaml"
             claude_plugin_json = child / ".claude-plugin" / "plugin.json"
             direct_plugin_json = child / "plugin.json"
-            
+
             meta = None
             is_claude = False
-            
+
             if yaml_file.exists():
                 LOGGER.debug(f"Found Dojo native manifest at {yaml_file} for directory {child.name}")
                 try:
@@ -158,10 +162,10 @@ class DojoPluginRegistry:
                         is_claude = True
                 except Exception as e:
                     LOGGER.error(f"Failed to load plugin.json from {child}: {e}")
-            
+
             if meta is None:
                 continue
-            
+
             try:
                 manifest = PluginManifest(
                     name=meta.get("name", child.name),
@@ -171,7 +175,7 @@ class DojoPluginRegistry:
                     provides_hooks=meta.get("provides_hooks", []),
                     path=str(child),
                     source=source,
-                    is_claude=is_claude
+                    is_claude=is_claude,
                 )
 
                 self._load_plugin(manifest)
@@ -240,7 +244,7 @@ class DojoPluginRegistry:
         mcp_configs = {}
         if "mcpServers" in meta and isinstance(meta["mcpServers"], dict):
             mcp_configs.update(meta["mcpServers"])
-        
+
         mcp_json_file = Path(manifest.path) / ".mcp.json"
         if mcp_json_file.exists():
             try:
@@ -267,25 +271,29 @@ class DojoPluginRegistry:
                 for item in cfg_list:
                     if isinstance(item, dict) and "command" in item:
                         LOGGER.debug(f"Registered declarative hook '{hook_name}' for plugin '{manifest.name}' calling command '{item['command']}'")
-                        self._decl_hooks.setdefault(hook_name, []).append({
-                            "plugin_name": manifest.name,
-                            "plugin_path": manifest.path,
-                            "command": item["command"],
-                            "matcher": item.get("matcher"),
-                            "async": item.get("async", False),
-                            "is_claude": is_claude or (raw_hook_name in CLAUDE_TO_DOJO_HOOKS)
-                        })
+                        self._decl_hooks.setdefault(hook_name, []).append(
+                            {
+                                "plugin_name": manifest.name,
+                                "plugin_path": manifest.path,
+                                "command": item["command"],
+                                "matcher": item.get("matcher"),
+                                "async": item.get("async", False),
+                                "is_claude": is_claude or (raw_hook_name in CLAUDE_TO_DOJO_HOOKS),
+                            }
+                        )
                         has_decl_hooks = True
                     elif isinstance(item, str):
                         LOGGER.debug(f"Registered declarative hook '{hook_name}' for plugin '{manifest.name}' calling command '{item}'")
-                        self._decl_hooks.setdefault(hook_name, []).append({
-                            "plugin_name": manifest.name,
-                            "plugin_path": manifest.path,
-                            "command": item,
-                            "matcher": None,
-                            "async": False,
-                            "is_claude": is_claude or (raw_hook_name in CLAUDE_TO_DOJO_HOOKS)
-                        })
+                        self._decl_hooks.setdefault(hook_name, []).append(
+                            {
+                                "plugin_name": manifest.name,
+                                "plugin_path": manifest.path,
+                                "command": item,
+                                "matcher": None,
+                                "async": False,
+                                "is_claude": is_claude or (raw_hook_name in CLAUDE_TO_DOJO_HOOKS),
+                            }
+                        )
                         has_decl_hooks = True
 
         # 6. 加载自定义 skills 文件夹
@@ -313,6 +321,7 @@ class DojoPluginRegistry:
                     with open(agent_file, "r", encoding="utf-8") as f:
                         content = f.read()
                     import re
+
                     match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)$", content, re.DOTALL)
                     if match:
                         fm_text, body = match.groups()
@@ -320,18 +329,20 @@ class DojoPluginRegistry:
                     else:
                         fm = {}
                         body = content
-                    
+
                     agent_name = fm.get("name", agent_file.stem)
                     LOGGER.debug(f"Parsed agent configuration '{agent_name}' for plugin '{manifest.name}' from {agent_file}")
-                    self._agent_configs.append({
-                        "name": agent_name,
-                        "description": fm.get("description", ""),
-                        "system_prompt": fm.get("systemPrompt", fm.get("system_prompt", body.strip())),
-                        "model": fm.get("model"),
-                        "effort": fm.get("effort"),
-                        "max_turns": fm.get("maxTurns", fm.get("max_turns")),
-                        "disallowed_tools": fm.get("disallowedTools", fm.get("disallowed_tools", []))
-                    })
+                    self._agent_configs.append(
+                        {
+                            "name": agent_name,
+                            "description": fm.get("description", ""),
+                            "system_prompt": fm.get("systemPrompt", fm.get("system_prompt", body.strip())),
+                            "model": fm.get("model"),
+                            "effort": fm.get("effort"),
+                            "max_turns": fm.get("maxTurns", fm.get("max_turns")),
+                            "disallowed_tools": fm.get("disallowedTools", fm.get("disallowed_tools", [])),
+                        }
+                    )
                     has_agent_configs = True
                     LOGGER.info(f"Loaded agent config '{agent_name}' from plugin '{manifest.name}'")
                 except Exception as e:
@@ -367,11 +378,11 @@ class DojoPluginRegistry:
     def _run_shell_hook(self, hook: Dict[str, Any], hook_name: str, **kwargs: Any) -> Any:
         command = hook["command"]
         plugin_path = hook["plugin_path"]
-        
+
         env = os.environ.copy()
         env["DOJO_PLUGIN_ROOT"] = plugin_path
         env["DOJO_HOOK_EVENT"] = hook_name
-        
+
         if "session_id" in kwargs:
             env["DOJO_SESSION_ID"] = str(kwargs["session_id"])
             env["SESSION_ID"] = str(kwargs["session_id"])
@@ -389,7 +400,7 @@ class DojoPluginRegistry:
             env["DOJO_TOOL_RESULT"] = str(kwargs["result"])
         if "duration_ms" in kwargs:
             env["DOJO_DURATION_MS"] = str(kwargs["duration_ms"])
-            
+
         input_data = None
         if hook.get("is_claude"):
             CLAUDE_HOOKS_MAP = {v: k for k, v in CLAUDE_TO_DOJO_HOOKS.items()}
@@ -411,20 +422,11 @@ class DojoPluginRegistry:
 
         LOGGER.debug(f"Executing hook command: '{command}' in cwd: '{plugin_path}' with Claude-style stdin: {input_data}")
         try:
-            res = subprocess.run(
-                command,
-                shell=True,
-                cwd=plugin_path,
-                capture_output=True,
-                text=True,
-                input=input_data,
-                env=env,
-                timeout=5.0
-            )
+            res = subprocess.run(command, shell=True, cwd=plugin_path, capture_output=True, text=True, input=input_data, env=env, timeout=5.0)
         except subprocess.TimeoutExpired:
             LOGGER.warning(f"Hook command '{command}' in '{hook['plugin_name']}' timed out.")
             return None
-            
+
         if res.returncode != 0:
             LOGGER.error(f"Hook command failed with exit {res.returncode}. stderr: {res.stderr}")
             return None
@@ -433,7 +435,7 @@ class DojoPluginRegistry:
         LOGGER.debug(f"Hook command '{command}' output stdout: '{output}' (exit code: {res.returncode})")
         if not output:
             return None
-            
+
         try:
             data = json.loads(output)
             LOGGER.debug(f"Successfully decoded hook JSON decision output: {data}")
@@ -455,7 +457,7 @@ class DojoPluginRegistry:
 
     def invoke_hook(self, hook_name: str, **kwargs: Any) -> List[Any]:
         results = []
-        
+
         # 1. 执行命令式 Python 回调
         callbacks = self._hooks.get(hook_name, [])
         for cb in callbacks:
@@ -472,6 +474,7 @@ class DojoPluginRegistry:
             matcher = hook["matcher"]
             if matcher and "tool_name" in kwargs:
                 import re
+
                 LOGGER.debug(f"Checking matcher regex '{matcher}' against tool name '{kwargs.get('tool_name')}' for plugin '{hook['plugin_name']}'")
                 try:
                     if not re.search(matcher, kwargs["tool_name"]):
@@ -479,21 +482,18 @@ class DojoPluginRegistry:
                 except Exception as re_err:
                     LOGGER.error(f"Invalid matcher regex '{matcher}' in plugin '{hook['plugin_name']}': {re_err}")
                     continue
-            
+
             try:
                 ret = self._run_shell_hook(hook, hook_name, **kwargs)
                 if ret is not None:
                     results.append(ret)
             except Exception as e:
                 LOGGER.error(f"Error in declarative hook '{hook_name}' in plugin '{hook['plugin_name']}': {e}", exc_info=True)
-                
+
         return results
 
     def as_strands_plugin(self) -> DojoPluginBridge:
         return DojoPluginBridge(self)
-
-
-from strands.plugins.plugin import Plugin
 
 
 class DojoPluginBridge(Plugin):
@@ -522,8 +522,6 @@ class DojoPluginBridge(Plugin):
         agent.add_hook(self._on_after_tool_call, AfterToolCallEvent)
         agent.add_hook(self._on_after_invocation, AfterInvocationEvent)
 
-
-
     async def _on_before_invocation(self, event: Any) -> None:
         session_id = event.invocation_state.get("session_id", "default")
         # Trigger on_session_start legacy hooks
@@ -545,14 +543,24 @@ class DojoPluginBridge(Plugin):
             session_id=session_id,
             user_message=query,
         )
+        injected_count = 0
         for res in pre_results:
             if isinstance(res, str) and res.strip() and event.messages:
                 last_msg = event.messages[-1]
                 content = last_msg.get("content")
                 if isinstance(content, list):
                     content.append({"type": "text", "text": f"\n\n[Plugin Context]\n{res}"})
+                    injected_count += 1
                 elif isinstance(content, str):
                     last_msg["content"] = content + f"\n\n[Plugin Context]\n{res}"
+                    injected_count += 1
+        if injected_count:
+            LOGGER.info(
+                "Plugin pre_llm_call injected context: session_id=%s injected=%d query_preview=%r",
+                session_id,
+                injected_count,
+                query[:120],
+            )
 
     async def _on_before_model_call(self, event: Any) -> None:
         session_id = event.invocation_state.get("session_id", "default")
@@ -576,12 +584,13 @@ class DojoPluginBridge(Plugin):
         session_id = event.invocation_state.get("session_id", "default")
         if not event.tool_use:
             return
-        
+
         tool_name = event.tool_use.get("name")
         args = event.tool_use.get("input") or {}
         tool_call_id = event.tool_use.get("toolUseId")
 
         import time
+
         if "tool_start_times" not in event.invocation_state:
             event.invocation_state["tool_start_times"] = {}
         event.invocation_state["tool_start_times"][tool_call_id] = time.time()
@@ -597,6 +606,7 @@ class DojoPluginBridge(Plugin):
             if isinstance(res, dict) and res.get("action") == "block":
                 block_message = res.get("message") or "Blocked by plugin"
                 from dojoagents.agent.loop import GuardrailHaltException
+
                 raise GuardrailHaltException(block_message, "plugin_block")
 
     async def _on_after_tool_call(self, event: Any) -> None:
@@ -620,6 +630,7 @@ class DojoPluginBridge(Plugin):
                 raw_result = str(content)
 
         import time
+
         start_time = event.invocation_state.get("tool_start_times", {}).get(tool_call_id)
         duration_ms = int((time.time() - start_time) * 1000) if start_time else 0
 
@@ -654,7 +665,7 @@ class DojoPluginBridge(Plugin):
 
     async def _on_after_invocation(self, event: Any) -> None:
         session_id = event.invocation_state.get("session_id", "default")
-        
+
         if event.result and event.result.message:
             msg = event.result.message
             content = msg.get("content")
@@ -669,6 +680,7 @@ class DojoPluginBridge(Plugin):
                 response_text=response_text,
                 session_id=session_id,
             )
+            original_response_text = response_text
             for trans in transform_results:
                 if isinstance(trans, str):
                     response_text = trans
@@ -677,11 +689,20 @@ class DojoPluginBridge(Plugin):
                     elif isinstance(content, str):
                         msg["content"] = trans
                     break
+            if response_text != original_response_text:
+                LOGGER.warning(
+                    "Plugin bridge transformed LLM output: session_id=%s original_len=%d new_len=%d original_preview=%r new_preview=%r",
+                    session_id,
+                    len(original_response_text),
+                    len(response_text),
+                    original_response_text[:160],
+                    response_text[:160],
+                )
 
             query = ""
             agent = event.agent
             if agent and agent.messages:
-                for idx in range(len(agent.messages)-1, -1, -1):
+                for idx in range(len(agent.messages) - 1, -1, -1):
                     m = agent.messages[idx]
                     if m.get("role") == "user":
                         c = m.get("content")
@@ -696,7 +717,7 @@ class DojoPluginBridge(Plugin):
                 for m in agent.messages:
                     role = m.get("role")
                     c = m.get("content")
-                    
+
                     text_content = ""
                     reasoning_content = ""
                     if isinstance(c, list):
@@ -710,25 +731,24 @@ class DojoPluginBridge(Plugin):
                                         reasoning_content += rc["reasoningText"]["text"]
                     else:
                         text_content = str(c)
-                    
+
                     tool_calls = []
                     if isinstance(c, list):
                         for b in c:
                             if isinstance(b, dict) and "toolUse" in b:
                                 tu = b["toolUse"]
-                                tool_calls.append({
-                                    "id": tu.get("toolUseId"),
-                                    "type": "function",
-                                    "function": {
-                                        "name": tu.get("name"),
-                                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)
+                                tool_calls.append(
+                                    {
+                                        "id": tu.get("toolUseId"),
+                                        "type": "function",
+                                        "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)},
                                     }
-                                })
-                    
+                                )
+
                     dojo_msg = {"role": role, "content": text_content}
                     if tool_calls:
                         dojo_msg["tool_calls"] = tool_calls
-                    
+
                     reasoning = reasoning_content or m.get("reasoning")
                     if reasoning:
                         dojo_msg["reasoning_content"] = reasoning
@@ -749,4 +769,3 @@ class DojoPluginBridge(Plugin):
             session_id=session_id,
             completed=True,
         )
-

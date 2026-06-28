@@ -27,6 +27,7 @@ from dojoagents.agent.hooks.token_compression import TokenCompressionHook
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
 from dojoagents.agent.token_policy import TokenCompressionPolicy
+from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.config.models import LLMProviderConfig
 
 
@@ -86,7 +87,12 @@ class DojoBridgedTool(AgentTool):
         from dojoagents.agent.models import ToolCall as DojoToolCall
         from unittest.mock import AsyncMock
 
-        dojo_call = DojoToolCall(id=tool_use["toolUseId"], name=self.dojo_name, arguments=tool_use["input"])
+        dojo_call = DojoToolCall(
+            id=tool_use["toolUseId"],
+            name=self.dojo_name,
+            arguments=tool_use["input"],
+            metadata=dict(tool_use.get("dojoProviderMetadata") or {}),
+        )
         if hasattr(self.tool_executor, "execute_many") and (
             isinstance(self.tool_executor, AsyncMock) or hasattr(self.tool_executor.execute_many, "assert_called") or not hasattr(self.tool_executor, "execute_one")
         ):
@@ -160,7 +166,26 @@ class DojoStrandsModelBridge(Model):
         async def run_chat():
             nonlocal dojo_msgs
             try:
+                LOGGER.info(
+                    "DojoStrandsModelBridge starting provider chat: provider=%s implementation=%s model=%s stream=%s messages=%d tools=%d session_id=%s",
+                    getattr(self.llm_provider, "name", type(self.llm_provider).__name__),
+                    type(self.llm_provider).__name__,
+                    self._model_id,
+                    True,
+                    len(dojo_msgs),
+                    len(dojo_tools),
+                    str((invocation_state or {}).get("session_id") or ""),
+                )
                 res = await self.llm_provider.chat(dojo_msgs, dojo_tools, model=self._model_id, stream=True, stream_callback=callback, metadata=invocation_state)
+                LOGGER.info(
+                    "DojoStrandsModelBridge provider chat completed: provider=%s implementation=%s model=%s content_len=%d tool_calls=%d reasoning_len=%d",
+                    getattr(self.llm_provider, "name", type(self.llm_provider).__name__),
+                    type(self.llm_provider).__name__,
+                    self._model_id,
+                    len(res.content or ""),
+                    len(res.tool_calls),
+                    len(str((res.metadata or {}).get("reasoning_content") or "")),
+                )
                 queue.put_nowait(res)
             except ContextLengthExceededError as exc:
                 handler = (invocation_state or {}).get("_dojo_handle_context_length_exceeded")
@@ -235,6 +260,7 @@ class DojoStrandsModelBridge(Model):
                             "toolUse": {
                                 "toolUseId": tc.id,
                                 "name": tc.name,
+                                **({"dojoProviderMetadata": dict(tc.metadata)} if tc.metadata else {}),
                             }
                         },
                     }
@@ -248,7 +274,8 @@ class DojoStrandsModelBridge(Model):
 
         reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
         event_sink = (invocation_state or {}).get("_dojo_event_sink")
-        if event_sink is not None and isinstance(reasoning_content, str) and reasoning_content.strip():
+        reasoning_streamed = bool((llm_result.metadata or {}).get("reasoning_streamed"))
+        if event_sink is not None and not reasoning_streamed and isinstance(reasoning_content, str) and reasoning_content.strip():
             event_sink.thinking_start()
             event_sink.thinking_delta(reasoning_content)
             event_sink.thinking_end()
@@ -279,9 +306,15 @@ def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | 
                     reasoning_content += rc["reasoningText"]["text"]
             elif "toolUse" in block:
                 tu = block["toolUse"]
-                tool_calls.append(
-                    {"id": tu.get("toolUseId"), "type": "function", "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)}}
-                )
+                tool_call = {
+                    "id": tu.get("toolUseId"),
+                    "type": "function",
+                    "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)},
+                }
+                provider_metadata = tu.get("dojoProviderMetadata")
+                if isinstance(provider_metadata, dict) and provider_metadata:
+                    tool_call["metadata"] = dict(provider_metadata)
+                tool_calls.append(tool_call)
             elif "toolResult" in block:
                 tr = block["toolResult"]
                 res_content = ""
@@ -322,6 +355,7 @@ class AgentLoop:
         plan_activation_hook: Any | None = None,
         task_harnesses: list[Any] | None = None,
         provider_config: LLMProviderConfig | None = None,
+        provider_state: ProviderConversationState | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -333,6 +367,7 @@ class AgentLoop:
         self._plan_activation_hook = plan_activation_hook
         self.task_harnesses = list(task_harnesses or [])
         self.provider_config = provider_config
+        self.provider_state = provider_state or ProviderConversationState()
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -357,6 +392,16 @@ class AgentLoop:
             None,
         )
         invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
+        LOGGER.info(
+            "AgentLoop.run start: session_id=%s channel=%s model=%s provider=%s provider_impl=%s history_turns=%d message_len=%d",
+            request.session_id,
+            request.channel,
+            getattr(self.config, "model", ""),
+            getattr(self.llm_provider, "name", type(self.llm_provider).__name__),
+            type(self.llm_provider).__name__,
+            len(request.metadata.get("history") or []),
+            len(request.message or ""),
+        )
 
         def emit_phase(phase: str) -> None:
             nonlocal active_phase
@@ -370,6 +415,12 @@ class AgentLoop:
             if not text:
                 return
             saw_content_delta = True
+            LOGGER.debug(
+                "AgentLoop emitting text delta: session_id=%s len=%d preview=%r",
+                request.session_id,
+                len(text),
+                text[:120],
+            )
             if event_sink is not None:
                 event_sink.delta(text)
                 return
@@ -465,6 +516,7 @@ class AgentLoop:
         invocation_state["_dojo_token_ledger"] = token_ledger
         invocation_state["_dojo_event_sink"] = event_sink
         invocation_state["_dojo_compression_policy"] = compression_policy
+        invocation_state["_dojo_provider_state"] = self.provider_state
 
         model = DojoStrandsModelBridge(self.llm_provider, model_id)
         model.update_config(context_window_limit=session_max_tokens)
@@ -492,8 +544,20 @@ class AgentLoop:
                                 args_dict = {"raw": args}
                         else:
                             args_dict = args or {}
-
-                        content_blocks.append({"toolUse": {"toolUseId": tc.get("id"), "name": func.get("name"), "input": args_dict}})
+                        provider_metadata = tc.get("metadata")
+                        if not isinstance(provider_metadata, dict) or not provider_metadata:
+                            tool_call_id = str(tc.get("id") or "")
+                            if tool_call_id:
+                                provider_metadata = self.provider_state.metadata_for_tool_call(
+                                    provider=provider_name,
+                                    model=model_id,
+                                    session_id=request.session_id,
+                                    tool_call_id=tool_call_id,
+                                )
+                        tool_use = {"toolUseId": tc.get("id"), "name": func.get("name"), "input": args_dict}
+                        if isinstance(provider_metadata, dict) and provider_metadata:
+                            tool_use["dojoProviderMetadata"] = dict(provider_metadata)
+                        content_blocks.append({"toolUse": tool_use})
                 if "reasoning_content" in msg:
                     content_blocks.append({"reasoningContent": {"reasoningText": {"text": msg["reasoning_content"]}}})
                 history_msg = {"role": "assistant", "content": content_blocks}
@@ -826,6 +890,12 @@ class AgentLoop:
             response_text = re.sub(r"<reasoning>.*?</reasoning>", "", response_text, flags=re.DOTALL)
             response_text = re.sub(r"<thought>.*?</thought>", "", response_text, flags=re.DOTALL)
         if event_sink is not None and response_text and not saw_content_delta:
+            LOGGER.warning(
+                "AgentLoop falling back to final response delta: session_id=%s response_len=%d preview=%r",
+                request.session_id,
+                len(response_text),
+                response_text[:160],
+            )
             emit_phase("answering")
             emit_text_delta(response_text)
 
@@ -858,12 +928,21 @@ class AgentLoop:
 
         if event_sink is not None:
             event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
+        LOGGER.info(
+            "AgentLoop.run complete: session_id=%s response_len=%d saw_content_delta=%s tool_steps=%d stopped=%s",
+            request.session_id,
+            len(response_text),
+            saw_content_delta,
+            len(tool_trace),
+            metadata.get("stopped"),
+        )
 
         return AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata)
 
     def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
         plugin_registry = get_plugin_registry()
         try:
+            original_response_text = response_text
             transform_results = plugin_registry.invoke_hook(
                 "transform_llm_output",
                 response_text=response_text,
@@ -872,6 +951,21 @@ class AgentLoop:
             for trans in transform_results:
                 if isinstance(trans, str):
                     response_text = trans
+            if response_text != original_response_text:
+                LOGGER.warning(
+                    "transform_llm_output modified assistant response: session_id=%s original_len=%d new_len=%d original_preview=%r new_preview=%r",
+                    request.session_id,
+                    len(original_response_text),
+                    len(response_text),
+                    original_response_text[:160],
+                    response_text[:160],
+                )
+            elif transform_results:
+                LOGGER.info(
+                    "transform_llm_output executed without changing response: session_id=%s results=%d",
+                    request.session_id,
+                    len(transform_results),
+                )
         except Exception as he:
             LOGGER.exception(f"Error in transform_llm_output hook: {he}")
 
@@ -905,6 +999,11 @@ class AgentLoop:
                                     "id": tu.get("toolUseId"),
                                     "type": "function",
                                     "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)},
+                                    **(
+                                        {"metadata": dict(tu.get("dojoProviderMetadata"))}
+                                        if isinstance(tu.get("dojoProviderMetadata"), dict) and tu.get("dojoProviderMetadata")
+                                        else {}
+                                    ),
                                 }
                             )
 
@@ -945,11 +1044,16 @@ class AgentLoop:
 
     @staticmethod
     def _openai_client_for_context(provider_cfg: LLMProviderConfig) -> Any | None:
-        if not provider_cfg.api_key:
+        api_key = getattr(provider_cfg, "api_key", None)
+        base_url_value = getattr(provider_cfg, "base_url", None)
+        if not isinstance(api_key, str) or not api_key:
+            return None
+        base_url = base_url_value if isinstance(base_url_value, str) else ""
+        if "generativelanguage.googleapis.com" in base_url:
             return None
         from openai import AsyncOpenAI
 
-        return AsyncOpenAI(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+        return AsyncOpenAI(api_key=api_key, base_url=base_url or None)
 
     def _sanitize_tool_specs(
         self,
@@ -985,6 +1089,7 @@ class AgentLoop:
                 id=call.id,
                 name=tool_name_map.get(call.name, call.name),
                 arguments=call.arguments,
+                metadata=dict(call.metadata),
             )
             for call in tool_calls
         ]

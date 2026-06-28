@@ -4,7 +4,7 @@ import os
 import tempfile
 from dojoagents.tools.registry import ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
-from dojoagents.agent.models import ToolCall
+
 
 class AsyncCodeExecutionRPC:
     def __init__(self, socket_path: str, tool_registry, max_tool_calls: int = 20):
@@ -26,14 +26,10 @@ class AsyncCodeExecutionRPC:
                 request = json.loads(line.decode("utf-8"))
                 tool_name = request.get("tool")
                 args = request.get("args", {})
-                
+
                 # 超限拦截
                 if self.tool_call_counter >= self.max_tool_calls:
-                    response = {
-                        "ok": False,
-                        "content": "",
-                        "error": f"Tool call limit reached ({self.max_tool_calls}). No more tool calls allowed."
-                    }
+                    response = {"ok": False, "content": "", "error": f"Tool call limit reached ({self.max_tool_calls}). No more tool calls allowed."}
                 else:
                     spec = self.tool_registry.get(tool_name)
                     if spec:
@@ -42,7 +38,7 @@ class AsyncCodeExecutionRPC:
                         response = {"ok": True, "content": raw_res.get("content", ""), "error": None}
                     else:
                         response = {"ok": False, "content": "", "error": f"Tool '{tool_name}' not registered"}
-                        
+
                 writer.write((json.dumps(response) + "\n").encode("utf-8"))
                 await writer.drain()
         except Exception:
@@ -64,15 +60,16 @@ class AsyncCodeExecutionRPC:
                 except OSError:
                     pass
 
+
 async def handle_code_execution(args: dict, tool_registry, policy, max_tool_calls: int = 20) -> dict:
     code_content = args.get("code")
     session_id = os.urandom(6).hex()
     socket_path = f"/tmp/dojo-rpc-{session_id}.sock"
-    
+
     # 1. 启动 RPC Server 监听，传入配额限制
     rpc_server = AsyncCodeExecutionRPC(socket_path, tool_registry, max_tool_calls=max_tool_calls)
     await rpc_server.start()
-    
+
     # 2. 动态生成 hermes_tools 桩模块文件
     temp_dir = tempfile.mkdtemp()
     stub_file = os.path.join(temp_dir, "hermes_tools.py")
@@ -94,24 +91,19 @@ def read_file(path, offset=1, limit=500):
 """
     with open(stub_file, "w", encoding="utf-8") as f:
         f.write(stub_code)
-        
+
     # 3. 将 LLM 脚本写到文件并异步执行
     script_file = os.path.join(temp_dir, "script.py")
     with open(script_file, "w", encoding="utf-8") as f:
         f.write(code_content)
-        
+
     env = os.environ.copy()
     env["PYTHONPATH"] = temp_dir
-    
-    proc = await asyncio.create_subprocess_exec(
-        "python3", script_file,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env
-    )
-    
+
+    proc = await asyncio.create_subprocess_exec("python3", script_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env)
+
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300.0)
         output = stdout.decode("utf-8", errors="replace")
     finally:
         await rpc_server.stop()
@@ -124,22 +116,14 @@ def read_file(path, offset=1, limit=500):
             os.rmdir(temp_dir)
         except OSError:
             pass
-        
-    return {
-        "content": output,
-        "metadata": {"exit_code": proc.returncode}
-    }
+
+    return {"content": output, "metadata": {"exit_code": proc.returncode}}
+
 
 def get_code_execution_spec(tool_registry, policy: SandboxPolicy) -> ToolSpec:
     return ToolSpec(
         name="execute_code",
         description="Execute Python scripts and interact with quantitative tools.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Python code to execute"}
-            },
-            "required": ["code"]
-        },
-        handler=lambda args: handle_code_execution(args, tool_registry, policy, max_tool_calls=policy.timeout_seconds or 20)
+        parameters={"type": "object", "properties": {"code": {"type": "string", "description": "Python code to execute"}}, "required": ["code"]},
+        handler=lambda args: handle_code_execution(args, tool_registry, policy, max_tool_calls=policy.timeout_seconds or 20),
     )

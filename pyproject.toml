@@ -47,6 +47,9 @@ build_py = "dojoagents.packaging_hooks.BuildPyCommand"
 sdist = "dojoagents.packaging_hooks.SdistCommand"
 
 [tool.setuptools.package-data]
+"dojoagents" = [
+    "data/default_portfolios/**/*",
+]
 "dojoagents.dashboard" = [
     "web/dist/**/*",
     "static/**/*",

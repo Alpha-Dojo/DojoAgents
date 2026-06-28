@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from dojoagents.plugins import get_plugin_registry
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall
+from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import StaticLLMProvider
 from dojoagents.config.models import AgentConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
@@ -12,6 +14,18 @@ from dojoagents.skills.manager import SkillManager
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
+
+
+@pytest.fixture(autouse=True)
+def _reset_plugin_registry_state() -> None:
+    reg = get_plugin_registry()
+    reg._hooks.clear()
+    reg._decl_hooks.clear()
+    reg._tools.clear()
+    yield
+    reg._hooks.clear()
+    reg._decl_hooks.clear()
+    reg._tools.clear()
 
 
 @pytest.mark.asyncio
@@ -216,6 +230,61 @@ async def test_event_sink_emits_think_events_from_reasoning_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_streamed_think_events_are_not_replayed_from_final_metadata() -> None:
+    class _StreamingReasoningProvider:
+        name = "gemini"
+
+        async def chat(self, messages, tools, *, model, stream=False, metadata=None, stream_callback=None):
+            assert stream is True
+            if stream_callback is not None:
+                stream_callback("Hel")
+                stream_callback("lo")
+            sink = (metadata or {}).get("_dojo_event_sink")
+            assert sink is not None
+            sink.thinking_start()
+            sink.thinking_delta("think ")
+            sink.thinking_delta("more")
+            sink.thinking_end()
+            return LLMResult(
+                content="Hello",
+                metadata={"reasoning_content": "think more", "reasoning_streamed": True},
+            )
+
+    loop = AgentLoop(
+        llm_provider=_StreamingReasoningProvider(),
+        tool_executor=ToolExecutor(ToolRegistry(), SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(
+            model="test-model",
+            enable_think_scrubbing=False,
+            enable_guardrails=False,
+            enable_context_compression=False,
+        ),
+    )
+    event_sink = AgentEventSink(run_id="run-test", session_id="s1")
+
+    response = await loop.run(
+        ChatRequest(user_id="local", session_id="s1", message="Say hello"),
+        event_sink=event_sink,
+    )
+
+    assert response.content == "Hello"
+    think_events = [event for event in event_sink.events if event["type"].startswith("think_")]
+    assert [event["type"] for event in think_events] == [
+        "think_start",
+        "think_delta",
+        "think_delta",
+        "think_end",
+    ]
+    assert [event.get("text", "") for event in think_events if event["type"] == "think_delta"] == [
+        "think ",
+        "more",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_integrated_tool_trace_preserves_arguments() -> None:
     async def echo_tool(args):
         return {"content": "ok", "data": {"echo": args}}
@@ -258,3 +327,72 @@ async def test_integrated_tool_trace_preserves_arguments() -> None:
 
     assert response.metadata["tool_trace"][0]["call_id"] == "call-echo"
     assert response.metadata["tool_trace"][0]["arguments"] == {"symbol": "AAPL", "limit": 5}
+
+
+@pytest.mark.asyncio
+async def test_history_tool_calls_enriched_from_provider_state() -> None:
+    llm = StaticLLMProvider([LLMResult(content="done")])
+    provider_state = ProviderConversationState()
+    provider_state.record_tool_call(
+        provider="gemini",
+        model="gemini-2.5-pro",
+        session_id="s1",
+        tool_call_id="call-prev",
+        tool_name="portfolio_read_list",
+        arguments={"market": "us"},
+        native_model_content={
+            "role": "model",
+            "parts": [
+                {
+                    "functionCall": {
+                        "name": "portfolio_read_list",
+                        "args": {"market": "us"},
+                        "thoughtSignature": "sig-prev",
+                    }
+                }
+            ],
+        },
+    )
+
+    loop = AgentLoop(
+        llm_provider=llm,
+        tool_executor=ToolExecutor(ToolRegistry(), SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(
+            model="gemini-2.5-pro",
+            enable_think_scrubbing=False,
+            enable_guardrails=False,
+            enable_context_compression=False,
+        ),
+        provider_state=provider_state,
+    )
+    llm.name = "gemini"
+
+    history = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-prev",
+                    "type": "function",
+                    "function": {"name": "portfolio_read_list", "arguments": {"market": "us"}},
+                }
+            ],
+        }
+    ]
+
+    await loop.run(
+        ChatRequest(
+            user_id="local",
+            session_id="s1",
+            message="What next?",
+            metadata={"history": history},
+        )
+    )
+
+    sent_messages = llm.calls[0]["messages"]
+    assistant_msg = next(message for message in sent_messages if message["role"] == "assistant")
+    assert assistant_msg["tool_calls"][0]["metadata"]["native_model_content"]["parts"][0]["functionCall"]["thoughtSignature"] == "sig-prev"

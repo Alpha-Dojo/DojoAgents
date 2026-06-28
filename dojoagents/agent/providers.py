@@ -4,6 +4,52 @@ from dojoagents.agent.context_length import ContextLengthExceededError, parse_co
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 
+_REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
+
+
+def _redact_provider_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _REDACTED_PROVIDER_KEYS:
+                redacted[key] = "[redacted]"
+            else:
+                redacted[key] = _redact_provider_metadata(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_provider_metadata(item) for item in value]
+    return value
+
+
+def _model_extra_dict(obj: Any) -> dict[str, Any]:
+    if obj is None:
+        return {}
+    model_extra = getattr(obj, "model_extra", None)
+    if isinstance(model_extra, dict):
+        return dict(model_extra)
+    if isinstance(obj, dict):
+        return dict(obj)
+    if hasattr(obj, "model_dump"):
+        dumped = obj.model_dump(exclude_none=True)
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _extract_tool_call_metadata(tc: Any, provider_name: str) -> dict[str, Any]:
+    tool_extra = _model_extra_dict(tc)
+    function_extra = _model_extra_dict(getattr(tc, "function", None))
+    metadata: dict[str, Any] = {}
+    if tool_extra or function_extra:
+        metadata["provider"] = provider_name
+    if tool_extra:
+        metadata["tool_call_extra"] = tool_extra
+    if function_extra:
+        metadata["raw_function_call"] = function_extra
+        thought_signature = function_extra.get("thought_signature") or function_extra.get("thoughtSignature")
+        if thought_signature is not None:
+            metadata["thought_signature"] = thought_signature
+    return metadata
+
 
 class LLMProvider(Protocol):
     name: str
@@ -136,7 +182,13 @@ class OpenAICompatibleProvider:
                     max_context=max_context,
                     requested_tokens=requested,
                 ) from e
-            LOGGER.exception(f"Error calling OpenAI API: {e}, messages: {messages}, tools: {tools}, model: {model}")
+            LOGGER.exception(
+                "Error calling OpenAI API: %s, messages: %s, tools: %s, model: %s",
+                e,
+                _redact_provider_metadata(messages),
+                _redact_provider_metadata(tools),
+                model,
+            )
             raise e
 
         if stream and stream_callback:
@@ -163,13 +215,14 @@ class OpenAICompatibleProvider:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         if idx not in tool_calls_buffer:
-                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": ""}
+                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": "", "metadata": {}}
                         if tc_delta.id:
                             tool_calls_buffer[idx]["id"] = tc_delta.id
                         if tc_delta.function and tc_delta.function.name:
                             tool_calls_buffer[idx]["name"] = tc_delta.function.name
                         if tc_delta.function and tc_delta.function.arguments:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
+                        tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
             final_tool_calls = []
             for idx, tc in sorted(tool_calls_buffer.items()):
@@ -179,7 +232,7 @@ class OpenAICompatibleProvider:
                         args_dict = json.loads(tc["arguments"])
                     except json.JSONDecodeError:
                         args_dict = {"raw_arguments": tc["arguments"]}
-                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict))
+                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict, metadata=dict(tc["metadata"])))
             metadata: dict[str, Any] = {
                 "provider": self.name,
                 "reasoning_content": "".join(full_reasoning),
@@ -207,7 +260,7 @@ class OpenAICompatibleProvider:
                             args_dict = json.loads(tc.function.arguments)
                         except json.JSONDecodeError:
                             args_dict = {"raw_arguments": tc.function.arguments}
-                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict))
+                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict, metadata=_extract_tool_call_metadata(tc, self.name)))
             result_metadata: dict[str, Any] = {
                 "provider": self.name,
                 "reasoning_content": reasoning_content or "",

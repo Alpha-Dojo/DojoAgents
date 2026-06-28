@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dojoagents.agent.loop import AgentLoop
+from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.harnesses import PortfolioTaskHarness
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
@@ -18,6 +20,7 @@ from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.skill_manage import SkillManagerTool
+from dojoagents.logging import LOGGER
 
 
 @dataclass
@@ -159,8 +162,6 @@ class Runtime:
 
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
         if plugin_registry._mcp_configs:
-            from dojoagents.logging import LOGGER
-
             LOGGER.debug(f"Registering MCP tools config from plugins: {plugin_registry._mcp_configs}")
             discover_and_register_mcp_tools(tool_registry, plugin_registry._mcp_configs)
 
@@ -170,11 +171,28 @@ class Runtime:
         provider_cfg = config.llm_provider.providers.get(config.llm_provider.default)
         if provider_cfg is None:
             provider_cfg = next(iter(config.llm_provider.providers.values()))
-        provider = OpenAICompatibleProvider(
-            api_key=provider_cfg.api_key,
-            base_url=provider_cfg.base_url,
+        provider_state = ProviderConversationState()
+        provider_name = config.llm_provider.default
+        if provider_name == "gemini":
+            provider = GeminiNativeProvider(
+                api_key=provider_cfg.api_key,
+                api_key_env=provider_cfg.api_key_env,
+                base_url=provider_cfg.base_url,
+            )
+        else:
+            provider = OpenAICompatibleProvider(
+                api_key=provider_cfg.api_key,
+                base_url=provider_cfg.base_url,
+            )
+            provider.name = provider_name
+        LOGGER.info(
+            "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+            provider_name,
+            type(provider).__name__,
+            provider_cfg.model,
+            getattr(provider_cfg, "base_url", None),
+            bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
         )
-        provider.name = config.llm_provider.default
 
         memory = MemoryManager()
         if config.memory.provider == "skill_summary":
@@ -193,6 +211,7 @@ class Runtime:
             plan_activation_hook=plan_hook,
             task_harnesses=[PortfolioTaskHarness()],
             provider_config=provider_cfg,
+            provider_state=provider_state,
         )
 
         # Wire pool runtime reference after agent creation
