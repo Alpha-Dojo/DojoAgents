@@ -1,11 +1,10 @@
 """Tests for Runtime multi-agent and planning integration."""
 
-import pytest
 from unittest.mock import MagicMock
-from pathlib import Path
 
 from dojoagents.config.models import AgentsConfig, MultiAgentConfig, PlanConfig
 from dojoagents.config.loader import ConfigStore
+from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.runtime import Runtime
 
 
@@ -28,6 +27,26 @@ class TestRuntimePlanningDisabled:
         tool_names = [s.name for s in rt.agent.tool_executor.registry.all()]
         assert "create_plan" not in tool_names
         assert "execute_plan" not in tool_names
+
+
+class TestRuntimeGeminiProvider:
+    def test_gemini_runtime_uses_native_provider(self):
+        config = AgentsConfig()
+        config = AgentsConfig(
+            llm_provider=config.llm_provider.__class__(
+                default="gemini",
+                providers={
+                    "gemini": config.llm_provider.providers["openai"].__class__(
+                        model="gemini-2.5-pro",
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                        api_key="test-key",
+                        api_key_env="GEMINI_API_KEY",
+                    )
+                },
+            )
+        )
+        rt = Runtime.from_config_store(_make_store(config))
+        assert isinstance(rt.agent.llm_provider, GeminiNativeProvider)
 
 
 class TestRuntimeMultiAgentEnabled:
@@ -58,18 +77,20 @@ class TestRuntimePlanHookWired:
 class TestRuntimeHookRegistration:
     def test_multi_agent_hook_in_plugin_registry(self):
         from dojoagents.plugins import get_plugin_registry
+
         config = AgentsConfig(multi_agent=MultiAgentConfig(enabled=True))
         plugin_registry = get_plugin_registry()
         pre_count_before = len(plugin_registry._hooks.get("pre_llm_call", []))
-        rt = Runtime.from_config_store(_make_store(config))
+        Runtime.from_config_store(_make_store(config))
         pre_count_after = len(plugin_registry._hooks.get("pre_llm_call", []))
         assert pre_count_after > pre_count_before
 
     def test_multi_agent_hook_not_registered_when_disabled(self):
         from dojoagents.plugins import get_plugin_registry
+
         config = AgentsConfig()
         plugin_registry = get_plugin_registry()
         pre_count_before = len(plugin_registry._hooks.get("pre_llm_call", []))
-        rt = Runtime.from_config_store(_make_store(config))
+        Runtime.from_config_store(_make_store(config))
         pre_count_after = len(plugin_registry._hooks.get("pre_llm_call", []))
         assert pre_count_after == pre_count_before

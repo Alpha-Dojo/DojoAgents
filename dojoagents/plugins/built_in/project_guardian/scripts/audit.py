@@ -1,4 +1,3 @@
-from dojoagents.logging import LOGGER
 import os
 import json
 
@@ -30,11 +29,9 @@ def main():
             break
 
     if is_malicious:
-        LOGGER.info(
-            json.dumps({"action": "block", "message": f"Safety Violation: Code execution blocked due to restricted command pattern '{matched_keyword}'."}, ensure_ascii=False)
-        )
+        print(json.dumps({"action": "block", "message": f"Safety Violation: Code execution blocked due to restricted command pattern '{matched_keyword}'."}, ensure_ascii=False))
     else:
-        LOGGER.info(json.dumps({"action": "allow"}, ensure_ascii=False))
+        print(json.dumps({"action": "allow"}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

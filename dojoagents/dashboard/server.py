@@ -48,8 +48,10 @@ from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_ch
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
+from dojoagents.logging import LOGGER
 
 
 def _jsonable(value: Any) -> Any:
@@ -96,8 +98,24 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
     if provider_cfg is None:
         return selected_provider or "default"
 
-    llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
-    llm_provider.name = selected_provider
+    if selected_provider == "gemini":
+        llm_provider = GeminiNativeProvider(
+            api_key=provider_cfg.api_key,
+            api_key_env=provider_cfg.api_key_env,
+            base_url=provider_cfg.base_url,
+        )
+    else:
+        llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+        llm_provider.name = selected_provider
+    LOGGER.info(
+        "Dashboard synced runtime agent provider: requested=%s selected=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+        provider_name,
+        selected_provider,
+        type(llm_provider).__name__,
+        provider_cfg.model,
+        getattr(provider_cfg, "base_url", None),
+        bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+    )
     agent.llm_provider = llm_provider
     agent.provider_config = provider_cfg
     if is_dataclass(getattr(agent, "config", None)):

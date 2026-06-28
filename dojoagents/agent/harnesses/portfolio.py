@@ -35,7 +35,7 @@ class PortfolioTaskHarness(TaskHarness):
             if call.name in _PORTFOLIO_ID_TOOLS and not call.arguments.get("portfolio_id") and portfolio_id:
                 next_args = dict(call.arguments)
                 next_args["portfolio_id"] = portfolio_id
-                repaired.append(ToolCall(id=call.id, name=call.name, arguments=next_args))
+                repaired.append(ToolCall(id=call.id, name=call.name, arguments=next_args, metadata=dict(call.metadata)))
                 continue
             repaired.append(call)
         return repaired
