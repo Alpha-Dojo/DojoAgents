@@ -70,6 +70,58 @@ export async function fetchSectorTaxonomy(): Promise<SectorTaxonomyDocument> {
   return transformTaxonomy(raw);
 }
 
+/** Lightweight sector metrics (no L1/L2/L3 performance curves). */
+export async function fetchDojoSphereSectorMetrics(params: {
+  level1Id: string;
+  level2Id: string;
+  level3Id: string;
+}): Promise<SectorScopeMetricsResponse> {
+  const query = new URLSearchParams({
+    level1_id: params.level1Id,
+    level2_id: params.level2Id,
+    level3_id: params.level3Id,
+  });
+  const raw = await fetchJson<{
+    level1_id: string;
+    level2_id: string;
+    level3_id: string;
+    scopes: Record<
+      string,
+      Record<
+        string,
+        {
+          market: string;
+          member_count: number;
+          total_market_cap: number;
+          weighted_pe: number | null;
+          pe_sample_count: number;
+        }
+      >
+    >;
+  }>(`${API_PREFIX}/dojo-sphere/sectors/metrics?${query}`);
+  const scopes = {} as SectorScopeMetricsResponse['scopes'];
+  for (const [level, markets] of Object.entries(raw.scopes ?? {})) {
+    const levelKey = level as SectorLevelKey;
+    scopes[levelKey] = {};
+    for (const [market, stats] of Object.entries(markets)) {
+      const uiMarket = (market === 'sh' ? 'cn' : market) as MarketCode;
+      scopes[levelKey]![uiMarket] = {
+        market: uiMarket,
+        member_count: stats.member_count,
+        total_market_cap: stats.total_market_cap,
+        weighted_pe: stats.weighted_pe,
+        pe_sample_count: stats.pe_sample_count,
+      };
+    }
+  }
+  return {
+    level1_id: raw.level1_id,
+    level2_id: raw.level2_id,
+    level3_id: raw.level3_id,
+    scopes,
+  };
+}
+
 export async function fetchSectorScopeMetrics(params: {
   level1Id: string;
   level2Id: string;

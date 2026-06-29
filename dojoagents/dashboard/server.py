@@ -26,7 +26,6 @@ from dojoagents.dashboard.routers import (
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager
-from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
@@ -327,8 +326,7 @@ def create_app(
             app.state.agent_run_manager = AgentRunManager()
 
             # Start background refresh loop
-            # schedule = MarketCloseSchedule()
-            # refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
+            refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", store_registry=registry))
 
             yield
         finally:

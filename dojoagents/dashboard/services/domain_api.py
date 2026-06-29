@@ -36,8 +36,10 @@ from dojoagents.dashboard.schemas.domain_api import (
     TickerNewsEventsResponseV1,
     TickerPriceTrendsResponseV1,
     TickerQuoteResponseV1,
+    TickerQuotesBatchResponseV1,
     TickerSectorPath,
     IncomeDistributionSlice,
+    MAX_TICKER_QUOTES_BATCH,
 )
 from dojoagents.dashboard.schemas.portfolio import (
     PortfolioCapitalConfig,
@@ -49,6 +51,8 @@ from dojoagents.dashboard.services.dojo_core_search import search_core_tickers
 from dojoagents.dashboard.services.dojo_core_sector import resolve_core_ticker_sector
 from dojoagents.dashboard.services.domain_utils import (
     filter_date_rows,
+    finite_float,
+    finite_optional_float,
     normalize_market_code,
     to_native_market_code,
 )
@@ -91,9 +95,9 @@ def _stats_snapshot(stats: Any, *, market: Optional[str] = None) -> MarketStatsS
     return MarketStatsSnapshot(
         market=to_native_market_code(raw_market) or str(raw_market or ""),
         listed_count=int(data.get("listed_count") or 0),
-        total_market_cap=float(data.get("total_market_cap") or 0.0),
-        weighted_pe=data.get("weighted_pe"),
-        simple_pe=data.get("simple_pe"),
+        total_market_cap=finite_float(data.get("total_market_cap")),
+        weighted_pe=finite_optional_float(data.get("weighted_pe")),
+        simple_pe=finite_optional_float(data.get("simple_pe")),
         pe_sample_count=int(data.get("pe_sample_count") or 0),
     )
 
@@ -107,14 +111,14 @@ def _benchmark_snapshot(benchmark: Any) -> BenchmarkSnapshot:
         market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
         symbol=str(data.get("symbol") or ""),
         name=BilingualText.model_validate(data.get("name") or {}),
-        price=float(data.get("price") or 0.0),
-        change_percent=float(data.get("change_percent") or 0.0),
+        price=finite_float(data.get("price")),
+        change_percent=finite_float(data.get("change_percent")),
         window_start=data.get("window_start") or (dates[0] if dates else None),
         window_end=data.get("window_end") or (dates[-1] if dates else None),
         kline=[
             BenchmarkKlinePoint(
                 datetime=str(_model_dict(bar).get("datetime") or _model_dict(bar).get("date") or ""),
-                close=float(_model_dict(bar).get("close") or 0.0),
+                close=finite_float(_model_dict(bar).get("close")),
             )
             for bar in bars
         ],
@@ -126,9 +130,9 @@ def _sector_member(member: Any) -> SectorMoverMember:
     return SectorMoverMember(
         ticker=str(data.get("ticker") or ""),
         name=BilingualText.model_validate(data.get("name") or {}),
-        last_price=float(data.get("last_price") or 0.0),
-        market_cap=float(data.get("market_cap") or 0.0),
-        change_percent=float(data.get("change_percent") or 0.0),
+        last_price=finite_float(data.get("last_price")),
+        market_cap=finite_float(data.get("market_cap")),
+        change_percent=finite_float(data.get("change_percent")),
     )
 
 
@@ -136,8 +140,8 @@ def _sector_mover_item(item: Any) -> SectorMoverItem:
     data = _model_dict(item)
     members = list(data.get("top_members") or data.get("members") or [])
     member_count = int(data.get("member_count") or len(members))
-    avg_market_cap = float(data.get("avg_market_cap") or 0.0)
-    total_market_cap = float(data.get("total_market_cap") or 0.0)
+    avg_market_cap = finite_float(data.get("avg_market_cap"))
+    total_market_cap = finite_float(data.get("total_market_cap"))
     if total_market_cap == 0.0 and avg_market_cap and member_count:
         total_market_cap = avg_market_cap * member_count
     return SectorMoverItem(
@@ -146,7 +150,7 @@ def _sector_mover_item(item: Any) -> SectorMoverItem:
         level3_id=str(data.get("level3_id") or ""),
         concept_code=str(data.get("concept_code") or ""),
         name=BilingualText.model_validate(data.get("name") or {}),
-        change_percent=float(data.get("change_percent") or 0.0),
+        change_percent=finite_float(data.get("change_percent")),
         avg_market_cap=avg_market_cap,
         total_market_cap=total_market_cap,
         member_count=member_count,
@@ -163,18 +167,18 @@ def _performance_points(rows: Any) -> list[SectorPerformancePoint]:
         value = data.get("value")
         if date_value is None or value is None:
             continue
-        points.append(SectorPerformancePoint(date=str(date_value), value=float(value)))
+        points.append(SectorPerformancePoint(date=str(date_value), value=finite_float(value)))
     return points
 
 
 def _risk_stats(value: Any) -> SectorPerformanceStats:
     data = _model_dict(value)
     return SectorPerformanceStats(
-        cumulative_return_pct=data.get("cumulative_return_pct"),
-        sharpe_ratio=data.get("sharpe_ratio"),
-        max_drawdown_pct=data.get("max_drawdown_pct"),
-        calmar_ratio=data.get("calmar_ratio"),
-        volatility_pct=data.get("volatility_pct"),
+        cumulative_return_pct=finite_optional_float(data.get("cumulative_return_pct")),
+        sharpe_ratio=finite_optional_float(data.get("sharpe_ratio")),
+        max_drawdown_pct=finite_optional_float(data.get("max_drawdown_pct")),
+        calmar_ratio=finite_optional_float(data.get("calmar_ratio")),
+        volatility_pct=finite_optional_float(data.get("volatility_pct")),
         trading_days=int(data.get("trading_days") or 0),
     )
 
@@ -246,20 +250,20 @@ def _holding_row(item: Any) -> PortfolioHoldingRow:
         name_zh=str(data.get("name_zh") or ""),
         name_en=str(data.get("name_en") or ""),
         market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
-        shares=float(data.get("shares") or 0.0),
-        weight=float(data.get("weight") or 0.0),
-        cost=float(data.get("cost") or 0.0),
-        cost_low=data.get("cost_low"),
-        cost_high=data.get("cost_high"),
+        shares=finite_float(data.get("shares")),
+        weight=finite_float(data.get("weight")),
+        cost=finite_float(data.get("cost")),
+        cost_low=finite_optional_float(data.get("cost_low")),
+        cost_high=finite_optional_float(data.get("cost_high")),
         uses_default_cost=bool(data.get("uses_default_cost", True)),
         cost_date=data.get("cost_date"),
         open_date=data.get("open_date"),
         uses_default_open_date=bool(data.get("uses_default_open_date", True)),
-        cost_basis=float(data.get("cost_basis") or 0.0),
-        price=float(data.get("price") or 0.0),
-        change_percent=float(data.get("change_percent") or 0.0),
-        total_return_pct=data.get("total_return_pct"),
-        market_value=float(data.get("market_value") or 0.0),
+        cost_basis=finite_float(data.get("cost_basis")),
+        price=finite_float(data.get("price")),
+        change_percent=finite_float(data.get("change_percent")),
+        total_return_pct=finite_optional_float(data.get("total_return_pct")),
+        market_value=finite_float(data.get("market_value")),
         sector_l1=str(data.get("sector_l1") or ""),
         sector_l2=str(data.get("sector_l2") or ""),
         sector_l3=str(data.get("sector_l3") or ""),
@@ -281,7 +285,7 @@ def _market_performance_points(dates: list[str], values: list[Any]) -> list[Sect
     for index, value in enumerate(values):
         if index >= len(dates):
             break
-        points.append(SectorPerformancePoint(date=str(dates[index]), value=float(value or 0.0)))
+        points.append(SectorPerformancePoint(date=str(dates[index]), value=finite_float(value)))
     return points
 
 
@@ -312,7 +316,7 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         subtitle=data.get("subtitle"),
         benchmark=data.get("benchmark"),
         start_date=config.get("start_date"),
-        capital_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (config.get("capital_by_market") or {}).items()},
+        capital_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (config.get("capital_by_market") or {}).items()},
         holdings=[_holding_row(item) for item in data.get("holdings") or []],
         kpis=[_portfolio_kpi(item) for item in data.get("kpis") or []],
         performance_window_start=performance.get("window_start"),
@@ -321,8 +325,8 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         benchmark_by_market=benchmark_by_market,
         benchmark_symbol_by_market=benchmark_symbol_by_market,
         stats_by_market=stats_by_market,
-        net_value_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (data.get("net_value_by_market") or {}).items()},
-        cost_basis_by_market={to_native_market_code(market) or market: float(value or 0.0) for market, value in (data.get("cost_basis_by_market") or {}).items()},
+        net_value_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (data.get("net_value_by_market") or {}).items()},
+        cost_basis_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (data.get("cost_basis_by_market") or {}).items()},
     )
 
 
@@ -646,13 +650,13 @@ def _build_sector_movers_fallback_sync(
                 stock = registry.stock_store.get(internal_market, c["ticker"])
                 if not stock:
                     continue
-                change = ticker_return_map.get(c["ticker"], 0.0)
+                change = finite_float(ticker_return_map.get(c["ticker"], 0.0))
                 members.append(
                     {
                         "ticker": c["ticker"],
                         "name": {"zh": stock.short_name or stock.ticker, "en": stock.long_name or stock.ticker},
-                        "last_price": stock.stock_quote.last_price if stock.stock_quote else 0.0,
-                        "market_cap": c.get("market_cap", 0.0) or 0.0,
+                        "last_price": finite_float(stock.stock_quote.last_price if stock.stock_quote else 0.0),
+                        "market_cap": finite_float(c.get("market_cap")),
                         "change_percent": round(change, 2),
                     }
                 )
@@ -674,9 +678,9 @@ def _build_sector_movers_fallback_sync(
                 level3_id=str(s["level3_id"]),
                 concept_code=concept_code_for(internal_market, path.level3_zh, path.level3_en, "L3"),
                 name=BilingualText(zh=path.level3_zh, en=path.level3_en),
-                change_percent=round(s.get("daily_return_pct", 0), 2),
-                avg_market_cap=(total_market_cap / s.get("member_count", 1)) if s.get("member_count") else 0.0,
-                total_market_cap=float(total_market_cap or 0.0),
+                change_percent=round(finite_float(s.get("daily_return_pct")), 2),
+                avg_market_cap=(finite_float(total_market_cap) / s.get("member_count", 1)) if s.get("member_count") else 0.0,
+                total_market_cap=finite_float(total_market_cap),
                 sample_tickers=[m["ticker"] for m in top_by_abs],
                 member_count=s.get("member_count", 0),
                 top_members=[_sector_member(member) for member in sorted_members[:MAX_SECTOR_MEMBERS]],
@@ -720,9 +724,9 @@ async def build_sector_analysis(
     scopes = {}
     sources: set[str] = set()
     stale = False
-    for current_scope in ("L1", "L2", "L3"):
 
-        async def compute_performance_payload(current_scope: str = current_scope) -> dict[str, Any]:
+    async def load_scope_performance(current_scope: str) -> tuple[str, dict[str, Any]]:
+        async def compute_performance_payload() -> dict[str, Any]:
             result = await compute_sector_scope_performance(
                 registry.stock_store,
                 registry.kline_store,
@@ -736,6 +740,11 @@ async def build_sector_analysis(
             _sector_scope_cache_key(level1_id, level2_id, level3_id, current_scope),
             compute_performance_payload,
         )
+        return current_scope, cached_performance
+
+    for current_scope, cached_performance in await asyncio.gather(
+        *(load_scope_performance(scope_key) for scope_key in ("L1", "L2", "L3")),
+    ):
         performance = cached_performance.get("payload", cached_performance)
         scopes[current_scope] = SectorAnalysisScope(
             scope=current_scope,
@@ -856,6 +865,36 @@ async def build_ticker_quote_v1(registry, *, ticker: str, market: Optional[str])
     payload["name"] = _safe_stock_bilingual_name(stock, quote.ticker)
     payload["sector_paths"] = [_sector_option_to_path(option) for option in (sector_response.sector_options if sector_response else [])]
     return TickerQuoteResponseV1(**payload)
+
+
+async def build_tickers_quotes_v1(
+    registry,
+    *,
+    tickers: list[str],
+    market: Optional[str],
+) -> TickerQuotesBatchResponseV1:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in tickers:
+        ticker = raw.strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        normalized.append(ticker)
+    normalized = normalized[:MAX_TICKER_QUOTES_BATCH]
+
+    results = await asyncio.gather(
+        *(build_ticker_quote_v1(registry, ticker=ticker, market=market) for ticker in normalized)
+    )
+    items = [item for item in results if item is not None]
+    found = {item.ticker.upper() for item in items}
+    not_found = [ticker for ticker in normalized if ticker not in found]
+    return TickerQuotesBatchResponseV1(
+        market=to_native_market_code(market) if market else None,
+        count=len(items),
+        not_found=not_found,
+        items=items,
+    )
 
 
 async def build_ticker_financials_v1(

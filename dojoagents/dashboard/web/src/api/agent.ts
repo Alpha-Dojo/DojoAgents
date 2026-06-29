@@ -77,6 +77,7 @@ export type AgentStreamHandlers = {
     error?: string | null;
     data?: Record<string, unknown> | null;
     viz_blocks?: AgentVizBlock[];
+    resource_changes?: Record<string, unknown>[];
   }) => void;
   onEvalHint?: (payload: { text: string; issues: string[] }) => void;
   onDone: (modelId: string) => void;
@@ -162,6 +163,7 @@ function dispatchStreamEvent(event: AgentStreamEvent, handlers: AgentStreamHandl
       error: event.error,
       data: event.data,
       viz_blocks: event.viz_blocks,
+      resource_changes: event.resource_changes,
     });
     return 'continue';
   }

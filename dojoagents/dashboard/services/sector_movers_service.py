@@ -24,7 +24,7 @@ from dojoagents.dashboard.services.market_sector_lead import (
     concept_code_for,
     link_key_from_concept_code,
 )
-from dojoagents.dashboard.services.domain_utils import normalize_market_code, to_native_market_code
+from dojoagents.dashboard.services.domain_utils import finite_float, normalize_market_code, sanitize_mapping, to_native_market_code
 
 MARKETS = ("sh", "hk", "us")
 
@@ -147,7 +147,7 @@ class SectorMoversService:
                 market = str(row.market)
                 if market not in markets:
                     markets[market] = []
-                total_market_cap = float(getattr(row, "total_market_cap", 0.0) or 0.0)
+                total_market_cap = finite_float(getattr(row, "total_market_cap", 0.0))
                 member_count = int(getattr(row, "member_count", 0) or 0)
                 avg_market_cap = total_market_cap / member_count if member_count else 0.0
                 markets[market].append(
@@ -158,7 +158,7 @@ class SectorMoversService:
                         level3_id=str(row.level3_id),
                         concept_code=concept_code_for(market, path.level3_zh, path.level3_en, "L3"),
                         name=BilingualText(zh=path.level3_zh, en=path.level3_en),
-                        change_percent=round(float(getattr(row, "daily_return_pct", 0.0) or 0.0), 2),
+                        change_percent=round(finite_float(getattr(row, "daily_return_pct", 0.0)), 2),
                         total_market_cap=total_market_cap,
                         avg_market_cap=avg_market_cap,
                         member_count=member_count,
@@ -175,7 +175,7 @@ class SectorMoversService:
         frame = self.sector_precomputed_store.get_ticker_daily_window_frame(days)
         if frame.empty:
             return {}
-        return {(str(row.market), str(row.ticker)): row._asdict() for row in frame.itertuples(index=False)}
+        return {(str(row.market), str(row.ticker)): sanitize_mapping(row._asdict()) for row in frame.itertuples(index=False)}
 
     def _build_sector_item(
         self,
@@ -200,14 +200,14 @@ class SectorMoversService:
                 continue
             ticker_row = ticker_lookup.get((candidate.market, ticker), {})
             quote = getattr(stock, "stock_quote", None)
-            change_percent = float(ticker_row.get("daily_return_pct") or 0.0)
-            last_price = float(getattr(quote, "last_price", 0.0) or 0.0)
+            change_percent = finite_float(ticker_row.get("daily_return_pct"))
+            last_price = finite_float(getattr(quote, "last_price", 0.0))
             members.append(
                 SectorMemberItem(
                     ticker=ticker,
                     name=_stock_bilingual_name(stock),
                     last_price=last_price,
-                    market_cap=float(constituent.get("market_cap") or 0.0),
+                    market_cap=finite_float(constituent.get("market_cap")),
                     change_percent=round(change_percent, 2),
                 )
             )
