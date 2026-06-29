@@ -50,6 +50,17 @@ def test_market_overview_tool_description_guides_cross_market_comparison() -> No
     assert "US, CN, and HK" in spec.description
 
 
+def test_realtime_quote_tool_description_guides_batch_usage() -> None:
+    registry = ToolRegistry()
+
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_realtime_quote")
+    assert spec is not None
+    assert "tickers" in spec.description
+    assert "single call" in spec.description.lower()
+
+
 @pytest.mark.asyncio
 async def test_dashboard_domain_tool_returns_structured_data(monkeypatch) -> None:
     async def fake_market_overview(registry, *, days, market):
@@ -80,6 +91,28 @@ async def test_dashboard_domain_tool_returns_structured_data(monkeypatch) -> Non
     assert result["data"]["days"] == 3
     assert result["data"]["markets"]["hk"]["weighted_pe"] == 14.1
     assert '"weighted_pe": 14.1' in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_realtime_quote_tool_returns_batch_payload(monkeypatch) -> None:
+    async def fake_batch(registry, *, tickers, market):
+        return {
+            "market": market,
+            "count": len(tickers),
+            "not_found": [],
+            "items": [{"ticker": ticker, "market": market or "us", "last_price": 1.0} for ticker in tickers],
+        }
+
+    monkeypatch.setattr(domain_tools, "build_tickers_quotes_v1", fake_batch)
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_realtime_quote")
+    assert spec is not None
+    result = await spec.handler({"tickers": ["AAPL", "MSFT"], "market": "us"})
+
+    assert result["data"]["count"] == 2
+    assert [item["ticker"] for item in result["data"]["items"]] == ["AAPL", "MSFT"]
 
 
 def test_create_app_registers_dashboard_domain_tools() -> None:

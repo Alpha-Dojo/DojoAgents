@@ -114,7 +114,6 @@ export function CoreAssetSnapshot({
             <CoreTickerSearch
               ticker={ticker}
               market={market}
-              selection={selection}
               onSelect={onTickerSelect}
             />
           </div>

@@ -5,12 +5,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel, collect_sector_scope_tickers
-from dojoagents.dashboard.services.sector_earnings_index import (
-    append_quote_session_point,
-    compute_market_index_series,
-    filter_cap_weighted_tickers,
-)
+from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
+from dojoagents.dashboard.services.sector_earnings_index import compute_market_index_series
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_scope_performance_stats import compute_market_performance_stats
@@ -143,6 +139,36 @@ def _clip_series_to_window(
     return [SectorPerformanceMarketPoint(date=day, value=value) for day, value in series if window_start <= day <= window_end]
 
 
+def _precomputed_scope_level_ids(path: ResolvedSectorPath, scope: SectorLevel) -> tuple[str, str]:
+    level2_id = path.level2_id if scope in ("L2", "L3") else ""
+    level3_id = path.level3_id if scope == "L3" else ""
+    return level2_id, level3_id
+
+
+def _market_series_from_precomputed(
+    sector_precomputed_store: Any,
+    path: ResolvedSectorPath,
+    *,
+    scope: SectorLevel,
+    market: str,
+) -> tuple[List[Tuple[str, float]], int]:
+    """Read index curve and member count from ``sector_daily`` without live quote overlay."""
+    level2_id, level3_id = _precomputed_scope_level_ids(path, scope)
+    daily_rows = sector_precomputed_store.get_sector_daily(
+        scope=scope,
+        level1_id=path.level1_id,
+        level2_id=level2_id,
+        level3_id=level3_id,
+        market=market,
+    )
+    if not daily_rows:
+        return [], 0
+    sorted_rows = sorted(daily_rows, key=lambda row: str(row.get("trade_date") or ""))
+    series = [(str(row["trade_date"]), float(row["index_level"])) for row in sorted_rows]
+    member_count = int(sorted_rows[-1].get("member_count") or 0)
+    return series, member_count
+
+
 async def resolve_scope_unified_window_start(
     stock_store: StockStore,
     kline_store: KlineStore,
@@ -152,32 +178,14 @@ async def resolve_scope_unified_window_start(
     scope: SectorLevel = "L3",
 ) -> str:
     """Unified 1Y window start used by sector performance curves."""
-    scopes = collect_sector_scope_tickers(sector_precomputed_store, path)
-    scope_tickers = scopes.get(scope) or set()
-
+    del stock_store, kline_store
     by_market: Dict[str, List[Tuple[str, float]]] = {}
     for market in MARKETS:
-        market_tickers = filter_cap_weighted_tickers(
-            market,
-            scope_tickers,
-            stock_store,
-        )
-        # Fetch from precomputed store
-        daily_rows = sector_precomputed_store.get_sector_daily(
+        series, _member_count = _market_series_from_precomputed(
+            sector_precomputed_store,
+            path,
             scope=scope,
-            level1_id=path.level1_id,
-            level2_id=path.level2_id,
-            level3_id=path.level3_id,
             market=market,
-        )
-        series = [(row["trade_date"], row["index_level"]) for row in sorted(daily_rows, key=lambda x: x["trade_date"])]
-
-        series = await append_quote_session_point(
-            series,
-            market,
-            market_tickers,
-            stock_store,
-            kline_store,
         )
         by_market[market] = series
     return _resolve_unified_window_start(by_market)
@@ -192,40 +200,22 @@ async def compute_sector_scope_performance(
     scope: SectorLevel = "L3",
 ) -> SectorPerformanceResponse:
     """Cross-market market-cap-weighted sector index curves for the selected scope."""
+    del stock_store, kline_store
     if scope not in ("L1", "L2", "L3"):
         scope = "L3"
-
-    scopes = collect_sector_scope_tickers(sector_precomputed_store, path)
-    scope_tickers = scopes.get(scope) or set()
 
     by_market: Dict[str, List[Tuple[str, float]]] = {}
     members_by_market: Dict[str, int] = {}
 
     for market in MARKETS:
-        market_tickers = filter_cap_weighted_tickers(
-            market,
-            scope_tickers,
-            stock_store,
-        )
-        # Fetch from precomputed store
-        daily_rows = sector_precomputed_store.get_sector_daily(
+        series, member_count = _market_series_from_precomputed(
+            sector_precomputed_store,
+            path,
             scope=scope,
-            level1_id=path.level1_id,
-            level2_id=path.level2_id,
-            level3_id=path.level3_id,
             market=market,
         )
-        series = [(row["trade_date"], row["index_level"]) for row in sorted(daily_rows, key=lambda x: x["trade_date"])]
-
-        series = await append_quote_session_point(
-            series,
-            market,
-            market_tickers,
-            stock_store,
-            kline_store,
-        )
         by_market[market] = series
-        members_by_market[market] = len(market_tickers)
+        members_by_market[market] = member_count
 
     merged = _merge_market_series(by_market)
 

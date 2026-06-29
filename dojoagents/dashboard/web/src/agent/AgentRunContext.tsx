@@ -332,6 +332,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
           error?: string | null;
           data?: Record<string, unknown> | null;
           viz_blocks?: import('../types/agentViz').AgentVizBlock[];
+          resource_changes?: Record<string, unknown>[];
         }) => {
           consumeEvent(() => {
             state.assistantSteps = resolveToolResult(
@@ -346,7 +347,12 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
               payload.call_id,
             );
             patchRunDraft(state);
-            void syncFolioFromAgentTool(payload.tool, payload.ok, payload.data ?? null);
+            void syncFolioFromAgentTool(
+              payload.tool,
+              payload.ok,
+              payload.data ?? null,
+              payload.resource_changes ?? null,
+            );
           });
         },
         onEvalHint: ({ issues }: { issues: string[] }) => {

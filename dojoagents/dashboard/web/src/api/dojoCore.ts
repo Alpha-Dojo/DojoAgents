@@ -133,6 +133,10 @@ interface TickerPriceTrendsBundle {
   pe_band: CorePeBandPoint[];
 }
 
+function quoteKey(ticker: string, market?: MarketCode) {
+  return `quote:${market ?? ''}:${ticker}`;
+}
+
 function financialsKey(
   ticker: string,
   market?: MarketCode,
@@ -140,6 +144,11 @@ function financialsKey(
   endDate?: string,
 ) {
   return `fin:v2:${market ?? ''}:${ticker}:${startDate ?? ''}:${endDate ?? ''}`;
+}
+
+function canonicalFinancialsKey(ticker: string, market?: MarketCode) {
+  const endDate = new Date().toISOString().slice(0, 10);
+  return financialsKey(ticker, market, REVENUE_CHART_YOY_BASELINE_START, endDate);
 }
 
 function newsEventsKey(ticker: string, market?: MarketCode, pageSize?: number) {
@@ -207,27 +216,36 @@ function fetchPriceTrendsBundle(params: {
   );
 }
 
+interface TickerQuoteApiResponse extends CoreTickerQuoteResponse {
+  sector_paths?: Array<{
+    role: 'primary' | 'secondary';
+    level1_id: string;
+    level2_id: string;
+    level3_id: string;
+    labels: Record<string, { zh: string; en: string }>;
+  }>;
+}
+
+async function fetchTickerQuoteRaw(params: {
+  ticker: string;
+  market?: MarketCode;
+}): Promise<TickerQuoteApiResponse> {
+  const query = new URLSearchParams({ ticker: params.ticker });
+  if (params.market) query.set('market', params.market);
+  return dedupeFetch(quoteKey(params.ticker, params.market), () =>
+    fetchJson<TickerQuoteApiResponse>(`${API_PREFIX}/ticker/quote?${query}`),
+  );
+}
+
 export async function fetchCoreTickerSector(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerSectorResponse> {
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  const raw = await fetchJson<{
-    ticker: string;
-    market: MarketCode;
-    sector_paths: Array<{
-      role: 'primary' | 'secondary';
-      level1_id: string;
-      level2_id: string;
-      level3_id: string;
-      labels: Record<string, { zh: string; en: string }>;
-    }>;
-  }>(`${API_PREFIX}/ticker/quote?${query}`);
+  const raw = await fetchTickerQuoteRaw(params);
   return {
     ticker: raw.ticker,
     market: raw.market,
-    sector_options: raw.sector_paths.map(mapSectorOptionFromQuotePath),
+    sector_options: (raw.sector_paths ?? []).map(mapSectorOptionFromQuotePath),
   };
 }
 
@@ -305,20 +323,28 @@ function mapFinIndicatorRow(raw: Record<string, unknown>): StockFinIndicatorRow 
   };
 }
 
+async function fetchCanonicalFinancialsBundle(params: {
+  ticker: string;
+  market?: MarketCode;
+}): Promise<TickerFinancialsBundle> {
+  const endDate = new Date().toISOString().slice(0, 10);
+  return dedupeFetch(canonicalFinancialsKey(params.ticker, params.market), () =>
+    fetchFinancialsBundle({
+      ticker: params.ticker,
+      market: params.market,
+      start_date: REVENUE_CHART_YOY_BASELINE_START,
+      end_date: endDate,
+    }),
+  );
+}
+
 export async function fetchCoreTickerFinIndicators(params: {
   ticker: string;
   market?: MarketCode;
   startDate?: string;
   endDate?: string;
 }): Promise<CoreTickerFinIndicatorsResponse> {
-  const endDate = params.endDate ?? new Date().toISOString().slice(0, 10);
-  const startDate = params.startDate ?? REVENUE_CHART_YOY_BASELINE_START;
-  const raw = await fetchFinancialsBundle({
-    ticker: params.ticker,
-    market: params.market,
-    start_date: startDate,
-    end_date: endDate,
-  });
+  const raw = await fetchCanonicalFinancialsBundle(params);
   return {
     ticker: raw.ticker,
     market: raw.market,
@@ -449,9 +475,7 @@ export async function fetchCoreTickerQuote(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerQuoteResponse> {
-  const query = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) query.set('market', params.market);
-  return fetchJson<CoreTickerQuoteResponse>(`${API_PREFIX}/ticker/quote?${query}`);
+  return fetchTickerQuoteRaw(params);
 }
 
 export interface CoreTickerPeBandResponse {
@@ -470,13 +494,12 @@ export async function fetchCoreTickerPeBand(params: {
   limit?: number;
 }): Promise<CoreTickerPeBandResponse> {
   const raw = await fetchPriceTrendsBundle(params);
-  const quoteQuery = new URLSearchParams({ ticker: params.ticker });
-  if (params.market) quoteQuery.set('market', params.market);
   let totalShares = 0;
   try {
-    const quote = await fetchJson<{ total_shares?: number | null }>(
-      `${API_PREFIX}/ticker/quote?${quoteQuery}`,
-    );
+    const quote = await fetchCoreTickerQuote({
+      ticker: params.ticker,
+      market: params.market,
+    });
     totalShares = quote.total_shares ?? 0;
   } catch {
     totalShares = 0;
@@ -518,10 +541,11 @@ export async function fetchCoreTickerKline(params: {
 }
 
 function mapIncomeDistributionItem(raw: Record<string, unknown>): CoreIncomeDistributionItem {
+  const itemName = raw.item_name ?? raw.name;
   return {
-    item_name: String(raw.item_name ?? ''),
+    item_name: String(itemName ?? '').trim(),
     main_business_income: Number(raw.main_business_income ?? 0),
-    mbi_ratio: Number(raw.mbi_ratio ?? 0),
+    mbi_ratio: Number(raw.mbi_ratio ?? raw.ratio ?? 0),
   };
 }
 
@@ -542,7 +566,7 @@ export async function fetchCoreTickerIncome(params: {
   ticker: string;
   market?: MarketCode;
 }): Promise<CoreTickerIncomeResponse> {
-  const raw = await fetchFinancialsBundle({ ...params, limit: 20 });
+  const raw = await fetchCanonicalFinancialsBundle(params);
   const reportDate =
     raw.income_distributions.find((slice) => slice.report_date)?.report_date ?? raw.as_of;
   return {

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from datetime import date
-from typing import Iterable, Optional, TypeVar
+from typing import Any, Iterable, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -29,6 +30,47 @@ def to_native_market_code(value: Optional[str]) -> Optional[str]:
     if normalized is None:
         return None
     return MARKET_INTERNAL_TO_NATIVE.get(normalized, normalized)
+
+
+def finite_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return parsed
+
+
+def finite_optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def sanitize_mapping(mapping: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in mapping.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            sanitized[key] = None
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
+def sanitize_records(df: Any) -> list[dict[str, Any]]:
+    if df is None or getattr(df, "empty", False):
+        return []
+    records = df.to_dict(orient="records")
+    return [sanitize_mapping(record) for record in records]
 
 
 def validate_date_range(start_date: Optional[str], end_date: Optional[str]) -> None:

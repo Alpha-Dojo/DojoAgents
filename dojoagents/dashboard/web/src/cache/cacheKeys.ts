@@ -41,6 +41,8 @@ export const cacheKeys = {
     `core-ticker-news:${tickerKey(market, ticker)}:${pageSize}`,
   coreTickerIncome: (market: string | undefined, ticker: string) =>
     `core-ticker-income:${tickerKey(market, ticker)}`,
+  coreSectorPeMetrics: (selection: SectorPathSelection) =>
+    `core-sector-pe-metrics:${selectionKey(selection)}`,
   folioPortfolios: () => 'folio-portfolios',
   folioPortfolioLite: (portfolioId: string) => `folio-portfolio-lite:${portfolioId}`,
   folioPortfolio: (portfolioId: string, benchmark?: string | null) =>

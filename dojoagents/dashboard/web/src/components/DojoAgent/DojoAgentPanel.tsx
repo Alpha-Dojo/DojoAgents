@@ -129,6 +129,8 @@ export function DojoAgentPanel({
   );
   const [recoveredNotice, setRecoveredNotice] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,7 +170,25 @@ export function DojoAgentPanel({
   }, [recoveredNotice]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const distance =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottomRef.current = distance <= 96;
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [activeSessionId, open]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: streaming ? "auto" : "smooth",
+    });
   }, [messages, streaming, sessionRun.draftMessages]);
 
   const flushPersistDraft = useCallback(
@@ -253,6 +273,7 @@ export function DojoAgentPanel({
     setInput("");
     setHistoryOpen(false);
     setRecoveredNotice(false);
+    stickToBottomRef.current = true;
     clearStreamDraft();
     createSession(selectedModelId);
   }, [createSession, selectedModelId]);
@@ -263,6 +284,7 @@ export function DojoAgentPanel({
         setHistoryOpen(false);
         return;
       }
+      stickToBottomRef.current = true;
       setSwitchingSessionId(sessionId);
       setError(null);
       setInput("");
@@ -295,6 +317,7 @@ export function DojoAgentPanel({
 
     setInput("");
     setError(null);
+    stickToBottomRef.current = true;
 
     try {
       await startRun({
@@ -599,6 +622,7 @@ export function DojoAgentPanel({
             </div>
           ) : null}
           <div
+            ref={messagesContainerRef}
             className={`dojo-agent-panel__messages${
               switchingSessionId ? " dojo-agent-panel__messages--hidden" : ""
             }`}

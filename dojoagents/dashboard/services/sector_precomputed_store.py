@@ -7,7 +7,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from dojoagents.config.loader import FinancialDashboardConfig
-from dojoagents.dashboard.services.domain_utils import normalize_market_code
+from dojoagents.dashboard.services.domain_utils import normalize_market_code, sanitize_mapping, sanitize_records
 from dojoagents.dashboard.services.precompute_sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE,
@@ -123,7 +123,7 @@ class SectorPrecomputedStore:
         if market:
             mask &= df["market"] == (normalize_market_code(market) or market)
 
-        return df[mask].to_dict(orient="records")
+        return sanitize_records(df[mask])
 
     def get_sector_constituents_exact(
         self,
@@ -151,14 +151,14 @@ class SectorPrecomputedStore:
             mask &= df["level3_id"] == level3_id
         if market:
             mask &= df["market"] == (normalize_market_code(market) or market)
-        return df[mask].to_dict(orient="records")
+        return sanitize_records(df[mask])
 
     def get_sector_movers(self, date: str) -> list[dict]:
         df = self._load_sector_daily()
         if df.empty:
             return []
         target_date = date or str(df["trade_date"].max())
-        return df[df["trade_date"] == target_date].to_dict(orient="records")
+        return sanitize_records(df[df["trade_date"] == target_date])
 
     def get_sector_movers_window_frame(self, days: int) -> pd.DataFrame:
         df = self._load_sector_daily()
@@ -180,7 +180,7 @@ class SectorPrecomputedStore:
         return computed
 
     def get_sector_movers_by_window(self, days: int) -> list[dict]:
-        return self.get_sector_movers_window_frame(days).to_dict(orient="records")
+        return sanitize_records(self.get_sector_movers_window_frame(days))
 
     def get_ticker_daily(self, date: str, tickers: list[str], market: str | None = None) -> list[dict]:
         df = self._load_ticker_daily()
@@ -189,7 +189,7 @@ class SectorPrecomputedStore:
         mask = (df["trade_date"] == date) & (df["ticker"].isin(tickers))
         if market:
             mask &= df["market"] == (normalize_market_code(market) or market)
-        return df[mask].to_dict(orient="records")
+        return sanitize_records(df[mask])
 
     def get_ticker_daily_window_frame(self, days: int) -> pd.DataFrame:
         df = self._load_ticker_daily()
@@ -218,7 +218,7 @@ class SectorPrecomputedStore:
         mask = df["ticker"].isin(tickers)
         if market:
             mask &= df["market"] == (normalize_market_code(market) or market)
-        return df[mask].to_dict(orient="records")
+        return sanitize_records(df[mask])
 
     def clear_cache(self) -> None:
         self._constituents_df = None
@@ -238,7 +238,7 @@ class SectorPrecomputedStore:
         df = self._constituents_df
         if df is None or df.empty:
             return
-        for row in df.to_dict(orient="records"):
+        for row in sanitize_records(df):
             key = (
                 str(row.get("market") or ""),
                 str(row.get("level1_id") or ""),
@@ -306,7 +306,9 @@ class SectorPrecomputedStore:
         latest_values = pd.to_numeric(merged[value_col], errors="coerce")
         start_values = pd.to_numeric(merged["_window_start_value"], errors="coerce")
         merged["daily_return_pct"] = ((latest_values / start_values) - 1.0) * 100.0
-        merged.loc[start_values <= 0, "daily_return_pct"] = 0.0
+        invalid = start_values.isna() | latest_values.isna() | (start_values <= 0)
+        merged.loc[invalid, "daily_return_pct"] = 0.0
+        merged["daily_return_pct"] = merged["daily_return_pct"].fillna(0.0)
         if "change_percent" in merged.columns:
             merged = merged.drop(columns=["change_percent"])
         return merged.drop(columns=["_window_start_value"], errors="ignore")

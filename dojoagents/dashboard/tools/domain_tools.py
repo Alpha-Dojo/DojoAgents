@@ -14,6 +14,7 @@ from dojoagents.dashboard.services.domain_api import (
     build_ticker_news_events_v1,
     build_ticker_price_trends_v1,
     build_ticker_quote_v1,
+    build_tickers_quotes_v1,
     resolve_sector_analysis_path,
     search_company_ticker,
 )
@@ -71,6 +72,18 @@ def _optional_float_arg(args: dict[str, Any], key: str) -> float | None:
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _list_str_arg(args: dict[str, Any], key: str) -> list[str]:
+    value = args.get(key)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
 
 
 def _service_ready(registry: FinancialDomainRegistry) -> None:
@@ -182,14 +195,27 @@ def register_dashboard_domain_tools(
 
     async def ticker_quote(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
-        ticker = _str_arg(args, "ticker")
-        result = await build_ticker_quote_v1(
+        tickers = _list_str_arg(args, "tickers")
+        single = _str_arg(args, "ticker")
+        if not tickers and single:
+            tickers = [single]
+        if not tickers:
+            raise RuntimeError("ticker or tickers is required")
+        market = _optional_str_arg(args, "market")
+        if len(tickers) == 1:
+            result = await build_ticker_quote_v1(
+                registry,
+                ticker=tickers[0],
+                market=market,
+            )
+            if result is None:
+                raise RuntimeError(f"quote not found for {tickers[0]}")
+            return _json_content(result)
+        result = await build_tickers_quotes_v1(
             registry,
-            ticker=ticker,
-            market=_optional_str_arg(args, "market"),
+            tickers=tickers,
+            market=market,
         )
-        if result is None:
-            raise RuntimeError(f"quote not found for {ticker}")
         return _json_content(result)
 
     async def ticker_financials(args: dict[str, Any]) -> dict[str, Any]:
@@ -346,14 +372,22 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="get_ticker_realtime_quote",
-            description="Get a dashboard quote card payload for one ticker.",
+            description=(
+                "Get dashboard quote payloads for one or many tickers. "
+                "Prefer passing all candidate tickers in tickers (up to 50) in a single call "
+                "instead of querying each ticker separately."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "ticker": {"type": "string"},
+                    "ticker": {"type": "string", "description": "Single ticker symbol"},
+                    "tickers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Batch ticker symbols for candidate lists",
+                    },
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                 },
-                "required": ["ticker"],
             },
             handler=ticker_quote,
         ),

@@ -50,6 +50,7 @@ export function formatToolArguments(
   if (!args || Object.keys(args).length === 0) return null;
 
   const ticker = typeof args.ticker === 'string' ? args.ticker : null;
+  const tickers = parseSymbolList(args.tickers);
   const market = typeof args.market === 'string' ? args.market.toUpperCase() : null;
   const symbol = typeof args.symbol === 'string' ? args.symbol : null;
   const symbols = parseSymbolList(args.symbols);
@@ -71,9 +72,16 @@ export function formatToolArguments(
 
   switch (tool) {
     case 'get_ticker_financials':
-    case 'get_ticker_realtime_quote':
     case 'get_ticker_price_trends':
     case 'get_ticker_news_and_events':
+      if (ticker && market) return `${ticker} · ${market}`;
+      if (ticker) return ticker;
+      return null;
+    case 'get_ticker_realtime_quote':
+      if (tickers.length > 0) {
+        const preview = previewTickers(tickers);
+        return market ? `${preview} · ${market}` : preview;
+      }
       if (ticker && market) return `${ticker} · ${market}`;
       if (ticker) return ticker;
       return null;
