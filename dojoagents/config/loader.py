@@ -255,7 +255,11 @@ class ConfigStore:
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self.snapshot())
-        for provider in data.get("llm_provider", {}).get("providers", {}).values():
+        for name, provider in data.get("llm_provider", {}).get("providers", {}).items():
+            configured = bool(provider.get("api_key"))
+            if not configured and name == "ollama":
+                configured = bool(str(provider.get("model") or "").strip())
+            provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
         return data

@@ -1,4 +1,4 @@
-import { fetchFolioPortfolioDetail } from '../api/dojoFolio';
+import { fetchFolioPortfolioDetail } from '../api/folio';
 import { cacheKeys } from '../cache/cacheKeys';
 import { invalidateCache } from '../cache/queryCache';
 import {

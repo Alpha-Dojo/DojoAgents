@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -8,6 +8,7 @@ export interface DojoDropdownSelectOption {
   value: string;
   label: string;
   detail?: string;
+  prefix?: ReactNode;
 }
 
 interface DojoDropdownSelectProps {
@@ -129,8 +130,11 @@ export function DojoDropdownSelect({
                 }`}
                 onClick={() => selectOption(option.value)}
               >
-                <span className="dojo-dropdown-select__option-label">
-                  {option.label}
+                <span className="dojo-dropdown-select__option-leading">
+                  {option.prefix}
+                  <span className="dojo-dropdown-select__option-label">
+                    {option.label}
+                  </span>
                 </span>
                 {option.detail && (
                   <span className="dojo-dropdown-select__option-detail">
@@ -167,7 +171,10 @@ export function DojoDropdownSelect({
         onClick={() => setOpen((prev) => !prev)}
       >
         <span className="dojo-dropdown-select__value">
-          {selectedOption?.label ?? value}
+          {selectedOption?.prefix}
+          <span className="dojo-dropdown-select__value-label">
+            {selectedOption?.label ?? value}
+          </span>
         </span>
         <ChevronIcon />
       </button>

@@ -63,3 +63,7 @@ dev = [
     "mock>=5.2.0",
     "pytest-asyncio>=1.2.0",
 ]
+docs = [
+    "mkdocs-material>=9,<10",
+    "mkdocs-static-i18n>=1,<2",
+]

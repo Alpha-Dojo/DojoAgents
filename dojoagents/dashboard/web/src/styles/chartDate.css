@@ -6,8 +6,8 @@
 .market-hero__chart-axis-tick,
 .sphere-level-sparkline__axis-tick,
 .sphere-performance__axis-date,
-.core-kline__time-tick,
-.core-kline__axis-tick {
+.entity-kline__time-tick,
+.entity-kline__axis-tick {
   font-family: var(--font-mono);
   font-size: var(--chart-date-size);
   font-weight: var(--chart-date-weight);
@@ -20,8 +20,8 @@
 
 .market-hero__chart-axis-tick--active,
 .sphere-level-sparkline__axis-tick--active.sphere-level-sparkline__axis-tick--visible,
-.core-kline__time-tick--active,
-.core-kline__axis-tick--active,
+.entity-kline__time-tick--active,
+.entity-kline__axis-tick--active,
 .sphere-performance__axis-date--active.sphere-performance__axis-date--visible {
   color: var(--chart-date-color-active);
   font-weight: var(--chart-date-weight-active);
@@ -29,7 +29,7 @@
 
 /* Chart toolbar hover dates */
 .market-hero__chart-head-date,
-.core-kline__field--date b {
+.entity-kline__field--date b {
   font-family: var(--font-mono);
   font-size: var(--chart-date-size-head);
   font-weight: var(--chart-date-weight-active);

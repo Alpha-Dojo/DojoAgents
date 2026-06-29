@@ -1,4 +1,4 @@
-import { readSphereSectorContext } from '../navigation/sphereContext';
+import { readSectorJumpContext } from '../navigation/sectorContext';
 import './PlaceholderView.css';
 
 interface PlaceholderViewProps {
@@ -6,7 +6,7 @@ interface PlaceholderViewProps {
 }
 
 export function PlaceholderView({ tab }: PlaceholderViewProps) {
-  const sphereCtx = tab === 'sphere' ? readSphereSectorContext() : null;
+  const sphereCtx = tab === 'sector' ? readSectorJumpContext() : null;
 
   return (
     <section className="placeholder-view" aria-label="内容区域">

@@ -1,4 +1,4 @@
-import type { BilingualText } from '../types/dojoMesh';
+import type { BilingualText } from '../types/market';
 
 export type AppLocale = 'zh' | 'en';
 

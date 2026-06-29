@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorConstituents } from '../api/dojoSphere';
+import { fetchSectorConstituents } from '../api/sector';
 import { cacheKeys, type ConstituentsByMarket } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
-import type { MarketCode } from '../types/dojoMesh';
-import type { SectorLevelKey } from '../types/dojoSphere';
+import type { MarketCode } from '../types/market';
+import type { SectorLevelKey } from '../types/sector';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 
 const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];

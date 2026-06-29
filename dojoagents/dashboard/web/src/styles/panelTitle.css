@@ -6,10 +6,10 @@
 
 /* Shared section / card titles across DojoMesh, DojoSphere, and DojoCore */
 .mesh-sector-block__title,
-.core-card__title,
+.entity-card__title,
 .folio-card__title,
 .folio-overview__title,
-.core-kline__topbar-title,
+.entity-kline__topbar-title,
 .sphere-card__title,
 .sphere-level-risk__title,
 .sphere-metric-panel__title,

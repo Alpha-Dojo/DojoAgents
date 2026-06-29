@@ -131,7 +131,7 @@ export function getDefaultSelection(taxonomy: SectorTaxonomyDocument): SectorPat
 }
 
 /** DojoSphere landing sector: 科技 > 半导体与集成电路 > 芯片设计 */
-export function getSphereDefaultSelection(taxonomy: SectorTaxonomyDocument): SectorPathSelection {
+export function getSectorDefaultSelection(taxonomy: SectorTaxonomyDocument): SectorPathSelection {
   const chipDesign =
     findSectorPathByLinkKey(taxonomy, 'chip-design') ??
     findSectorPathByL3Name(taxonomy, '芯片设计', 'Chip Design');

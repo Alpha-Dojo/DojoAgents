@@ -1,5 +1,5 @@
-import type { MarketCode } from '../types/dojoMesh';
-import type { SectorLevelKey } from '../types/dojoSphere';
+import type { MarketCode } from '../types/market';
+import type { SectorLevelKey } from '../types/sector';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 
 function selectionKey(selection: SectorPathSelection): string {
@@ -20,7 +20,7 @@ export const cacheKeys = {
     `sector-scope-performance-all:${selectionKey(selection)}`,
   sectorConstituents: (selection: SectorPathSelection, scope: SectorLevelKey) =>
     `sector-constituents:v3:${selectionKey(selection)}:${scope}`,
-  dojoMeshOverview: (
+  marketOverview: (
     sectorLimit: number,
     days: number,
     minCapKey: string,
@@ -49,4 +49,4 @@ export const cacheKeys = {
     `folio-portfolio:${portfolioId}:${benchmark ?? 'default'}`,
 };
 
-export type ConstituentsByMarket = Record<MarketCode, import('../types/dojoSphere').SectorConstituentItem[]>;
+export type ConstituentsByMarket = Record<MarketCode, import('../types/sector').SectorConstituentItem[]>;

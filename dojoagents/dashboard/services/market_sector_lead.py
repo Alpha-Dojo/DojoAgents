@@ -24,12 +24,12 @@ def slugify(text: str) -> str:
 
 
 def _stock_bilingual_name(stock: Stock) -> BilingualText:
-    en = (stock.long_name or stock.short_name or stock.ticker).strip()
     quote = stock.stock_quote
-    if stock.market in ("sh", "hk") and quote and quote.name:
+    if quote and quote.name:
         zh = quote.name.strip()
     else:
         zh = (stock.short_name or stock.long_name or stock.ticker).strip()
+    en = (stock.short_name or stock.long_name or stock.ticker).strip()
     return BilingualText(zh=zh, en=en)
 
 

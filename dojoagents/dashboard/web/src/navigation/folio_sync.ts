@@ -1,4 +1,4 @@
-import type { FolioPortfolioDetail } from '../api/dojoFolio';
+import type { FolioPortfolioDetail } from '../api/folio';
 import { cacheKeys } from '../cache/cacheKeys';
 import { invalidateCache, invalidateCachePrefix, setCached } from '../cache/queryCache';
 

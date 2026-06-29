@@ -1,0 +1,129 @@
+site_name: DojoAgents
+site_description: Quantitative finance agent runtime with dashboard, tools, skills, memory, plugins, and gateways.
+docs_dir: docs/site
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      languages:
+        - locale: zh
+          default: true
+          name: 中文
+          build: true
+          site_name: DojoAgents
+        - locale: en
+          name: English
+          build: true
+          site_name: DojoAgents
+          nav_translations:
+            首页: Home
+            快速开始: Getting Started
+            安装: Installation
+            启动 Dashboard: Start Dashboard
+            模型配置: Model Configuration
+            第一次 Agent 运行: First Agent Run
+            用户指南: User Guide
+            金融工作流: Financial Workflows
+            预计算行业数据: Precompute Sector Data
+            回测: Backtesting
+            架构: Architecture
+            总览: Overview
+            配置: Configuration
+            开发: Development
+            仓库地图: Repository Map
+            本地开发: Local Development
+            测试: Testing
+            添加工具: Adding Tools
+            添加 Dashboard 路由: Adding Dashboard Routes
+            添加 Gateway Adapter: Adding Gateway Adapter
+            前端样式规范: Frontend Style Guide
+            构建发布: Release Build
+            运维: Operations
+            Dashboard 部署: Dashboard Deployment
+            性能剖析: Performance Profiling
+            排错: Troubleshooting
+            安全: Security
+            设计记录: Design Notes
+            当前设计: Current Designs
+            历史设计: Historical Designs
+            迁移记录: Migration Notes
+extra:
+  alternate:
+    - name: 中文
+      link: /
+      lang: zh
+    - name: English
+      link: /en/
+      lang: en
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - getting-started/index.md
+      - 安装: getting-started/installation.md
+      - 启动 Dashboard: getting-started/quickstart-dashboard.md
+      - 模型配置: getting-started/model-configuration.md
+      - 第一次 Agent 运行: getting-started/first-agent-run.md
+  - 用户指南:
+      - user-guide/index.md
+      - CLI: user-guide/cli.md
+      - Dashboard: user-guide/dashboard.md
+      - Gateway: user-guide/gateway.md
+      - Skills: user-guide/skills.md
+      - Tools: user-guide/tools.md
+      - Memory: user-guide/memory.md
+      - Scheduled Jobs: user-guide/scheduled-jobs.md
+      - 金融工作流: user-guide/financial-workflows.md
+      - 预计算行业数据: user-guide/precompute-sector-daily.md
+      - 回测: user-guide/backtesting.md
+  - 架构:
+      - architecture/index.md
+      - 总览: architecture/overview.md
+      - Runtime: architecture/runtime.md
+      - Agent Loop: architecture/agent-loop.md
+      - Tools 与 Sandbox: architecture/tools-and-sandbox.md
+      - Dashboard: architecture/dashboard.md
+      - Gateway: architecture/gateway.md
+      - Plugins: architecture/plugins.md
+      - Multi-Agent 与 Planning: architecture/multi-agent-planning.md
+      - Memory: architecture/memory.md
+      - Event-driven: architecture/event-driven.md
+  - Reference:
+      - reference/index.md
+      - 配置: reference/configuration.md
+      - CLI: reference/cli.md
+      - Chat API: reference/chat-api.md
+      - dojo.v2 协议: reference/dojo-v2-protocol.md
+      - Dashboard API: reference/dashboard-api.md
+      - Tool Contracts: reference/tool-contracts.md
+      - Plugin Manifest: reference/plugin-manifest.md
+      - Gateway Adapters: reference/gateway-adapters.md
+      - DojoSDK: reference/dojo-sdk.md
+  - 开发:
+      - development/index.md
+      - 仓库地图: development/repository-map.md
+      - 本地开发: development/local-development.md
+      - 测试: development/testing.md
+      - 添加工具: development/adding-tools.md
+      - 添加 Dashboard 路由: development/adding-dashboard-routes.md
+      - 添加 Gateway Adapter: development/adding-gateway-adapters.md
+      - 前端样式规范: development/frontend-style-guide.md
+      - 构建发布: development/release-build.md
