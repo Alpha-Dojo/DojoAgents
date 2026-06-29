@@ -62,8 +62,9 @@ def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
+    model = raw.get("model")
     return LLMProviderConfig(
-        model=raw.get("model", "gpt-4.1"),
+        model=str(model) if isinstance(model, str) and model.strip() else None,
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
@@ -71,20 +72,35 @@ def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
     )
 
 
+def resolve_provider_config(llm: LLMConfig) -> tuple[str | None, LLMProviderConfig | None]:
+    if not llm.providers:
+        return None, None
+    name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
+    if name is None:
+        name = next(iter(llm.providers))
+    return name, llm.providers[name]
+
+
 def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     providers = {name: _provider_config(value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
-    if not providers:
-        providers = {"openai": LLMProviderConfig(api_key=os.getenv("OPENAI_API_KEY"))}
     llm = LLMConfig(
-        default=raw.get("llm_provider", {}).get("default", "openai"),
+        default=raw.get("llm_provider", {}).get("default"),
         providers=providers,
     )
-    default_provider = llm.providers.get(llm.default) or next(iter(llm.providers.values()))
+    _, default_provider = resolve_provider_config(llm)
     agent_raw = raw.get("agent", {})
     compression_ratio = agent_raw.get("compression_threshold_ratio", agent_raw.get("threshold_ratio", 0.8))
     cap_raw = agent_raw.get("session_max_tokens_cap")
+    if "model" in agent_raw:
+        agent_model = agent_raw.get("model")
+        if not isinstance(agent_model, str) or not agent_model.strip():
+            agent_model = None
+    elif default_provider is not None and default_provider.model:
+        agent_model = default_provider.model
+    else:
+        agent_model = None
     agent = AgentConfig(
-        model=agent_raw.get("model", default_provider.model),
+        model=agent_model,
         max_iterations=int(agent_raw.get("max_iterations", 100)),
         max_tool_workers=int(agent_raw.get("max_tool_workers", 4)),
         lazy_skills=bool(agent_raw.get("lazy_skills", True)),

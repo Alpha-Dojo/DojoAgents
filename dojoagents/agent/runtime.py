@@ -5,7 +5,8 @@ from pathlib import Path
 
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.provider_state import ProviderConversationState
-from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
+from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.harnesses import PortfolioTaskHarness
 from dojoagents.config.loader import ConfigStore
@@ -168,31 +169,39 @@ class Runtime:
         tool_names = [spec.name for spec in tool_registry.all()]
         skill_manager.loaded_tools = set(tool_names)
 
-        provider_cfg = config.llm_provider.providers.get(config.llm_provider.default)
-        if provider_cfg is None:
-            provider_cfg = next(iter(config.llm_provider.providers.values()))
         provider_state = ProviderConversationState()
-        provider_name = config.llm_provider.default
-        if provider_name == "gemini":
+        provider_name, provider_cfg = resolve_provider_config(config.llm_provider)
+        if provider_cfg is None:
+            provider = UnconfiguredLLMProvider()
+            LOGGER.info("Runtime started without LLM provider configuration")
+        elif provider_name == "gemini":
             provider = GeminiNativeProvider(
                 api_key=provider_cfg.api_key,
                 api_key_env=provider_cfg.api_key_env,
                 base_url=provider_cfg.base_url,
+            )
+            LOGGER.info(
+                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+                provider_name,
+                type(provider).__name__,
+                provider_cfg.model,
+                getattr(provider_cfg, "base_url", None),
+                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
             )
         else:
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
             )
-            provider.name = provider_name
-        LOGGER.info(
-            "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
-            provider_name,
-            type(provider).__name__,
-            provider_cfg.model,
-            getattr(provider_cfg, "base_url", None),
-            bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
-        )
+            provider.name = provider_name or "openai"
+            LOGGER.info(
+                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+                provider_name,
+                type(provider).__name__,
+                provider_cfg.model,
+                getattr(provider_cfg, "base_url", None),
+                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+            )
 
         memory = MemoryManager()
         if config.memory.provider == "skill_summary":
