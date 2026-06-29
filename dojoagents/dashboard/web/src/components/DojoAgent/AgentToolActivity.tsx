@@ -7,7 +7,7 @@ import { formatToolArguments } from '../../utils/agentToolDetail';
 import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
 import doneIcon from '../../assets/svg/done.svg';
 import errorIcon from '../../assets/svg/error.svg';
-import { ChevronIcon } from '../DojoFolio/FolioSidebarIcons';
+import { ChevronIcon } from '../Folio/FolioSidebarIcons';
 import { AgentVizBlockView } from './viz/AgentVizPanel';
 
 function ToolStepResults({

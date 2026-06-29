@@ -1,6 +1,6 @@
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentThinkBlock } from '../../types/agent';
-import { ChevronIcon } from '../DojoFolio/FolioSidebarIcons';
+import { ChevronIcon } from '../Folio/FolioSidebarIcons';
 
 interface AgentThinkStepProps {
   block: AgentThinkBlock;
