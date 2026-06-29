@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 
 /** Aggregate exchange statistics shown above each market column. */
 export interface MarketStats {

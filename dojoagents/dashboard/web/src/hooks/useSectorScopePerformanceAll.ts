@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorAnalysisBundle, type SectorAnalysisBundle } from '../api/dojoSphere';
+import { fetchSectorAnalysisBundle, type SectorAnalysisBundle } from '../api/sector';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
-import type { SectorLevelKey, SectorPerformanceResponse } from '../types/dojoSphere';
+import type { SectorLevelKey, SectorPerformanceResponse } from '../types/sector';
 
 export function useSectorScopePerformanceAll(selection: SectorPathSelection | null) {
   const cacheKey = selection ? cacheKeys.sectorAnalysisBundle(selection) : null;

@@ -34,7 +34,7 @@ export const zhMessages = {
     statsLabel: '市场统计',
     noBenchmark: '暂无指数数据',
   },
-  mesh: {
+  marketPage: {
     loading: '加载 DojoMesh…',
     noData: '暂无数据',
     loadFailed: '加载 DojoMesh 数据失败',
@@ -64,6 +64,11 @@ export const zhMessages = {
     openAgent: '打开 DojoAgent',
     settings: '设置',
     openSettings: '打开设置',
+    tabFolio: '组合分析',
+    tabMarket: '市场动态',
+    tabSector: '板块发现',
+    tabEntity: '个股分析',
+    tabNav: 'Dojo 视图',
   },
   settings: {
     eyebrow: 'SYSTEM',
@@ -88,9 +93,9 @@ export const zhMessages = {
     close: '收起 DojoAgent',
     empty: '向 DojoAgent 提问，获取市场解读与操作建议。',
     suggestedTitle: '推荐问题',
-    suggestedHintMesh: '市场相关问题',
-    suggestedHintSphere: '行业板块相关问题',
-    suggestedHintCore: '个股相关问题',
+    suggestedHintMarket: '市场相关问题',
+    suggestedHintSector: '行业板块相关问题',
+    suggestedHintEntity: '个股相关问题',
     suggestedHintFolio: '投资组合相关问题',
     storageLabel: '本地存储',
     storageDetail: '浏览器 localStorage · 键名 {sessionsKey} · 草稿 {draftKey}',
@@ -200,7 +205,7 @@ export const zhMessages = {
       highLow: '高/低',
     },
   },
-  sphere: {
+  sectorPage: {
     loading: '加载 DojoSphere…',
     loadFailed: '行业数据加载失败',
     filterLabel: '行业筛选',
@@ -241,6 +246,7 @@ export const zhMessages = {
     chainPosition: 'Chain Position',
     constituents: 'Detailed Data Table',
     tabConstituents: '成分股',
+    tabConstituentsWithLevel: '成分股-{level}',
     bottomPanelTabs: '详情页签',
     marketTabs: '市场筛选',
     tabAll: '全球 All',
@@ -271,7 +277,7 @@ export const zhMessages = {
     memberCounts: '成分股数量 US/CN/HK',
     constituentsScopeTabs: '成分股层级',
   },
-  core: {
+  entityPage: {
     selectTicker: '请从 DojoMesh 或 DojoSphere 点击股票代码进入 DojoCore。',
     comingSoon: '该标的的 DojoCore 分析页即将上线。',
     openTicker: '跳转 DojoCore',
@@ -423,6 +429,11 @@ export const zhMessages = {
     marketHk: '港股资金 (HKD)',
     applyConfig: '应用配置',
     configHint: '默认从数据首日建仓；三市场各 100 万本位币，按市值权重自动分配仓位。',
+    openConfig: '基础设置',
+    headlineAlpha: '累计超额收益 (VS {benchmark})',
+    benchmarkSelectedCount: '已选 {count} 个指数',
+    headlineTotalPnl: '总盈亏',
+    headlineDailyDelta: '今日盈亏',
     confirmShares: '确定',
     noHoldingsPrefix: '暂无',
     noHoldingsSuffix: '仓位',
@@ -481,10 +492,11 @@ export const zhMessages = {
     expandAllPortfolios: '展开全部组合',
     collapsePortfolio: '折叠 {name}',
     expandPortfolio: '展开 {name}',
+    sidebarCandidates: '候选股',
     sidebarToday: '今日盈亏',
-    sidebarHoldings: '持仓数',
+    sidebarHoldings: '持仓股',
     sidebarNetValue: '总净值',
-    sidebarTotalReturn: '总收益',
+    sidebarTotalPnl: '总盈亏',
     kpiNetValue: '总净值',
     kpiCumulativeReturn: '累计收益',
     kpiSharpe: '夏普比率',
@@ -583,7 +595,7 @@ export const zhMessages = {
 export type MessageTree = {
   sector: Record<keyof typeof zhMessages.sector, string>;
   market: Record<keyof typeof zhMessages.market, string>;
-  mesh: Record<keyof typeof zhMessages.mesh, string>;
+  marketPage: Record<keyof typeof zhMessages.marketPage, string>;
   header: Record<keyof typeof zhMessages.header, string>;
   settings: Record<keyof typeof zhMessages.settings, string>;
   agentModel: Record<keyof typeof zhMessages.agentModel, string>;
@@ -593,9 +605,9 @@ export type MessageTree = {
       ? string
       : Record<string, string>;
   };
-  sphere: Record<keyof typeof zhMessages.sphere, string>;
-  core: {
-    [K in keyof typeof zhMessages.core]: typeof zhMessages.core[K] extends string
+  sectorPage: Record<keyof typeof zhMessages.sectorPage, string>;
+  entityPage: {
+    [K in keyof typeof zhMessages.entityPage]: typeof zhMessages.entityPage[K] extends string
       ? string
       : Record<string, string>;
   };

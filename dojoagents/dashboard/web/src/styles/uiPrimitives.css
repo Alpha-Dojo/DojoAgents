@@ -1,5 +1,5 @@
 .surface-card,
-.core-card,
+.entity-card,
 .folio-card,
 .sphere-card,
 .market-hero {
@@ -236,8 +236,8 @@
 }
 
 .status-text,
-.dojo-mesh-view__status,
-.core-chart-stage__status,
+.market-view__status,
+.entity-chart-stage__status,
 .core-risk__status-text,
 .sphere-level-risk__status,
 .sphere-level-sparkline__status,

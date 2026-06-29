@@ -5,14 +5,14 @@ import type {
   MarketCode,
   SectorItem,
   SectorMemberItem,
-} from '../../types/dojoMesh';
+} from '../../types/market';
 import type {
   SectorPerformancePoint,
   SectorPerformanceResponse,
   SectorScopeMetricsResponse,
   SectorConstituentsResponse,
   SectorLevelKey,
-} from '../../types/dojoSphere';
+} from '../../types/sector';
 import type {
   SectorTaxonomyDocument,
   SectorTaxonomyL1,

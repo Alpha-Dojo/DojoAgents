@@ -202,8 +202,10 @@ def _safe_stock_bilingual_name(stock: Any, fallback: str) -> BilingualText:
     try:
         return _stock_bilingual_name(stock)
     except AttributeError:
-        zh = getattr(stock, "short_name", None) or getattr(stock, "name", None) or getattr(stock, "ticker", None) or fallback
-        en = getattr(stock, "long_name", None) or zh
+        quote = getattr(stock, "stock_quote", None)
+        quote_name = getattr(quote, "name", None) if quote is not None else None
+        zh = quote_name or getattr(stock, "short_name", None) or getattr(stock, "name", None) or getattr(stock, "ticker", None) or fallback
+        en = getattr(stock, "short_name", None) or getattr(stock, "long_name", None) or getattr(stock, "ticker", None) or fallback
         return BilingualText(zh=str(zh), en=str(en))
 
 

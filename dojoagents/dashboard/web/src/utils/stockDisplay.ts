@@ -1,4 +1,4 @@
-import type { BilingualText } from '../types/dojoMesh';
+import type { BilingualText } from '../types/market';
 import { displayLocaleText, type AppLocale } from '../i18n/locale';
 
 /** Same zh/en priority as DojoCore header names. */

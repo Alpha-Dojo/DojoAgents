@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentStreamEvent } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -30,6 +30,27 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function providerHasCredentials(provider: string, providerConfig: Record<string, unknown>): boolean {
+  if (providerConfig.api_key_configured === true) {
+    return true;
+  }
+  if (providerConfig.api_key_configured === false) {
+    return false;
+  }
+  if (provider === 'ollama' && asString(providerConfig.model).trim()) {
+    return true;
+  }
+  return false;
+}
+
+function sortModelsByDefault(models: AgentModelItem[], defaultModelId: string): AgentModelItem[] {
+  return [...models].sort((left, right) => {
+    if (left.id === defaultModelId) return -1;
+    if (right.id === defaultModelId) return 1;
+    return left.label.localeCompare(right.label);
+  });
+}
+
 export async function fetchAgentModels(): Promise<AgentModelsResponse> {
   const config = await fetchSettingsConfig();
   const llmProvider = asRecord(config.llm_provider);
@@ -38,7 +59,9 @@ export async function fetchAgentModels(): Promise<AgentModelsResponse> {
     .map(([provider, rawConfig]) => {
       const providerConfig = asRecord(rawConfig);
       const model = asString(providerConfig.model).trim();
-      if (!model) return null;
+      if (!model || !providerHasCredentials(provider, providerConfig)) {
+        return null;
+      }
       const providerLabel = PROVIDER_LABELS[provider] ?? provider;
       return {
         id: provider,
@@ -51,12 +74,17 @@ export async function fetchAgentModels(): Promise<AgentModelsResponse> {
     })
     .filter((model): model is NonNullable<typeof model> => model !== null);
 
+  const preferredDefault = asString(llmProvider.default) || models[0]?.id || 'openai';
+  const defaultModelId = models.some((model) => model.id === preferredDefault)
+    ? preferredDefault
+    : models[0]?.id ?? preferredDefault;
+
   return {
-    default_model_id: asString(llmProvider.default) || models[0]?.id || 'openai',
-    gemini_configured: providers.gemini !== undefined,
-    zhipu_configured: providers.glm !== undefined || providers.zhipu !== undefined || providers.zhipuai !== undefined,
+    default_model_id: defaultModelId,
+    gemini_configured: models.some((model) => model.provider === 'gemini'),
+    zhipu_configured: models.some((model) => ['glm', 'zhipu', 'zhipuai'].includes(model.provider)),
     agent_ready: models.length > 0,
-    models,
+    models: sortModelsByDefault(models, defaultModelId),
   };
 }
 

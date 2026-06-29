@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorScopePerformance } from '../api/dojoSphere';
+import { fetchSectorScopePerformance } from '../api/sector';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
-import type { SectorLevelKey, SectorPerformanceResponse } from '../types/dojoSphere';
+import type { SectorLevelKey, SectorPerformanceResponse } from '../types/sector';
 
 export function useSectorScopePerformance(
   selection: SectorPathSelection | null,

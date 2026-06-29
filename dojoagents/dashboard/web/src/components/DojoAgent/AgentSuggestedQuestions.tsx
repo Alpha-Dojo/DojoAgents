@@ -13,9 +13,9 @@ interface AgentSuggestedQuestionsProps {
 }
 
 const TAB_HINT_KEYS: Record<AppTab, string> = {
-  mesh: 'agent.suggestedHintMesh',
-  sphere: 'agent.suggestedHintSphere',
-  core: 'agent.suggestedHintCore',
+  market: 'agent.suggestedHintMarket',
+  sector: 'agent.suggestedHintSector',
+  entity: 'agent.suggestedHintEntity',
   folio: 'agent.suggestedHintFolio',
 };
 
@@ -26,11 +26,11 @@ export function AgentSuggestedQuestions({ sourceTab, onSelect }: AgentSuggestedQ
 
   useEffect(() => {
     const bump = () => setContextTick((tick) => tick + 1);
-    window.addEventListener('alphadojo-core-ticker', bump);
-    window.addEventListener('alphadojo-sphere-selection', bump);
+    window.addEventListener('alphadojo-entity-ticker', bump);
+    window.addEventListener('alphadojo-sector-selection', bump);
     return () => {
-      window.removeEventListener('alphadojo-core-ticker', bump);
-      window.removeEventListener('alphadojo-sphere-selection', bump);
+      window.removeEventListener('alphadojo-entity-ticker', bump);
+      window.removeEventListener('alphadojo-sector-selection', bump);
     };
   }, []);
 
