@@ -140,7 +140,7 @@ class StockStore:
                 self._markets_by_ticker.setdefault(normalized_ticker, []).append(market)
 
             total_loaded += len(stocks)
-            LOGGER.info(f"[StockStore][{market}] loaded={len(stocks)}")
+            LOGGER.debug(f"[StockStore][{market}] loaded={len(stocks)}")
 
         if total_loaded == 0:
             LOGGER.info("Warning: stock preload loaded 0 stocks.")

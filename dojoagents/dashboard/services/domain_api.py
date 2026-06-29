@@ -715,8 +715,6 @@ async def build_sector_analysis(
         )
         return result.model_dump()
 
-    if getattr(registry, "kline_store", None) is not None and getattr(registry.kline_store, "sector_precomputed_store", None) is None:
-        registry.kline_store.sector_precomputed_store = registry.sector_precomputed_store
     metrics = await registry.dojo_sphere_service.metrics(
         f"{level1_id}/{level2_id}/{level3_id}",
         compute_metrics_payload,
@@ -727,12 +725,8 @@ async def build_sector_analysis(
 
     async def load_scope_performance(current_scope: str) -> tuple[str, dict[str, Any]]:
         async def compute_performance_payload() -> dict[str, Any]:
-            result = await compute_sector_scope_performance(
-                registry.stock_store,
-                registry.kline_store,
-                registry.sector_precomputed_store,
-                path,
-                scope=current_scope,
+            result = await asyncio.to_thread(
+                compute_sector_scope_performance, registry.stock_store, registry.kline_store, registry.sector_precomputed_store, path, scope=current_scope
             )
             return result.model_dump()
 
@@ -883,9 +877,7 @@ async def build_tickers_quotes_v1(
         normalized.append(ticker)
     normalized = normalized[:MAX_TICKER_QUOTES_BATCH]
 
-    results = await asyncio.gather(
-        *(build_ticker_quote_v1(registry, ticker=ticker, market=market) for ticker in normalized)
-    )
+    results = await asyncio.gather(*(build_ticker_quote_v1(registry, ticker=ticker, market=market) for ticker in normalized))
     items = [item for item in results if item is not None]
     found = {item.ticker.upper() for item in items}
     not_found = [ticker for ticker in normalized if ticker not in found]

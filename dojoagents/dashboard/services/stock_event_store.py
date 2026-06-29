@@ -1,6 +1,4 @@
 from __future__ import annotations
-from dojoagents.logging import LOGGER
-
 import asyncio
 from typing import Dict, Optional
 
@@ -40,30 +38,6 @@ class StockEventStore:
 
         cached = self.cache.get(cache_key)
         if cached is not None:
-            asyncio.create_task(self._schedule_refresh(symbol, market_code, page_size, cache_key))
             return cached
-        inflight = self._inflight.get(cache_key)
-        if inflight is not None:
-            return await inflight
-
-        task = asyncio.create_task(self._fetch(symbol, market_code, page_size))
-        self._inflight[cache_key] = task
-        try:
-            result = await task
-            self.cache[cache_key] = result
-            return result
-        except Exception as exc:
-            raise ValueError(f"Failed to fetch events for {symbol}: {exc}") from exc
-        finally:
-            self._inflight.pop(cache_key, None)
-
-    async def _schedule_refresh(self, ticker: str, market: Optional[str], page_size: int, cache_key: str):
-        if cache_key in self._refresh_keys:
-            return
-        self._refresh_keys.add(cache_key)
-        try:
-            self.cache[cache_key] = await self._fetch(ticker, market or "us", page_size)
-        except Exception as exc:
-            LOGGER.info(f"[StockEventStore] Background refresh failed for {ticker}: {exc}")
-        finally:
-            self._refresh_keys.discard(cache_key)
+        self.cache[cache_key] = await self._fetch(ticker, market or "us", page_size)
+        return self.cache[cache_key]
