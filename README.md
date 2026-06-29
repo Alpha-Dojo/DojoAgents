@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="https://github.com/Alpha-Dojo/DojoAgents/blob/main/dojoagents/dashboard/web/public/logo.png" alt="DojoAgents Logo">
+</div>
+
 # DojoAgents
 
 **English** · [**中文说明**](README_ZH.md)
