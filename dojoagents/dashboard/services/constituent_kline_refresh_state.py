@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from pathlib import Path
 import datetime
 
@@ -49,7 +50,7 @@ class RefreshStateStore:
         self._write(data)
 
     async def get_last_refresh_date_async(self, market_group: str) -> datetime.date | None:
-        return self.get_last_refresh_date(market_group)
+        return await asyncio.to_thread(self.get_last_refresh_date, market_group)
 
     async def set_last_refresh_date_async(self, market_group: str, date: datetime.date) -> None:
-        self.set_last_refresh_date(market_group, date)
+        await asyncio.to_thread(self.set_last_refresh_date, market_group, date)
