@@ -18,7 +18,7 @@ import { useCoreQuote } from '../hooks/useCoreQuote';
 import { useCoreSectorOptions } from '../hooks/useCoreSectorOptions';
 import { useCoreViewportLayout } from '../hooks/useCoreViewportLayout';
 import { useSyncedChartSurfaceHeight } from '../hooks/useSyncedChartSurfaceHeight';
-import { useSectorScopeMetrics } from '../hooks/useSectorScopeMetrics';
+import { useCoreSectorPeMetrics } from '../hooks/useCoreSectorPeMetrics';
 import { useSectorTaxonomy } from '../hooks/useSectorTaxonomy';
 import { useTranslation } from '../hooks/useTranslation';
 import type { AppTab } from '../navigation/appTab';
@@ -136,7 +136,7 @@ export function DojoCoreView({ onNavigateTab }: DojoCoreViewProps) {
     return null;
   }, [selection, taxonomy, optionsReady, ctx?.ticker]);
 
-  const { metrics: sectorMetrics, loading: sectorMetricsLoading } = useSectorScopeMetrics(resolvedSelection);
+  const { metrics: sectorMetrics, loading: sectorMetricsLoading } = useCoreSectorPeMetrics(resolvedSelection);
 
   const sectorPath = useMemo(() => {
     if (!taxonomy || !resolvedSelection) return null;

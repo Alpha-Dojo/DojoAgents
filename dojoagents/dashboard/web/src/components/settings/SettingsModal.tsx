@@ -86,6 +86,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKeyEnv: 'ZHIPUAI_API_KEY',
     models: [
+      { value: 'glm-5.2', label: 'GLM-5.2' },
       { value: 'glm-5.1', label: 'GLM-5.1' },
       { value: 'glm-5', label: 'GLM-5' },
       { value: 'glm-4.7', label: 'GLM-4.7' },
