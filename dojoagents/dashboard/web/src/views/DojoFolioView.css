@@ -634,7 +634,7 @@
   padding: 2px 4px;
   border: 1px solid rgba(0, 229, 255, 0.35);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   font: inherit;
   font-size: 12px;
@@ -862,13 +862,30 @@
   background-repeat: no-repeat;
 }
 
-.folio-config__date {
-  color-scheme: dark;
+.folio-config__date .ant-picker-input {
+  min-width: 0;
 }
 
-.folio-config__date::-webkit-calendar-picker-indicator {
-  filter: invert(0.85);
-  cursor: pointer;
+.folio-config__date .ant-picker-input > input {
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: inherit;
+  text-align: center;
+}
+
+.folio-config__date .ant-picker-suffix,
+.folio-config__date .ant-picker-clear {
+  color: var(--text-muted);
+}
+
+.folio-config__date.ant-picker-focused {
+  border-color: var(--green);
+  box-shadow: none;
+}
+
+.folio-config__date:has(input:focus-visible) {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgb(0 224 162 / 32%);
 }
 
 .folio-config__hint {
@@ -2017,8 +2034,18 @@
   color: rgba(255, 220, 170, 0.95);
 }
 
+.folio-lockable--locked
+  .folio-table__date-input.ant-picker-disabled
+  .ant-picker-input
+  > input {
+  color: rgba(255, 220, 170, 0.95);
+  -webkit-text-fill-color: rgba(255, 220, 170, 0.95);
+  opacity: 1;
+  cursor: pointer;
+}
+
 .folio-lockable input:disabled,
-.folio-lockable .folio-table__date-input:disabled {
+.folio-lockable .folio-table__date-input.ant-picker-disabled {
   opacity: 1;
 }
 
@@ -2465,14 +2492,13 @@
   padding: 0 8px;
   border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   font: inherit;
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  color-scheme: dark;
   box-sizing: border-box;
   transition:
     border-color 0.15s ease,
@@ -2480,23 +2506,109 @@
     box-shadow 0.15s ease;
 }
 
-.folio-table__date-input::-webkit-calendar-picker-indicator {
-  filter: invert(0.85);
-  cursor: pointer;
-  opacity: 1;
+.folio-table__date-input .ant-picker-input {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.folio-table__date-input .ant-picker-input > input {
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: inherit;
+  text-align: center;
+}
+
+.folio-table__date-input .ant-picker-suffix,
+.folio-table__date-input .ant-picker-clear {
+  color: var(--text-muted);
 }
 
 .folio-table__date-input--default {
   color: var(--text-muted);
 }
 
-.folio-table__date-input:focus-visible {
+.folio-table__date-input.ant-picker-focused {
   outline: none;
+  border-color: var(--green);
+  box-shadow: none;
+}
+
+.folio-table__date-input:has(input:focus-visible) {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(0, 224, 162, 0.32);
+}
+
+.folio-table__date-input:not(.ant-picker-disabled):hover {
   border-color: var(--green);
 }
 
-.folio-table__date-input:hover {
+.folio-table__date-popup .ant-picker-panel-container,
+.folio-table__date-popup .ant-picker-panel {
+  border-color: var(--border-dim);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.folio-table__date-popup .ant-picker-panel-container {
+  border: 1px solid var(--border-dim);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 48%);
+}
+
+.folio-table__date-popup .ant-picker-header {
+  border-bottom-color: var(--border-dim);
+  color: var(--text-primary);
+}
+
+.folio-table__date-popup .ant-picker-header button,
+.folio-table__date-popup .ant-picker-content th {
+  color: var(--text-muted);
+}
+
+.folio-table__date-popup .ant-picker-header button:hover {
+  color: var(--green);
+}
+
+.folio-table__date-popup .ant-picker-cell {
+  color: var(--text-dim);
+}
+
+.folio-table__date-popup .ant-picker-cell-in-view {
+  color: var(--text-primary);
+}
+
+.folio-table__date-popup
+  .ant-picker-cell-in-view:not(.ant-picker-cell-selected):not(.ant-picker-cell-disabled)
+  .ant-picker-cell-inner:hover {
+  background: rgb(2 175 127 / 16%);
+}
+
+.folio-table__date-popup
+  .ant-picker-cell-in-view.ant-picker-cell-selected
+  .ant-picker-cell-inner {
+  background: var(--green);
+  color: var(--bg-deep);
+}
+
+.folio-table__date-popup
+  .ant-picker-cell-in-view.ant-picker-cell-selected
+  .ant-picker-cell-inner:hover {
+  background: var(--color-accent-float);
+}
+
+.folio-table__date-popup
+  .ant-picker-cell-in-view.ant-picker-cell-today:not(.ant-picker-cell-selected)
+  .ant-picker-cell-inner::before {
   border-color: var(--green);
+}
+
+.folio-table__date-popup .ant-picker-cell-disabled {
+  color: var(--text-dim);
+  opacity: 0.42;
+}
+
+.folio-table__date-popup .ant-picker-cell-disabled .ant-picker-cell-inner {
+  background: transparent;
 }
 
 .folio-table {

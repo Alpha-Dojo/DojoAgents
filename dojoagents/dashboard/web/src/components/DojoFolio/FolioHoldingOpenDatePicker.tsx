@@ -3,6 +3,7 @@ import {
   clampStartDate,
   computeStartDateBounds,
 } from '../../utils/folioStartDate';
+import { FolioDatePicker } from './FolioDatePicker';
 
 interface FolioHoldingOpenDatePickerProps {
   value: string;
@@ -24,15 +25,14 @@ export function FolioHoldingOpenDatePicker({
   const selected = clampStartDate(value, bounds.min, bounds.max);
 
   return (
-    <input
-      type="date"
+    <FolioDatePicker
       className={`folio-table__date-input${usesDefault ? ' folio-table__date-input--default' : ''}`}
       value={selected}
-      min={bounds.min}
-      max={bounds.max}
+      minDate={bounds.min}
+      maxDate={bounds.max}
       disabled={disabled}
       title={usesDefault ? selected : undefined}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={onChange}
     />
   );
 }

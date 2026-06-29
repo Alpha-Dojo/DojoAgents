@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { clampStartDate, computeStartDateBounds } from '../../utils/folioStartDate';
+import { FolioDatePicker } from './FolioDatePicker';
 
 interface FolioStartDatePickerProps {
   value: string;
@@ -18,13 +19,12 @@ export function FolioStartDatePicker({ value, onChange }: FolioStartDatePickerPr
   }, [onChange, selected, value]);
 
   return (
-    <input
-      type="date"
+    <FolioDatePicker
       className="folio-config__input folio-config__date"
       value={selected}
-      min={bounds.min}
-      max={bounds.max}
-      onChange={(event) => onChange(event.target.value)}
+      minDate={bounds.min}
+      maxDate={bounds.max}
+      onChange={onChange}
     />
   );
 }
