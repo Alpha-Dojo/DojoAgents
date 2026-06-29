@@ -416,7 +416,69 @@ def _first_quote(data: dict[str, Any]) -> dict[str, Any] | None:
     return data
 
 
+def _quote_table_columns() -> list[dict[str, Any]]:
+    return [
+        {"key": "ticker", "label": "Ticker"},
+        {"key": "name_zh", "label": "Name"},
+        {"key": "last_price", "label": "Price", "format": "number"},
+        {"key": "change_percent", "label": "Today P&L", "format": "percent"},
+        {"key": "pe", "label": "PE", "format": "number"},
+        {"key": "market_cap", "label": "Mkt Cap", "format": "market_cap"},
+    ]
+
+
+def _rows_from_quote_items(items: list[Any], *, limit: int = 50) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw in items[:limit]:
+        if not isinstance(raw, dict):
+            continue
+        name_zh, name_en = _bilingual_name(raw.get("name"))
+        rows.append(
+            {
+                "ticker": raw.get("ticker") or raw.get("symbol"),
+                "market": _normalize_market(raw.get("market")) or raw.get("market"),
+                "name_zh": raw.get("name_zh") or name_zh or name_en,
+                "name_en": raw.get("name_en") or name_en,
+                "last_price": _num(raw.get("last_price") or raw.get("price")),
+                "change_percent": _num(raw.get("change_percent") or raw.get("change_pct")),
+                "pe": _num(raw.get("pe")),
+                "market_cap": _num(raw.get("market_cap")),
+            }
+        )
+    return rows
+
+
 def _map_ticker_quote(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
+    items = data.get("items")
+    if isinstance(items, list) and len(items) >= 2:
+        rows = _rows_from_quote_items(items)
+        if rows:
+            market = _normalize_market(data.get("market"))
+            grouped = [{"market": code, "rows": market_rows} for code, market_rows in _group_rows_by_market(rows).items() if market_rows]
+            payload: dict[str, Any] = {
+                "layout": "by_market" if grouped and not market else "flat",
+                "columns": _quote_table_columns(),
+            }
+            if grouped and not market:
+                payload["groups"] = grouped
+            else:
+                payload["rows"] = rows
+            subtitle = f"{data.get('count', len(rows))} tickers"
+            not_found = data.get("not_found")
+            if isinstance(not_found, list) and not_found:
+                subtitle = f"{subtitle} · {len(not_found)} missing"
+            return [
+                _block(
+                    "table",
+                    payload,
+                    title="Realtime quotes",
+                    subtitle=subtitle,
+                    market=market,
+                    source_tool="get_ticker_realtime_quote",
+                    truncated=truncated or bool(data.get("truncated")),
+                )
+            ]
+
     quote = _first_quote(data)
     if not isinstance(quote, dict):
         return []
@@ -1050,6 +1112,9 @@ def _auto_blocks(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
     if data.get("ticker") or data.get("symbol"):
         if any(key in data for key in ("last_price", "price", "change_percent", "change_pct")):
             candidates.append("ticker_quote")
+    items = data.get("items")
+    if isinstance(items, list) and items and "not_found" in data:
+        candidates.insert(0, "ticker_quote")
     if "items" in data:
         candidates.append("stock_screen")
     for candidate in candidates:

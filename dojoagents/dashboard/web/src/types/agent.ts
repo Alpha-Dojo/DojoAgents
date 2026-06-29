@@ -127,6 +127,7 @@ export type AgentStreamEvent =
       error?: string | null;
       data?: Record<string, unknown> | null;
       viz_blocks?: import('./agentViz').AgentVizBlock[];
+      resource_changes?: Record<string, unknown>[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }

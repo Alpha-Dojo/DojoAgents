@@ -50,6 +50,44 @@ async def test_agent_viz_build_ticker_quote_returns_quote_card() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_viz_build_batch_ticker_quotes_returns_table() -> None:
+    result = await _call_build(
+        {
+            "source_tool": "get_ticker_realtime_quote",
+            "data": {
+                "market": "us",
+                "count": 2,
+                "not_found": [],
+                "items": [
+                    {
+                        "ticker": "AAPL",
+                        "market": "us",
+                        "name": {"en": "Apple"},
+                        "last_price": 200,
+                        "change_percent": 1.5,
+                        "pe": 30,
+                        "market_cap": 3e12,
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "market": "us",
+                        "name": {"en": "Microsoft"},
+                        "last_price": 400,
+                        "change_percent": -0.5,
+                        "pe": 35,
+                        "market_cap": 2e12,
+                    },
+                ],
+            },
+        }
+    )
+
+    assert result["data"]["block_count"] == 1
+    assert result["viz_blocks"][0]["kind"] == "table"
+    assert len(result["viz_blocks"][0]["payload"]["rows"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_agent_viz_build_ticker_kline_returns_price_kline() -> None:
     result = await _call_build(
         {
