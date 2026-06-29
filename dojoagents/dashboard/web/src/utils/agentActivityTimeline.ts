@@ -7,6 +7,7 @@ import type {
   AgentToolActivityItem,
 } from '../types/agent';
 import { formatToolResultData } from './agentToolDetail';
+import { createRandomId } from './randomId';
 
 function findLastRunningToolIndex(
   steps: AgentActivityStep[],
@@ -44,7 +45,7 @@ export function resolveActivitySteps(message: AgentChatMessage): AgentActivitySt
     steps.push({ kind: 'eval', id: hint.id, hint });
   }
   for (const item of message.toolActivity ?? []) {
-    steps.push({ kind: 'tool', id: crypto.randomUUID(), item });
+    steps.push({ kind: 'tool', id: createRandomId(), item });
   }
   return steps;
 }
@@ -72,7 +73,7 @@ export function appendThinkStart(
         : step,
     );
   }
-  const thinkId = crypto.randomUUID();
+  const thinkId = createRandomId();
   const block: AgentThinkBlock = {
     id: thinkId,
     text: '',
@@ -140,7 +141,7 @@ export function appendToolStart(
     ...steps,
     {
       kind: 'tool',
-      id: crypto.randomUUID(),
+      id: createRandomId(),
       item: { callId, tool, status: 'running', arguments: args },
     },
   ];
@@ -176,7 +177,7 @@ export function resolveToolResult(
   if (runningIndex >= 0) {
     const runningStep = steps[runningIndex];
     if (runningStep.kind !== 'tool') {
-      return [...steps, { kind: 'tool', id: crypto.randomUUID(), item: nextItem }];
+      return [...steps, { kind: 'tool', id: createRandomId(), item: nextItem }];
     }
     return steps.map((step, index) =>
       index === runningIndex && step.kind === 'tool'
@@ -185,7 +186,7 @@ export function resolveToolResult(
     );
   }
 
-  return [...steps, { kind: 'tool', id: crypto.randomUUID(), item: nextItem }];
+  return [...steps, { kind: 'tool', id: createRandomId(), item: nextItem }];
 }
 
 export function appendEvalHint(steps: AgentActivityStep[], issues: string[]): AgentActivityStep[] {
@@ -198,7 +199,7 @@ export function appendEvalHint(steps: AgentActivityStep[], issues: string[]): Ag
   ) {
     return steps;
   }
-  const hint: AgentEvalHintItem = { id: crypto.randomUUID(), issues: [...issues] };
+  const hint: AgentEvalHintItem = { id: createRandomId(), issues: [...issues] };
   return [...steps, { kind: 'eval', id: hint.id, hint }];
 }
 

@@ -1,5 +1,6 @@
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentThinkBlock } from '../../types/agent';
+import { ChevronIcon } from '../DojoFolio/FolioSidebarIcons';
 
 interface AgentThinkStepProps {
   block: AgentThinkBlock;
@@ -21,11 +22,12 @@ export function AgentThinkStep({ block, onToggle }: AgentThinkStepProps) {
         aria-expanded={!block.collapsed}
         onClick={onToggle}
       >
-        <span className="dojo-agent-thinking__toggle-icon" aria-hidden>
-          {block.collapsed ? '▸' : '▾'}
-        </span>
         <span className="dojo-agent-thinking__toggle-label">
           {block.done ? t('agent.thinkDone') : t('agent.thinking')}
+        </span>
+        <span className="dojo-agent-thinking__toggle-icon" aria-hidden>
+          {/* {block.collapsed ? '▸' : '▾'} */}
+          <ChevronIcon expanded={!block.collapsed} />
         </span>
         {!block.collapsed && block.done ? (
           <span className="dojo-agent-thinking__toggle-meta">

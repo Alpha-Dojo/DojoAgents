@@ -22,6 +22,7 @@ import {
   MAX_AGENT_SESSIONS,
   writeSessionStore,
 } from './agentStoragePolicy';
+import { createRandomId } from '../utils/randomId';
 
 export { AGENT_SESSIONS_STORAGE_KEY, AGENT_DRAFT_STORAGE_KEY } from './agentStorage';
 
@@ -61,7 +62,7 @@ function sortSessions(sessions: AgentSession[]): AgentSession[] {
 }
 
 function newSessionId(): string {
-  return crypto.randomUUID();
+  return createRandomId();
 }
 
 export function useAgentSessions() {

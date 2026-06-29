@@ -9,7 +9,7 @@ import './AppTabBar.css';
 import './Header.css';
 import './LanguageSwitcher.css';
 import './TradingClockSwitcher.css';
-import Logo from '../assets/images/logo.png';
+import Logo from '../assets/images/logo.svg';
 
 function WechatQrImage() {
   return (
