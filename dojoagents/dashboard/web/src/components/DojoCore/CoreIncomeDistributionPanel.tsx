@@ -10,6 +10,7 @@ import {
   prepareIncomeListRows,
   type IncomeChartSlice,
 } from '../../utils/coreIncomeDistribution';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { CoreCard } from './CoreCard';
 
 interface CoreIncomeDistributionPanelProps {
@@ -164,7 +165,11 @@ export function CoreIncomeDistributionPanel({
       }
     >
       {loading && !distributions.length ? (
-        <p className="core-chart-stage__status">{t('core.incomeLoading')}</p>
+        <LoadingIndicator
+          className="core-chart-stage__status"
+          label={t('core.incomeLoading')}
+          variant="panel"
+        />
       ) : (
         <div className="core-income">
           {INCOME_MAINOP_TYPES.map((mainopType) => (

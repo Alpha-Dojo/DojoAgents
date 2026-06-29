@@ -8,6 +8,7 @@ import {
   formatSignedPercent,
 } from '../../utils/coreCharts';
 import { MARKET_LEGAL_CURRENCY_KEY } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { CoreCard } from './CoreCard';
 
 interface CoreRevenueChartProps {
@@ -118,7 +119,11 @@ export function CoreRevenueChart({
     >
       <div className="core-revenue">
         {loading && !financials.length ? (
-          <p className="core-chart-stage__status">{t('core.finIndicatorsLoading')}</p>
+          <LoadingIndicator
+            className="core-chart-stage__status"
+            label={t('core.finIndicatorsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !financials.length ? (
           <p className="core-chart-stage__status">{t('core.finIndicatorsEmpty')}</p>

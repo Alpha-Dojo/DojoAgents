@@ -1,5 +1,6 @@
 import { FolioOverviewPanel } from '../components/DojoFolio/FolioOverviewPanel';
 import { FolioPortfolioSidebar } from '../components/DojoFolio/FolioPortfolioSidebar';
+import { LoadingIndicator } from '../components/ui/LoadingIndicator';
 import { useFolioPortfolios } from '../hooks/useFolioPortfolios';
 import { useTranslation } from '../hooks/useTranslation';
 import type { AppTab } from '../navigation/appTab';
@@ -94,9 +95,11 @@ export function DojoFolioView({ onNavigateTab }: DojoFolioViewProps) {
           />
         ) : (
           <div className="folio-main-empty folio-card">
-            <p className="folio-main-empty__text">
-              {listLoading ? t('folio.loading') : t('folio.selectOrCreate')}
-            </p>
+            {listLoading ? (
+              <LoadingIndicator label={t('folio.loading')} variant="page" />
+            ) : (
+              <p className="folio-main-empty__text">{t('folio.selectOrCreate')}</p>
+            )}
           </div>
         )}
       </div>

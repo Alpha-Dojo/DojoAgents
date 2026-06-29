@@ -65,6 +65,7 @@ export function FolioDatePicker({
         aria-label={t('folio.colOpenDate')}
         disabled={disabled}
         title={title}
+        allowClear={false}
         onChange={(date) => onChange(date?.format(ISO_DATE_FORMAT) ?? '')}
       />
     </ConfigProvider>

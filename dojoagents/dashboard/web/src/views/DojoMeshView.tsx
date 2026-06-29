@@ -16,6 +16,7 @@ import { openCoreTicker } from "../navigation/openCoreTicker";
 import { clearPersistedSphereViewState } from "../cache/sphereViewState";
 import { MeshSectorMoversBar } from "../components/DojoMesh/MeshSectorMoversBar";
 import { MarketColumnPanel } from "../components/DojoMesh/MarketColumnPanel";
+import { LoadingIndicator } from "../components/ui/LoadingIndicator";
 import type { AppTab } from "../navigation/appTab";
 import type {
   MarketCode,
@@ -235,7 +236,11 @@ export function DojoMeshView({
         className="dojo-mesh-view dojo-mesh-view--loading"
         aria-busy="true"
       >
-        <p className="dojo-mesh-view__status">{t("mesh.loading")}</p>
+        <LoadingIndicator
+          className="dojo-mesh-view__status"
+          label={t("mesh.loading")}
+          variant="page"
+        />
       </section>
     );
   }

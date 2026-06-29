@@ -12,6 +12,7 @@ import {
   valueFromChartY,
 } from '../../utils/coreCharts';
 import { findClosestDateIndex, findVisibleIndexForLinkedDate, normalizeChartDates } from '../../utils/coreChartLink';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   CORE_CHART_AXIS_W as AXIS_W,
   CORE_CHART_MIN_SURFACE_H as MIN_VIEW_H,
@@ -441,7 +442,11 @@ export function CorePeBandChart({
     return (
       <CoreCard className="core-card--pe-band">
         <div className="core-pe-band">
-          <p className="core-chart-stage__status">{t('core.peBandLoading')}</p>
+          <LoadingIndicator
+            className="core-chart-stage__status"
+            label={t('core.peBandLoading')}
+            variant="panel"
+          />
         </div>
       </CoreCard>
     );
@@ -580,7 +585,11 @@ export function CorePeBandChart({
                 </svg>
               </>
             ) : (
-              <p className="core-chart-stage__status">{t('core.peBandLoading')}</p>
+              <LoadingIndicator
+                className="core-chart-stage__status"
+                label={t('core.peBandLoading')}
+                variant="panel"
+              />
             )}
           </div>
 

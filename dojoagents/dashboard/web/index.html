@@ -5,18 +5,200 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Alpha Dojo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #070f15;
+      }
+
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+          linear-gradient(0deg, rgb(255 255 255 / 3%) 1px, transparent 1px),
+          radial-gradient(circle at 50% 42%, rgb(0 224 162 / 18%), transparent 30%),
+          #070f15;
+        background-size: 48px 48px, 48px 48px, 100% 100%, 100% 100%;
+        color: #fff;
+        transition: opacity 420ms ease, visibility 420ms ease;
+      }
+
+      #boot-splash.boot-splash--hidden {
+        visibility: hidden;
+        opacity: 0;
+      }
+
+      .boot-splash__panel {
+        position: relative;
+        display: flex;
+        width: min(520px, calc(100vw - 48px));
+        flex-direction: column;
+        align-items: center;
+        gap: 18px;
+      }
+
+      .boot-splash__mark {
+        position: relative;
+        width: 72px;
+        height: 72px;
+        border: 1px solid rgb(0 224 162 / 50%);
+        border-radius: 18px;
+        transform: rotate(45deg);
+        animation: boot-mark-pulse 1.8s ease-in-out infinite;
+      }
+
+      .boot-splash__mark::before,
+      .boot-splash__mark::after {
+        position: absolute;
+        content: "";
+        inset: 12px;
+        border: 1px solid rgb(2 175 127 / 42%);
+        border-radius: 12px;
+      }
+
+      .boot-splash__mark::after {
+        inset: 27px;
+        border-color: #00e0a2;
+        background: #02af7f;
+        box-shadow: 0 0 28px rgb(0 224 162 / 55%);
+      }
+
+      .boot-splash__title {
+        margin: 0;
+        font: 700 18px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0.08em;
+      }
+
+      .boot-splash__caption {
+        margin: -8px 0 0;
+        color: #94a3b8;
+        font: 500 12px/20px Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+
+      .boot-splash__meter {
+        position: relative;
+        width: min(320px, 70vw);
+        height: 2px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 10%);
+      }
+
+      .boot-splash__meter::before {
+        position: absolute;
+        content: "";
+        inset-block: 0;
+        width: 42%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, transparent, #00e0a2, transparent);
+        animation: boot-meter-flow 1.25s ease-in-out infinite;
+      }
+
+      .boot-splash__ticks {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+        width: min(280px, 64vw);
+      }
+
+      .boot-splash__ticks span {
+        height: 18px;
+        border: 1px solid rgb(148 163 184 / 18%);
+        border-radius: 3px;
+        background: rgb(2 175 127 / 8%);
+        animation: boot-tick-rise 1.2s ease-in-out infinite;
+      }
+
+      .boot-splash__ticks span:nth-child(2) {
+        animation-delay: 120ms;
+      }
+
+      .boot-splash__ticks span:nth-child(3) {
+        animation-delay: 240ms;
+      }
+
+      .boot-splash__ticks span:nth-child(4) {
+        animation-delay: 360ms;
+      }
+
+      .boot-splash__ticks span:nth-child(5) {
+        animation-delay: 480ms;
+      }
+
+      @keyframes boot-mark-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 rgb(0 224 162 / 0%);
+          opacity: 0.78;
+        }
+
+        50% {
+          box-shadow: 0 0 36px rgb(0 224 162 / 22%);
+          opacity: 1;
+        }
+      }
+
+      @keyframes boot-meter-flow {
+        from {
+          transform: translateX(-100%);
+        }
+
+        to {
+          transform: translateX(240%);
+        }
+      }
+
+      @keyframes boot-tick-rise {
+        0%,
+        100% {
+          transform: scaleY(0.45);
+          opacity: 0.35;
+        }
+
+        50% {
+          transform: scaleY(1);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash__mark,
+        .boot-splash__meter::before,
+        .boot-splash__ticks span {
+          animation: none;
+        }
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+
   </head>
   <body>
     <div id="root">
-      <p style="margin:0;padding:24px;color:#8eb4d9;font-family:system-ui,sans-serif">
-        Loading Alpha Dojo…
-      </p>
+      <div id="boot-splash" aria-hidden="true">
+        <div class="boot-splash__panel">
+          <div class="boot-splash__mark"></div>
+          <h1 class="boot-splash__title">Alpha Dojo</h1>
+          <p class="boot-splash__caption">Loading Alpha Dojo…</p>
+          <div class="boot-splash__meter"></div>
+          <div class="boot-splash__ticks">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

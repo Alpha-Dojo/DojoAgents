@@ -14,6 +14,7 @@ import {
 } from '../../utils/folioHoldingsSort';
 import { formatStockPrice } from '../../utils/marketStats';
 import { localizedStockName } from '../../utils/stockDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { FolioAddHoldingSearch } from './FolioAddHoldingSearch';
 import { FolioHoldingNameCell } from './FolioHoldingNameCell';
 import { FolioHoldingOpenDatePicker } from './FolioHoldingOpenDatePicker';
@@ -252,7 +253,11 @@ export function FolioHoldingsPanel({
     <>
       <div className="folio-holdings__table-wrap">
           {showLoading ? (
-            <p className="folio-holdings__empty">{t('folio.loading')}</p>
+            <LoadingIndicator
+              className="folio-holdings__empty"
+              label={t('folio.loading')}
+              variant="panel"
+            />
           ) : (
             <div className="folio-holdings__markets">
               {FOLIO_MARKETS.map((market) => {

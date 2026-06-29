@@ -16,6 +16,7 @@ import {
   type FolioSectorSlice,
 } from '../../utils/folioSectorAllocation';
 import { findSectorPathByLevelName, selectionFromPath } from '../../utils/sectorTaxonomy';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { FolioMarketLabel } from './FolioMarketLabel';
 
 interface FolioSectorAllocationPanelProps {
@@ -215,7 +216,11 @@ export function FolioSectorAllocationPanel({
   const setSectorLevel = onSectorLevelChange ?? setInternalSectorLevel;
 
   const body = loading ? (
-    <p className="folio-sector__loading">{t('folio.loading')}</p>
+    <LoadingIndicator
+      className="folio-sector__loading"
+      label={t('folio.loading')}
+      variant="panel"
+    />
   ) : (
     <div className="folio-sector__grid">
       {FOLIO_MARKETS.map((market) => (

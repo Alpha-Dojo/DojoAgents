@@ -10,6 +10,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorPerformanceMarketPoint } from '../../types/dojoSphere';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
@@ -420,7 +421,11 @@ export function SphereLevelPerformanceSparkline({
         }}
       >
         {loading ? (
-          <p className="sphere-level-sparkline__status">{t('sphere.loadingPerformance')}</p>
+          <LoadingIndicator
+            className="sphere-level-sparkline__status"
+            label={t('sphere.loadingPerformance')}
+            variant="panel"
+          />
         ) : !chart.hasData ? (
           <p className="sphere-level-sparkline__status">{t('sphere.noPerformanceData')}</p>
         ) : (

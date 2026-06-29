@@ -15,6 +15,7 @@ import {
 } from '../../utils/coreCharts';
 import { eventMarkerPaths, mapEventsToVisibleMarkers } from '../../utils/coreChartEvents';
 import { findClosestDateIndex, findVisibleIndexForLinkedDate, normalizeChartDates } from '../../utils/coreChartLink';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   CORE_CHART_AXIS_W as PRICE_AXIS_W,
   CORE_CHART_MIN_SURFACE_H as MIN_VIEW_H,
@@ -764,7 +765,11 @@ export function CoreKlineChart({
                     </svg>
                   </>
                 ) : (
-                  <p className="core-chart-stage__status">{t('core.klineLoading')}</p>
+                  <LoadingIndicator
+                    className="core-chart-stage__status"
+                    label={t('core.klineLoading')}
+                    variant="panel"
+                  />
                 )}
               </div>
 

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { CoreStockNewsItem } from '../../types/dojoCore';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { CoreCard } from './CoreCard';
 
 interface CoreStockNewsPanelProps {
@@ -20,7 +21,11 @@ export function CoreStockNewsPanel({ items, loading = false }: CoreStockNewsPane
     <CoreCard title={t('core.newsTitle')} className="core-card--news">
       <div className="core-news">
         {loading && !visibleItems.length ? (
-          <p className="core-chart-stage__status">{t('core.newsLoading')}</p>
+          <LoadingIndicator
+            className="core-chart-stage__status"
+            label={t('core.newsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !visibleItems.length ? (
           <p className="core-chart-stage__status">{t('core.newsEmpty')}</p>

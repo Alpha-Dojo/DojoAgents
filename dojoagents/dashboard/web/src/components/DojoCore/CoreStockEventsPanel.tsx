@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { CoreStockEventItem } from '../../types/dojoCore';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { CoreCard } from './CoreCard';
 
 interface CoreStockEventsPanelProps {
@@ -20,7 +21,11 @@ export function CoreStockEventsPanel({ events, loading = false }: CoreStockEvent
     <CoreCard title={t('core.eventsTitle')} className="core-card--events">
       <div className="core-events">
         {loading && !visibleEvents.length ? (
-          <p className="core-chart-stage__status">{t('core.eventsLoading')}</p>
+          <LoadingIndicator
+            className="core-chart-stage__status"
+            label={t('core.eventsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !visibleEvents.length ? (
           <p className="core-chart-stage__status">{t('core.eventsEmpty')}</p>

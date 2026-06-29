@@ -15,6 +15,7 @@ import {
 
 import type { AppTab } from '../../navigation/appTab';
 import { openCoreTicker } from '../../navigation/openCoreTicker';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface SphereConstituentsTableProps {
   selection: SectorPathSelection;
@@ -190,7 +191,11 @@ function ConstituentsMarketColumn({
       </header>
       <div className="sphere-table-wrap sphere-table-wrap--split">
         {loading && items.length === 0 ? (
-          <p className="sphere-table-card__status">{t('sphere.loading')}</p>
+          <LoadingIndicator
+            className="sphere-table-card__status"
+            label={t('sphere.loading')}
+            variant="panel"
+          />
         ) : null}
         <div className="sphere-table-head">
           <table className="sphere-table">

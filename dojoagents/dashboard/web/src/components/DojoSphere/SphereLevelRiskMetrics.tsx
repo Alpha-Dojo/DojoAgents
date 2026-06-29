@@ -2,6 +2,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/dojoMesh';
 import type { SectorPerformanceResponse } from '../../types/dojoSphere';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface SphereLevelRiskMetricsProps {
   performance: SectorPerformanceResponse | null | undefined;
@@ -77,7 +78,11 @@ export function SphereLevelRiskMetrics({ performance, loading }: SphereLevelRisk
       <h4 className="sphere-level-risk__title">{t('sphere.riskReturnMetrics')}</h4>
 
       {loading && !hasStats ? (
-        <p className="sphere-level-risk__status">{t('sphere.loadingPerformance')}</p>
+        <LoadingIndicator
+          className="sphere-level-risk__status"
+          label={t('sphere.loadingPerformance')}
+          variant="panel"
+        />
       ) : !hasStats ? (
         <p className="sphere-level-risk__status">{t('sphere.noPerformanceData')}</p>
       ) : (

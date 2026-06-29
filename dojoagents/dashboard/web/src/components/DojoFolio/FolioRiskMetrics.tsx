@@ -4,6 +4,7 @@ import type { FolioPerformanceStats, FolioPerformanceView } from '../../types/do
 import type { MarketCode } from '../../types/dojoMesh';
 import { resolveBenchmarkStats } from '../../utils/folioPerformanceStats';
 import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface FolioRiskMetricsProps {
   performance: FolioPerformanceView | null | undefined;
@@ -104,7 +105,11 @@ export function FolioRiskMetrics({
       <h4 className="folio-risk__title">{t('sphere.riskReturnMetrics')}</h4>
 
       {loading && !hasStats ? (
-        <p className="folio-risk__status">{t('folio.loading')}</p>
+        <LoadingIndicator
+          className="folio-risk__status"
+          label={t('folio.loading')}
+          variant="panel"
+        />
       ) : !hasStats ? (
         <p className="folio-risk__status">{t('folio.noPerformanceData')}</p>
       ) : (

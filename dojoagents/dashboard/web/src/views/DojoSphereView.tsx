@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { SphereBottomPanel } from '../components/DojoSphere/SphereBottomPanel';
 import { SphereSectorHero } from '../components/DojoSphere/SphereSectorHero';
+import { LoadingIndicator } from '../components/ui/LoadingIndicator';
 import {
   persistSphereViewState,
   readPersistedSphereScopeLevel,
@@ -105,7 +106,7 @@ export function DojoSphereView({ onNavigateTab }: DojoSphereViewProps) {
   if (loading && !taxonomy) {
     return (
       <section className="dojo-sphere-view dojo-sphere-view--loading">
-        <p>{t('sphere.loading')}</p>
+        <LoadingIndicator label={t('sphere.loading')} variant="page" />
       </section>
     );
   }

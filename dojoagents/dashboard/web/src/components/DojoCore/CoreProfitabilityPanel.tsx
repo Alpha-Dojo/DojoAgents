@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { CoreProfitabilityAxis } from '../../types/dojoCore';
 import { polarPoint } from '../../utils/coreCharts';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { CoreCard } from './CoreCard';
 
 interface CoreProfitabilityPanelProps {
@@ -59,7 +60,11 @@ export function CoreProfitabilityPanel({ axes, industryLabel, loading = false }:
   if (loading && !axes.length) {
     return (
       <CoreCard title={t('core.profitabilityTitle')} className="core-card--profitability">
-        <p className="core-chart-stage__status">{t('core.finIndicatorsLoading')}</p>
+        <LoadingIndicator
+          className="core-chart-stage__status"
+          label={t('core.finIndicatorsLoading')}
+          variant="panel"
+        />
       </CoreCard>
     );
   }

@@ -240,6 +240,10 @@
     color 0.15s ease;
 }
 
+.folio-portfolio-search__input:hover {
+  border-color: var(--color-accent-float);
+}
+
 .folio-portfolio-search__input::placeholder {
   color: #7d8da5;
   opacity: 1;
@@ -391,12 +395,36 @@
   border-color: rgba(255, 204, 128, 0.28);
 }
 
+.folio-sidebar__item-select {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.folio-sidebar__item-select:focus-visible {
+  outline: 2px solid var(--color-accent-float);
+  outline-offset: 1px;
+}
+
+.folio-sidebar__item:has(> .folio-sidebar__item-select:focus-visible) {
+  border-color: var(--color-accent-float);
+  box-shadow: 0 0 0 2px rgb(0 224 162 / 18%);
+}
+
 .folio-sidebar__item--collapsed .folio-sidebar__item-main {
   padding-top: 6px;
   padding-bottom: 6px;
 }
 
 .folio-sidebar__item-main {
+  position: relative;
+  z-index: 1;
   width: 100%;
   padding: 7px 8px;
   border: none;
@@ -404,6 +432,13 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
+  pointer-events: none;
+}
+
+.folio-sidebar__name-button,
+.folio-sidebar__name-input,
+.folio-sidebar__item-actions button {
+  pointer-events: auto;
 }
 
 .folio-sidebar__item-header {
@@ -631,14 +666,35 @@
   flex: 1;
   min-width: 0;
   width: auto;
-  padding: 2px 4px;
-  border: 1px solid rgba(0, 229, 255, 0.35);
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border-default);
   border-radius: 4px;
-  background: var(--bg-elevated);
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
+  line-height: 22px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+}
+
+.folio-sidebar__name-input:hover {
+  border-color: var(--color-border-hover);
+}
+
+.folio-sidebar__name-input:focus-visible {
+  outline: none;
+  border-color: var(--color-accent-float);
+  background: rgb(7 16 26 / 72%);
+  box-shadow: 0 0 0 1px rgb(0 224 162 / 18%);
 }
 
 .folio-sidebar__item-stats {
@@ -2306,7 +2362,7 @@
 .folio-add-holding__icon {
   position: absolute;
   left: 8px;
-  top: 50%;
+  top: 58%;
   width: 10px;
   height: 10px;
   background: var(--text-dim);
@@ -2322,7 +2378,7 @@
   width: 100%;
   box-sizing: border-box;
   height: 20px;
-  padding: 0 26px 0 27px;
+  padding: 0 26px 0 22px;
   border: 1px solid var(--color-border-default);
   border-radius: 4px;
   background: transparent;
@@ -2336,6 +2392,10 @@
     border-color 0.15s ease,
     box-shadow 0.15s ease,
     color 0.15s ease;
+}
+
+.folio-add-holding__input:hover {
+  border-color: var(--color-accent-float);
 }
 
 .folio-add-holding__input:disabled {
@@ -2492,7 +2552,7 @@
   padding: 0 8px;
   border: 1px solid var(--border-dim);
   border-radius: 4px;
-  background: var(--bg-elevated);
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 11px;
