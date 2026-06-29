@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 
 function normalizeTickerSymbol(ticker: string): string {
   return ticker.trim().toUpperCase();

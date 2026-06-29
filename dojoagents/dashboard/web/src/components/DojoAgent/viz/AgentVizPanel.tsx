@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { AgentVizBlock } from '../../../types/agentViz';
-import { buildDonutPaths } from '../../../utils/coreIncomeDistribution';
+import { buildDonutPaths } from '../../../utils/entityIncomeDistribution';
 import { buildSparklinePath } from '../../../utils/folioFormat';
 import {
   buildAgentNavReturnAxisTicks,

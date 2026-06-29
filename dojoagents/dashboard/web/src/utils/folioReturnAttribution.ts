@@ -1,5 +1,5 @@
-import type { FolioHolding, FolioPerformanceView } from '../types/dojoFolio';
-import type { MarketCode } from '../types/dojoMesh';
+import type { FolioHolding, FolioPerformanceView } from '../types/folio';
+import type { MarketCode } from '../types/market';
 import { resolveBenchmarkStats } from './folioPerformanceStats';
 
 export type AttributionStepKey = 'benchmark' | 'sector' | 'stock' | 'trading' | 'total';

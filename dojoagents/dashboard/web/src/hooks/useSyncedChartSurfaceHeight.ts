@@ -4,10 +4,10 @@ import {
   CORE_CHART_TIME_H,
   CORE_CHART_TOPBAR_H,
   CORE_CHART_MIN_PLOT_H,
-} from '../utils/coreChartLayout';
+} from '../utils/entityChartLayout';
 
-const CHART_CARD_SELECTOR = '.core-card--kline, .core-card--pe-band';
-const BODY_SELECTOR = '.core-card__body';
+const CHART_CARD_SELECTOR = '.entity-card--kline, .entity-card--pe-band';
+const BODY_SELECTOR = '.entity-card__body';
 
 /**
  * Measure the chart row and write one shared main-plot height to --core-synced-main-plot-h.

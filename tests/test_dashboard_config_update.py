@@ -293,3 +293,31 @@ def test_put_config_default_provider_updates_agent_model(tmp_path):
     body = resp.json()
     assert body["llm_provider"]["default"] == "deepseek"
     assert body["agent"]["model"] == "deepseek-chat"
+
+
+def test_get_config_redacted_marks_api_key_configured(tmp_path, monkeypatch):
+    """GET /api/config exposes per-provider api_key_configured without leaking secrets."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "glm",
+                "providers": {
+                    "openai": {"model": "gpt-4.1", "api_key_env": "OPENAI_API_KEY"},
+                    "glm": {"model": "glm-5.2", "api_key": "secret-glm-key"},
+                },
+            },
+        },
+    )
+    app = create_app(runtime)
+    client = TestClient(app)
+
+    body = client.get("/api/config").json()
+    providers = body["llm_provider"]["providers"]
+
+    assert providers["openai"]["api_key_configured"] is False
+    assert providers["openai"]["api_key"] == "***"
+    assert providers["glm"]["api_key_configured"] is True
+    assert providers["glm"]["api_key"] == "***"

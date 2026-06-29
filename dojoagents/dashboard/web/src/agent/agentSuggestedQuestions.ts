@@ -1,9 +1,9 @@
-import { readPersistedSphereSelection } from '../cache/sphereViewState';
+import { readPersistedSectorSelection } from '../cache/sectorViewState';
 import type { AppLocale } from '../i18n/locale';
-import { readCoreTickerContext, resolveCoreTickerContext } from '../navigation/coreContext';
+import { readEntityTickerContext, resolveEntityTickerContext } from '../navigation/entityContext';
 import type { AppTab } from '../navigation/appTab';
 import type { BilingualLabel, SectorTaxonomyDocument } from '../types/sectorTaxonomy';
-import { findSectorPathByIds, getSphereDefaultSelection } from '../utils/sectorTaxonomy';
+import { findSectorPathByIds, getSectorDefaultSelection } from '../utils/sectorTaxonomy';
 
 export interface SuggestedQuestionContext {
   sphereL2: string;
@@ -12,7 +12,7 @@ export interface SuggestedQuestionContext {
 }
 
 const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> = {
-  mesh: {
+  market: {
     zh: [
       '中美港三地大盘，目前哪边的估值最便宜？',
       '今天全球市场有何异动？哪个板块在带头砸盘？',
@@ -28,7 +28,7 @@ const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> 
       'The S&P 500 looks richly valued—is there still room to chase higher?',
     ],
   },
-  sphere: {
+  sector: {
     zh: [
       '对比中美港三地，{L3}板块现在哪边性价比最高？',
       '{L2}产业链中，最近哪个细分赛道在领涨？',
@@ -44,7 +44,7 @@ const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> 
       'Compare recent NAV performance of global Financials vs Technology.',
     ],
   },
-  core: {
+  entity: {
     zh: [
       '{ticker} 当前的估值算便宜还是贵？',
       '{ticker} 目前最赚钱的核心业务是哪个？',
@@ -93,7 +93,7 @@ export function resolveSuggestedQuestionContext(
   locale: AppLocale,
   taxonomy: SectorTaxonomyDocument | null,
 ): SuggestedQuestionContext {
-  const core = readCoreTickerContext() ?? resolveCoreTickerContext();
+  const core = readEntityTickerContext() ?? resolveEntityTickerContext();
   const coreCompanyName =
     locale === 'zh'
       ? core.name_zh || core.name_en || core.ticker
@@ -106,7 +106,7 @@ export function resolveSuggestedQuestionContext(
     return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };
   }
 
-  const selection = readPersistedSphereSelection() ?? getSphereDefaultSelection(taxonomy);
+  const selection = readPersistedSectorSelection() ?? getSectorDefaultSelection(taxonomy);
   const path = findSectorPathByIds(taxonomy, selection);
   if (!path) {
     return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };

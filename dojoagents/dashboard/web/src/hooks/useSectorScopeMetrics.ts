@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorAnalysisBundle, type SectorAnalysisBundle } from '../api/dojoSphere';
+import { fetchSectorAnalysisBundle, type SectorAnalysisBundle } from '../api/sector';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
-import type { SectorScopeMetricsResponse } from '../types/dojoSphere';
+import type { SectorScopeMetricsResponse } from '../types/sector';
 
 export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
   const cacheKey = selection ? cacheKeys.sectorAnalysisBundle(selection) : null;

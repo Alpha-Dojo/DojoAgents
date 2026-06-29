@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 import { formatFolioCurrency } from './folioFormat';
 
 function marketCurrency(market: MarketCode): string {
