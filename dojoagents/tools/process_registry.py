@@ -1,14 +1,13 @@
 import asyncio
 import uuid
 import atexit
-import logging
 import contextvars
 from typing import Dict
-
-logger = logging.getLogger(__name__)
+from dojoagents.logging import LOGGER
 
 # Context variable to track active session ID (typically session key) during tool execution
 active_session_id = contextvars.ContextVar("active_session_id", default="")
+
 
 class BackgroundProcessSession:
     def __init__(self, session_id: str, process: asyncio.subprocess.Process, command: str):
@@ -45,16 +44,10 @@ class AsyncProcessRegistry:
 
     async def spawn(self, command: str, env_vars: dict = None) -> BackgroundProcessSession:
         session_id = uuid.uuid4().hex[:12]
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.DEVNULL,
-            env=env_vars
-        )
+        process = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.DEVNULL, env=env_vars)
         session = BackgroundProcessSession(session_id, process, command)
         self.processes[session_id] = session
-        
+
         asyncio.create_task(self._read_stdout(session))
         asyncio.create_task(self._reap_process(session_id))
         return session
@@ -94,7 +87,7 @@ class AsyncProcessRegistry:
         """同步强杀所有已注册的子进程，用于进程退出或终结时"""
         if not self.processes:
             return
-        logger.info("Cleaning up %d background process(es)...", len(self.processes))
+        LOGGER.info("Cleaning up %d background process(es)...", len(self.processes))
         for session in list(self.processes.values()):
             session.kill()
         self.processes.clear()
@@ -103,8 +96,9 @@ class AsyncProcessRegistry:
 # 全局进程注册中心单例
 process_registry = AsyncProcessRegistry()
 
+
 def _global_atexit_cleanup():
     process_registry.cleanup()
 
-atexit.register(_global_atexit_cleanup)
 
+atexit.register(_global_atexit_cleanup)

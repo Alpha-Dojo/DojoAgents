@@ -19,8 +19,8 @@ class LLMProviderConfig:
 
 @dataclass(frozen=True)
 class LLMConfig:
-    default: str = "openai"
-    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {"openai": LLMProviderConfig()})
+    default: str | None = None
+    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {})
 
 
 @dataclass(frozen=True)

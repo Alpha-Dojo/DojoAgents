@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,8 +15,7 @@ from dojoagents.dashboard.services.precompute_sector_daily import (
     SECTOR_DAILY_FILE,
     TICKER_DAILY_FILE,
 )
-
-logger = logging.getLogger(__name__)
+from dojoagents.logging import LOGGER
 
 
 class SectorPrecomputedStore:
@@ -52,10 +50,10 @@ class SectorPrecomputedStore:
         offline_only = os.environ.get("DOJO_HF_OFFLINE", "false").lower() in ("1", "true", "yes")
         if not offline_only:
             try:
-                logger.info("Syncing dojo_sector_precomputed dataset from HuggingFace to %s...", target_dir)
+                LOGGER.debug("Syncing dojo_sector_precomputed dataset from HuggingFace to %s...", target_dir)
                 download_dataset("dojo_sector_precomputed", target_dir)
             except Exception as exc:
-                logger.warning("Failed to sync dojo_sector_precomputed dataset, will try to use existing local files: %s", exc)
+                LOGGER.warning("Failed to sync dojo_sector_precomputed dataset, will try to use existing local files: %s", exc)
 
         manifest_path = target_dir / MANIFEST_FILE
         if manifest_path.exists():
@@ -66,7 +64,7 @@ class SectorPrecomputedStore:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 self._last_error = f"local_reload_failed: {exc}"
-                logger.warning("Failed to reload local sector precomputed snapshot: %s", exc)
+                LOGGER.warning("Failed to reload local sector precomputed snapshot: %s", exc)
                 self.clear_cache()
             else:
                 self.dataset_dir = target_dir
@@ -79,7 +77,7 @@ class SectorPrecomputedStore:
                 return
 
         self._last_error = "dataset_missing"
-        logger.error("Sector precomputed dataset missing and sync failed or offline.")
+        LOGGER.error("Sector precomputed dataset missing and sync failed or offline.")
         self.clear_cache()
 
     def _load_constituents(self) -> pd.DataFrame:
