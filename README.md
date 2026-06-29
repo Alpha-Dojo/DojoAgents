@@ -5,9 +5,10 @@
 <p align="center">
   <a href="https://discord.gg/YOUR_LINK"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://weixin.qq.com/YOUR_LINK"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
-  <a href="https://x.com/YOUR_LINK"><img src="https://img.shields.io/badge/X-DojoAgents-white?logo=x&logoColor=white&labelColor=555555" alt="X"></a>
+  <a href="https://x.com/YOUR_LINK"><img src="https://img.shields.io/badge/X-DojoAgents-white?logo=x&logoColor=white&labelColor=555555" alt="HuggingFace"></a>
   <a href="https://github.com/YOUR_REPO/discussions"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
+
 
 ---
 
