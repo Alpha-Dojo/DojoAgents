@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from dojoagents.config.models import AgentsConfig, MultiAgentConfig, PlanConfig
+from dojoagents.config.models import AgentsConfig, LLMConfig, LLMProviderConfig, MultiAgentConfig, PlanConfig
 from dojoagents.config.loader import ConfigStore
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.runtime import Runtime
@@ -31,12 +31,11 @@ class TestRuntimePlanningDisabled:
 
 class TestRuntimeGeminiProvider:
     def test_gemini_runtime_uses_native_provider(self):
-        config = AgentsConfig()
         config = AgentsConfig(
-            llm_provider=config.llm_provider.__class__(
+            llm_provider=LLMConfig(
                 default="gemini",
                 providers={
-                    "gemini": config.llm_provider.providers["openai"].__class__(
+                    "gemini": LLMProviderConfig(
                         model="gemini-2.5-pro",
                         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
                         api_key="test-key",

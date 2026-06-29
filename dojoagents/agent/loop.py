@@ -478,7 +478,15 @@ class AgentLoop:
             system = system + "\n\n" + plan_prompt
 
         # 2. Build model bridge and session token ledger
-        model_id = self.config.model if isinstance(self.config.model, str) else "gpt-4.1"
+        model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
+        if model_id is None and isinstance(self.provider_config, LLMProviderConfig) and self.provider_config.model:
+            model_id = self.provider_config.model
+        if model_id is None:
+            return AgentResponse(
+                content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
+                session_id=request.session_id,
+                metadata={"error": "no_model_configured"},
+            )
         raw_provider_name = getattr(self.llm_provider, "name", "openai")
         provider_name = raw_provider_name if isinstance(raw_provider_name, str) and raw_provider_name else "openai"
         provider_cfg = (

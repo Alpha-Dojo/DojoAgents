@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 
 from dojoagents.config.loader import FinancialDashboardConfig
-from dojoagents.dashboard.services.domain_utils import normalize_market_code, sanitize_mapping, sanitize_records
+from dojoagents.dashboard.services.domain_utils import normalize_market_code, sanitize_records
 from dojoagents.dashboard.services.precompute_sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE,
@@ -16,8 +15,7 @@ from dojoagents.dashboard.services.precompute_sector_daily import (
     SECTOR_DAILY_FILE,
     TICKER_DAILY_FILE,
 )
-
-logger = logging.getLogger(__name__)
+from dojoagents.logging import LOGGER
 
 
 class SectorPrecomputedStore:
@@ -31,6 +29,7 @@ class SectorPrecomputedStore:
         self._last_error: str | None = None
         self._load_generation = 0
         self._constituents_exact_index: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+        self._sector_daily_index: Optional[pd.DataFrame] = None
         self._sector_window_cache: dict[int, pd.DataFrame] = {}
         self._ticker_window_cache: dict[int, pd.DataFrame] = {}
 
@@ -52,10 +51,10 @@ class SectorPrecomputedStore:
         offline_only = os.environ.get("DOJO_HF_OFFLINE", "false").lower() in ("1", "true", "yes")
         if not offline_only:
             try:
-                logger.info("Syncing dojo_sector_precomputed dataset from HuggingFace to %s...", target_dir)
+                LOGGER.debug("Syncing dojo_sector_precomputed dataset from HuggingFace to %s...", target_dir)
                 download_dataset("dojo_sector_precomputed", target_dir)
             except Exception as exc:
-                logger.warning("Failed to sync dojo_sector_precomputed dataset, will try to use existing local files: %s", exc)
+                LOGGER.warning("Failed to sync dojo_sector_precomputed dataset, will try to use existing local files: %s", exc)
 
         manifest_path = target_dir / MANIFEST_FILE
         if manifest_path.exists():
@@ -66,7 +65,7 @@ class SectorPrecomputedStore:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 self._last_error = f"local_reload_failed: {exc}"
-                logger.warning("Failed to reload local sector precomputed snapshot: %s", exc)
+                LOGGER.warning("Failed to reload local sector precomputed snapshot: %s", exc)
                 self.clear_cache()
             else:
                 self.dataset_dir = target_dir
@@ -79,7 +78,7 @@ class SectorPrecomputedStore:
                 return
 
         self._last_error = "dataset_missing"
-        logger.error("Sector precomputed dataset missing and sync failed or offline.")
+        LOGGER.error("Sector precomputed dataset missing and sync failed or offline.")
         self.clear_cache()
 
     def _load_constituents(self) -> pd.DataFrame:
@@ -142,6 +141,23 @@ class SectorPrecomputedStore:
         return list(rows) if rows is not None else []
 
     def get_sector_daily(self, scope: str, level1_id: str, level2_id: str, level3_id: str, market: Optional[str] = None) -> list[dict]:
+        # Fast path: exact multi-index lookup (avoids a full boolean scan per call).
+        if market and self._sector_daily_index is not None:
+            level2 = level2_id if scope in ("L2", "L3") else ""
+            level3 = level3_id if scope == "L3" else ""
+            key = (
+                str(scope),
+                str(level1_id),
+                str(level2),
+                str(level3),
+                str(normalize_market_code(market) or market),
+            )
+            try:
+                rows = self._sector_daily_index.loc[[key]]
+            except KeyError:
+                return []
+            return sanitize_records(rows.reset_index())
+
         df = self._load_sector_daily()
         if df.empty:
             return []
@@ -228,15 +244,24 @@ class SectorPrecomputedStore:
         self._ticker_daily_df = None
         self._manifest = None
         self._constituents_exact_index = {}
+        self._sector_daily_index = None
         self._sector_window_cache = {}
         self._ticker_window_cache = {}
         self._load_generation += 1
 
     def _rebuild_indexes_locked(self) -> None:
         self._constituents_exact_index = {}
+        self._sector_daily_index = None
         self._sector_window_cache = {}
         self._ticker_window_cache = {}
         self._load_generation += 1
+
+        sector_daily = self._sector_daily_df
+        if sector_daily is not None and not sector_daily.empty:
+            index_cols = ["scope", "level1_id", "level2_id", "level3_id", "market"]
+            if all(col in sector_daily.columns for col in index_cols):
+                self._sector_daily_index = sector_daily.set_index(index_cols).sort_index()
+
         df = self._constituents_df
         if df is None or df.empty:
             return

@@ -77,6 +77,27 @@ class LLMProviderRegistry:
         return self._providers[name]
 
 
+class UnconfiguredLLMProvider:
+    name = "unconfigured"
+    api_key = None
+    base_url = None
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        model: str,
+        stream: bool = False,
+        metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> LLMResult:
+        message = "No LLM provider configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."
+        if stream and stream_callback:
+            stream_callback(message)
+        return LLMResult(content=message, metadata={"provider": self.name, "live": False, "error": "no_provider"})
+
+
 class StaticLLMProvider:
     name = "static"
 

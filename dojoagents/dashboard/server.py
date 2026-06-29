@@ -46,6 +46,7 @@ from dojoagents.agent.events import AgentEventSink
 from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.providers import OpenAICompatibleProvider
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.model_context import ModelContextRegistry
@@ -91,11 +92,11 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
 
     config = store.snapshot()
     selected_provider = (provider_name or config.llm_provider.default or "").strip()
-    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
-        selected_provider = config.llm_provider.default
-    provider_cfg = config.llm_provider.providers.get(selected_provider)
+    resolved_name, provider_cfg = resolve_provider_config(config.llm_provider)
     if provider_cfg is None:
         return selected_provider or "default"
+    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
+        selected_provider = resolved_name or selected_provider
 
     if selected_provider == "gemini":
         llm_provider = GeminiNativeProvider(
@@ -303,23 +304,17 @@ def create_app(
         refresh_task = None
         try:
             if hasattr(client, "preload_offline_data"):
-                import logging
-
-                logger = logging.getLogger(__name__)
-
-                logger.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
+                LOGGER.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
                 await client.preload_offline_data()
-                logger.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
+                LOGGER.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
 
-            import logging
-
-            logging.getLogger(__name__).info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
+            LOGGER.info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
             await registry.init_and_load_all(
                 client,
                 data_root=resolved_data_root,
                 preload=True,
             )
-            logging.getLogger(__name__).info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
+            LOGGER.info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry

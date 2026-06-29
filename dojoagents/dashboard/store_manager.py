@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from pathlib import Path
 from typing import Optional, Any
 
@@ -20,8 +19,7 @@ from dojoagents.dashboard.services.dojo_sphere_service import DojoSphereService
 from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
-
-logger = logging.getLogger(__name__)
+from dojoagents.logging import LOGGER
 
 PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
     (
@@ -118,19 +116,19 @@ class GlobalStores:
         except ImportError:
             tqdm = None
 
-        logger.info("Initializing and preloading store data...")
+        LOGGER.info("Initializing and preloading store data...")
         phases = [store_names] if store_names is not None else PRELOAD_PHASES
         errors: list[Exception] = []
         for phase_idx, phase in enumerate(phases, 1):
             tasks = []
 
             async def _load_store(name: str, inst: Any) -> Any:
-                logger.info(f"开始加载 Store: {name} ...")
+                LOGGER.debug(f"开始加载 Store: {name} ...")
                 try:
                     await inst.load()
-                    logger.info(f"Store {name} 加载完成。")
+                    LOGGER.debug(f"Store {name} 加载完成。")
                 except Exception as e:
-                    logger.error(f"Store {name} 加载失败: {e}")
+                    LOGGER.error(f"Store {name} 加载失败: {e}")
                     raise
 
             for store_name in phase:
@@ -158,8 +156,8 @@ class GlobalStores:
             for res in results:
                 if isinstance(res, Exception):
                     errors.append(res)
-                    logger.error("Store preload error: %s", res)
-        logger.info("Store data preloading complete.")
+                    LOGGER.error("Store preload error: %s", res)
+        LOGGER.info("Store data preloading complete.")
         return errors
 
     @classmethod

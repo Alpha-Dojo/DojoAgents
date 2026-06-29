@@ -10,22 +10,22 @@ DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 @dataclass(frozen=True)
 class LLMProviderConfig:
-    model: str = "gpt-4.1"
+    model: str | None = None
     base_url: str | None = None
-    api_key_env: str | None = "OPENAI_API_KEY"
+    api_key_env: str | None = None
     api_key: str | None = None
     context_window: int | None = None
 
 
 @dataclass(frozen=True)
 class LLMConfig:
-    default: str = "openai"
-    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {"openai": LLMProviderConfig()})
+    default: str | None = None
+    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {})
 
 
 @dataclass(frozen=True)
 class AgentConfig:
-    model: str = "gpt-4.1"
+    model: str | None = None
     max_iterations: int = 100
     max_tool_workers: int = 4
     lazy_skills: bool = True
