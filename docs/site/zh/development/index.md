@@ -10,9 +10,10 @@
 
 扩展能力时再读：
 
+- [Session 设计与集成](session-history-design.md)
 - [添加工具](adding-tools.md)
 - [添加 Dashboard 路由](adding-dashboard-routes.md)
 - [添加 Gateway Adapter](adding-gateway-adapters.md)
 - [前端样式规范](frontend-style-guide.md)
 - [构建发布](release-build.md)
-
+- [Docker 打包](docker-packaging.md)

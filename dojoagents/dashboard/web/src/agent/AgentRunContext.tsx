@@ -513,6 +513,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
       }
 
       const { run_id: runId } = await createAgentRun({
+        session_id: params.sessionId,
         model_id: params.modelId,
         locale: params.locale,
         messages: params.apiMessages,

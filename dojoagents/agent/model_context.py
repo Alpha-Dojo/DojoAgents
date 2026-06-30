@@ -16,7 +16,7 @@ _MODEL_FALLBACKS: list[tuple[str, int]] = [
     ("gpt-4.1", 128000),
     ("gpt-4", 128000),
     ("gpt-3.5", 16385),
-    ("deepseek", 65536),
+    ("deepseek", 128000),
     ("qwen", 131072),
     ("moonshot", 131072),
     ("kimi", 131072),
