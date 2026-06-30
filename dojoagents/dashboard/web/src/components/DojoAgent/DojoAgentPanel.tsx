@@ -3,6 +3,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
 import { useAgentModel } from "../../agent/AgentModelContext";
@@ -18,9 +20,10 @@ import { useAgentSessions } from "../../agent/useAgentSessions";
 import { useAgentPanelWidth } from "../../hooks/useAgentPanelWidth";
 import { useTranslation } from "../../hooks/useTranslation";
 import type { AppTab } from "../../navigation/appTab";
-import type { AgentChatMessage } from "../../types/agent";
+import type { AgentChatImageAttachment, AgentChatMessage } from "../../types/agent";
 import { AgentModelSwitcher } from "../AgentModelSwitcher";
 import "../AgentModelSwitcher.css";
+import { AgentImagePreview } from "./AgentImagePreview";
 import { AgentActivityTimeline } from "./AgentActivityTimeline";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
@@ -34,6 +37,14 @@ import {
   hasRenderedChartBlocks,
   stripRenderedChartBlocks,
 } from "../../utils/agentVizContent";
+import {
+  AGENT_MAX_IMAGE_ATTACHMENTS,
+  collectImageFilesFromClipboard,
+  createImageAttachmentFromDataUrl,
+  createImageAttachmentFromFile,
+  extractDataImageUrlFromClipboard,
+  mergeImageAttachments,
+} from "../../utils/agentImageAttachments";
 import {
   finalizeIncompleteAssistantMessages,
   messagesForSessionPersist,
@@ -77,29 +88,6 @@ function HistoryIcon() {
       <path
         fill="currentColor"
         d="M512 85.333c235.648 0 426.667 191.019 426.667 426.667S747.648 938.667 512 938.667a424.789 424.789 0 0 1-200.875-50.134L85.333 938.667l50.176-225.707A424.789 424.789 0 0 1 85.333 512C85.333 276.352 276.352 85.333 512 85.333Zm0 85.334C323.477 170.667 170.667 323.477 170.667 512c0 56.96 13.909 111.701 40.106 160.683l14.934 27.904-27.99 125.696 125.782-27.904 27.861 14.89A339.413 339.413 0 0 0 512 853.333 341.333 341.333 0 1 0 512 170.667Zm42.667 128V512h170.666v85.333h-256V298.667h85.334Z"
-      />
-    </svg>
-  );
-}
-
-function NewChatIcon() {
-  return (
-    <svg
-      viewBox="0 0 1024 1024"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        fill="currentColor"
-        d="M333.184 987.456a52.928 52.928 0 0 1-18.688-3.712 47.424 47.424 0 0 1-16.064-10.56 44.544 44.544 0 0 1-10.624-15.36 45.76 45.76 0 0 1-4.032-18.304l-1.088-96.896a256.896 256.896 0 0 1-82.304-27.456 239.808 239.808 0 0 1-36.16-24.128 219.008 219.008 0 0 1-31.488-29.632 265.728 265.728 0 0 1-25.6-34.752 240.384 240.384 0 0 1-30.336-79.744 237.44 237.44 0 0 1-3.648-42.368V346.24c0-15.68 1.472-31.04 4.352-46.4 3.328-15.36 8.064-30.4 13.952-44.992a248.32 248.32 0 0 1 52.992-77.184A242.432 242.432 0 0 1 269.504 112.64a230.4 230.4 0 0 1 47.552-4.736H486.4a44.48 44.48 0 0 1 30.72 12.416 42.176 42.176 0 0 1 0 59.584 43.712 43.712 0 0 1-30.72 12.48H317.056c-10.56 0-20.8 0.704-30.72 2.88-10.24 1.856-20.096 4.8-29.632 8.832a139.904 139.904 0 0 0-27.392 14.208 169.344 169.344 0 0 0-23.808 19.072 171.584 171.584 0 0 0-19.712 23.36 171.008 171.008 0 0 0-14.656 26.688 155.264 155.264 0 0 0-11.712 58.88v258.24c0 10.24 0.768 20.096 2.944 30.336 2.176 9.856 5.12 19.776 9.152 29.248a148.48 148.48 0 0 0 34.752 50.816 155.52 155.52 0 0 0 51.904 33.664c9.536 4.032 19.776 6.976 30.016 9.152 10.24 1.856 20.48 2.944 31.104 2.944a48.896 48.896 0 0 1 34.688 13.888 50.88 50.88 0 0 1 11.008 15.744c2.56 5.824 3.648 12.032 4.032 18.24l0.32 59.648 108.992-77.888c27.84-19.776 58.88-29.632 93.248-29.632h134.976c10.624 0 20.864-1.088 30.72-2.944 10.24-1.856 20.096-4.736 29.632-8.768 9.472-4.032 18.624-8.768 27.392-14.272 8.448-5.504 16.512-12.096 23.808-19.008 7.296-7.296 13.888-14.976 19.712-23.424a145.344 145.344 0 0 0 23.424-55.552c2.176-9.92 2.944-19.776 2.944-30.016V473.216a40.896 40.896 0 0 1 12.8-29.632 44.48 44.48 0 0 1 47.168-9.152c5.12 1.92 9.856 5.12 13.888 9.152a40.896 40.896 0 0 1 12.8 29.632V606.72a233.92 233.92 0 0 1-41.344 132.416 221.184 221.184 0 0 1-30.336 36.16 262.208 262.208 0 0 1-36.928 29.632 229.952 229.952 0 0 1-42.048 21.952 251.712 251.712 0 0 1-93.632 18.304H599.744c-33.984 0-65.088 9.856-92.864 29.632L362.432 977.92a49.92 49.92 0 0 1-29.248 9.536z"
-      />
-      <path
-        fill="currentColor"
-        d="M902.592 188.16h-237.44a42.176 42.176 0 0 0 0 84.352h237.44a42.176 42.176 0 1 0 0-84.352z"
-      />
-      <path
-        fill="currentColor"
-        d="M827.008 116.288a43.2 43.2 0 0 0-86.336 0v228.096a43.2 43.2 0 0 0 86.4 0V116.288z"
       />
     </svg>
   );
@@ -269,6 +257,9 @@ export function DojoAgentPanel({
   } = useAgentRun();
 
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<AgentChatImageAttachment[]>([]);
+  const [imageAttaching, setImageAttaching] = useState(false);
+  const [previewImage, setPreviewImage] = useState<AgentChatImageAttachment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -280,6 +271,7 @@ export function DojoAgentPanel({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sessionRun = getSessionRun(activeSessionId);
@@ -419,6 +411,7 @@ export function DojoAgentPanel({
   const handleNewSession = useCallback(() => {
     setError(null);
     setInput("");
+    setPendingImages([]);
     setHistoryOpen(false);
     setRecoveredNotice(false);
     stickToBottomRef.current = true;
@@ -436,6 +429,7 @@ export function DojoAgentPanel({
       setSwitchingSessionId(sessionId);
       setError(null);
       setInput("");
+      setPendingImages([]);
       const session = sessions.find((item) => item.id === sessionId);
       if (session) {
         setSelectedModelId(session.modelId);
@@ -449,35 +443,163 @@ export function DojoAgentPanel({
     [activeSessionId, selectSession, sessions, setSelectedModelId],
   );
 
+  const addImageFiles = useCallback(
+    async (files: Array<{ file: File; mimeHint?: string }>) => {
+      if (files.length === 0 || streaming || imageAttaching) return false;
+      setImageAttaching(true);
+      setError(null);
+      const nextAttachments: AgentChatImageAttachment[] = [];
+      try {
+        for (const entry of files) {
+          if (pendingImages.length + nextAttachments.length >= AGENT_MAX_IMAGE_ATTACHMENTS) {
+            break;
+          }
+          try {
+            nextAttachments.push(
+              await createImageAttachmentFromFile(entry.file, entry.mimeHint),
+            );
+          } catch (err) {
+            setError(err instanceof Error ? err.message : t("agent.imageAttachFailed"));
+          }
+        }
+        if (nextAttachments.length === 0) return false;
+        setPendingImages((current) => mergeImageAttachments(current, nextAttachments));
+        setError(null);
+        textareaRef.current?.focus();
+        return true;
+      } finally {
+        setImageAttaching(false);
+      }
+    },
+    [imageAttaching, pendingImages.length, streaming, t],
+  );
+
+  const addImageDataUrl = useCallback(
+    async (dataUrl: string) => {
+      if (streaming || imageAttaching) return false;
+      if (pendingImages.length >= AGENT_MAX_IMAGE_ATTACHMENTS) {
+        setError(t("agent.imageAttachFailed"));
+        return false;
+      }
+      setImageAttaching(true);
+      setError(null);
+      try {
+        const attachment = await createImageAttachmentFromDataUrl(dataUrl);
+        setPendingImages((current) => mergeImageAttachments(current, [attachment]));
+        setError(null);
+        textareaRef.current?.focus();
+        return true;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t("agent.imageAttachFailed"));
+        return false;
+      } finally {
+        setImageAttaching(false);
+      }
+    },
+    [imageAttaching, pendingImages.length, streaming, t],
+  );
+
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const dataUrl = extractDataImageUrlFromClipboard(event.clipboardData);
+      const files = collectImageFilesFromClipboard(event.clipboardData);
+      if (!dataUrl && files.length === 0) return;
+
+      event.preventDefault();
+      void (async () => {
+        if (dataUrl) {
+          const attached = await addImageDataUrl(dataUrl);
+          if (!attached) {
+            setError(t("agent.imagePasteFailed"));
+          }
+          return;
+        }
+        const attached = await addImageFiles(files);
+        if (!attached) {
+          setError(t("agent.imagePasteFailed"));
+        }
+      })();
+    },
+    [addImageDataUrl, addImageFiles, t],
+  );
+
+  const handleImageInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []).map((file) => ({ file }));
+      event.target.value = "";
+      void addImageFiles(files);
+    },
+    [addImageFiles],
+  );
+
+  const handleRemovePendingImage = useCallback((index: number) => {
+    setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!sessionsHydrated || !text || streaming || !selectedModel?.available)
+    const images = pendingImages;
+    if (!sessionsHydrated) {
+      setError(t("agent.sendBlockedNotReady"));
       return;
+    }
+    if (streaming) {
+      setError(t("agent.sendBlockedStreaming"));
+      return;
+    }
+    if (imageAttaching) {
+      setError(t("agent.imageAttaching"));
+      return;
+    }
+    if (!selectedModel?.available) {
+      setError(t("agent.apiNotConfigured"));
+      return;
+    }
+    if (!text && images.length === 0) {
+      setError(t("agent.sendRequiresInput"));
+      return;
+    }
 
     const sessionId = ensureActiveSession(selectedModelId);
-    const userMessage: AgentChatMessage = { role: "user", content: text };
+    const userMessage: AgentChatMessage = {
+      role: "user",
+      content: text,
+      ...(images.length > 0 ? { images } : {}),
+    };
     const pendingAssistant: AgentChatMessage = {
       role: "assistant",
       content: "",
       activitySteps: [],
     };
     const nextMessages = [...messages, userMessage, pendingAssistant];
+    const apiMessages = prepareMessagesForApi(
+      [...messages, userMessage],
+      t("agent.toolsComplete"),
+    );
+    if (apiMessages.length === 0) {
+      setError(t("agent.sendEmptyPayload"));
+      return;
+    }
     const uiLocale = locale === "zh" ? "zh" : "en";
 
     setInput("");
+    setPendingImages([]);
     setError(null);
     stickToBottomRef.current = true;
+    replaceSessionMessages(
+      sessionId,
+      [...messages, userMessage],
+      selectedModelId,
+    );
 
     try {
       await startRun({
         sessionId,
         modelId: selectedModelId,
         locale,
+        dashboardTab: sourceTab,
         draftMessages: nextMessages,
-        apiMessages: prepareMessagesForApi(
-          [...messages, userMessage],
-          t("agent.toolsComplete"),
-        ),
+        apiMessages,
         toolsCompleteLabel: t("agent.toolsComplete"),
         responseCompleteLabel: t("agent.responseComplete"),
         stoppedLabel: t("agent.stopped"),
@@ -491,22 +613,29 @@ export function DojoAgentPanel({
         onPersistDraft: (draft) => {
           schedulePersistDraft(sessionId, draft);
         },
+        onRunError: (message) => {
+          setError(message);
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("agent.sendFailed"));
       setInput(text);
+      setPendingImages(images);
     }
   }, [
     ensureActiveSession,
     locale,
     messages,
+    pendingImages,
     persistMessages,
+    replaceSessionMessages,
     schedulePersistDraft,
     sessionsHydrated,
     selectedModel?.available,
     input,
     startRun,
     streaming,
+    imageAttaching,
     selectedModelId,
     t,
   ]);
@@ -517,18 +646,39 @@ export function DojoAgentPanel({
     textareaRef.current?.focus();
   }, [activeSessionId, stopRun, streaming]);
 
+  const canSend =
+    sessionsHydrated &&
+    Boolean(selectedModel?.available) &&
+    (input.trim().length > 0 || pendingImages.length > 0) &&
+    !streaming &&
+    !imageAttaching;
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (!canSend) {
+        if (!input.trim() && pendingImages.length === 0) {
+          setError(t("agent.sendRequiresInput"));
+        } else if (streaming) {
+          setError(t("agent.sendBlockedStreaming"));
+        } else if (imageAttaching) {
+          setError(t("agent.imageAttaching"));
+        } else if (!sessionsHydrated) {
+          setError(t("agent.sendBlockedNotReady"));
+        } else if (!selectedModel?.available) {
+          setError(t("agent.apiNotConfigured"));
+        }
+        return;
+      }
       void handleSend();
     }
   };
 
-  const canSend =
-    sessionsHydrated &&
+  const showSendHint =
+    !streaming &&
     Boolean(selectedModel?.available) &&
-    input.trim().length > 0 &&
-    !streaming;
+    sessionsHydrated &&
+    !canSend;
   const displayMessages = messages;
   const maximizeLabel = t(maximized ? "agent.minimize" : "agent.maximize");
 
@@ -825,9 +975,30 @@ export function DojoAgentPanel({
                     }`}
                   >
                     {message.role === "user" ? (
-                      <p className="dojo-agent-panel__user-text">
-                        {message.content}
-                      </p>
+                      <>
+                        {message.images && message.images.length > 0 ? (
+                          <div className="dojo-agent-panel__user-images">
+                            {message.images.map((image, imageIndex) => (
+                              <button
+                                key={`${image.dataUrl.slice(0, 32)}-${imageIndex}`}
+                                type="button"
+                                className="dojo-agent-panel__user-image-btn"
+                                aria-label={t("agent.previewImage")}
+                                onClick={() => setPreviewImage(image)}
+                              >
+                                <img
+                                  className="dojo-agent-panel__user-image"
+                                  src={image.dataUrl}
+                                  alt={image.name ?? t("agent.attachedImage")}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {message.content ? (
+                          <p className="dojo-agent-panel__user-text">{message.content}</p>
+                        ) : null}
+                      </>
                     ) : (
                       <>
                         <AgentActivityTimeline
@@ -874,22 +1045,101 @@ export function DojoAgentPanel({
           {panelError && (
             <p className="dojo-agent-panel__error">{panelError}</p>
           )}
+          {pendingImages.length > 0 || imageAttaching ? (
+            <div className="dojo-agent-panel__attachment-list" aria-label={t("agent.pendingImages")}>
+              {imageAttaching ? (
+                <div
+                  className="dojo-agent-panel__attachment dojo-agent-panel__attachment--loading"
+                  aria-live="polite"
+                  aria-busy="true"
+                >
+                  <div className="dojo-agent-panel__loading-spinner" />
+                  <span className="dojo-agent-panel__attachment-loading-label">
+                    {t("agent.imageAttaching")}
+                  </span>
+                </div>
+              ) : null}
+              {pendingImages.map((image, index) => (
+                <div key={`${image.dataUrl.slice(0, 32)}-${index}`} className="dojo-agent-panel__attachment">
+                  <button
+                    type="button"
+                    className="dojo-agent-panel__attachment-preview-btn"
+                    aria-label={t("agent.previewImage")}
+                    onClick={() => setPreviewImage(image)}
+                  >
+                    <img
+                      className="dojo-agent-panel__attachment-preview"
+                      src={image.dataUrl}
+                      alt={image.name ?? t("agent.attachedImage")}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className="dojo-agent-panel__attachment-remove"
+                    aria-label={t("agent.removeImage")}
+                    disabled={streaming}
+                    onClick={() => handleRemovePendingImage(index)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             className="dojo-agent-panel__input"
             rows={3}
             value={input}
             placeholder={t("agent.placeholder")}
-            disabled={!selectedModel?.available || streaming}
+            disabled={!selectedModel?.available || streaming || imageAttaching}
             onChange={(event) => setInput(event.target.value)}
+            onPaste={handlePaste}
             onKeyDown={handleKeyDown}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleImageInputChange}
+          />
           <div className="dojo-agent-panel__composer-bar">
-            <AgentModelSwitcher variant="composer" />
+            <div className="dojo-agent-panel__composer-left">
+              <AgentModelSwitcher variant="composer" />
+              <DojoButton
+                variant="secondary"
+                size="sm"
+                className={
+                  pendingImages.length > 0
+                    ? "dojo-agent-panel__attach-btn dojo-agent-panel__attach-btn--active"
+                    : "dojo-agent-panel__attach-btn"
+                }
+                disabled={
+                  !selectedModel?.available ||
+                  streaming ||
+                  imageAttaching ||
+                  pendingImages.length >= AGENT_MAX_IMAGE_ATTACHMENTS
+                }
+                aria-label={t("agent.attachImage")}
+                aria-busy={imageAttaching}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {imageAttaching ? (
+                  t("agent.imageAttaching")
+                ) : pendingImages.length > 0 ? (
+                  t("agent.attachedImageCount", { count: pendingImages.length })
+                ) : (
+                  t("agent.attachImage")
+                )}
+              </DojoButton>
+            </div>
             {streaming ? (
               <DojoButton
                 variant="secondary"
                 size="sm"
+                className="dojo-agent-panel__send-btn"
                 aria-label={t("agent.stop")}
                 onClick={handleStop}
               >
@@ -899,15 +1149,24 @@ export function DojoAgentPanel({
               <DojoButton
                 variant="secondary"
                 size="sm"
+                className="dojo-agent-panel__send-btn"
                 disabled={!canSend}
                 aria-label={t("agent.send")}
+                title={showSendHint ? t("agent.sendRequiresInput") : undefined}
                 onClick={() => void handleSend()}
               >
                 {t("agent.send")}
               </DojoButton>
             )}
           </div>
+          {showSendHint ? (
+            <p className="dojo-agent-panel__composer-hint">{t("agent.sendRequiresInput")}</p>
+          ) : null}
         </footer>
+        <AgentImagePreview
+          image={previewImage}
+          onClose={() => setPreviewImage(null)}
+        />
       </div>
     </aside>
   );

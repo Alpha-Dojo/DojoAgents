@@ -31,17 +31,78 @@ class HarnessLoopState:
                 return result
         return None
 
-    def last_created_portfolio_id(self) -> str | None:
+    def any_ok_tool(self, *tool_names: str) -> bool:
+        names = set(tool_names)
+        return any(result.ok and result.name in names for result in self.tool_results)
+
+    def last_eval_submission(self):
+        from dojoagents.agent.harnesses.portfolio_eval import parse_eval_submission
+
         for result in reversed(self.tool_results):
-            for change in reversed(result.resource_changes):
+            if result.ok and result.name == "portfolio_eval_submit":
+                parsed = parse_eval_submission(result.data)
+                if parsed is not None:
+                    return parsed
+        return None
+
+    def created_portfolio_id(self) -> str | None:
+        for result in reversed(self.tool_results):
+            if not result.ok or result.name != "portfolio_write_create":
+                continue
+            data = result.data
+            if isinstance(data, dict):
+                portfolio_id = data.get("id") or data.get("portfolio_id")
+                if portfolio_id:
+                    return str(portfolio_id)
+            for change in result.resource_changes:
+                if change.get("resource") == "portfolio" and change.get("action") == "create":
+                    portfolio_id = change.get("portfolio_id")
+                    if portfolio_id:
+                        return str(portfolio_id)
+        return None
+
+    def deleted_portfolio_ids(self) -> set[str]:
+        deleted: set[str] = set()
+        for result in self.tool_results:
+            if not result.ok or result.name != "portfolio_write_delete":
+                continue
+            for change in result.resource_changes:
                 if change.get("resource") == "portfolio" and change.get("portfolio_id"):
-                    return str(change["portfolio_id"])
+                    deleted.add(str(change["portfolio_id"]))
+            data = result.data
+            if isinstance(data, dict) and data.get("portfolio_id"):
+                deleted.add(str(data["portfolio_id"]))
+        return deleted
+
+    def target_portfolio_id(self) -> str | None:
+        created = self.created_portfolio_id()
+        if created:
+            return created
+        deleted = self.deleted_portfolio_ids()
+        for result in reversed(self.tool_results):
+            if not result.ok or result.name not in {
+                "portfolio_write_add_holding",
+                "portfolio_write_add_holdings",
+                "portfolio_write_rename",
+                "portfolio_write_auto_allocate",
+                "portfolio_read_detail",
+            }:
+                continue
+            for change in reversed(result.resource_changes):
+                portfolio_id = change.get("portfolio_id")
+                if change.get("resource") == "portfolio" and portfolio_id:
+                    portfolio_id = str(portfolio_id)
+                    if portfolio_id not in deleted:
+                        return portfolio_id
             data = result.data
             if isinstance(data, dict):
                 portfolio_id = data.get("portfolio_id") or data.get("id")
-                if portfolio_id:
+                if portfolio_id and str(portfolio_id) not in deleted:
                     return str(portfolio_id)
         return None
+
+    def last_created_portfolio_id(self) -> str | None:
+        return self.target_portfolio_id()
 
 
 class TaskHarness:
@@ -49,6 +110,9 @@ class TaskHarness:
 
     def matches(self, request: ChatRequest, state: HarnessLoopState) -> bool:
         return False
+
+    def block_tool_call(self, call: ToolCall, state: HarnessLoopState) -> str | None:
+        return None
 
     def repair_tool_calls(
         self,

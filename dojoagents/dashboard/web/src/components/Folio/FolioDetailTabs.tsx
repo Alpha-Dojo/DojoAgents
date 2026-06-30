@@ -1,21 +1,23 @@
 import { useState } from 'react';
 import type { FolioPortfolioDetail } from '../../api/folio';
 import type { AppTab } from '../../navigation/appTab';
-import type { FolioAllocationStrategy } from '../../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioOrderDraftContext } from '../../types/folio';
 import type { MarketCode } from '../../types/market';
 import { useTranslation } from '../../hooks/useTranslation';
+import { FolioCandidatesPanel } from './FolioCandidatesPanel';
+import { FolioCreateOrderModal } from './FolioCreateOrderModal';
 import { FolioHoldingsPanel } from './FolioHoldingsPanel';
 import { FolioReturnAttributionPanel } from './FolioReturnAttributionPanel';
 import { FolioRiskExposurePanel } from './FolioRiskExposurePanel';
-import { FolioAllocateMenu } from './FolioAllocateMenu';
 
-type FolioDetailTab = 'holdings' | 'attribution' | 'risk';
+type FolioDetailTab = 'candidates' | 'positions' | 'performance' | 'risk';
 
 interface FolioDetailTabsProps {
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
   addingTicker?: boolean;
   removingTicker?: string | null;
+  placingOrder?: boolean;
   allocating?: boolean;
   benchmarkSymbol: string | null;
   benchmarkLabel: string;
@@ -28,6 +30,7 @@ interface FolioDetailTabsProps {
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
+  onCreateOrder: (payload: FolioCreateOrderPayload) => Promise<void>;
   onAutoAllocate: (strategy: FolioAllocationStrategy) => void;
 }
 
@@ -36,7 +39,7 @@ export function FolioDetailTabs({
   loading = false,
   addingTicker = false,
   removingTicker = null,
-  allocating = false,
+  placingOrder = false,
   benchmarkSymbol,
   benchmarkLabel,
   onNavigateTab,
@@ -48,20 +51,25 @@ export function FolioDetailTabs({
   onApplyOpenDate,
   onAddHolding,
   onRemoveHolding,
-  onAutoAllocate,
+  onCreateOrder,
 }: FolioDetailTabsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<FolioDetailTab>('holdings');
+  const [activeTab, setActiveTab] = useState<FolioDetailTab>('candidates');
+  const [orderContext, setOrderContext] = useState<FolioOrderDraftContext | null>(null);
 
   const tabs: Array<{ id: FolioDetailTab; label: string }> = [
-    { id: 'holdings', label: t('folio.holdingsTitle') },
-    { id: 'attribution', label: t('folio.attributionTitle') },
-    { id: 'risk', label: t('folio.riskExposureTitle') },
+    { id: 'candidates', label: t('folio.tabCandidates') },
+    { id: 'positions', label: t('folio.tabPositions') },
+    { id: 'performance', label: t('folio.tabPerformance') },
+    { id: 'risk', label: t('folio.tabRiskExposure') },
   ];
-  const hasHoldings = portfolio.holdings.length > 0;
+
+  const openCreateOrder = (context: FolioOrderDraftContext) => {
+    setOrderContext(context);
+  };
 
   return (
-    <article className="folio-card folio-detail-tabs">
+    <article className="folio-detail-tabs">
       <header className="folio-detail-tabs__head">
         <div className="folio-detail-tabs__tabs" role="tablist" aria-label={t('folio.detailTabsLabel')}>
           {tabs.map((tab) => (
@@ -79,27 +87,39 @@ export function FolioDetailTabs({
             </button>
           ))}
         </div>
-        {activeTab === 'holdings' && hasHoldings ? (
-          <div className="folio-detail-tabs__actions">
-            <FolioAllocateMenu disabled={allocating} onAllocate={onAutoAllocate} />
-          </div>
-        ) : null}
       </header>
 
       <div className="folio-detail-tabs__body">
-        {activeTab === 'holdings' ? (
+        {activeTab === 'candidates' ? (
           <div
-            id="folio-panel-holdings"
+            id="folio-panel-candidates"
             role="tabpanel"
-            aria-labelledby="folio-tab-holdings"
+            aria-labelledby="folio-tab-candidates"
+            className="folio-detail-tabs__panel"
+          >
+            <FolioCandidatesPanel
+              portfolio={portfolio}
+              loading={loading}
+              addingTicker={addingTicker}
+              removingTicker={removingTicker}
+              onNavigateTab={onNavigateTab}
+              onAddCandidate={onAddHolding}
+              onRemoveCandidate={onRemoveHolding}
+              onCreateOrder={openCreateOrder}
+            />
+          </div>
+        ) : null}
+        {activeTab === 'positions' ? (
+          <div
+            id="folio-panel-positions"
+            role="tabpanel"
+            aria-labelledby="folio-tab-positions"
             className="folio-detail-tabs__panel"
           >
             <FolioHoldingsPanel
               embedded
               portfolio={portfolio}
               loading={loading}
-              addingTicker={addingTicker}
-              removingTicker={removingTicker}
               onNavigateTab={onNavigateTab}
               onApplyShares={onApplyShares}
               onToggleSharesLock={onToggleSharesLock}
@@ -107,16 +127,15 @@ export function FolioDetailTabs({
               onToggleCostLock={onToggleCostLock}
               onApplyCost={onApplyCost}
               onApplyOpenDate={onApplyOpenDate}
-              onAddHolding={onAddHolding}
-              onRemoveHolding={onRemoveHolding}
+              onCreateOrder={openCreateOrder}
             />
           </div>
         ) : null}
-        {activeTab === 'attribution' ? (
+        {activeTab === 'performance' ? (
           <div
-            id="folio-panel-attribution"
+            id="folio-panel-performance"
             role="tabpanel"
-            aria-labelledby="folio-tab-attribution"
+            aria-labelledby="folio-tab-performance"
             className="folio-detail-tabs__panel folio-detail-tabs__panel--scroll"
           >
             <FolioReturnAttributionPanel
@@ -142,6 +161,15 @@ export function FolioDetailTabs({
           </div>
         ) : null}
       </div>
+
+      <FolioCreateOrderModal
+        open={orderContext != null}
+        portfolioId={portfolio.id}
+        context={orderContext}
+        placing={placingOrder}
+        onClose={() => setOrderContext(null)}
+        onSubmit={onCreateOrder}
+      />
     </article>
   );
 }

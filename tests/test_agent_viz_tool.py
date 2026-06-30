@@ -417,3 +417,80 @@ async def test_tool_executor_preserves_agent_viz_blocks() -> None:
     assert result.call_id == "call-viz"
     assert result.viz_blocks
     assert result.viz_blocks[0]["kind"] == "quote_card"
+
+
+def test_build_viz_blocks_maps_canonical_fin_indicator_fields() -> None:
+    blocks = build_viz_blocks(
+        {
+            "count": 2,
+            "not_found": [],
+            "items": [
+                {
+                    "ticker": "VZ",
+                    "market": "us",
+                    "as_of": "2026-03-31",
+                    "indicators": [
+                        {
+                            "std_report_date": "2026-03-31",
+                            "pe_ttm": 9.5,
+                            "pb_ttm": 1.6,
+                            "total_operating_revenue": 34200000000,
+                            "net_profit_attr_parent": 4800000000,
+                        }
+                    ],
+                },
+                {
+                    "ticker": "WFC",
+                    "market": "us",
+                    "as_of": "2026-03-31",
+                    "indicators": [
+                        {
+                            "std_report_date": "2026-03-31",
+                            "pe_ttm": 12.1,
+                            "pb_ttm": 1.2,
+                            "total_operating_revenue": 20100000000,
+                            "net_profit_attr_parent": 5100000000,
+                        }
+                    ],
+                },
+            ],
+        },
+        source_tool="get_ticker_financials",
+    )
+
+    assert len(blocks) == 1
+    assert blocks[0]["kind"] == "table"
+    rows = blocks[0]["payload"]["rows"]
+    assert rows[0]["pe"] == 9.5
+    assert rows[0]["pb"] == 1.6
+    assert rows[0]["revenue"] == 34200000000
+    assert rows[0]["net_profit"] == 4800000000
+
+
+def test_build_viz_blocks_financials_falls_back_to_entry_level_pe_pb() -> None:
+    blocks = build_viz_blocks(
+        {
+            "count": 1,
+            "items": [
+                {
+                    "ticker": "GOOG",
+                    "market": "us",
+                    "as_of": "2026-03-31",
+                    "pe": 35.2,
+                    "pb": 8.1,
+                    "indicators": [
+                        {
+                            "std_report_date": "2026-03-31",
+                            "total_operating_revenue": 637870000000,
+                            "net_profit_attr_parent": 100000000000,
+                        }
+                    ],
+                }
+            ],
+        },
+        source_tool="get_ticker_financials",
+    )
+
+    rows = blocks[0]["payload"]["rows"]
+    assert rows[0]["pe"] == 35.2
+    assert rows[0]["pb"] == 8.1

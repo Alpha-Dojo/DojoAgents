@@ -67,6 +67,44 @@ def test_store_persists_v2_holding_defaults_and_pinned_sort(tmp_path) -> None:
     assert holding["cost_locked"] is False
 
 
+def test_store_add_candidates_batch_persists_all_tickers(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Batch")
+
+    updated = store.add_candidates_batch(
+        portfolio["id"],
+        entries=[
+            ("VZ", "us"),
+            ("TTE", "us"),
+            ("SHEL", "us"),
+            ("TM", "us"),
+            ("WFC", "us"),
+        ],
+    )
+
+    assert updated is not None
+    tickers = {row["ticker"] for row in updated["candidates"]}
+    assert tickers == {"VZ", "TTE", "SHEL", "TM", "WFC"}
+
+
+def test_expected_portfolio_candidate_count_parses_chinese_request() -> None:
+    from dojoagents.agent.harnesses.portfolio_eval import (
+        PortfolioEvalSubmission,
+        verify_eval_submission,
+    )
+
+    submission = PortfolioEvalSubmission(
+        portfolio_id="p-1",
+        min_candidate_count=5,
+    )
+    detail = {
+        "id": "p-1",
+        "candidates": [{"ticker": "WFC", "market": "us"}],
+    }
+    issues = verify_eval_submission(submission, detail)
+    assert any("5" in issue for issue in issues)
+
+
 def test_store_persists_lock_and_cost_override_maps(tmp_path) -> None:
     store = PortfolioStore(tmp_path)
     portfolio = store.create("Primary")

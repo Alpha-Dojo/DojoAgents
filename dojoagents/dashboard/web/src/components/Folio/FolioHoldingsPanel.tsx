@@ -14,19 +14,17 @@ import {
 } from '../../utils/folioHoldingsSort';
 import { formatStockPrice } from '../../utils/marketStats';
 import { localizedStockName } from '../../utils/stockDisplay';
+import type { FolioOrderDraftContext } from '../../types/folio';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
-import { FolioAddHoldingSearch } from './FolioAddHoldingSearch';
 import { FolioHoldingNameCell } from './FolioHoldingNameCell';
 import { FolioHoldingOpenDatePicker } from './FolioHoldingOpenDatePicker';
 import { FolioLockableField } from './FolioLockableField';
 import { FolioMarketLabel } from './FolioMarketLabel';
-import { TrashIcon } from './FolioSidebarIcons';
 
 interface FolioHoldingsPanelProps {
   embedded?: boolean;
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
-  addingTicker?: boolean;
   onNavigateTab?: (tab: AppTab) => void;
   onApplyShares: (sharesByTicker: Record<string, number>) => void;
   onToggleSharesLock: (ticker: string, locked: boolean) => void;
@@ -34,9 +32,7 @@ interface FolioHoldingsPanelProps {
   onToggleCostLock: (ticker: string, locked: boolean) => void;
   onApplyCost: (ticker: string, cost: number | null) => void;
   onApplyOpenDate: (ticker: string, openDate: string | null) => void;
-  onAddHolding: (ticker: string, market: MarketCode) => void;
-  onRemoveHolding: (ticker: string, market: MarketCode) => void;
-  removingTicker?: string | null;
+  onCreateOrder: (context: FolioOrderDraftContext) => void;
 }
 
 const HOLDINGS_COLGROUP = (
@@ -50,7 +46,7 @@ const HOLDINGS_COLGROUP = (
     <col className="folio-table__col-price" />
     <col className="folio-table__col-change" />
     <col className="folio-table__col-total-pnl" />
-    <col className="folio-table__col-remove" />
+    <col className="folio-table__col-action" />
   </colgroup>
 );
 
@@ -97,7 +93,6 @@ export function FolioHoldingsPanel({
   embedded = false,
   portfolio,
   loading = false,
-  addingTicker = false,
   onNavigateTab,
   onApplyShares,
   onToggleSharesLock,
@@ -105,9 +100,7 @@ export function FolioHoldingsPanel({
   onToggleCostLock,
   onApplyCost,
   onApplyOpenDate,
-  onAddHolding,
-  onRemoveHolding,
-  removingTicker = null,
+  onCreateOrder,
 }: FolioHoldingsPanelProps) {
   const { t, locale } = useTranslation();
   const [draftShares, setDraftShares] = useState<Record<string, string>>({});
@@ -190,18 +183,6 @@ export function FolioHoldingsPanel({
     return grouped;
   }, [portfolio.holdings]);
 
-  const existingTickersByMarket = useMemo(() => {
-    const grouped: Record<MarketCode, Set<string>> = {
-      us: new Set(),
-      cn: new Set(),
-      hk: new Set(),
-    };
-    for (const row of portfolio.holdings) {
-      grouped[row.market].add(row.ticker);
-    }
-    return grouped;
-  }, [portfolio.holdings]);
-
   const applyShareForRow = (row: FolioPortfolioDetail['holdings'][number]) => {
     if (row.sharesLocked) return;
     const draft = draftShares[row.ticker];
@@ -269,45 +250,44 @@ export function FolioHoldingsPanel({
                   <section key={market} className={`folio-holdings__market folio-holdings__market--${market}`}>
                     <header className="folio-holdings__market-head">
                       <FolioMarketLabel market={market} />
-                      <FolioAddHoldingSearch
-                        market={market}
-                        existingTickers={existingTickersByMarket[market]}
-                        adding={addingTicker}
-                        placement="trailing"
-                        onAdd={onAddHolding}
-                      />
+                      <button
+                        type="button"
+                        className="folio-holdings__create-order"
+                        onClick={() => onCreateOrder({ market })}
+                      >
+                        {t('folio.createOrder')}
+                      </button>
                     </header>
 
-                    {rows.length > 0 ? (
-                      <div className="folio-holdings__table-scroll">
-                        <table className="folio-table folio-table--holdings">
-                          {HOLDINGS_COLGROUP}
-                          <thead>
-                            <tr>
-                              <th>{t('folio.colTicker')}</th>
-                              <th>{t('folio.colName')}</th>
-                              {renderSortHeader('openDate', t('folio.colOpenDate'), 'left')}
-                              <th className="folio-table__num">{t('folio.colShares')}</th>
-                              {renderSortHeader('weight', t('folio.colWeight'), 'right', 'folio-table__num')}
-                              <th className="folio-table__num">{t('folio.colCost')}</th>
-                              <th className="folio-table__num">{t('folio.colPrice')}</th>
-                              {renderSortHeader(
-                                'changePercent',
-                                t('folio.colChange'),
-                                'right',
-                                'folio-table__num',
-                              )}
-                              {renderSortHeader(
-                                'totalReturnPct',
-                                t('folio.colTotalPnl'),
-                                'right',
-                                'folio-table__num',
-                              )}
-                              <th className="folio-table__remove-head" aria-label={t('folio.colActions')} />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {displayRows.map((row) => {
+                    <div className="folio-holdings__table-scroll">
+                      <table className="folio-table folio-table--holdings">
+                        {HOLDINGS_COLGROUP}
+                        <thead>
+                          <tr>
+                            <th>{t('folio.colTicker')}</th>
+                            <th>{t('folio.colName')}</th>
+                            {renderSortHeader('openDate', t('folio.colOpenDate'), 'left')}
+                            <th className="folio-table__num">{t('folio.colShares')}</th>
+                            {renderSortHeader('weight', t('folio.colWeight'), 'right', 'folio-table__num')}
+                            <th className="folio-table__num">{t('folio.colCost')}</th>
+                            <th className="folio-table__num">{t('folio.colPrice')}</th>
+                            {renderSortHeader(
+                              'changePercent',
+                              t('folio.colChange'),
+                              'right',
+                              'folio-table__num',
+                            )}
+                            {renderSortHeader(
+                              'totalReturnPct',
+                              t('folio.colTotalPnl'),
+                              'right',
+                              'folio-table__num',
+                            )}
+                            <th className="folio-table__action-head" aria-label={t('folio.colActions')} />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayRows.map((row) => {
                               const positive = row.changePercent >= 0;
                               const totalPositive = (row.totalReturnPct ?? 0) >= 0;
                               const sharesLocked = row.sharesLocked ?? false;
@@ -434,26 +414,30 @@ export function FolioHoldingsPanel({
                                       ? '—'
                                       : formatSignedPercent(row.totalReturnPct)}
                                   </td>
-                                  <td className="folio-table__remove-cell">
+                                  <td className="folio-table__action-cell">
                                     <button
                                       type="button"
-                                      className="folio-holdings__remove"
-                                      aria-label={t('folio.removeHolding', { ticker: row.ticker })}
-                                      disabled={removingTicker === row.ticker || addingTicker}
-                                      onClick={() => onRemoveHolding(row.ticker, row.market)}
+                                      className="folio-table__trade"
+                                      aria-label={t('folio.createOrderFor', { ticker: row.ticker })}
+                                      title={t('folio.createOrder')}
+                                      onClick={() =>
+                                        onCreateOrder({
+                                          market: row.market,
+                                          ticker: row.ticker,
+                                          price: row.price,
+                                          name: localizedName,
+                                        })
+                                      }
                                     >
-                                      <TrashIcon />
+                                      <span aria-hidden>↗</span>
                                     </button>
                                   </td>
                                 </tr>
                               );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="folio-holdings__market-empty">{t('folio.noMarketHoldings')}</p>
-                    )}
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </section>
                 );
               })}

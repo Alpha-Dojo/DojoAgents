@@ -9,14 +9,18 @@ import {
 } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { BenchmarkCatalogResponse } from '../../api/market';
-import type { FolioPerformanceView } from '../../types/folio';
+import type { FolioOrder, FolioPerformanceView } from '../../types/folio';
 import type { MarketCode } from '../../types/market';
+import type { FolioNavWindowPreset } from '../../utils/folioNavWindow';
+import { buildWindowRebasedByMarket, pickWindowMasterSeries } from '../../utils/folioNavWindow';
+import { FolioNavWindowPresets } from './FolioNavWindowPresets';
 import {
-  buildFolioBenchmarkHeadChips,
   buildRebasedBenchmarkSeriesBySymbol,
   type FolioBenchmarkHeadChip,
 } from '../../utils/folioBenchmarkSeries';
 import { formatSignedPercent, priceTickValues } from '../../utils/entityCharts';
+import { formatStockPrice } from '../../utils/marketStats';
+import { buildFolioOrderChartMarkers, type FolioOrderChartMarker } from '../../utils/folioOrderMarkers';
 import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
@@ -30,7 +34,6 @@ import {
   alignMarketSeriesToMasterDates,
   clampViewRange,
   findVisibleIndexForDate,
-  formatPerformanceAsOfDate,
   formatPerformanceReturnPercent,
   indexToChartX,
   latestMarketDates,
@@ -75,6 +78,7 @@ function collectBenchmarkValues(
     benchmarkSymbols,
     catalog,
     visibleDates,
+    performance,
   );
 
   for (const symbol of benchmarkSymbols) {
@@ -86,13 +90,12 @@ function collectBenchmarkValues(
     if (symbol !== benchmarkSymbols[0]) continue;
     const fallback = pickBenchmarkSeries(performance, symbol);
     if (fallback.length >= 2) {
-      values.push(
-        ...alignSeriesToDates(
-          visibleDates,
-          fallback,
-          visibleDates.map(() => 100),
-        ),
+      const aligned = alignMarketSeriesToMasterDates(
+        visibleDates,
+        normalizeSeries(fallback),
       );
+      const rebased = rebaseMarketSeries(aligned);
+      values.push(...rebased.map((point) => point.value));
     }
   }
 
@@ -111,6 +114,7 @@ function buildBenchmarkPaths(
     benchmarkSymbols,
     catalog,
     visibleDates,
+    performance,
   );
 
   return benchmarkSymbols.flatMap((symbol) => {
@@ -120,7 +124,9 @@ function buildBenchmarkPaths(
         ? (() => {
             const fallback = pickBenchmarkSeries(performance, symbol);
             if (fallback.length < 2) return null;
-            return alignMarketSeriesToMasterDates(visibleDates, normalizeSeries(fallback));
+            const aligned = alignMarketSeriesToMasterDates(visibleDates, normalizeSeries(fallback));
+            const rebased = rebaseMarketSeries(aligned);
+            return rebased.length >= 2 ? rebased : null;
           })()
         : null);
 
@@ -232,11 +238,13 @@ function buildReturnAxisTicks(
 
 interface FolioNavCurveChartProps {
   performance: FolioPerformanceView | null | undefined;
+  orders?: FolioOrder[];
   loading?: boolean;
   benchmarkSymbols?: string[];
   benchmarkCatalog?: BenchmarkCatalogResponse | null;
   hoverDate?: string | null;
   onHoverDateChange?: (date: string | null) => void;
+  windowRebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>;
 }
 
 function normalizeSeries(
@@ -294,7 +302,8 @@ export function useFolioNavCurveModel(
     if (!performance) return {} as Partial<Record<MarketCode, MarketSeriesPoint[]>>;
     const result: Partial<Record<MarketCode, MarketSeriesPoint[]>> = {};
     for (const market of MARKETS) {
-      const raw = toMarketSeriesPoints(normalizeSeries(performance.seriesByMarket[market]));
+      const source = performance.seriesByMarket[market];
+      const raw = toMarketSeriesPoints(normalizeSeries(source));
       if (raw.length >= 2) {
         result[market] = rebaseMarketSeries(raw);
       }
@@ -427,19 +436,11 @@ export function FolioNavCurveMarketHead({
     return null;
   }
 
-  const sessionMeta = (() => {
-    const dates = snapshot.markets.map((chip) => chip.date);
-    const maxDate = dates.reduce((best, date) => (date > best ? date : best), dates[0]);
-    const datesDiffer = new Set(dates).size > 1;
-    return { maxDate, datesDiffer };
-  })();
-
   return (
     <div className="folio-performance__inline-markets">
       {MARKETS.flatMap((market) => {
         const chip = snapshot.markets.find((item) => item.market === market);
         if (!chip) return [];
-        const isClosed = sessionMeta.datesDiffer && chip.date < sessionMeta.maxDate;
         return [
           <span
             key={market}
@@ -455,15 +456,6 @@ export function FolioNavCurveMarketHead({
               }`}
             >
               {formatPerformanceReturnPercent(chip.value)}
-            </span>
-            <span
-              className={
-                isClosed
-                  ? 'folio-performance__inline-date folio-performance__inline-date--closed'
-                  : 'folio-performance__inline-date'
-              }
-            >
-              {formatPerformanceAsOfDate(chip.date)}
             </span>
           </span>,
         ];
@@ -487,98 +479,55 @@ export function FolioNavCurveBenchmarkHead({
     return null;
   }
 
-  const sessionMeta = (() => {
-    const dates = chips.map((chip) => chip.date);
-    const maxDate = dates.reduce((best, date) => (date > best ? date : best), dates[0]);
-    const datesDiffer = new Set(dates).size > 1;
-    return { maxDate, datesDiffer };
-  })();
-
-  const visibleChips = chips.slice(0, 1);
-  const overflowChips = chips.slice(1);
-  const overflowTitle = overflowChips.map((chip) => chip.label).join('\n');
-
-  const renderBenchmarkChip = (
-    chip: FolioBenchmarkHeadChip,
-    variant: 'primary' | 'overflow',
-  ) => {
-    const isClosed = sessionMeta.datesDiffer && chip.date < sessionMeta.maxDate;
-    const formattedDate = formatPerformanceAsOfDate(chip.date);
-    return (
-      <span
-        key={chip.symbol}
-        className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]} folio-performance__inline-benchmark--${variant}`}
-        title={`${chip.label} · ${formattedDate}`}
-      >
-        <span className="folio-performance__inline-flag" aria-hidden>
-          {MARKET_FLAG[chip.market]}
-        </span>
-        <span className="folio-performance__inline-benchmark-label">{chip.label}</span>
-        <span
-          className={`folio-performance__inline-return folio-performance__inline-return--${
-            chip.value >= 100 ? 'up' : 'down'
-          }`}
-        >
-          {formatPerformanceReturnPercent(chip.value)}
-        </span>
-        <span
-          className={
-            isClosed
-              ? 'folio-performance__inline-date folio-performance__inline-date--closed'
-              : 'folio-performance__inline-date'
-          }
-        >
-          {formattedDate}
-        </span>
-      </span>
-    );
-  };
-
   return (
     <div className="folio-performance__inline-benchmarks">
-      {visibleChips.map((chip) => renderBenchmarkChip(chip, 'primary'))}
-      {overflowChips.length > 0 ? (
-        <details className="folio-performance__benchmark-overflow">
-          <summary
-            className="folio-performance__benchmark-overflow-trigger"
-            title={overflowTitle}
-            aria-label={t('folio.moreBenchmarks', { count: overflowChips.length })}
+      {chips.map((chip) => (
+        <span
+          key={chip.symbol}
+          className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]}`}
+          title={chip.label}
+        >
+          <span className="folio-performance__inline-flag" aria-hidden>
+            {MARKET_FLAG[chip.market]}
+          </span>
+          <span className="folio-performance__inline-benchmark-label">{chip.label}</span>
+          <span
+            className={`folio-performance__inline-return folio-performance__inline-return--${
+              chip.value >= 100 ? 'up' : 'down'
+            }`}
           >
-            +{overflowChips.length}
-          </summary>
-          <div className="folio-performance__benchmark-overflow-menu">
-            <div className="folio-performance__benchmark-overflow-title">
-              {t('folio.otherBenchmarks')}
-            </div>
-            {overflowChips.map((chip) => renderBenchmarkChip(chip, 'overflow'))}
-          </div>
-        </details>
-      ) : null}
+            {formatPerformanceReturnPercent(chip.value)}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
 
 export function FolioNavCurveChart({
   performance,
+  orders = [],
   loading = false,
   benchmarkSymbols = [],
   benchmarkCatalog = null,
   hoverDate = null,
   onHoverDateChange,
+  windowRebasedByMarket,
 }: FolioNavCurveChartProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const chartRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; view: ViewRange } | null>(null);
   const [internalHoverDate, setInternalHoverDate] = useState<string | null>(null);
   const [viewRange, setViewRange] = useState<ViewRange>(FULL_VIEW);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoveredOrderMarker, setHoveredOrderMarker] = useState<FolioOrderChartMarker | null>(null);
   const activeHoverDate = onHoverDateChange ? hoverDate : internalHoverDate;
   const setHoverDate = onHoverDateChange ?? setInternalHoverDate;
 
-  const { rebasedByMarket, master } = useFolioNavCurveModel(
-    performance,
-    benchmarkSymbols[0] ?? null,
+  const master = useMemo(
+    () => pickWindowMasterSeries(windowRebasedByMarket, MARKETS),
+    [windowRebasedByMarket],
   );
 
   const masterKey = master?.series.map((point) => point.date).join('|') ?? '';
@@ -624,13 +573,13 @@ export function FolioNavCurveChart({
 
     const result: Partial<Record<MarketCode, MarketSeriesPoint[]>> = {};
     for (const market of MARKETS) {
-      const sliced = sliceMarketSeriesByDateRange(rebasedByMarket[market] ?? [], startDate, endDate);
+      const sliced = sliceMarketSeriesByDateRange(windowRebasedByMarket[market] ?? [], startDate, endDate);
       if (sliced.length >= 2) {
         result[market] = sliced;
       }
     }
     return result;
-  }, [performance, rebasedByMarket, visibleWindow]);
+  }, [performance, visibleWindow, windowRebasedByMarket]);
 
   const chart = useMemo(() => {
     if (!performance) return null;
@@ -648,9 +597,22 @@ export function FolioNavCurveChart({
     [chart],
   );
 
+  const orderMarkers = useMemo(() => {
+    if (!chart || !orders.length) return [];
+    return buildFolioOrderChartMarkers(
+      orders,
+      visibleWindow.series,
+      windowRebasedByMarket,
+      CHART_W,
+      CHART_H,
+      PAD_X,
+      PAD_Y,
+    );
+  }, [chart, orders, windowRebasedByMarket, visibleWindow.series]);
+
   const axisEndLabel = useMemo(
-    () => buildMixedAxisEndLabel(latestMarketDates(rebasedByMarket)),
-    [rebasedByMarket],
+    () => buildMixedAxisEndLabel(latestMarketDates(windowRebasedByMarket)),
+    [windowRebasedByMarket],
   );
 
   const displayGeometry = useMemo(() => {
@@ -661,7 +623,7 @@ export function FolioNavCurveChart({
 
     const count = visibleWindow.series.length;
     const x = indexToChartX(localIndex, count, CHART_W, PAD_X);
-    const anchorSnapshot = buildHoverSnapshotForDate(activeHoverDate, rebasedByMarket, MARKETS);
+    const anchorSnapshot = buildHoverSnapshotForDate(activeHoverDate, windowRebasedByMarket, MARKETS);
     if (!anchorSnapshot) return null;
 
     const dots = MARKETS.map((market) => {
@@ -681,7 +643,7 @@ export function FolioNavCurveChart({
         : null;
 
     return { x, y: crosshairY, dots };
-  }, [activeHoverDate, chart, isDragging, rebasedByMarket, visibleWindow.series]);
+  }, [activeHoverDate, chart, isDragging, windowRebasedByMarket, visibleWindow.series]);
 
   const updateHoverFromClientX = useCallback(
     (clientX: number) => {
@@ -708,6 +670,7 @@ export function FolioNavCurveChart({
       dragRef.current = { startX: event.clientX, view: viewRange };
       setIsDragging(true);
       setHoverDate(null);
+      setHoveredOrderMarker(null);
     },
     [master?.series.length, setHoverDate, viewRange],
   );
@@ -785,9 +748,22 @@ export function FolioNavCurveChart({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [master?.series.length, minViewSpan]);
 
+  const handleMarkerEnter = useCallback(
+    (marker: FolioOrderChartMarker) => {
+      setHoveredOrderMarker(marker);
+      setHoverDate(marker.date);
+    },
+    [setHoverDate],
+  );
+
+  const handleMarkerLeave = useCallback((markerId: string) => {
+    setHoveredOrderMarker((current) => (current?.id === markerId ? null : current));
+  }, []);
+
   const handleMouseLeave = useCallback(() => {
     endDrag();
     setHoverDate(null);
+    setHoveredOrderMarker(null);
   }, [endDrag, setHoverDate]);
 
   if (!chart) {
@@ -837,6 +813,64 @@ export function FolioNavCurveChart({
           ))}
         </div>
         <div ref={plotRef} className="folio-performance__chart-body">
+          {orderMarkers.length > 0 ? (
+            <div className="folio-performance__order-legend" aria-hidden>
+              <span className="folio-performance__order-legend-item folio-performance__order-legend-item--buy">
+                {t('folio.orderBuy')}
+              </span>
+              <span className="folio-performance__order-legend-item folio-performance__order-legend-item--sell">
+                {t('folio.orderSell')}
+              </span>
+            </div>
+          ) : null}
+          {hoveredOrderMarker ? (
+            <div
+              className={`folio-performance__order-tooltip${
+                hoveredOrderMarker.side === 'sell'
+                  ? ' folio-performance__order-tooltip--below'
+                  : ''
+              }`}
+              style={{
+                left: `${(hoveredOrderMarker.x / CHART_W) * 100}%`,
+                top: `${(hoveredOrderMarker.y / CHART_H) * 100}%`,
+              }}
+              role="tooltip"
+            >
+              <div className="folio-performance__order-tooltip-head">
+                <span className="folio-performance__order-tooltip-ticker">{hoveredOrderMarker.ticker}</span>
+                <span className="folio-performance__order-tooltip-name">
+                  {locale === 'zh' && hoveredOrderMarker.nameZh
+                    ? hoveredOrderMarker.nameZh
+                    : hoveredOrderMarker.nameEn || hoveredOrderMarker.name}
+                </span>
+              </div>
+              <div className="folio-performance__order-tooltip-row">
+                <span
+                  className={`folio-performance__order-tooltip-side folio-performance__order-tooltip-side--${hoveredOrderMarker.side}`}
+                >
+                  {hoveredOrderMarker.side === 'buy' ? t('folio.orderBuy') : t('folio.orderSell')}
+                </span>
+                <span className="folio-performance__order-tooltip-sep" aria-hidden>
+                  ·
+                </span>
+                <span>
+                  {t('folio.orderQty')} {hoveredOrderMarker.qty}
+                </span>
+              </div>
+              <div className="folio-performance__order-tooltip-row">
+                <span>
+                  {(hoveredOrderMarker.fillTime ?? hoveredOrderMarker.orderTime ?? hoveredOrderMarker.date).slice(0, 10)}
+                </span>
+                <span className="folio-performance__order-tooltip-sep" aria-hidden>
+                  ·
+                </span>
+                <span>
+                  {t('folio.orderTooltipFillPrice')}{' '}
+                  {formatStockPrice(hoveredOrderMarker.fillPrice ?? hoveredOrderMarker.price)}
+                </span>
+              </div>
+            </div>
+          ) : null}
           <svg
             className="folio-performance__chart"
             width="100%"
@@ -876,6 +910,43 @@ export function FolioNavCurveChart({
                 className={`folio-performance__line folio-performance__line--${PERFORMANCE_MARKET_CLASS[layer.market]}`}
               />
             ))}
+            {orderMarkers.length > 0 ? (
+              <g className="folio-performance__order-markers" aria-hidden={false}>
+                {orderMarkers.map((marker) => {
+                  const isBuy = marker.side === 'buy';
+                  const points = isBuy
+                    ? `${marker.x},${marker.y - 6} ${marker.x - 4.5},${marker.y + 2} ${marker.x + 4.5},${marker.y + 2}`
+                    : `${marker.x},${marker.y + 6} ${marker.x - 4.5},${marker.y - 2} ${marker.x + 4.5},${marker.y - 2}`;
+                  return (
+                    <g key={marker.id}>
+                      <circle
+                        cx={marker.x}
+                        cy={marker.y}
+                        r={12}
+                        className="folio-performance__order-marker-hit"
+                        onMouseEnter={(event) => {
+                          event.stopPropagation();
+                          handleMarkerEnter(marker);
+                        }}
+                        onMouseLeave={(event) => {
+                          event.stopPropagation();
+                          handleMarkerLeave(marker.id);
+                        }}
+                      />
+                      <polygon
+                        points={points}
+                        className={`folio-performance__order-marker folio-performance__order-marker--${marker.side}${
+                          hoveredOrderMarker?.id === marker.id
+                            ? ' folio-performance__order-marker--active'
+                            : ''
+                        }`}
+                        pointerEvents="none"
+                      />
+                    </g>
+                  );
+                })}
+              </g>
+            ) : null}
             {displayGeometry ? (
               <g className="folio-performance__crosshair">
                 <line
@@ -927,16 +998,25 @@ export function FolioNavCurveChart({
   );
 }
 
+export interface FolioNavCurveHeadContext {
+  hoverDate: string | null;
+  anchorDate: string | null;
+  windowPreset: FolioNavWindowPreset;
+  windowRebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>;
+}
+
 interface FolioNavCurveSectionProps {
   performance: FolioPerformanceView | null | undefined;
+  orders?: FolioOrder[];
   loading?: boolean;
   benchmarkSymbols?: string[];
   benchmarkCatalog?: BenchmarkCatalogResponse | null;
-  benchmarkControl?: ReactNode;
+  benchmarkControl?: (context: FolioNavCurveHeadContext) => ReactNode;
 }
 
 export function FolioNavCurveSection({
   performance,
+  orders = [],
   loading = false,
   benchmarkSymbols = [],
   benchmarkCatalog = null,
@@ -944,52 +1024,62 @@ export function FolioNavCurveSection({
 }: FolioNavCurveSectionProps) {
   const { t } = useTranslation();
   const [hoverDate, setHoverDate] = useState<string | null>(null);
-  const { rebasedByMarket, master, defaultSnapshot } = useFolioNavCurveModel(
+  const [windowPreset, setWindowPreset] = useState<FolioNavWindowPreset>('all');
+  const { rebasedByMarket } = useFolioNavCurveModel(
     performance,
     benchmarkSymbols[0] ?? null,
   );
-  const displaySnapshot = buildFolioNavDisplaySnapshot(hoverDate, rebasedByMarket, defaultSnapshot);
 
-  const benchmarkHeadChips = useMemo(() => {
-    const masterDates = master?.series.map((point) => point.date) ?? [];
-    if (!masterDates.length || benchmarkSymbols.length === 0) return [];
-    const rebasedBySymbol = buildRebasedBenchmarkSeriesBySymbol(
-      benchmarkSymbols,
-      benchmarkCatalog,
-      masterDates,
-    );
-    return buildFolioBenchmarkHeadChips(
-      benchmarkSymbols,
-      benchmarkCatalog,
-      rebasedBySymbol,
-      hoverDate ?? displaySnapshot?.anchorDate ?? null,
-    );
-  }, [
-    benchmarkCatalog,
-    benchmarkSymbols,
-    displaySnapshot?.anchorDate,
+  const windowRebasedByMarket = useMemo(
+    () => buildWindowRebasedByMarket(rebasedByMarket, windowPreset, MARKETS),
+    [rebasedByMarket, windowPreset],
+  );
+
+  const windowDefaultSnapshot = useMemo(
+    () => buildLatestCumulativeSnapshot(windowRebasedByMarket, MARKETS),
+    [windowRebasedByMarket],
+  );
+
+  const displaySnapshot = buildFolioNavDisplaySnapshot(
     hoverDate,
-    master?.series,
-  ]);
+    windowRebasedByMarket,
+    windowDefaultSnapshot,
+  );
+
+  const handleWindowPresetChange = useCallback((preset: FolioNavWindowPreset) => {
+    setWindowPreset(preset);
+    setHoverDate(null);
+  }, []);
+
+  const headContext: FolioNavCurveHeadContext = {
+    hoverDate,
+    anchorDate: displaySnapshot?.anchorDate ?? null,
+    windowPreset,
+    windowRebasedByMarket,
+  };
 
   return (
     <>
       <header className="folio-card__head folio-performance__head">
-        <h3 className="folio-card__title">{t('folio.navCurve')}</h3>
+        <div className="folio-performance__head-leading">
+          <h3 className="folio-card__title">{t('folio.navCurve')}</h3>
+          <FolioNavWindowPresets value={windowPreset} onChange={handleWindowPresetChange} />
+        </div>
         <div className="folio-performance__head-tail">
           <FolioNavCurveMarketHead snapshot={displaySnapshot} loading={loading} />
-          <FolioNavCurveBenchmarkHead chips={benchmarkHeadChips} loading={loading} />
-          {benchmarkControl}
+          {benchmarkControl?.(headContext)}
         </div>
       </header>
       <div className="folio-performance__chart-wrap">
         <FolioNavCurveChart
           performance={performance}
+          orders={orders}
           loading={loading}
           benchmarkSymbols={benchmarkSymbols}
           benchmarkCatalog={benchmarkCatalog}
           hoverDate={hoverDate}
           onHoverDateChange={setHoverDate}
+          windowRebasedByMarket={windowRebasedByMarket}
         />
       </div>
     </>

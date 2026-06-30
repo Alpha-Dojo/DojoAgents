@@ -87,6 +87,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     apiKeyEnv: 'ZHIPUAI_API_KEY',
     models: [
       { value: 'glm-5.2', label: 'GLM-5.2' },
+      { value: 'glm-5v-turbo', label: 'GLM-5V Turbo' },
       { value: 'glm-5.1', label: 'GLM-5.1' },
       { value: 'glm-5', label: 'GLM-5' },
       { value: 'glm-4.7', label: 'GLM-4.7' },
@@ -125,6 +126,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     apiKeyEnv: 'ZHIPUAI_API_KEY',
     models: [
       { value: 'glm-5.2', label: 'GLM-5.2' },
+      { value: 'glm-5v-turbo', label: 'GLM-5V Turbo' },
       { value: 'glm-5.1', label: 'GLM-5.1' },
       { value: 'glm-5', label: 'GLM-5' },
       { value: 'glm-4.7', label: 'GLM-4.7' },

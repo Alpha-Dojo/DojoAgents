@@ -92,6 +92,28 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _first_num(row: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = _num(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _fin_indicator_snapshot(row: dict[str, Any]) -> dict[str, float | None]:
+    return {
+        "pe": _first_num(row, "pe_ttm", "pe_ratio", "pe"),
+        "pb": _first_num(row, "pb_ttm", "pb_ratio", "pb"),
+        "revenue": _first_num(row, "total_operating_revenue", "total_revenue", "revenue"),
+        "net_profit": _first_num(
+            row,
+            "net_profit_attr_parent",
+            "net_profit",
+            "net_income",
+        ),
+    }
+
+
 def _fmt_pct(value: Any) -> str | None:
     num = _num(value)
     if num is None:
@@ -512,6 +534,55 @@ def _map_ticker_quote(data: dict[str, Any], truncated: bool) -> list[dict[str, A
 
 
 def _map_ticker_financials(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
+    items = data.get("items")
+    if isinstance(items, list) and len(items) >= 1:
+        rows: list[dict[str, Any]] = []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            indicators = entry.get("indicators") or []
+            latest = indicators[-1] if isinstance(indicators, list) and indicators else {}
+            if not isinstance(latest, dict):
+                latest = {}
+            metrics = _fin_indicator_snapshot(latest)
+            if metrics["pe"] is None:
+                metrics["pe"] = _first_num(entry, "pe", "pe_ttm", "pe_ratio")
+            if metrics["pb"] is None:
+                metrics["pb"] = _first_num(entry, "pb", "pb_ttm", "pb_ratio")
+            rows.append(
+                {
+                    "ticker": entry.get("ticker"),
+                    "market": entry.get("market"),
+                    "as_of": entry.get("as_of"),
+                    **metrics,
+                }
+            )
+        if rows:
+            subtitle = f"{data.get('count', len(rows))} tickers"
+            not_found = data.get("not_found")
+            if isinstance(not_found, list) and not_found:
+                subtitle = f"{subtitle} · {len(not_found)} missing"
+            return [
+                _block(
+                    "table",
+                    {
+                        "columns": [
+                            {"key": "ticker", "label": "Ticker"},
+                            {"key": "as_of", "label": "As of"},
+                            {"key": "pe", "label": "P/E"},
+                            {"key": "pb", "label": "P/B"},
+                            {"key": "revenue", "label": "Revenue"},
+                            {"key": "net_profit", "label": "Net profit"},
+                        ],
+                        "rows": rows,
+                    },
+                    title="Financials",
+                    subtitle=subtitle,
+                    source_tool="get_ticker_financials",
+                    truncated=truncated or bool(data.get("truncated")),
+                )
+            ]
+
     blocks: list[dict[str, Any]] = []
     indicators = data.get("indicators_tail") or data.get("indicators") or []
     if isinstance(indicators, list):
@@ -522,8 +593,9 @@ def _map_ticker_financials(data: dict[str, Any], truncated: bool) -> list[dict[s
             if not isinstance(row, dict):
                 continue
             categories.append(str(row.get("calendar_period_label") or row.get("report_date") or ""))
-            revenue.append(_num(row.get("total_revenue") or row.get("revenue")))
-            profit.append(_num(row.get("net_profit") or row.get("net_income")))
+            metrics = _fin_indicator_snapshot(row)
+            revenue.append(metrics["revenue"])
+            profit.append(metrics["net_profit"])
         if categories and any(v is not None for v in revenue + profit):
             blocks.append(
                 _block(
@@ -1076,6 +1148,7 @@ _ALIASES = {
     "portfolio_read_search": "portfolio_list",
     "portfolio_read_detail": "portfolio_analysis",
     "portfolio_write_add_holding": "portfolio_analysis",
+    "portfolio_write_add_holdings": "portfolio_analysis",
     "portfolio_write_auto_allocate": "portfolio_analysis",
 }
 
