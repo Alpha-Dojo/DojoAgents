@@ -23,7 +23,7 @@ export function EntityRiskPanel({ risk }: EntityRiskPanelProps) {
                   <li key={`${trade.date}-${trade.executive}`} className="core-risk__insider-item">
                     <span className="core-risk__insider-date">{trade.date}</span>
                     <span className="core-risk__insider-detail">
-                      {trade.executive} {t(`core.insider.${trade.actionKey}` as 'entityPage.insider.sold')}{' '}
+                      {trade.executive} {t(`entityPage.insider.${trade.actionKey}` as 'entityPage.insider.sold')}{' '}
                       {trade.shares.toLocaleString()} {t('entityPage.shares')}
                     </span>
                   </li>

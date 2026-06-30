@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import httpx
 
-from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
+from dojoagents.agent.multimodal import openai_content_to_gemini_parts
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.logging import LOGGER
@@ -160,9 +160,9 @@ def _messages_to_gemini_request(
             continue
 
         if role == "user":
-            content = message.get("content")
-            text = content if isinstance(content, str) else ""
-            contents.append({"role": "user", "parts": [{"text": text}]})
+            parts = openai_content_to_gemini_parts(message.get("content"))
+            if parts:
+                contents.append({"role": "user", "parts": parts})
             continue
 
         if role == "assistant":

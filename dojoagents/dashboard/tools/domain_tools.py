@@ -4,18 +4,22 @@ import json
 from typing import Any
 
 from dojoagents.dashboard.services.domain_api import (
+    SectorPathResolutionError,
+    _looks_like_index_guess,
     build_market_overview,
     build_sector_analysis,
     build_sector_constituents_v1,
     build_sector_movers,
     build_stock_screen,
+    build_sector_taxonomy_search,
     build_taxonomy_tree,
     build_ticker_financials_v1,
+    build_tickers_financials_v1,
     build_ticker_news_events_v1,
     build_ticker_price_trends_v1,
     build_ticker_quote_v1,
     build_tickers_quotes_v1,
-    resolve_sector_analysis_path,
+    resolve_sector_path,
     search_company_ticker,
 )
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
@@ -93,6 +97,90 @@ def _service_ready(registry: FinancialDomainRegistry) -> None:
         raise RuntimeError(f"dashboard financial registry is not ready: {', '.join(missing)}")
 
 
+_SECTOR_ID_PROPERTIES = {
+    "sector_path_id": {
+        "type": "string",
+        "description": (
+            "Exact L3 path from search_sector_taxonomy as level1_id/level2_id/level3_id. "
+            "Preferred — resolves by ID lookup only."
+        ),
+    },
+    "level1_id": {
+        "type": "string",
+        "description": "L1 sector_id from search_sector_taxonomy (not array index).",
+    },
+    "level2_id": {
+        "type": "string",
+        "description": "L2 sector_id from search_sector_taxonomy (not array index).",
+    },
+    "level3_id": {
+        "type": "string",
+        "description": (
+            "L3 sector_id from search_sector_taxonomy. May be used alone when globally unique."
+        ),
+    },
+    "sector_name": {
+        "type": "string",
+        "description": "Fallback only: exact L3 label when ids are unavailable.",
+    },
+    "level1_name": {"type": "string", "description": "Fallback only: L1 sector label in zh or en."},
+    "level2_name": {"type": "string", "description": "Fallback only: L2 sector label in zh or en."},
+    "level3_name": {"type": "string", "description": "Fallback only: L3 sector label in zh or en."},
+}
+
+
+def _sector_path_kwargs(args: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sector_path_id": _str_arg(args, "sector_path_id"),
+        "level1_id": _str_arg(args, "level1_id"),
+        "level2_id": _str_arg(args, "level2_id"),
+        "level3_id": _str_arg(args, "level3_id"),
+        "sector_name": _optional_str_arg(args, "sector_name"),
+        "level1_name": _optional_str_arg(args, "level1_name"),
+        "level2_name": _optional_str_arg(args, "level2_name"),
+        "level3_name": _optional_str_arg(args, "level3_name"),
+        "market": _optional_str_arg(args, "market"),
+    }
+
+
+def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[str, Any]):
+    kwargs = _sector_path_kwargs(args)
+    id_keys = ("sector_path_id", "level1_id", "level2_id", "level3_id")
+    if not any(kwargs.get(key) for key in id_keys) and not (
+        kwargs.get("sector_name") or kwargs.get("level3_name")
+    ):
+        raise RuntimeError(
+            "sector path is required. Workflow: (1) search_sector_taxonomy with the concept keyword, "
+            "(2) copy sector_path_id OR level1_id/level2_id/level3_id from best_match, "
+            "(3) filter_sector_constituents / get_sector_analysis with those ids."
+        )
+
+    has_name = bool(kwargs.get("sector_name") or kwargs.get("level3_name"))
+    if kwargs.get("sector_path_id"):
+        try:
+            return resolve_sector_path(registry, **kwargs)
+        except SectorPathResolutionError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+    l1 = kwargs.get("level1_id") or ""
+    l2 = kwargs.get("level2_id") or ""
+    l3 = kwargs.get("level3_id") or ""
+    if not has_name and l1 and l2 and l3:
+        store = registry.sector_store
+        if store.find_resolved_path(l1, l2, l3) is None and _looks_like_index_guess(l1, l2, l3):
+            raise RuntimeError(
+                f"Rejected guessed sector path {l1}/{l2}/{l3}. "
+                "Do NOT use array indices or trial-and-error. "
+                "Call search_sector_taxonomy, then copy sector_path_id or level1_id/level2_id/level3_id "
+                "from best_match. For market-wide screens use screen_market_stocks instead."
+            )
+
+    try:
+        return resolve_sector_path(registry, **kwargs)
+    except SectorPathResolutionError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
 def register_dashboard_domain_tools(
     tool_registry: ToolRegistry,
     registry: FinancialDomainRegistry,
@@ -113,6 +201,14 @@ def register_dashboard_domain_tools(
     async def taxonomy_tree(_: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
         return _json_content(build_taxonomy_tree(registry))
+
+    async def taxonomy_search(args: dict[str, Any]) -> dict[str, Any]:
+        _service_ready(registry)
+        query = _str_arg(args, "q") or _str_arg(args, "query")
+        if not query:
+            raise RuntimeError("q is required")
+        result = build_sector_taxonomy_search(registry, query=query, limit=_int_arg(args, "limit", 10))
+        return _json_content(result)
 
     async def market_overview(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
@@ -165,14 +261,7 @@ def register_dashboard_domain_tools(
 
     async def sector_analysis(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
-        path = resolve_sector_analysis_path(
-            registry,
-            level1_id=_str_arg(args, "level1_id"),
-            level2_id=_str_arg(args, "level2_id"),
-            level3_id=_str_arg(args, "level3_id"),
-        )
-        if path is None:
-            raise RuntimeError("unknown sector path")
+        path = _resolve_sector_path_or_raise(registry, args)
         result = await build_sector_analysis(
             registry,
             path,
@@ -182,11 +271,12 @@ def register_dashboard_domain_tools(
 
     async def sector_constituents(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
+        path = _resolve_sector_path_or_raise(registry, args)
         result = await build_sector_constituents_v1(
             registry,
-            level1_id=_str_arg(args, "level1_id"),
-            level2_id=_str_arg(args, "level2_id"),
-            level3_id=_str_arg(args, "level3_id"),
+            level1_id=path.level1_id,
+            level2_id=path.level2_id,
+            level3_id=path.level3_id,
             scope=_str_arg(args, "scope", "L3"),
             market=_optional_str_arg(args, "market"),
             days=_int_arg(args, "days", 1),
@@ -220,18 +310,39 @@ def register_dashboard_domain_tools(
 
     async def ticker_financials(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
-        ticker = _str_arg(args, "ticker")
-        result = await build_ticker_financials_v1(
+        tickers = _list_str_arg(args, "tickers")
+        single = _str_arg(args, "ticker")
+        if not tickers and single:
+            tickers = [single]
+        if not tickers:
+            raise RuntimeError("ticker or tickers is required")
+        market = _optional_str_arg(args, "market")
+        start_date = _optional_str_arg(args, "start_date")
+        end_date = _optional_str_arg(args, "end_date")
+        limit = _optional_int_arg(args, "limit", 20)
+        report_type = _optional_str_arg(args, "report_type")
+        if len(tickers) == 1:
+            result = await build_ticker_financials_v1(
+                registry,
+                ticker=tickers[0],
+                market=market,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                report_type=report_type,
+            )
+            if result is None:
+                raise RuntimeError(f"financials not found for {tickers[0]}")
+            return _json_content(result)
+        result = await build_tickers_financials_v1(
             registry,
-            ticker=ticker,
-            market=_optional_str_arg(args, "market"),
-            start_date=_optional_str_arg(args, "start_date"),
-            end_date=_optional_str_arg(args, "end_date"),
-            limit=_optional_int_arg(args, "limit", 20),
-            report_type=_optional_str_arg(args, "report_type"),
+            tickers=tickers,
+            market=market,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            report_type=report_type,
         )
-        if result is None:
-            raise RuntimeError(f"financials not found for {ticker}")
         return _json_content(result)
 
     async def ticker_news_events(args: dict[str, Any]) -> dict[str, Any]:
@@ -268,7 +379,12 @@ def register_dashboard_domain_tools(
     tool_specs = [
         ToolSpec(
             name="search_company_ticker",
-            description="Resolve a company name or ticker to dashboard market codes and bilingual names.",
+            description=(
+                "Resolve ONE company name or ticker symbol to market code and bilingual name. "
+                "Use ONLY when the user names a specific company. "
+                "FORBIDDEN for themes/concepts (具身智能, 机器人), sector baskets, or looping famous tickers — "
+                "use search_sector_taxonomy + filter_sector_constituents or screen_market_stocks instead."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -282,8 +398,31 @@ def register_dashboard_domain_tools(
             handler=search_company,
         ),
         ToolSpec(
+            name="search_sector_taxonomy",
+            description=(
+                "Search L3 industry sectors by concept keyword (具身智能, 机器人, 半导体, robotics). "
+                "CALL THIS FIRST for theme/concept stock picking. "
+                "Returns sector_path_id + level1_id/level2_id/level3_id with match_score — "
+                "copy ids verbatim into filter_sector_constituents / get_sector_analysis."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "q": {"type": "string", "description": "Sector keyword in zh or en"},
+                    "query": {"type": "string", "description": "Alias for q"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 25},
+                },
+                "required": ["q"],
+            },
+            handler=taxonomy_search,
+        ),
+        ToolSpec(
             name="get_taxonomy_tree",
-            description="Return the full L1-L2-L3 financial sector taxonomy for dashboard drill-down.",
+            description=(
+                "Return the L1-L2-L3 sector taxonomy. CALL THIS FIRST before filter_sector_constituents "
+                "or get_sector_analysis. Response includes example_l3_paths and "
+                "filter_sector_constituents_example — copy those ids verbatim; never use 1/2/3 indices."
+            ),
             parameters={"type": "object", "properties": {}},
             handler=taxonomy_tree,
         ),
@@ -301,7 +440,10 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="get_sector_movers",
-            description="Get top gaining and losing L3 sectors by market-cap-weighted return.",
+            description=(
+                "Top gaining/losing L3 sectors. Each item includes level1_id, level2_id, level3_id — "
+                "copy them directly into filter_sector_constituents or get_sector_analysis."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -317,7 +459,11 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="screen_market_stocks",
-            description="Screen quoted stocks by market cap, return, valuation, and daily change.",
+            description=(
+                "Full-market stock screen by market cap, PE, return, daily change. "
+                "Use when there is NO matching taxonomy sector, or after sector tools fail. "
+                "For concept/industry baskets prefer search_sector_taxonomy + filter_sector_constituents first."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -340,33 +486,36 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="get_sector_analysis",
-            description="Analyze one sector path with market cap, weighted PE, NAV curves, and risk stats.",
+            description=(
+                "Sector NAV, weighted PE, and risk stats for ONE taxonomy path. "
+                "Prerequisite: search_sector_taxonomy — copy sector_path_id or level1_id/level2_id/level3_id "
+                "from best_match verbatim."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "level1_id": {"type": "string"},
-                    "level2_id": {"type": "string"},
-                    "level3_id": {"type": "string"},
+                    **_SECTOR_ID_PROPERTIES,
                     "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
                 },
-                "required": ["level1_id", "level2_id", "level3_id"],
             },
             handler=sector_analysis,
         ),
         ToolSpec(
             name="filter_sector_constituents",
-            description="List constituents in a sector with quote, valuation, and performance metrics.",
+            description=(
+                "List quoted stocks in ONE L3 sector. Prerequisite: search_sector_taxonomy — copy "
+                "sector_path_id or level1_id/level2_id/level3_id from best_match. "
+                "Required: market (us|cn|hk) and scope L3. "
+                "FORBIDDEN: guessing ids like 1/2/3 or inventing paths."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "level1_id": {"type": "string"},
-                    "level2_id": {"type": "string"},
-                    "level3_id": {"type": "string"},
+                    **_SECTOR_ID_PROPERTIES,
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                     "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
                     "days": {"type": "integer", "minimum": 1, "maximum": 90},
                 },
-                "required": ["level1_id", "level2_id", "level3_id"],
             },
             handler=sector_constituents,
         ),
@@ -393,18 +542,26 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="get_ticker_financials",
-            description="Get financial indicators and income distributions for one ticker.",
+            description=(
+                "Get financial indicators and income distributions for one or many tickers. "
+                "Prefer passing all candidate tickers in tickers (up to 50) in a single call "
+                "instead of querying each ticker separately."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "ticker": {"type": "string"},
+                    "ticker": {"type": "string", "description": "Single ticker symbol"},
+                    "tickers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Batch ticker symbols for candidate lists",
+                    },
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                     "start_date": {"type": "string"},
                     "end_date": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1},
                     "report_type": {"type": "string"},
                 },
-                "required": ["ticker"],
             },
             handler=ticker_financials,
         ),

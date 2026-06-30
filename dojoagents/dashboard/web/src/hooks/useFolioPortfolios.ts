@@ -3,6 +3,7 @@ import {
   addFolioHolding,
   autoAllocateFolioPortfolio,
   createFolioPortfolio,
+  createFolioOrder,
   deleteFolioPortfolio,
   fetchFolioPortfolioDetail,
   fetchFolioPortfolios,
@@ -10,42 +11,31 @@ import {
   removeFolioHolding,
   updateFolioPortfolio,
 } from '../api/folio';
-import { ApiError } from '../api/http';
+import { ApiError, parseApiErrorMessage } from '../api/http';
 import { FOLIO_UPDATED_EVENT, type FolioUpdatedDetail } from '../navigation/folio_sync';
+import {
+  readActiveFolioPortfolioId,
+  saveActiveFolioPortfolio,
+} from '../navigation/folioContext';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached, invalidateCache, invalidateCachePrefix, setCached } from '../cache/queryCache';
-import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../types/folio';
-import { FOLIO_MARKETS } from '../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig } from '../types/folio';
 import type { MarketCode } from '../types/market';
 import type { FolioPortfolioHoldingsPreview } from '../utils/folioPortfolioSearch';
 import { searchPortfoliosClient } from '../utils/folioPortfolioSearch';
+import { portfolioAnalysisBenchmarkParam } from '../utils/folioCandidateIndex';
 import {
-  computeMarketSnapshots,
-  type FolioMarketSnapshot,
-  type FolioSnapshotOptions,
+  computeMarketSnapshotsFromDetail,
+  emptyMarketSnapshots,
+  type FolioMarketSnapshotsByMarket,
 } from '../utils/folioPortfolioSnapshot';
 
-const FOLIO_ACTIVE_ID_STORAGE_KEY = 'dojo-folio-active-id-v1';
-
 function loadStoredActiveId(): string | null {
-  try {
-    const raw = sessionStorage.getItem(FOLIO_ACTIVE_ID_STORAGE_KEY);
-    return raw?.trim() ? raw : null;
-  } catch {
-    return null;
-  }
+  return readActiveFolioPortfolioId();
 }
 
-function storeActiveId(id: string) {
-  try {
-    if (id) {
-      sessionStorage.setItem(FOLIO_ACTIVE_ID_STORAGE_KEY, id);
-    } else {
-      sessionStorage.removeItem(FOLIO_ACTIVE_ID_STORAGE_KEY);
-    }
-  } catch {
-    // ignore storage errors
-  }
+function storeActiveId(id: string, name?: string | null) {
+  saveActiveFolioPortfolio(id, name);
 }
 
 function hasNavPerformance(detail: FolioPortfolioDetail | null | undefined): boolean {
@@ -63,7 +53,7 @@ export interface FolioPortfolioListItem {
   pinned: boolean;
   todayChange: number | null;
   netValueUsd: number | null;
-  marketSnapshots?: Partial<Record<MarketCode, FolioMarketSnapshot>>;
+  marketSnapshots?: FolioMarketSnapshotsByMarket;
 }
 
 function mapSummary(raw: {
@@ -94,6 +84,8 @@ function emptyDetail(id: string, name: string): FolioPortfolioDetail {
     kind: 'manual',
     pinned: false,
     config: null,
+    candidates: [],
+    positions: [],
     holdings: [],
     sharesByTicker: {},
     todayChange: null,
@@ -102,6 +94,7 @@ function emptyDetail(id: string, name: string): FolioPortfolioDetail {
     costBasisByMarket: { us: 0, cn: 0, hk: 0 },
     kpis: null,
     performance: null,
+    orders: [],
   };
 }
 
@@ -117,8 +110,9 @@ function readCachedPortfolioDetail(
   portfolioId: string,
   benchmarkSymbol: string | null,
 ): FolioPortfolioDetail | null {
+  const apiBenchmark = portfolioAnalysisBenchmarkParam(benchmarkSymbol) ?? null;
   const full = getCached<FolioPortfolioDetail>(
-    cacheKeys.folioPortfolio(portfolioId, benchmarkSymbol),
+    cacheKeys.folioPortfolio(portfolioId, apiBenchmark),
   );
   if (full?.id === portfolioId) {
     return full;
@@ -128,27 +122,6 @@ function readCachedPortfolioDetail(
     return lite;
   }
   return null;
-}
-
-function snapshotOptionsFromDetail(
-  detail: FolioPortfolioDetail,
-): FolioSnapshotOptions {
-  const returnPctByMarket: Partial<Record<MarketCode, number>> = {};
-  // Sidebar total return must match FolioRiskMetrics — always use NAV when available.
-  if (hasNavPerformance(detail)) {
-    for (const market of FOLIO_MARKETS) {
-      const pct = detail.performance?.statsByMarket?.[market]?.cumulative_return_pct;
-      if (pct != null && !Number.isNaN(pct)) {
-        returnPctByMarket[market] = pct;
-      }
-    }
-  }
-  return {
-    netValueByMarket: detail.netValueByMarket,
-    costBasisByMarket: detail.costBasisByMarket,
-    returnPctByMarket:
-      Object.keys(returnPctByMarket).length > 0 ? returnPctByMarket : undefined,
-  };
 }
 
 function resolveDefaultPortfolioId(rows: FolioPortfolioListItem[]): string {
@@ -161,6 +134,8 @@ export function useFolioPortfolios() {
   const listCacheKey = cacheKeys.folioPortfolios();
 
   const [listItems, setListItems] = useState<FolioPortfolioListItem[]>([]);
+  const listItemsRef = useRef(listItems);
+  listItemsRef.current = listItems;
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [creatingPortfolio, setCreatingPortfolio] = useState(false);
@@ -174,13 +149,14 @@ export function useFolioPortfolios() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [addingTicker, setAddingTicker] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
   const [allocating, setAllocating] = useState(false);
   const [holdingsByPortfolioId, setHoldingsByPortfolioId] = useState<
     Record<string, FolioPortfolioHoldingsPreview[]>
   >({});
   const [snapshotByPortfolioId, setSnapshotByPortfolioId] = useState<
-    Record<string, Partial<Record<MarketCode, FolioMarketSnapshot>>>
+    Record<string, FolioMarketSnapshotsByMarket>
   >({});
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
@@ -188,7 +164,8 @@ export function useFolioPortfolios() {
   const setActiveId = useCallback((value: string | ((prev: string) => string)) => {
     setActiveIdState((prev) => {
       const next = typeof value === 'function' ? value(prev) : value;
-      storeActiveId(next);
+      const name = listItemsRef.current.find((item) => item.id === next)?.name;
+      storeActiveId(next, name);
       return next;
     });
   }, []);
@@ -196,6 +173,17 @@ export function useFolioPortfolios() {
   useLayoutEffect(() => {
     setDetail((prev) => (prev && prev.id !== activeId ? null : prev));
   }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    const name =
+      detail?.id === activeId
+        ? detail.name
+        : listItems.find((item) => item.id === activeId)?.name;
+    if (name) {
+      storeActiveId(activeId, name);
+    }
+  }, [activeId, detail?.id, detail?.name, listItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -249,10 +237,7 @@ export function useFolioPortfolios() {
           setCached(detailCacheKey, response);
           setSnapshotByPortfolioId((prev) => ({
             ...prev,
-            [item.id]: computeMarketSnapshots(
-              response.holdings,
-              snapshotOptionsFromDetail(response),
-            ),
+            [item.id]: computeMarketSnapshotsFromDetail(response),
           }));
           setHoldingsByPortfolioId((prev) => ({
             ...prev,
@@ -277,6 +262,7 @@ export function useFolioPortfolios() {
   }, [activeId]);
 
   const primaryBenchmarkSymbol = benchmarkSymbols[0] ?? null;
+  const apiBenchmarkSymbol = portfolioAnalysisBenchmarkParam(primaryBenchmarkSymbol) ?? null;
 
   useEffect(() => {
     if (!activeId) {
@@ -287,7 +273,7 @@ export function useFolioPortfolios() {
     }
 
     let cancelled = false;
-    const detailCacheKey = cacheKeys.folioPortfolio(activeId, primaryBenchmarkSymbol);
+    const detailCacheKey = cacheKeys.folioPortfolio(activeId, apiBenchmarkSymbol);
     const cached = getCached<FolioPortfolioDetail>(detailCacheKey);
     const cachedUsable =
       cached?.id === activeId &&
@@ -304,7 +290,7 @@ export function useFolioPortfolios() {
     }
 
     void fetchFolioPortfolioDetail(activeId, {
-      benchmark: primaryBenchmarkSymbol,
+      benchmark: apiBenchmarkSymbol ?? undefined,
       includePerformance: true,
       startDate: cached?.id === activeId ? cached.config?.startDate : undefined,
     })
@@ -314,10 +300,7 @@ export function useFolioPortfolios() {
         setDetail(response);
         setSnapshotByPortfolioId((prev) => ({
           ...prev,
-          [response.id]: computeMarketSnapshots(
-            response.holdings,
-            snapshotOptionsFromDetail(response),
-          ),
+          [response.id]: computeMarketSnapshotsFromDetail(response),
         }));
         setHoldingsByPortfolioId((prev) => ({
           ...prev,
@@ -341,7 +324,7 @@ export function useFolioPortfolios() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, primaryBenchmarkSymbol]);
+  }, [activeId, apiBenchmarkSymbol]);
 
   const activePortfolio = useMemo(() => {
     if (!activeId) return null;
@@ -356,8 +339,8 @@ export function useFolioPortfolios() {
       listItems.map((item) => {
         const snapshots =
           item.id === activeId && detail?.id === activeId
-            ? computeMarketSnapshots(detail.holdings, snapshotOptionsFromDetail(detail))
-            : snapshotByPortfolioId[item.id];
+            ? computeMarketSnapshotsFromDetail(detail)
+            : snapshotByPortfolioId[item.id] ?? emptyMarketSnapshots();
         if (item.id === activeId && detail?.id === activeId) {
           return {
             ...item,
@@ -423,13 +406,10 @@ export function useFolioPortfolios() {
     if (!hasNavPerformance(merged)) {
       invalidateCachePrefix(`folio-portfolio:${merged.id}:`);
     }
-    setCached(cacheKeys.folioPortfolio(merged.id, primaryBenchmarkSymbol), merged);
+    setCached(cacheKeys.folioPortfolio(merged.id, apiBenchmarkSymbol), merged);
     setSnapshotByPortfolioId((prev) => ({
       ...prev,
-      [merged.id]: computeMarketSnapshots(
-        merged.holdings,
-        snapshotOptionsFromDetail(merged),
-      ),
+      [merged.id]: computeMarketSnapshotsFromDetail(merged),
     }));
     setHoldingsByPortfolioId((prev) => ({
       ...prev,
@@ -459,32 +439,27 @@ export function useFolioPortfolios() {
 
     if (!hasNavPerformance(merged)) {
       void fetchFolioPortfolioDetail(merged.id, {
-        benchmark: primaryBenchmarkSymbol,
+        benchmark: apiBenchmarkSymbol ?? undefined,
         includePerformance: true,
         startDate: merged.config?.startDate,
       })
         .then((response) => {
           if (response.id !== activeIdRef.current) return;
-          setCached(cacheKeys.folioPortfolio(response.id, primaryBenchmarkSymbol), response);
+          setCached(cacheKeys.folioPortfolio(response.id, apiBenchmarkSymbol), response);
           setDetail(response);
           setSnapshotByPortfolioId((prev) => ({
             ...prev,
-            [response.id]: computeMarketSnapshots(
-              response.holdings,
-              snapshotOptionsFromDetail(response),
-            ),
+            [response.id]: computeMarketSnapshotsFromDetail(response),
           }));
         })
         .catch(() => {
           // Best-effort; holdings already updated.
         });
     }
-  }, [primaryBenchmarkSymbol]);
+  }, [apiBenchmarkSymbol, primaryBenchmarkSymbol]);
 
-  const toggleBenchmarkSymbol = useCallback((symbol: string) => {
-    setBenchmarkSymbols((prev) =>
-      prev.includes(symbol) ? prev.filter((item) => item !== symbol) : [...prev, symbol],
-    );
+  const selectBenchmarkSymbol = useCallback((symbol: string) => {
+    setBenchmarkSymbols([symbol]);
   }, []);
 
   const refreshPortfolioList = useCallback(
@@ -663,6 +638,27 @@ export function useFolioPortfolios() {
     [detail?.id, listCacheKey],
   );
 
+  const promotePortfolioToManual = useCallback(
+    async (id: string) => {
+      try {
+        const updated = await updateFolioPortfolio(id, { kind: 'manual' });
+        setListItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, kind: 'manual' } : item)),
+        );
+        if (detail?.id === id) {
+          setDetail((prev) => (prev ? { ...prev, kind: 'manual' } : prev));
+        }
+        invalidateCache(listCacheKey);
+        invalidateCachePrefix(`folio-portfolio:${id}:`);
+        void updated;
+        setListError(null);
+      } catch (err: unknown) {
+        setListError(err instanceof Error ? err.message : 'Failed to promote portfolio');
+      }
+    },
+    [detail?.id, listCacheKey],
+  );
+
   const applyOpenDate = useCallback(
     async (id: string, ticker: string, openDate: string | null) => {
       try {
@@ -785,6 +781,24 @@ export function useFolioPortfolios() {
     [commitDetail],
   );
 
+  const createOrder = useCallback(
+    async (id: string, payload: FolioCreateOrderPayload) => {
+      setPlacingOrder(true);
+      try {
+        invalidateCachePrefix(`folio-portfolio:${id}:`);
+        const updated = await createFolioOrder(id, payload);
+        commitDetail(updated);
+        setDetailError(null);
+      } catch (err: unknown) {
+        setDetailError(parseApiErrorMessage(err, 'Failed to create order'));
+        throw err;
+      } finally {
+        setPlacingOrder(false);
+      }
+    },
+    [commitDetail],
+  );
+
   const autoAllocate = useCallback(
     async (id: string, strategy: FolioAllocationStrategy = 'market_cap') => {
       setAllocating(true);
@@ -810,7 +824,7 @@ export function useFolioPortfolios() {
     setSearchQuery,
     benchmarkSymbols,
     setBenchmarkSymbols,
-    toggleBenchmarkSymbol,
+    selectBenchmarkSymbol,
     primaryBenchmarkSymbol,
     activePortfolio,
     activeId,
@@ -822,6 +836,7 @@ export function useFolioPortfolios() {
     detailLoading,
     detailError,
     addingTicker,
+    placingOrder,
     removingTicker,
     allocating,
     renamePortfolio,
@@ -832,11 +847,13 @@ export function useFolioPortfolios() {
     toggleCostLock,
     applyCost,
     togglePortfolioPin,
+    promotePortfolioToManual,
     applyOpenDate,
     createPortfolio,
     deletePortfolio,
     addHolding,
     removeHolding,
+    createOrder,
     autoAllocate,
   };
 }

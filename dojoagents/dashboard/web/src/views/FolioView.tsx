@@ -22,12 +22,13 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
     setSearchQuery,
     benchmarkSymbols,
     setBenchmarkSymbols,
-    toggleBenchmarkSymbol,
+    selectBenchmarkSymbol,
     listLoading,
     creatingPortfolio,
     createError,
     detailLoading,
     allocating,
+    placingOrder,
     renamePortfolio,
     applyPortfolioConfig,
     applyShareOverrides,
@@ -36,11 +37,13 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
     toggleCostLock,
     applyCost,
     togglePortfolioPin,
+    promotePortfolioToManual,
     applyOpenDate,
     createPortfolio,
     deletePortfolio,
     addHolding,
     removeHolding,
+    createOrder,
     autoAllocate,
     addingTicker,
     removingTicker,
@@ -61,6 +64,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
           onRename={renamePortfolio}
           onDelete={deletePortfolio}
           onTogglePin={togglePortfolioPin}
+          onPromoteToManual={promotePortfolioToManual}
           onCreate={createPortfolio}
           onSearchQueryChange={setSearchQuery}
         />
@@ -71,11 +75,13 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
             loading={detailLoading}
             addingTicker={addingTicker}
             removingTicker={removingTicker}
+            placingOrder={placingOrder}
             allocating={allocating}
             benchmarkSymbols={benchmarkSymbols}
-            onToggleBenchmark={toggleBenchmarkSymbol}
+            onSelectBenchmark={selectBenchmarkSymbol}
             onSetBenchmarkSymbols={setBenchmarkSymbols}
             onApplyConfig={(config) => applyPortfolioConfig(activePortfolio.id, config)}
+            onCreateOrder={(payload) => createOrder(activePortfolio.id, payload)}
             onNavigateTab={onNavigateTab}
             onApplyShares={(shares) => applyShareOverrides(activePortfolio.id, shares)}
             onToggleSharesLock={(ticker, locked) =>

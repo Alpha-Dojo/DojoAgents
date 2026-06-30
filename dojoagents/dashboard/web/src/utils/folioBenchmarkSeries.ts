@@ -1,6 +1,11 @@
 import type { BenchmarkCatalogResponse } from '../api/market';
 import type { BenchmarkCard, MarketCode } from '../types/market';
+import type { FolioPerformanceView } from '../types/folio';
 import { FOLIO_MARKETS } from '../types/folio';
+import {
+  parseFolioCandidateIndexSymbol,
+  resolveFolioBenchmarkLabel,
+} from './folioCandidateIndex';
 import {
   alignMarketSeriesToMasterDates,
   lookupMarketValueOnOrBefore,
@@ -11,7 +16,8 @@ import {
 export type FolioBenchmarkOption = {
   market: MarketCode;
   symbol: string;
-  label: string;
+  labelZh: string;
+  labelEn: string;
 };
 
 export interface FolioBenchmarkHeadChip {
@@ -20,6 +26,16 @@ export interface FolioBenchmarkHeadChip {
   label: string;
   date: string;
   value: number;
+}
+
+function benchmarkName(card: BenchmarkCard): { zh: string; en: string } {
+  if (typeof card.name === 'string') {
+    return { zh: card.name, en: card.name };
+  }
+  return {
+    zh: card.name?.zh || card.name?.en || card.symbol,
+    en: card.name?.en || card.name?.zh || card.symbol,
+  };
 }
 
 export function flattenFolioBenchmarkOptions(
@@ -31,11 +47,13 @@ export function flattenFolioBenchmarkOptions(
     const group = catalog.markets[market];
     if (!group) continue;
     for (const item of group.benchmarks) {
-      const label =
-        typeof item.name === 'string'
-          ? item.name
-          : item.name?.zh || item.name?.en || item.symbol;
-      options.push({ market, symbol: item.symbol, label });
+      const names = benchmarkName(item);
+      options.push({
+        market,
+        symbol: item.symbol,
+        labelZh: names.zh,
+        labelEn: names.en,
+      });
     }
   }
   return options;
@@ -69,24 +87,40 @@ function benchmarkCardToSeries(card: BenchmarkCard): MarketSeriesPoint[] {
     .filter((point) => point.date && Number.isFinite(point.value));
 }
 
+function benchmarkSeriesForMasterDates(
+  raw: MarketSeriesPoint[],
+  masterDates: string[],
+): MarketSeriesPoint[] | null {
+  if (raw.length < 2 || masterDates.length < 2) return null;
+  const aligned = alignMarketSeriesToMasterDates(masterDates, raw);
+  const rebased = rebaseMarketSeries(aligned);
+  return rebased.length >= 2 ? rebased : null;
+}
+
 export function rebaseBenchmarkSeriesForDates(
   masterDates: string[],
   card: BenchmarkCard,
 ): MarketSeriesPoint[] | null {
-  const raw = benchmarkCardToSeries(card);
-  if (raw.length < 2 || masterDates.length < 2) return null;
-  const rebased = rebaseMarketSeries(raw);
-  const aligned = alignMarketSeriesToMasterDates(masterDates, rebased);
-  return aligned.length >= 2 ? aligned : null;
+  return benchmarkSeriesForMasterDates(benchmarkCardToSeries(card), masterDates);
 }
 
 export function buildRebasedBenchmarkSeriesBySymbol(
   symbols: string[],
   catalog: BenchmarkCatalogResponse | null,
   masterDates: string[],
+  performance?: FolioPerformanceView | null,
 ): Record<string, MarketSeriesPoint[]> {
   const result: Record<string, MarketSeriesPoint[]> = {};
   for (const symbol of symbols) {
+    const candidateMarket = parseFolioCandidateIndexSymbol(symbol);
+    if (candidateMarket) {
+      const raw = performance?.candidateSeriesByMarket?.[candidateMarket];
+      if (raw?.length && raw.length >= 2) {
+        const series = benchmarkSeriesForMasterDates(raw, masterDates);
+        if (series) result[symbol] = series;
+      }
+      continue;
+    }
     const card = findFolioBenchmarkCard(catalog, symbol);
     if (!card) continue;
     const series = rebaseBenchmarkSeriesForDates(masterDates, card);
@@ -100,11 +134,22 @@ export function buildFolioBenchmarkHeadChips(
   catalog: BenchmarkCatalogResponse | null,
   rebasedBySymbol: Record<string, MarketSeriesPoint[]>,
   anchorDate?: string | null,
+  labelForMarket?: (market: MarketCode) => string,
+  locale: 'zh' | 'en' = 'en',
 ): FolioBenchmarkHeadChip[] {
   return symbols.flatMap((symbol) => {
     const series = rebasedBySymbol[symbol];
+    if (!series?.length) return [];
     const option = findFolioBenchmarkOption(catalog, symbol);
-    if (!series?.length || !option) return [];
+    const candidateMarket = parseFolioCandidateIndexSymbol(symbol);
+    const label = resolveFolioBenchmarkLabel(
+      symbol,
+      option,
+      labelForMarket ?? ((market) => market.toUpperCase()),
+      locale,
+    );
+    const market = candidateMarket ?? option?.market;
+    if (!market) return [];
     const point = anchorDate
       ? lookupMarketValueOnOrBefore(series, anchorDate)
       : series[series.length - 1];
@@ -112,8 +157,8 @@ export function buildFolioBenchmarkHeadChips(
     return [
       {
         symbol,
-        market: option.market,
-        label: option.label,
+        market,
+        label,
         date: point.date,
         value: point.value,
       },

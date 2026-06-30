@@ -9,6 +9,33 @@ export class ApiError extends Error {
   }
 }
 
+function readDetailMessage(detail: unknown): string | null {
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim();
+  }
+  if (typeof detail === 'object' && detail !== null && 'message' in detail) {
+    const message = (detail as { message: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+  }
+  return null;
+}
+
+export function parseApiErrorMessage(err: unknown, fallback = 'Request failed'): string {
+  if (err instanceof ApiError) {
+    if (typeof err.body === 'object' && err.body !== null && 'detail' in err.body) {
+      const parsed = readDetailMessage((err.body as { detail: unknown }).detail);
+      if (parsed) return parsed;
+    }
+    return err.message;
+  }
+  if (err instanceof Error && err.message.trim()) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,

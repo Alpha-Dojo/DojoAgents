@@ -29,41 +29,84 @@ def test_risk_stats_are_deterministic_for_rebased_nav() -> None:
     assert stats.calmar_ratio is not None
 
 
-def test_market_performance_aligns_dates_and_rebases_portfolio_and_benchmark() -> None:
+def test_market_nav_is_flat_before_first_order() -> None:
     result = build_market_performance(
         market="us",
-        holdings=[
-            {
-                "shares": 1,
-                "closes": {
-                    "2026-06-18": 100,
-                    "2026-06-19": 110,
-                    "2026-06-20": 121,
-                },
-            },
-            {
-                "shares": 2,
-                "closes": {
-                    "2026-06-18": 50,
-                    "2026-06-19": 55,
-                    "2026-06-20": 60.5,
-                },
-            },
-        ],
+        orders=[],
+        initial_capital=1_000_000,
+        start_date="2026-01-01",
+        ticker_closes={},
         benchmark_symbol="^SPX",
         benchmark_closes={
-            "2026-06-17": 90,
-            "2026-06-18": 100,
-            "2026-06-19": 105,
-            "2026-06-20": 110,
+            "2026-01-01": 100,
+            "2026-01-02": 101,
+            "2026-01-03": 102,
         },
     )
 
-    assert result.dates == ["2026-06-18", "2026-06-19", "2026-06-20"]
-    assert result.portfolio == pytest.approx([100, 110, 121])
-    assert result.benchmark == pytest.approx([100, 105, 110])
-    assert result.benchmark_symbol == "^SPX"
-    assert result.stats.cumulative_return_pct == pytest.approx(21)
+    assert result.dates == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert result.portfolio == pytest.approx([100, 100, 100])
+    assert result.benchmark == pytest.approx([100, 101, 102])
+
+
+def test_market_nav_includes_cash_balance_and_positions() -> None:
+    result = build_market_performance(
+        market="us",
+        orders=[
+            {
+                "ticker": "MU",
+                "market": "us",
+                "order_side": "buy",
+                "order_status": "filled",
+                "qty": 100,
+                "price": 393.6,
+                "fill_price": 393.6,
+                "fill_time": "2026-03-01T00:00:00+00:00",
+                "created_at": "2026-03-01T00:00:00+00:00",
+            }
+        ],
+        initial_capital=1_000_000,
+        start_date="2026-01-01",
+        ticker_closes={
+            "MU": {
+                "2026-01-01": 300,
+                "2026-03-01": 400,
+                "2026-03-02": 440,
+            }
+        },
+        benchmark_symbol="^SPX",
+        benchmark_closes={
+            "2026-01-01": 100,
+            "2026-03-01": 110,
+            "2026-03-02": 112,
+        },
+    )
+
+    assert result.dates == ["2026-01-01", "2026-03-01", "2026-03-02"]
+    assert result.portfolio[0] == pytest.approx(100)
+    # 2026-03-01: cash 960640 + 100 * 400 = 1_000_640
+    assert result.portfolio[1] == pytest.approx(100.064)
+    # 2026-03-02: cash 960640 + 100 * 440 = 1_004_640
+    assert result.portfolio[2] == pytest.approx(100.464)
+
+
+def test_market_nav_extends_cash_only_market_to_unified_calendar() -> None:
+    result = build_market_performance(
+        market="sh",
+        orders=[],
+        initial_capital=1_000_000,
+        start_date="2026-01-01",
+        ticker_closes={},
+        benchmark_symbol="000001.SS",
+        benchmark_closes={
+            "2026-01-01": 100,
+            "2026-06-23": 110,
+        },
+        calendar_dates=["2026-01-01", "2026-06-23", "2026-06-29"],
+    )
+
+    assert result.dates == ["2026-01-01", "2026-06-23", "2026-06-29"]
+    assert result.portfolio == pytest.approx([100, 100, 100])
 
 
 @pytest.mark.asyncio
@@ -107,8 +150,6 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
     store = PortfolioStore(tmp_path)
     portfolio = store.create("Global")
     holdings = (("AAPL", "us", 10), ("600000", "sh", 20), ("0700.HK", "hk", 30))
-    for ticker, market, shares in holdings:
-        store.add_holding(portfolio["id"], ticker=ticker, market=market, shares=shares)
 
     def stock(ticker, market, price):
         return Stock(
@@ -132,6 +173,7 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
                 turn_rate=1,
                 pe=20,
                 pb=2,
+                dividend_yield=0,
             ),
         )
 
@@ -140,6 +182,24 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
         ("sh", "600000"): stock("600000", "sh", 10),
         ("hk", "0700.HK"): stock("0700.HK", "hk", 300),
     }
+
+    for ticker, market, shares in holdings:
+        store.add_candidate(portfolio["id"], ticker=ticker, market=market)
+        store.add_order(
+            portfolio["id"],
+            order={
+                "id": f"order-{ticker}",
+                "ticker": ticker,
+                "market": market,
+                "order_side": "buy",
+                "order_status": "filled",
+                "price": float(stocks[(market, ticker)].stock_quote.last_price),
+                "qty": float(shares),
+                "fill_price": float(stocks[(market, ticker)].stock_quote.last_price),
+                "fill_time": "2026-06-16T00:00:00+00:00",
+                "created_at": "2026-06-16T00:00:00+00:00",
+            },
+        )
 
     class Stocks:
         def get(self, market, ticker):
@@ -153,9 +213,9 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
             return None
 
     market_dates = {
-        "us": ["2026-06-18", "2026-06-19"],
-        "sh": ["2026-06-17", "2026-06-19"],
-        "hk": ["2026-06-16", "2026-06-18"],
+        "us": ["2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18", "2026-06-19"],
+        "sh": ["2026-06-15", "2026-06-16", "2026-06-17", "2026-06-19"],
+        "hk": ["2026-06-15", "2026-06-16", "2026-06-18"],
     }
 
     class Klines:
@@ -214,8 +274,11 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
         "sh": "000001.SS",
         "hk": "^HSI",
     }
-    assert detail.performance.series_by_market["us"].portfolio == pytest.approx([100, 110])
-    assert detail.performance.series_by_market["sh"].dates == market_dates["sh"]
+    us_series = detail.performance.series_by_market["us"]
+    assert us_series.portfolio[0] == pytest.approx(100)
+    assert us_series.portfolio[1] == pytest.approx(100.01)
+    assert us_series.portfolio[-1] > us_series.portfolio[1]
+    assert detail.net_value_by_market["us"] == pytest.approx(1_000_000)
     assert detail.cost_basis_by_market == {"us": 1_000, "sh": 200, "hk": 9_000}
 
 
@@ -247,3 +310,65 @@ def test_detail_route_passes_benchmark_overrides_to_service() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_holdings_use_bilingual_stock_names(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Primary")
+    store.add_holding(portfolio["id"], ticker="NVDA", market="us", shares=10)
+
+    stock = Stock(
+        ticker="NVDA",
+        market="us",
+        short_name="NVIDIA Corp",
+        long_name="NVIDIA Corporation",
+        stock_quote=StockQuote(
+            ticker="NVDA",
+            name="英伟达",
+            last_price=194.97,
+            pre_close=192.0,
+            open=193.0,
+            high=195.0,
+            low=192.5,
+            change=2.97,
+            change_percent=1.27,
+            volume=1,
+            amount=194.97,
+            avg_price=194.97,
+            market_cap=2_000_000_000,
+            turn_rate=1,
+            pe=20,
+            pb=2,
+            dividend_yield=0,
+        ),
+    )
+
+    class Stocks:
+        def get(self, market, ticker):
+            if market == "us" and ticker == "NVDA":
+                return stock
+            return None
+
+        def find_market(self, _ticker):
+            return "us"
+
+    class Sectors:
+        def get(self, *_args):
+            return None
+
+    class Klines:
+        async def get_or_fetch_kline(self, *_args, **_kwargs):
+            return StockKlineResponse(symbol="NVDA", bars=[])
+
+        def load_all(self, _ticker):
+            return []
+
+    service = PortfolioService(store, Stocks(), Sectors(), Klines())
+    detail = await service.get_detail(portfolio["id"], include_performance=False)
+
+    assert detail is not None
+    assert len(detail.candidates) == 1
+    candidate = detail.candidates[0]
+    assert candidate.name_zh == "英伟达"
+    assert candidate.name_en == "NVIDIA Corp"

@@ -19,6 +19,17 @@ from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
 
 
 @dataclass(frozen=True)
+class SectorSearchHit:
+    """One scored taxonomy match for a search query."""
+
+    path: ResolvedSectorPath
+    score: int
+    matched_level: str
+    matched_label: str
+    matched_query: str
+
+
+@dataclass(frozen=True)
 class ResolvedSectorPath:
     """L1/L2/L3 sector path resolved from cached API sector tree."""
 
@@ -165,6 +176,85 @@ class SectorStore:
         level3_id: str,
     ) -> Optional[ResolvedSectorPath]:
         return self._path_by_ids.get((level1_id, level2_id, level3_id))
+
+    def find_resolved_path_by_level3_id(self, level3_id: str) -> Optional[ResolvedSectorPath]:
+        sid = str(level3_id or "").strip()
+        if not sid:
+            return None
+        matches = [path for path in self._resolved_paths if path.level3_id == sid]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def find_resolved_path_by_any_sector_id(self, sector_id: str) -> Optional[ResolvedSectorPath]:
+        sid = str(sector_id or "").strip()
+        if not sid:
+            return None
+        by_l3 = self.find_resolved_path_by_level3_id(sid)
+        if by_l3 is not None:
+            return by_l3
+        l2_matches = [path for path in self._resolved_paths if path.level2_id == sid]
+        if len(l2_matches) == 1:
+            return l2_matches[0]
+        return None
+
+    def search_resolved_paths(self, query: str, *, limit: int = 5) -> List[ResolvedSectorPath]:
+        return [hit.path for hit in self.search_resolved_paths_scored(query, limit=limit)]
+
+    def search_resolved_paths_scored(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+    ) -> List[SectorSearchHit]:
+        needle = str(query or "").strip().lower()
+        if not needle:
+            return []
+
+        best_by_path: dict[tuple[str, str, str], SectorSearchHit] = {}
+
+        for path in self._resolved_paths:
+            path_key = (path.level1_id, path.level2_id, path.level3_id)
+            level_specs = (
+                ("L3", 100, 80, 70, path.level3_zh, path.level3_en),
+                ("L2", 60, 50, 45, path.level2_zh, path.level2_en),
+                ("L1", 30, 20, 18, path.level1_zh, path.level1_en),
+            )
+            for level, exact_score, partial_score, contains_score, label_zh, label_en in level_specs:
+                for label in (label_zh, label_en):
+                    normalized = str(label or "").strip().lower()
+                    if not normalized:
+                        continue
+                    score = 0
+                    matched_label = str(label or "").strip()
+                    if normalized == needle:
+                        score = exact_score
+                    elif needle in normalized:
+                        score = partial_score
+                    elif normalized in needle:
+                        score = contains_score
+                    if score <= 0:
+                        continue
+                    hit = SectorSearchHit(
+                        path=path,
+                        score=score,
+                        matched_level=level,
+                        matched_label=matched_label,
+                        matched_query=needle,
+                    )
+                    existing = best_by_path.get(path_key)
+                    if existing is None or hit.score > existing.score:
+                        best_by_path[path_key] = hit
+
+        ranked = sorted(
+            best_by_path.values(),
+            key=lambda hit: (
+                -hit.score,
+                hit.path.level3_zh or hit.path.level3_en or "",
+                hit.path.level3_id,
+            ),
+        )
+        return ranked[: max(1, limit)]
 
     @staticmethod
     def _label_matches(
