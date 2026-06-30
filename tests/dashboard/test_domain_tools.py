@@ -26,6 +26,7 @@ def test_register_dashboard_domain_tools_adds_alpha_dashboard_tool_names() -> No
     names = {spec.name for spec in registry.all()}
     assert {
         "search_company_ticker",
+        "search_sector_taxonomy",
         "get_taxonomy_tree",
         "get_market_overview",
         "get_sector_movers",
@@ -56,6 +57,17 @@ def test_realtime_quote_tool_description_guides_batch_usage() -> None:
     domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
 
     spec = registry.get("get_ticker_realtime_quote")
+    assert spec is not None
+    assert "tickers" in spec.description
+    assert "single call" in spec.description.lower()
+
+
+def test_financials_tool_description_guides_batch_usage() -> None:
+    registry = ToolRegistry()
+
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_financials")
     assert spec is not None
     assert "tickers" in spec.description
     assert "single call" in spec.description.lower()
@@ -113,6 +125,36 @@ async def test_realtime_quote_tool_returns_batch_payload(monkeypatch) -> None:
 
     assert result["data"]["count"] == 2
     assert [item["ticker"] for item in result["data"]["items"]] == ["AAPL", "MSFT"]
+
+
+@pytest.mark.asyncio
+async def test_financials_tool_returns_batch_payload(monkeypatch) -> None:
+    async def fake_batch(registry, *, tickers, market, start_date, end_date, limit, report_type):
+        return {
+            "market": market,
+            "count": len(tickers),
+            "not_found": [],
+            "items": [
+                {
+                    "ticker": ticker,
+                    "market": market or "us",
+                    "indicators": [{"report_date": "2025-12-31", "pe_ratio": 10.0}],
+                    "income_distributions": [],
+                }
+                for ticker in tickers
+            ],
+        }
+
+    monkeypatch.setattr(domain_tools, "build_tickers_financials_v1", fake_batch)
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_financials")
+    assert spec is not None
+    result = await spec.handler({"tickers": ["VZ", "WFC"], "market": "us"})
+
+    assert result["data"]["count"] == 2
+    assert [item["ticker"] for item in result["data"]["items"]] == ["VZ", "WFC"]
 
 
 def test_create_app_registers_dashboard_domain_tools() -> None:

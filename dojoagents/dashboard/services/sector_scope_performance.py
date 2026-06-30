@@ -5,8 +5,12 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
-from dojoagents.dashboard.services.sector_earnings_index import compute_market_index_series
+from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel, collect_sector_scope_tickers
+from dojoagents.dashboard.services.sector_earnings_index import (
+    compute_market_index_series,
+    filter_cap_weighted_tickers,
+)
+from dojoagents.dashboard.services.precompute_sector_daily import DATA_START_DATE
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_scope_performance_stats import compute_market_performance_stats
@@ -16,7 +20,9 @@ from dojoagents.dashboard.schemas.dojo_sphere import (
     SectorPerformanceResponse,
 )
 
-WINDOW_DAYS = 365
+from dojoagents.logging import LOGGER
+
+WINDOW_DAYS = 365  # legacy; performance window now anchors at DATA_START_DATE
 
 # Backward-compatible test imports
 _compute_market_index_series = compute_market_index_series
@@ -33,14 +39,9 @@ def _latest_series_date(series: List[Tuple[str, float]]) -> str:
 
 
 def _resolve_unified_window_start(by_market: Dict[str, List[Tuple[str, float]]]) -> str:
-    """Window start anchored to the leading market's latest trading day."""
-    ends = [_latest_series_date(by_market.get(market, [])) for market in MARKETS]
-    ends = [day for day in ends if day]
-    if not ends:
-        return ""
-    anchor_end = max(ends)
-    start_d = _parse_date(anchor_end) - timedelta(days=WINDOW_DAYS)
-    return start_d.isoformat()
+    """Fixed inception at DATA_START_DATE (2025-01-01), matching Folio/Entity charts."""
+    del by_market
+    return DATA_START_DATE
 
 
 def _resolve_market_window_bounds(
@@ -48,11 +49,17 @@ def _resolve_market_window_bounds(
     *,
     unified_start: str,
 ) -> Tuple[str, str]:
-    """1Y window: shared start, this market's own latest day as end."""
+    """Window from DATA_START_DATE through this market's latest trading day."""
     if not series or not unified_start:
         return "", ""
     end_d = _parse_date(_latest_series_date(series))
-    return unified_start, end_d.isoformat()
+    start_d = _parse_date(unified_start)
+    first_on_or_after = next((day for day, _ in series if day >= unified_start), "")
+    if first_on_or_after:
+        first_d = _parse_date(first_on_or_after)
+        if first_d > start_d:
+            start_d = first_d
+    return start_d.isoformat(), end_d.isoformat()
 
 
 def _resolve_window_bounds(by_market: Dict[str, List[Tuple[str, float]]]) -> Tuple[str, str]:
@@ -164,9 +171,53 @@ def _market_series_from_precomputed(
     if not daily_rows:
         return [], 0
     sorted_rows = sorted(daily_rows, key=lambda row: str(row.get("trade_date") or ""))
-    series = [(str(row["trade_date"]), float(row["index_level"])) for row in sorted_rows]
+    series = [
+        (str(row["trade_date"]), float(row["index_level"]))
+        for row in sorted_rows
+        if str(row.get("trade_date") or "") >= DATA_START_DATE
+    ]
     member_count = int(sorted_rows[-1].get("member_count") or 0)
     return series, member_count
+
+
+async def _extend_series_with_live_klines(
+    series: List[Tuple[str, float]],
+    *,
+    market: str,
+    tickers: set[str],
+    stock_store: StockStore,
+    kline_store: KlineStore,
+) -> List[Tuple[str, float]]:
+    """Append live kline-derived index levels after the last precomputed trade date."""
+    if not series or not tickers:
+        return series
+
+    eligible = filter_cap_weighted_tickers(market, set(tickers), stock_store)
+    if not eligible:
+        return series
+
+    live = await compute_market_index_series(eligible, stock_store, kline_store)
+    if not live:
+        return series
+
+    last_date, last_level = series[-1]
+    anchor_value: float | None = None
+    for day, value in reversed(live):
+        if day <= last_date:
+            anchor_value = value
+            break
+    if anchor_value is None or anchor_value <= 0 or last_level <= 0:
+        return series
+
+    scale = last_level / anchor_value
+    existing = {day for day, _ in series}
+    merged = list(series)
+    for day, value in live:
+        if day <= last_date or day in existing:
+            continue
+        merged.append((day, round(value * scale, 4)))
+    merged.sort(key=lambda item: item[0])
+    return merged
 
 
 async def resolve_scope_unified_window_start(
@@ -177,7 +228,7 @@ async def resolve_scope_unified_window_start(
     *,
     scope: SectorLevel = "L3",
 ) -> str:
-    """Unified 1Y window start used by sector performance curves."""
+    """Unified performance window start (DATA_START_DATE)."""
     del stock_store, kline_store
     by_market: Dict[str, List[Tuple[str, float]]] = {}
     for market in MARKETS:
@@ -200,10 +251,10 @@ async def compute_sector_scope_performance(
     scope: SectorLevel = "L3",
 ) -> SectorPerformanceResponse:
     """Cross-market market-cap-weighted sector index curves for the selected scope."""
-    del stock_store, kline_store
     if scope not in ("L1", "L2", "L3"):
         scope = "L3"
 
+    scope_tickers = collect_sector_scope_tickers(sector_precomputed_store, path)
     by_market: Dict[str, List[Tuple[str, float]]] = {}
     members_by_market: Dict[str, int] = {}
 
@@ -214,6 +265,21 @@ async def compute_sector_scope_performance(
             scope=scope,
             market=market,
         )
+        try:
+            series = await _extend_series_with_live_klines(
+                series,
+                market=market,
+                tickers=scope_tickers.get(scope) or set(),
+                stock_store=stock_store,
+                kline_store=kline_store,
+            )
+        except Exception:
+            LOGGER.exception(
+                "Live sector performance tail extension failed for %s/%s scope=%s",
+                path.level1_id,
+                path.level3_id,
+                scope,
+            )
         by_market[market] = series
         members_by_market[market] = member_count
 

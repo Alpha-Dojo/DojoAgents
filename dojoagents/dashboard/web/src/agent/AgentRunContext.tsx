@@ -22,7 +22,7 @@ import {
   saveActiveRunDraft,
   saveStreamDraft,
 } from './agentStorage';
-import type { AgentActivityStep, AgentChatMessage, AgentLocale } from '../types/agent';
+import type { AgentActivityStep, AgentApiMessage, AgentChatMessage, AgentLocale } from '../types/agent';
 import {
   appendEvalHint,
   appendThinkDelta,
@@ -62,6 +62,7 @@ interface InternalRunState {
   formatRetryNotice: (attempt: number, max: number) => string;
   onComplete?: (finalMessages: AgentChatMessage[]) => void;
   onPersistDraft?: (messages: AgentChatMessage[]) => void;
+  onRunError?: (message: string) => void;
 }
 
 export interface SessionRunView {
@@ -76,8 +77,9 @@ interface StartRunParams {
   sessionId: string;
   modelId: string;
   locale: AgentLocale;
+  dashboardTab?: string;
   draftMessages: AgentChatMessage[];
-  apiMessages: AgentChatMessage[];
+  apiMessages: AgentApiMessage[];
   toolsCompleteLabel: string;
   responseCompleteLabel: string;
   stoppedLabel: string;
@@ -85,6 +87,7 @@ interface StartRunParams {
   formatRetryNotice: (attempt: number, max: number) => string;
   onComplete: (finalMessages: AgentChatMessage[]) => void;
   onPersistDraft?: (messages: AgentChatMessage[]) => void;
+  onRunError?: (message: string) => void;
 }
 
 interface AgentRunContextValue {
@@ -391,10 +394,8 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
                 },
               ]);
             } else {
-              runsRef.current.delete(state.sessionId);
-              clearActiveRunDraft();
-              clearStreamDraft();
-              notify();
+              state.onRunError?.(message);
+              finishRun(state, messagesForSessionPersist(state.draftMessages));
             }
           });
         },
@@ -481,7 +482,14 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
       if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
       try {
         const status = await fetchAgentRunStatus(active.runId);
-        if (status.status === 'cancelled') {
+        if (status.status !== 'running') {
+          if (streamDraft.messages.length > 0) {
+            persistSessionMessagesSync(
+              active.sessionId,
+              messagesForSessionPersist(streamDraft.messages),
+              active.modelId,
+            );
+          }
           clearActiveRunDraft();
           clearStreamDraft();
           return;
@@ -512,11 +520,22 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         runsRef.current.delete(params.sessionId);
       }
 
-      const { run_id: runId } = await createAgentRun({
-        model_id: params.modelId,
-        locale: params.locale,
-        messages: params.apiMessages,
-      });
+      if (!params.apiMessages.length) {
+        throw new Error('No messages to send');
+      }
+
+      let runId: string;
+      try {
+        ({ run_id: runId } = await createAgentRun({
+          model_id: params.modelId,
+          locale: params.locale,
+          dashboard_tab: params.dashboardTab,
+          messages: params.apiMessages,
+        }));
+      } catch (err) {
+        runsRef.current.delete(params.sessionId);
+        throw err;
+      }
 
       const state: InternalRunState = {
         sessionId: params.sessionId,
@@ -534,6 +553,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         subscribeAbort: null,
         onComplete: params.onComplete,
         onPersistDraft: params.onPersistDraft,
+        onRunError: params.onRunError,
         uiLocale: params.uiLocale,
         toolsCompleteLabel: params.toolsCompleteLabel,
         responseCompleteLabel: params.responseCompleteLabel,
@@ -556,7 +576,14 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         interrupted: false,
       });
       notify();
-      await subscribeRun(state, 0);
+      try {
+        await subscribeRun(state, 0);
+      } catch (err) {
+        runsRef.current.delete(params.sessionId);
+        clearActiveRunDraft();
+        clearStreamDraft();
+        throw err;
+      }
     },
     [notify, subscribeRun],
   );

@@ -17,6 +17,15 @@ export interface AgentModelsResponse {
 
 export type AgentChatRole = 'user' | 'assistant';
 
+export type AgentApiContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+export type AgentApiMessage = {
+  role: AgentChatRole;
+  content: string | AgentApiContentPart[];
+};
+
 export type AgentToolActivityStatus = 'running' | 'done' | 'error';
 
 export interface AgentToolActivityItem {
@@ -48,9 +57,16 @@ export type AgentActivityStep =
   | { kind: 'tool'; id: string; item: AgentToolActivityItem }
   | { kind: 'eval'; id: string; hint: AgentEvalHintItem };
 
+export interface AgentChatImageAttachment {
+  dataUrl: string;
+  name?: string;
+}
+
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
+  /** Pasted or uploaded images attached to a user message. */
+  images?: AgentChatImageAttachment[];
   /** Chronological stream of thinking, tools, and eval hints. */
   activitySteps?: AgentActivityStep[];
   /** @deprecated Migrated into activitySteps for display order. */
@@ -65,8 +81,9 @@ export type AgentLocale = 'zh' | 'en';
 
 export interface AgentChatRequest {
   model_id: string;
-  messages: AgentChatMessage[];
+  messages: AgentApiMessage[];
   locale?: AgentLocale;
+  dashboard_tab?: string;
   use_tools?: boolean;
   max_tool_steps?: number;
   exclude_mutating_tools?: boolean;

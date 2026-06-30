@@ -266,6 +266,9 @@ async function consumeSseResponse(
 export async function createAgentRun(
   body: AgentChatRequest,
 ): Promise<{ run_id: string; session_id: string; status: string; model: string }> {
+  if (!body.messages.length) {
+    throw new ApiError('No messages to send', 0);
+  }
   const res = await fetch(`${CHAT_API_PREFIX}/chat/runs`, {
     method: 'POST',
     headers: {
@@ -279,6 +282,7 @@ export async function createAgentRun(
         session_id: createRandomId(),
         locale: body.locale ?? 'zh',
         event_format: 'dojo.v2',
+        ...(body.dashboard_tab ? { dashboard_tab: body.dashboard_tab } : {}),
       },
     }),
   });

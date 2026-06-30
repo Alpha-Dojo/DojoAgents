@@ -10,15 +10,16 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import type { SectorPerformanceMarketPoint } from '../../types/sector';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { DATA_START_DATE } from '../../utils/klineDate';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
   buildIndependentMarketPath,
+  buildCumulativeSnapshotForDate,
   buildHoverSnapshotForDate,
-  buildLatestOneDayReturnSnapshot,
+  buildLatestCumulativeSnapshot,
   buildMixedAxisEndLabel,
-  buildOneDayReturnSnapshotForDate,
   clampViewRange,
   findVisibleIndexForDate,
   formatPerformanceAsOfDate,
@@ -170,13 +171,13 @@ export function SectorLevelPerformanceSparkline({
   const chartAnchorDate = hoverDate ?? latestAnchorDate;
 
   const defaultSnapshot = useMemo(
-    () => buildLatestOneDayReturnSnapshot(rebasedByMarket),
+    () => buildLatestCumulativeSnapshot(rebasedByMarket),
     [rebasedByMarket],
   );
 
   const displaySnapshot = useMemo(() => {
     if (isDragging) return null;
-    if (hoverDate) return buildOneDayReturnSnapshotForDate(hoverDate, rebasedByMarket);
+    if (hoverDate) return buildCumulativeSnapshotForDate(hoverDate, rebasedByMarket);
     return defaultSnapshot;
   }, [hoverDate, isDragging, rebasedByMarket, defaultSnapshot]);
 
@@ -336,7 +337,7 @@ export function SectorLevelPerformanceSparkline({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [master?.series.length, minViewSpan]);
 
-  const startDate = visibleWindow.startDate || master?.series[0]?.date || '';
+  const startDate = visibleWindow.startDate || master?.series[0]?.date || DATA_START_DATE;
   const axisEndLabel = useMemo(
     () => buildMixedAxisEndLabel(latestMarketDates(rebasedByMarket)),
     [rebasedByMarket],
