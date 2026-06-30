@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPortfolioListItem } from '../../hooks/useFolioPortfolios';
 import type { FolioPortfolioHoldingsPreview } from '../../utils/folioPortfolioSearch';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { FolioConfirmDialog } from './FolioConfirmDialog';
 import { FolioPortfolioMarketStats } from './FolioPortfolioMarketStats';
 import { FolioPortfolioSearch } from './FolioPortfolioSearch';
@@ -206,7 +207,13 @@ export function FolioPortfolioSidebar({
           </button>
         </div>
 
-        {loading ? <p className="folio-sidebar__status">{t('folio.loading')}</p> : null}
+        {loading ? (
+          <LoadingIndicator
+            className="folio-sidebar__status"
+            label={t('folio.loading')}
+            variant="panel"
+          />
+        ) : null}
 
         {portfolios.length > 0 ? (
           <ul className="folio-sidebar__list">
@@ -223,10 +230,12 @@ export function FolioPortfolioSidebar({
                   >
                     <button
                       type="button"
-                      className="folio-sidebar__item-main"
+                      className="folio-sidebar__item-select"
                       aria-current={active ? 'true' : undefined}
+                      aria-label={portfolio.name}
                       onClick={() => onSelect(portfolio.id)}
-                    >
+                    />
+                    <div className="folio-sidebar__item-main">
                       <div className="folio-sidebar__item-header">
                         <div className="folio-sidebar__item-title-wrap">
                           <div className="folio-sidebar__item-title-row">
@@ -313,7 +322,7 @@ export function FolioPortfolioSidebar({
                       {!collapsed ? (
                         <FolioPortfolioMarketStats snapshots={portfolio.marketSnapshots ?? {}} />
                       ) : null}
-                    </button>
+                    </div>
                   </div>
                 </li>
               );

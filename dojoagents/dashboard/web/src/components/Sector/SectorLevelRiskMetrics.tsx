@@ -2,6 +2,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import type { SectorPerformanceResponse } from '../../types/sector';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface SectorLevelRiskMetricsProps {
   performance: SectorPerformanceResponse | null | undefined;
@@ -77,7 +78,11 @@ export function SectorLevelRiskMetrics({ performance, loading }: SectorLevelRisk
       <h4 className="sphere-level-risk__title">{t('sectorPage.riskReturnMetrics')}</h4>
 
       {loading && !hasStats ? (
-        <p className="sphere-level-risk__status">{t('sectorPage.loadingPerformance')}</p>
+        <LoadingIndicator
+          className="sphere-level-risk__status"
+          label={t('sectorPage.loadingPerformance')}
+          variant="panel"
+        />
       ) : !hasStats ? (
         <p className="sphere-level-risk__status">{t('sectorPage.noPerformanceData')}</p>
       ) : (

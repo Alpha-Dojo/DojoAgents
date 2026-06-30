@@ -18,6 +18,7 @@ import {
 } from '../../utils/folioBenchmarkSeries';
 import { formatSignedPercent, priceTickValues } from '../../utils/entityCharts';
 import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
@@ -761,10 +762,18 @@ export function FolioNavCurveChart({
   }, [endDrag, setHoverDate]);
 
   if (!chart) {
+    if (loading) {
+      return (
+        <LoadingIndicator
+          className="folio-performance__empty"
+          label={t('folio.loading')}
+          variant="panel"
+        />
+      );
+    }
+
     return (
-      <p className="folio-performance__empty">
-        {loading ? t('folio.loading') : t('folio.noPerformanceData')}
-      </p>
+      <p className="folio-performance__empty">{t('folio.noPerformanceData')}</p>
     );
   }
 

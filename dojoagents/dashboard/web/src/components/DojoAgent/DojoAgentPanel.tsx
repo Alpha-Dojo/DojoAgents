@@ -42,6 +42,7 @@ import {
 import "./DojoAgentPanel.css";
 import { DojoButton } from "../ui";
 import trashIcon from "../../assets/svg/trash.svg";
+import agentIcon from '../../assets/svg/agent.svg';
 
 interface DojoAgentPanelProps {
   open: boolean;
@@ -453,6 +454,7 @@ export function DojoAgentPanel({
       <div className="dojo-agent-panel__inner">
         <header className="dojo-agent-panel__head">
           <h2 id="dojo-agent-title" className="dojo-agent-panel__title">
+            <img src={agentIcon} alt="" className="dojo-agent-panel__title-icon" aria-hidden />
             DojoAgent
           </h2>
           <div className="dojo-agent-panel__head-actions">

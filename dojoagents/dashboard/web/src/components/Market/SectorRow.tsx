@@ -4,6 +4,7 @@ import { mapConstituentToMember } from '../../api/adapters/transforms';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode, SectorItem, SectorMemberItem } from '../../types/market';
 import { formatMarketCap, formatSignedPercent, formatStockPrice, normalizePercent } from '../../utils/marketStats';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface SectorRowProps {
   market: MarketCode;
@@ -312,7 +313,11 @@ export function SectorRow({
               </button>
             </div>
             {membersLoading ? (
-              <p className="mesh-sector-row__members-status">{t('sector.loadingMembers')}</p>
+              <LoadingIndicator
+                className="mesh-sector-row__members-status"
+                label={t('sector.loadingMembers')}
+                variant="panel"
+              />
             ) : membersError ? (
               <p className="mesh-sector-row__members-status mesh-sector-row__members-status--error">
                 {membersError}

@@ -1,5 +1,6 @@
 import { FolioOverviewPanel } from '../components/Folio/FolioOverviewPanel';
 import { FolioPortfolioSidebar } from '../components/Folio/FolioPortfolioSidebar';
+import { LoadingIndicator } from '../components/ui/LoadingIndicator';
 import { useFolioPortfolios } from '../hooks/useFolioPortfolios';
 import { useTranslation } from '../hooks/useTranslation';
 import type { AppTab } from '../navigation/appTab';
@@ -96,9 +97,11 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
           />
         ) : (
           <div className="folio-main-empty folio-card">
-            <p className="folio-main-empty__text">
-              {listLoading ? t('folio.loading') : t('folio.selectOrCreate')}
-            </p>
+            {listLoading ? (
+              <LoadingIndicator label={t('folio.loading')} variant="page" />
+            ) : (
+              <p className="folio-main-empty__text">{t('folio.selectOrCreate')}</p>
+            )}
           </div>
         )}
       </div>

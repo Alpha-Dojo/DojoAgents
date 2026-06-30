@@ -8,6 +8,7 @@ import {
   formatSignedPercent,
 } from '../../utils/entityCharts';
 import { MARKET_LEGAL_CURRENCY_KEY } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
 interface EntityRevenueChartProps {
@@ -118,7 +119,11 @@ export function EntityRevenueChart({
     >
       <div className="core-revenue">
         {loading && !financials.length ? (
-          <p className="entity-chart-stage__status">{t('entityPage.finIndicatorsLoading')}</p>
+          <LoadingIndicator
+            className="entity-chart-stage__status"
+            label={t('entityPage.finIndicatorsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !financials.length ? (
           <p className="entity-chart-stage__status">{t('entityPage.finIndicatorsEmpty')}</p>

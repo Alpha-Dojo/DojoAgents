@@ -12,6 +12,7 @@ import {
   valueFromChartY,
 } from '../../utils/entityCharts';
 import { findClosestDateIndex, findVisibleIndexForLinkedDate, normalizeChartDates } from '../../utils/entityChartLink';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   CORE_CHART_AXIS_W as AXIS_W,
   CORE_CHART_MIN_SURFACE_H as MIN_VIEW_H,
@@ -484,7 +485,11 @@ export function EntityPeBandChart({
     return (
       <EntityCard className="entity-card--pe-band">
         <div className="core-pe-band">
-          <p className="entity-chart-stage__status">{t('entityPage.peBandLoading')}</p>
+          <LoadingIndicator
+            className="entity-chart-stage__status"
+            label={t('entityPage.peBandLoading')}
+            variant="panel"
+          />
         </div>
       </EntityCard>
     );
@@ -625,7 +630,11 @@ export function EntityPeBandChart({
             ) : lossOnly ? (
               <div className="core-pe-band__plot-empty" aria-hidden />
             ) : (
-              <p className="entity-chart-stage__status">{t('entityPage.peBandLoading')}</p>
+              <LoadingIndicator
+                className="entity-chart-stage__status"
+                label={t('entityPage.peBandLoading')}
+                variant="panel"
+              />
             )}
           </div>
 

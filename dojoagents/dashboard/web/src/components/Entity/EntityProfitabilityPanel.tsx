@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { EntityProfitabilityAxis } from '../../types/entity';
 import { polarPoint } from '../../utils/entityCharts';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
 interface EntityProfitabilityPanelProps {
@@ -59,7 +60,11 @@ export function EntityProfitabilityPanel({ axes, industryLabel, loading = false 
   if (loading && !axes.length) {
     return (
       <EntityCard title={t('entityPage.profitabilityTitle')} className="entity-card--profitability">
-        <p className="entity-chart-stage__status">{t('entityPage.finIndicatorsLoading')}</p>
+        <LoadingIndicator
+          className="entity-chart-stage__status"
+          label={t('entityPage.finIndicatorsLoading')}
+          variant="panel"
+        />
       </EntityCard>
     );
   }

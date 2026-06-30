@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { EntityStockEventItem } from '../../types/entity';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
 interface EntityStockEventsPanelProps {
@@ -20,7 +21,11 @@ export function EntityStockEventsPanel({ events, loading = false }: EntityStockE
     <EntityCard title={t('entityPage.eventsTitle')} className="entity-card--events">
       <div className="core-events">
         {loading && !visibleEvents.length ? (
-          <p className="entity-chart-stage__status">{t('entityPage.eventsLoading')}</p>
+          <LoadingIndicator
+            className="entity-chart-stage__status"
+            label={t('entityPage.eventsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !visibleEvents.length ? (
           <p className="entity-chart-stage__status">{t('entityPage.eventsEmpty')}</p>

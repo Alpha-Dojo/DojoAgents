@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { EntityStockNewsItem } from '../../types/entity';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
 interface EntityStockNewsPanelProps {
@@ -20,7 +21,11 @@ export function EntityStockNewsPanel({ items, loading = false }: EntityStockNews
     <EntityCard title={t('entityPage.newsTitle')} className="entity-card--news">
       <div className="core-news">
         {loading && !visibleItems.length ? (
-          <p className="entity-chart-stage__status">{t('entityPage.newsLoading')}</p>
+          <LoadingIndicator
+            className="entity-chart-stage__status"
+            label={t('entityPage.newsLoading')}
+            variant="panel"
+          />
         ) : null}
         {!loading && !visibleItems.length ? (
           <p className="entity-chart-stage__status">{t('entityPage.newsEmpty')}</p>

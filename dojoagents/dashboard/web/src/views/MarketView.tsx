@@ -16,6 +16,7 @@ import { openEntityTicker } from "../navigation/openEntityTicker";
 import { clearPersistedSectorViewState } from "../cache/sectorViewState";
 import { MarketSectorMoversBar } from "../components/Market/MarketSectorMoversBar";
 import { MarketColumnPanel } from "../components/Market/MarketColumnPanel";
+import { LoadingIndicator } from "../components/ui/LoadingIndicator";
 import type { AppTab } from "../navigation/appTab";
 import type {
   MarketCode,
@@ -235,7 +236,11 @@ export function MarketView({
         className="market-view market-view--loading"
         aria-busy="true"
       >
-        <p className="market-view__status">{t("marketPage.loading")}</p>
+        <LoadingIndicator
+          className="market-view__status"
+          label={t("marketPage.loading")}
+          variant="page"
+        />
       </section>
     );
   }

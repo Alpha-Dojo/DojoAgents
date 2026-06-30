@@ -13,6 +13,7 @@ import { fetchCached, getCached } from '../../cache/queryCache';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import { tickersMatch } from '../../utils/tickerMatch';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface EntityAddToFolioButtonProps {
   ticker: string;
@@ -212,7 +213,11 @@ export function EntityAddToFolioButton({ ticker, market }: EntityAddToFolioButto
             </section>
 
             {loading ? (
-              <p className="core-add-folio__empty">{t('folio.loading')}</p>
+              <LoadingIndicator
+                className="core-add-folio__empty"
+                label={t('folio.loading')}
+                variant="panel"
+              />
             ) : portfolios.length === 0 ? (
               <p className="core-add-folio__empty">{t('folio.addToPortfolioEmptyHint')}</p>
             ) : (

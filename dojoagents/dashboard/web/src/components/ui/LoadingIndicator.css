@@ -1,0 +1,104 @@
+.dojo-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dojo-loading--inline {
+  display: inline-flex;
+  justify-content: flex-start;
+  gap: 7px;
+}
+
+.dojo-loading--panel {
+  width: 100%;
+  min-height: 88px;
+  padding: 18px;
+}
+
+.dojo-loading--page {
+  width: 100%;
+  min-height: min(360px, 48vh);
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dojo-loading__spinner {
+  position: relative;
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+}
+
+.dojo-loading--inline .dojo-loading__spinner {
+  width: 14px;
+  height: 14px;
+  flex-basis: 14px;
+}
+
+.dojo-loading--page .dojo-loading__spinner {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+}
+
+.dojo-loading__orbit {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid rgb(2 175 127 / 20%);
+  border-top-color: var(--color-accent-float);
+  border-right-color: var(--color-accent-primary);
+  border-radius: 50%;
+  animation: dojo-loading-spin 0.8s linear infinite;
+}
+
+.dojo-loading__core {
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background: var(--color-accent-primary);
+  box-shadow: 0 0 8px rgb(0 224 162 / 45%);
+  animation: dojo-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.dojo-loading__label {
+  min-width: 0;
+  color: inherit;
+}
+
+.dojo-loading--page .dojo-loading__label {
+  letter-spacing: 0.04em;
+}
+
+@keyframes dojo-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dojo-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.72);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dojo-loading__orbit,
+  .dojo-loading__core {
+    animation: none;
+  }
+}

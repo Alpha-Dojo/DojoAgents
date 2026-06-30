@@ -62,7 +62,7 @@ export function EntitySnapshotPanel({
         metric.title ? 'core-snapshot__metric--truncated' : '',
       ].filter(Boolean).join(' ')}
     >
-      <dt>{t(`core.metrics.${metric.labelKey}` as 'entityPage.metrics.marketCap')}</dt>
+      <dt>{t(`entityPage.metrics.${metric.labelKey}` as 'entityPage.metrics.marketCap')}</dt>
       <dd title={metric.title}>
         {metric.value}
         {metric.subValue ? <span className="core-snapshot__metric-sub">{metric.subValue}</span> : null}

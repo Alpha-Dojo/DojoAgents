@@ -615,6 +615,13 @@ def create_app(
             async def serve_canvas_template():
                 return FileResponse(canvas_template_path)
 
+        favicon_path = static_dir / "favicon.svg"
+        if favicon_path.is_file():
+
+            @app.get("/favicon.svg")
+            async def serve_favicon():
+                return FileResponse(favicon_path, media_type="image/svg+xml")
+
         index_path = static_dir / "index.html"
         if index_path.is_file():
 

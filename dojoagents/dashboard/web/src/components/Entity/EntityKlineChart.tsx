@@ -15,6 +15,7 @@ import {
 } from '../../utils/entityCharts';
 import { eventMarkerPaths, mapEventsToVisibleMarkers } from '../../utils/entityChartEvents';
 import { findClosestDateIndex, findVisibleIndexForLinkedDate, normalizeChartDates } from '../../utils/entityChartLink';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   CORE_CHART_AXIS_W as PRICE_AXIS_W,
   CORE_CHART_MIN_SURFACE_H as MIN_VIEW_H,
@@ -764,7 +765,11 @@ export function EntityKlineChart({
                     </svg>
                   </>
                 ) : (
-                  <p className="entity-chart-stage__status">{t('entityPage.klineLoading')}</p>
+                  <LoadingIndicator
+                    className="entity-chart-stage__status"
+                    label={t('entityPage.klineLoading')}
+                    variant="panel"
+                  />
                 )}
               </div>
 

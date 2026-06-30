@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { SectorBottomPanel } from '../components/Sector/SectorBottomPanel';
 import { SectorHero } from '../components/Sector/SectorHero';
+import { LoadingIndicator } from '../components/ui/LoadingIndicator';
 import {
   persistSectorViewState,
   readPersistedSectorScopeLevel,
@@ -105,7 +106,7 @@ export function SectorView({ onNavigateTab }: SectorViewProps) {
   if (loading && !taxonomy) {
     return (
       <section className="sector-view sector-view--loading">
-        <p>{t('sectorPage.loading')}</p>
+        <LoadingIndicator label={t('sectorPage.loading')} variant="page" />
       </section>
     );
   }

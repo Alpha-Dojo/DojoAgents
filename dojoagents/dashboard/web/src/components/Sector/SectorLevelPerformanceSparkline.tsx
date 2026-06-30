@@ -10,6 +10,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import type { SectorPerformanceMarketPoint } from '../../types/sector';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   PERFORMANCE_MARKET_CLASS,
   PERFORMANCE_MARKETS,
@@ -420,7 +421,11 @@ export function SectorLevelPerformanceSparkline({
         }}
       >
         {loading ? (
-          <p className="sphere-level-sparkline__status">{t('sectorPage.loadingPerformance')}</p>
+          <LoadingIndicator
+            className="sphere-level-sparkline__status"
+            label={t('sectorPage.loadingPerformance')}
+            variant="panel"
+          />
         ) : !chart.hasData ? (
           <p className="sphere-level-sparkline__status">{t('sectorPage.noPerformanceData')}</p>
         ) : (

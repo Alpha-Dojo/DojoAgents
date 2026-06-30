@@ -10,6 +10,7 @@ import {
   prepareIncomeListRows,
   type IncomeChartSlice,
 } from '../../utils/entityIncomeDistribution';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
 interface EntityIncomeDistributionPanelProps {
@@ -164,7 +165,11 @@ export function EntityIncomeDistributionPanel({
       }
     >
       {loading && !distributions.length ? (
-        <p className="entity-chart-stage__status">{t('entityPage.incomeLoading')}</p>
+        <LoadingIndicator
+          className="entity-chart-stage__status"
+          label={t('entityPage.incomeLoading')}
+          variant="panel"
+        />
       ) : (
         <div className="entity-income">
           {INCOME_MAINOP_TYPES.map((mainopType) => (

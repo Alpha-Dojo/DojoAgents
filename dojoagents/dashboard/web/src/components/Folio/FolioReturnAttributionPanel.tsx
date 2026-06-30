@@ -7,6 +7,7 @@ import {
   type AttributionStepKey,
   type AttributionWaterfallStep,
 } from '../../utils/folioReturnAttribution';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface FolioReturnAttributionPanelProps {
   portfolio: FolioPortfolioDetail;
@@ -161,7 +162,13 @@ export function FolioReturnAttributionPanel({
   );
 
   if (loading && !attribution) {
-    return <p className="folio-panel__status">{t('folio.loading')}</p>;
+    return (
+      <LoadingIndicator
+        className="folio-panel__status"
+        label={t('folio.loading')}
+        variant="panel"
+      />
+    );
   }
   if (!attribution) {
     return <p className="folio-panel__status">{t('folio.attributionEmpty')}</p>;

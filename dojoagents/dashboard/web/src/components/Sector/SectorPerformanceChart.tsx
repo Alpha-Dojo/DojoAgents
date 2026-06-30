@@ -6,7 +6,7 @@ import type { MarketCode } from '../../types/market';
 import type { SectorLevelKey, SectorPerformancePoint } from '../../types/sector';
 import type { ResolvedSectorPath } from '../../types/sectorTaxonomy';
 import { scopeChartTitle } from '../../utils/sectorTitle';
-import { DojoDropdownSelect } from '../ui';
+import { DojoDropdownSelect, LoadingIndicator } from '../ui';
 
 interface SectorPerformanceChartProps {
   path: ResolvedSectorPath;
@@ -386,7 +386,11 @@ export function SectorPerformanceChart({
         onMouseLeave={handleChartMouseLeave}
       >
         {loading ? (
-          <p className="sphere-performance__status">{t('sectorPage.loadingPerformance')}</p>
+          <LoadingIndicator
+            className="sphere-performance__status"
+            label={t('sectorPage.loadingPerformance')}
+            variant="panel"
+          />
         ) : !chart.hasData ? (
           <p className="sphere-performance__status">{t('sectorPage.noPerformanceData')}</p>
         ) : (

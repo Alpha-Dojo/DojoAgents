@@ -6,6 +6,7 @@ import {
   type RiskExposureRow,
   type RiskStatus,
 } from '../../utils/folioRiskExposure';
+import { LoadingIndicator } from '../ui/LoadingIndicator';
 
 interface FolioRiskExposurePanelProps {
   portfolio: FolioPortfolioDetail;
@@ -81,7 +82,13 @@ export function FolioRiskExposurePanel({
   );
 
   if (loading && !exposure) {
-    return <p className="folio-panel__status">{t('folio.loading')}</p>;
+    return (
+      <LoadingIndicator
+        className="folio-panel__status"
+        label={t('folio.loading')}
+        variant="panel"
+      />
+    );
   }
   if (!exposure) {
     return <p className="folio-panel__status">{t('folio.riskEmpty')}</p>;
