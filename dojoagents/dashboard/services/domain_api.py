@@ -727,8 +727,12 @@ async def build_sector_analysis(
 
     async def load_scope_performance(current_scope: str) -> tuple[str, dict[str, Any]]:
         async def compute_performance_payload() -> dict[str, Any]:
-            result = await asyncio.to_thread(
-                compute_sector_scope_performance, registry.stock_store, registry.kline_store, registry.sector_precomputed_store, path, scope=current_scope
+            result = await compute_sector_scope_performance(
+                registry.stock_store,
+                registry.kline_store,
+                registry.sector_precomputed_store,
+                path,
+                scope=current_scope,
             )
             return result.model_dump()
 
