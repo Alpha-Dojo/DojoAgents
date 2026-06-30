@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dojoagents.agent.loop import AgentLoop
+from dojoagents.agent.session_manager import DojoAgentSessionManager
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
 from dojoagents.config.loader import resolve_provider_config
@@ -29,6 +30,7 @@ class Runtime:
     config: AgentsConfig
     config_store: ConfigStore
     agent: AgentLoop
+    sessions: DojoAgentSessionManager
     extensions: DojoExtensionRegistry
     scheduler: JobStore
 
@@ -207,6 +209,16 @@ class Runtime:
         if config.memory.provider == "skill_summary":
             memory.add_provider(SkillSummaryMemoryProvider(config.memory.generated_skill_dir))
 
+        sessions = DojoAgentSessionManager(
+            root=config.sessions.root,
+            memory_manager=memory,
+            agent_id=config.sessions.agent_id,
+            provider=config.sessions.provider,
+            sync_memory=config.sessions.sync_memory,
+            export_default_dir=config.sessions.export_default_dir,
+            enabled=config.sessions.enabled,
+        )
+
         agent = AgentLoop(
             llm_provider=provider,
             tool_executor=ToolExecutor(
@@ -221,6 +233,7 @@ class Runtime:
             task_harnesses=[PortfolioTaskHarness()],
             provider_config=provider_cfg,
             provider_state=provider_state,
+            session_manager=sessions,
         )
 
         # Wire pool runtime reference after agent creation
@@ -251,6 +264,7 @@ class Runtime:
             config=config,
             config_store=store,
             agent=agent,
+            sessions=sessions,
             extensions=extensions,
             scheduler=JobStore(Path(config.scheduler.store).expanduser()),
         )

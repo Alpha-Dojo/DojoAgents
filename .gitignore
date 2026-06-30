@@ -11,7 +11,7 @@ cscope.*
 # build
 dist/
 build/
-./site
+/site
 emergingai.egg-info/
 
 # Unit test / coverage reports

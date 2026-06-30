@@ -31,6 +31,7 @@ from dojoagents.config.models import (
     WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
+    SessionsConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -146,6 +147,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
+    sessions_raw = raw.get("sessions", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -213,6 +215,15 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             auto_plan_threshold=int(planning_raw.get("auto_plan_threshold", 100)),
             plan_store_path=str(planning_raw.get("plan_store_path", "~/.dojo/agents/plans")),
             max_plan_steps=int(planning_raw.get("max_plan_steps", 10)),
+        ),
+        sessions=SessionsConfig(
+            enabled=bool(sessions_raw.get("enabled", True)),
+            provider=str(sessions_raw.get("provider", "dojo_repository")),
+            root=str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions")),
+            agent_id=str(sessions_raw.get("agent_id", "dojo-agent")),
+            persist_openai_history=bool(sessions_raw.get("persist_openai_history", True)),
+            sync_memory=bool(sessions_raw.get("sync_memory", True)),
+            export_default_dir=str(sessions_raw.get("export_default_dir", "~/Desktop/dojo-chat-export")),
         ),
     )
 

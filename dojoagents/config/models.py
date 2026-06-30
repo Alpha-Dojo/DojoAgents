@@ -175,6 +175,17 @@ class PlanConfig:
 
 
 @dataclass(frozen=True)
+class SessionsConfig:
+    enabled: bool = True
+    provider: str = "dojo_repository"
+    root: str = "~/.dojo/agents/strands_sessions"
+    agent_id: str = "dojo-agent"
+    persist_openai_history: bool = True
+    sync_memory: bool = True
+    export_default_dir: str = "~/Desktop/dojo-chat-export"
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     version: int = 1
     llm_provider: LLMConfig = field(default_factory=LLMConfig)
@@ -191,3 +202,4 @@ class AgentsConfig:
     dojosdk: DojoSDKConfig = field(default_factory=DojoSDKConfig)
     multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
     planning: PlanConfig = field(default_factory=PlanConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
