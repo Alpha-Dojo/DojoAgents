@@ -46,6 +46,76 @@ class FakeKlineStore:
         )
 
 
+class TruncatingFakeKlineStore:
+    """Simulates default trailing-window fetch that drops older bars."""
+
+    def __init__(self, bars: list[Bar], *, trailing_limit: int = 2) -> None:
+        self.bars = bars
+        self.trailing_limit = trailing_limit
+
+    async def get_or_fetch_kline(self, *_args, **kwargs):
+        from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+
+        start = str(kwargs.get("start_time") or "")[:10]
+        end = str(kwargs.get("end_time") or "")[:10]
+        limit = int(kwargs.get("limit") or 252)
+
+        selected = self.bars
+        if start and end:
+            selected = [bar for bar in self.bars if start <= bar.bar_time[:10] <= end]
+        elif start:
+            selected = [bar for bar in self.bars if bar.bar_time[:10] >= start][:limit]
+        else:
+            selected = self.bars[-self.trailing_limit :]
+
+        return StockKlineResponse(
+            symbol="MU",
+            bars=[
+                StockKlineBar(
+                    symbol="MU",
+                    bar_time=bar.bar_time,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                )
+                for bar in selected
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_fill_failure_fetches_historical_bar_outside_trailing_window() -> None:
+    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+
+    order = {
+        "id": "o-hist",
+        "ticker": "MU",
+        "market": "us",
+        "order_side": "buy",
+        "order_status": "pending",
+        "price": 98.59,
+        "qty": 200,
+        "order_time": "2025-05-29",
+        "created_at": "2026-06-30T00:00:00+00:00",
+    }
+    store = TruncatingFakeKlineStore(
+        [
+            Bar("2025-05-29", 98.59, 101.0, 97.0),
+            Bar("2026-06-27", 190, 195, 188),
+            Bar("2026-06-30", 194, 198, 192),
+        ],
+        trailing_limit=2,
+    )
+    failure = await evaluate_order_fill_failure(
+        order,
+        kline_store=store,
+        prior_orders=[],
+        initial_capital=1_000_000.0,
+    )
+    assert failure is None
+
+
 @pytest.mark.asyncio
 async def test_fill_order_without_time_uses_next_day_open() -> None:
     order = {

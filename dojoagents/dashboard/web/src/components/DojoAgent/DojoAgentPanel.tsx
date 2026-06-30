@@ -52,8 +52,7 @@ import {
 } from "../../utils/agentMessages";
 import "./DojoAgentPanel.css";
 import { DojoButton } from "../ui";
-import trashIcon from "../../assets/svg/trash.svg";
-import agentIcon from '../../assets/svg/agent.svg';
+import agentIcon from "../../assets/svg/agent.svg";
 
 interface DojoAgentPanelProps {
   open: boolean;
@@ -81,20 +80,167 @@ function formatSessionTime(timestamp: number): string {
 
 function HistoryIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+    <svg
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
       <path
-        d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
+        fill="currentColor"
+        d="M512 85.333c235.648 0 426.667 191.019 426.667 426.667S747.648 938.667 512 938.667a424.789 424.789 0 0 1-200.875-50.134L85.333 938.667l50.176-225.707A424.789 424.789 0 0 1 85.333 512C85.333 276.352 276.352 85.333 512 85.333Zm0 85.334C323.477 170.667 170.667 323.477 170.667 512c0 56.96 13.909 111.701 40.106 160.683l14.934 27.904-27.99 125.696 125.782-27.904 27.861 14.89A339.413 339.413 0 0 0 512 853.333 341.333 341.333 0 1 0 512 170.667Zm42.667 128V512h170.666v85.333h-256V298.667h85.334Z"
+      />
+    </svg>
+  );
+}
+function NewChatIcon() {
+  return (
+    <svg
+      viewBox="0 0 1024 1024"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        fill="currentColor"
+        d="M333.184 987.456a52.928 52.928 0 0 1-18.688-3.712 47.424 47.424 0 0 1-16.064-10.56 44.544 44.544 0 0 1-10.624-15.36 45.76 45.76 0 0 1-4.032-18.304l-1.088-96.896a256.896 256.896 0 0 1-82.304-27.456 239.808 239.808 0 0 1-36.16-24.128 219.008 219.008 0 0 1-31.488-29.632 265.728 265.728 0 0 1-25.6-34.752 240.384 240.384 0 0 1-30.336-79.744 237.44 237.44 0 0 1-3.648-42.368V346.24c0-15.68 1.472-31.04 4.352-46.4 3.328-15.36 8.064-30.4 13.952-44.992a248.32 248.32 0 0 1 52.992-77.184A242.432 242.432 0 0 1 269.504 112.64a230.4 230.4 0 0 1 47.552-4.736H486.4a44.48 44.48 0 0 1 30.72 12.416 42.176 42.176 0 0 1 0 59.584 43.712 43.712 0 0 1-30.72 12.48H317.056c-10.56 0-20.8 0.704-30.72 2.88-10.24 1.856-20.096 4.8-29.632 8.832a139.904 139.904 0 0 0-27.392 14.208 169.344 169.344 0 0 0-23.808 19.072 171.584 171.584 0 0 0-19.712 23.36 171.008 171.008 0 0 0-14.656 26.688 155.264 155.264 0 0 0-11.712 58.88v258.24c0 10.24 0.768 20.096 2.944 30.336 2.176 9.856 5.12 19.776 9.152 29.248a148.48 148.48 0 0 0 34.752 50.816 155.52 155.52 0 0 0 51.904 33.664c9.536 4.032 19.776 6.976 30.016 9.152 10.24 1.856 20.48 2.944 31.104 2.944a48.896 48.896 0 0 1 34.688 13.888 50.88 50.88 0 0 1 11.008 15.744c2.56 5.824 3.648 12.032 4.032 18.24l0.32 59.648 108.992-77.888c27.84-19.776 58.88-29.632 93.248-29.632h134.976c10.624 0 20.864-1.088 30.72-2.944 10.24-1.856 20.096-4.736 29.632-8.768 9.472-4.032 18.624-8.768 27.392-14.272 8.448-5.504 16.512-12.096 23.808-19.008 7.296-7.296 13.888-14.976 19.712-23.424a145.344 145.344 0 0 0 23.424-55.552c2.176-9.92 2.944-19.776 2.944-30.016V473.216a40.896 40.896 0 0 1 12.8-29.632 44.48 44.48 0 0 1 47.168-9.152c5.12 1.92 9.856 5.12 13.888 9.152a40.896 40.896 0 0 1 12.8 29.632V606.72a233.92 233.92 0 0 1-41.344 132.416 221.184 221.184 0 0 1-30.336 36.16 262.208 262.208 0 0 1-36.928 29.632 229.952 229.952 0 0 1-42.048 21.952 251.712 251.712 0 0 1-93.632 18.304H599.744c-33.984 0-65.088 9.856-92.864 29.632L362.432 977.92a49.92 49.92 0 0 1-29.248 9.536z"
       />
       <path
-        d="M8 4.5v3.25l2.25 1.35"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        fill="currentColor"
+        d="M902.592 188.16h-237.44a42.176 42.176 0 0 0 0 84.352h237.44a42.176 42.176 0 1 0 0-84.352z"
+      />
+      <path
+        fill="currentColor"
+        d="M827.008 116.288a43.2 43.2 0 0 0-86.336 0v228.096a43.2 43.2 0 0 0 86.4 0V116.288z"
+      />
+    </svg>
+  );
+}
+
+function PanelSizeIcon({ maximized }: { maximized: boolean }) {
+  return maximized ? (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <g clipPath="url(#clip0_43081_3490)">
+        <path
+          d="M23.0013 0.999023H0.998535V23.0018H23.0013V0.999023Z"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8.07227 4.51021V8.20508H4.3774"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M15.9279 4.51021V8.20508H19.6228"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M8.07227 19.4893V15.7944H4.3774"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M15.9279 19.4893V15.7944H19.6228"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+      </g>
+      <defs>
+        <clipPath id="clip0_43081_3490">
+          <rect width="24" height="24" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  ) : (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <g clipPath="url(#clip0_43081_3479)">
+        <path
+          d="M23.0013 0.999023H0.998535V23.0018H23.0013V0.999023Z"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4.37744 8.20463V4.50977H8.07231"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M19.6228 8.20463V4.50977H15.928"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M4.37744 15.7939V19.4888H8.07231"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+        <path
+          d="M19.6228 15.7939V19.4888H15.928"
+          stroke="currentColor"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
+        />
+      </g>
+      <defs>
+        <clipPath id="clip0_43081_3479">
+          <rect width="24" height="24" fill="white" />
+        </clipPath>
+      </defs>
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      className="dojo-agent-panel__toolbar-icon"
+      viewBox="0 0 16 16"
+      aria-hidden
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    >
+      <path d="m3 3 10 10M13 3 3 13" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M16.1792 4.95996V2.98047H16.3999C16.2789 2.98047 16.1792 2.88077 16.1792 2.75977V2.98047H7.81982V2.75977C7.81982 2.88077 7.72012 2.98047 7.59912 2.98047H7.81982V4.95996H16.1792ZM5.30322 6.94043L5.96924 21.0195H18.0308L18.6958 6.94043H5.30322ZM21.6802 4.95996C22.1667 4.96014 22.56 5.35329 22.5601 5.83984V6.71973C22.5601 6.84073 22.4604 6.94043 22.3394 6.94043H20.6792L19.9995 21.3223C19.9555 22.2627 19.183 22.9998 18.2427 23H5.75732C4.81962 23 4.04449 22.26 4.00049 21.3223L3.3208 6.94043H1.65967C1.53879 6.94028 1.43994 6.84064 1.43994 6.71973V5.83984C1.44003 5.35321 1.83319 4.96002 2.31982 4.95996H5.83936V2.75977C5.83948 1.78926 6.62865 1.00023 7.59912 1H16.3999C17.3704 1.00022 18.1595 1.78926 18.1597 2.75977V4.95996H21.6802Z"
+        fill="currentColor"
       />
     </svg>
   );
@@ -606,8 +752,7 @@ export function DojoAgentPanel({
         pinned ? " dojo-agent-panel--pinned" : ""
       }${interactive ? " dojo-agent-panel--interactive" : ""}${
         resizing ? " dojo-agent-panel--resizing" : ""
-      }${panelMaximized ? " dojo-agent-panel--maximized" : ""
-      }`}
+      }${panelMaximized ? " dojo-agent-panel--maximized" : ""}`}
       style={
         isOpen ? (maximized ? undefined : { width: panelWidth }) : undefined
       }
@@ -628,7 +773,12 @@ export function DojoAgentPanel({
       <div className="dojo-agent-panel__inner">
         <header className="dojo-agent-panel__head">
           <h2 id="dojo-agent-title" className="dojo-agent-panel__title">
-            <img src={agentIcon} alt="" className="dojo-agent-panel__title-icon" aria-hidden />
+            <img
+              src={agentIcon}
+              alt=""
+              className="dojo-agent-panel__title-icon"
+              aria-hidden
+            />
             DojoAgent
           </h2>
           <div className="dojo-agent-panel__head-actions">
@@ -636,66 +786,47 @@ export function DojoAgentPanel({
               icon
               size="xs"
               variant="secondary"
-              className={`dojo-agent-panel__toolbar-btn ${
-                historyOpen ? "dojo-agent-panel__toolbar-btn--active" : ""
-              }`}
+              className={`${historyOpen ? "is-active" : ""}`}
               aria-expanded={historyOpen}
               aria-label={t("agent.history")}
               title={t("agent.history")}
               onClick={() => setHistoryOpen((prev) => !prev)}
             >
-              <span
-                className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--history"
-                aria-hidden
-              />
+              <HistoryIcon />
             </DojoButton>
             <DojoButton
               icon
               size="xs"
               variant="secondary"
-              className="dojo-agent-panel__toolbar-btn"
               aria-label={t("agent.newChat")}
               title={t("agent.newChat")}
               onClick={handleNewSession}
             >
-              <span
-                className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--message"
-                aria-hidden
-              />
+              <NewChatIcon />
             </DojoButton>
             <DojoButton
               icon
               size="xs"
               variant="secondary"
-              className="dojo-agent-panel__toolbar-btn"
+              className="mini-icon"
               aria-pressed={maximized}
               aria-label={maximizeLabel}
               title={maximizeLabel}
               onClick={() => setMaximized((prev) => !prev)}
             >
-              <span
-                className={`dojo-agent-panel__toolbar-icon ${
-                  maximized
-                    ? "dojo-agent-panel__toolbar-icon--minimize"
-                    : "dojo-agent-panel__toolbar-icon--maximize"
-                }`}
-                aria-hidden
-              />
+              <PanelSizeIcon maximized={maximized} />
             </DojoButton>
             {!pinned ? (
               <DojoButton
                 icon
                 size="xs"
                 variant="error"
-                className="dojo-agent-panel__toolbar-btn dojo-agent-panel__toolbar-btn--close"
+                className="mini-icon"
                 aria-label={t("agent.close")}
                 title={t("agent.close")}
                 onClick={onClose}
               >
-                <span
-                  className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--close"
-                  aria-hidden
-                />
+                <CloseIcon />
               </DojoButton>
             ) : null}
           </div>
@@ -765,7 +896,7 @@ export function DojoAgentPanel({
                           disabled={isLoading}
                           onClick={() => deleteSession(session.id)}
                         >
-                          <img src={trashIcon} alt="" aria-hidden />
+                          <TrashIcon />
                         </DojoButton>
                       </div>
                     </li>
@@ -906,9 +1037,7 @@ export function DojoAgentPanel({
                         {displayContent ? (
                           <AgentMarkdown
                             content={displayContent}
-                            streaming={
-                              isStreamingAssistant && !!displayContent
-                            }
+                            streaming={isStreamingAssistant && !!displayContent}
                           />
                         ) : null}
                         {isStreamingAssistant &&
@@ -1003,7 +1132,7 @@ export function DojoAgentPanel({
               <AgentModelSwitcher variant="composer" />
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className={
                   pendingImages.length > 0
                     ? "dojo-agent-panel__attach-btn dojo-agent-panel__attach-btn--active"
@@ -1031,7 +1160,7 @@ export function DojoAgentPanel({
             {streaming ? (
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className="dojo-agent-panel__send-btn"
                 aria-label={t("agent.stop")}
                 onClick={handleStop}
@@ -1041,7 +1170,7 @@ export function DojoAgentPanel({
             ) : (
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className="dojo-agent-panel__send-btn"
                 disabled={!canSend}
                 aria-label={t("agent.send")}

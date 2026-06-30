@@ -81,8 +81,12 @@ class HarnessLoopState:
         deleted = self.deleted_portfolio_ids()
         for result in reversed(self.tool_results):
             if not result.ok or result.name not in {
+                "portfolio_write_add_candidate",
+                "portfolio_write_add_candidates",
                 "portfolio_write_add_holding",
                 "portfolio_write_add_holdings",
+                "portfolio_write_create_order",
+                "portfolio_write_create_orders",
                 "portfolio_write_rename",
                 "portfolio_write_auto_allocate",
                 "portfolio_read_detail",

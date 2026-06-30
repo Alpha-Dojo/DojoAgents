@@ -8,6 +8,7 @@ from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.agent.turn_intent import build_turn_intent_anchor
 from dojoagents.agent.models import AgentResponse, ChatRequest, ToolCall
 from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
@@ -408,10 +409,12 @@ class AgentLoop:
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
         harness_state = HarnessLoopState(request=request)
-        active_harness = next(
-            (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
-            None,
-        )
+
+        def _resolve_active_harness():
+            return next(
+                (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
+                None,
+            )
         invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
         LOGGER.info(
             "AgentLoop.run start: session_id=%s channel=%s model=%s provider=%s provider_impl=%s history_turns=%d message_len=%d",
@@ -491,6 +494,9 @@ class AgentLoop:
 
             blocks.append(DASHBOARD_VIZ_PROTOCOL)
             blocks.append(DASHBOARD_TOOL_PROTOCOL)
+        turn_anchor = build_turn_intent_anchor(request)
+        if turn_anchor:
+            blocks.append(turn_anchor)
         if image_turn:
             blocks.append(MULTIMODAL_IMAGE_PROTOCOL)
         system = "\n\n".join(block for block in blocks if block)
@@ -772,6 +778,8 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
+            if event.tool_use:
+                active_harness = _resolve_active_harness()
             if event.tool_use and active_harness is not None:
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or event.tool_use.get("name") or "tool"
                 repaired_calls = active_harness.repair_tool_calls(
@@ -1033,6 +1041,7 @@ class AgentLoop:
         token_ledger.save()
 
         harness_state.final_response = response_text
+        active_harness = _resolve_active_harness()
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")
             max_harness_recovery_turns = max(3, self.config.max_iterations - 1)

@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPortfolioListItem } from '../../hooks/useFolioPortfolios';
 import type { FolioPortfolioHoldingsPreview } from '../../utils/folioPortfolioSearch';
+import { getPortfolioRailLabel } from '../../utils/folioPortfolioRail';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { FolioConfirmDialog } from './FolioConfirmDialog';
 import { FolioPortfolioMarketStats } from './FolioPortfolioMarketStats';
 import { FolioPortfolioSearch } from './FolioPortfolioSearch';
-import { ChevronIcon, PinIcon, TrashIcon } from './FolioSidebarIcons';
+import { ChevronIcon, PinIcon, SidebarToggleIcon, TrashIcon } from './FolioSidebarIcons';
+import { DojoButton } from "../ui";
 
 interface FolioPortfolioSidebarProps {
   portfolios: FolioPortfolioListItem[];
@@ -16,6 +18,7 @@ interface FolioPortfolioSidebarProps {
   loading?: boolean;
   creating?: boolean;
   createError?: string | null;
+  collapsed?: boolean;
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -23,6 +26,7 @@ interface FolioPortfolioSidebarProps {
   onPromoteToManual?: (id: string) => void;
   onCreate?: () => void;
   onSearchQueryChange: (query: string) => void;
+  onToggleCollapsed: () => void;
 }
 
 function EditablePortfolioName({
@@ -124,6 +128,7 @@ export function FolioPortfolioSidebar({
   loading = false,
   creating = false,
   createError = null,
+  collapsed = false,
   onSelect,
   onRename,
   onDelete,
@@ -131,6 +136,7 @@ export function FolioPortfolioSidebar({
   onPromoteToManual,
   onCreate,
   onSearchQueryChange,
+  onToggleCollapsed,
 }: FolioPortfolioSidebarProps) {
   const { t } = useTranslation();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -181,8 +187,58 @@ export function FolioPortfolioSidebar({
   };
 
   return (
-    <aside className="folio-sidebar folio-card">
-      <div className="folio-sidebar__body">
+    <aside
+      className={`folio-sidebar folio-card ${collapsed ? 'folio-sidebar--collapsed' : ''}`}
+    >
+      <div className="folio-sidebar__rail" aria-hidden={!collapsed}>
+        <DojoButton
+            icon
+            size="xs"
+            variant="secondary"
+            aria-expanded={!collapsed}
+            aria-label={t('folio.expandPortfolioSidebar')}
+            title={t('folio.expandPortfolioSidebar')}
+            onClick={onToggleCollapsed}
+          >
+            <SidebarToggleIcon collapsed />
+          </DojoButton>
+        <div className="folio-sidebar__rail-list">
+          {portfolios.map((portfolio) => {
+            const active = portfolio.id === activeId;
+            const initial = getPortfolioRailLabel(portfolio.name);
+
+            return (
+              <button
+                key={portfolio.id}
+                type="button"
+                className={`folio-sidebar__rail-item ${
+                  active ? 'folio-sidebar__rail-item--active' : ''
+                }`}
+                aria-current={active ? 'true' : undefined}
+                aria-label={portfolio.name}
+                title={portfolio.name}
+                onClick={() => onSelect(portfolio.id)}
+              >
+                {initial}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          className="folio-sidebar__rail-create"
+          disabled={creating}
+          aria-busy={creating}
+          aria-label={creating ? t('folio.creatingPortfolio') : t('folio.newPortfolio')}
+          title={creating ? t('folio.creatingPortfolio') : t('folio.newPortfolio')}
+          onClick={onCreate}
+        >
+          <CreatePortfolioIcon />
+        </button>
+      </div>
+
+      <div className="folio-sidebar__expanded">
+        <div className="folio-sidebar__body">
         <div className="folio-sidebar__search-row">
           <FolioPortfolioSearch
             portfolios={allPortfolios}
@@ -190,8 +246,10 @@ export function FolioPortfolioSidebar({
             onQueryChange={onSearchQueryChange}
             onSelectPortfolio={onSelect}
           />
-          <button
-            type="button"
+          <DojoButton
+            icon
+            size="xs"
+            variant="secondary"
             className="folio-sidebar__collapse-all"
             disabled={portfolios.length === 0}
             aria-label={
@@ -208,7 +266,18 @@ export function FolioPortfolioSidebar({
           >
             <ChevronIcon expanded={!allVisibleCollapsed} />
             <ChevronIcon expanded={!allVisibleCollapsed} />
-          </button>
+          </DojoButton>
+          <DojoButton
+            icon
+            size="xs"
+            variant="secondary"
+            aria-expanded={!collapsed}
+            aria-label={t('folio.collapsePortfolioSidebar')}
+            title={t('folio.collapsePortfolioSidebar')}
+            onClick={onToggleCollapsed}
+          >
+            <SidebarToggleIcon collapsed={false} />
+          </DojoButton>
         </div>
 
         {loading ? (
@@ -342,26 +411,27 @@ export function FolioPortfolioSidebar({
             })}
           </ul>
         ) : null}
-      </div>
+        </div>
 
-      <div className="folio-sidebar__footer">
-        {createError ? (
-          <p className="folio-sidebar__create-error" role="alert">
-            {createError}
-          </p>
-        ) : null}
-        <button
-          type="button"
-          className="folio-sidebar__create"
-          disabled={creating}
-          aria-busy={creating}
-          onClick={onCreate}
-        >
-          <CreatePortfolioIcon />
-          <span className="folio-sidebar__create-label">
-            {creating ? t('folio.creatingPortfolio') : t('folio.newPortfolio')}
-          </span>
-        </button>
+        <div className="folio-sidebar__footer">
+          {createError ? (
+            <p className="folio-sidebar__create-error" role="alert">
+              {createError}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="folio-sidebar__create"
+            disabled={creating}
+            aria-busy={creating}
+            onClick={onCreate}
+          >
+            <CreatePortfolioIcon />
+            <span className="folio-sidebar__create-label">
+              {creating ? t('folio.creatingPortfolio') : t('folio.newPortfolio')}
+            </span>
+          </button>
+        </div>
       </div>
 
       <FolioConfirmDialog
