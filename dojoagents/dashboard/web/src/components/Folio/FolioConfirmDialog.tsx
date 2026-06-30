@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { DojoButton } from '../ui';
 
 interface FolioConfirmDialogProps {
   open: boolean;
@@ -59,16 +60,12 @@ export function FolioConfirmDialog({
         </h3>
         <p className="folio-dialog__message">{message}</p>
         <div className="folio-dialog__actions">
-          <button type="button" className="folio-dialog__button folio-dialog__button--ghost" onClick={onCancel}>
+          <DojoButton size="sm" variant="secondary" onClick={onCancel}>
             {cancelLabel ?? t('folio.cancel')}
-          </button>
-          <button
-            type="button"
-            className="folio-dialog__button folio-dialog__button--danger"
-            onClick={onConfirm}
-          >
+          </DojoButton>
+          <DojoButton size="sm" variant="error" onClick={onConfirm}>
             {confirmLabel ?? t('folio.confirmDelete')}
-          </button>
+          </DojoButton>
         </div>
       </div>
     </div>

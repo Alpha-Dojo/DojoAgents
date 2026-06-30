@@ -114,37 +114,37 @@ function PanelSizeIcon({ maximized }: { maximized: boolean }) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <g clip-path="url(#clip0_43081_3490)">
+      <g clipPath="url(#clip0_43081_3490)">
         <path
           d="M23.0013 0.999023H0.998535V23.0018H23.0013V0.999023Z"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+          strokeWidth="1.99723"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
         <path
           d="M8.07227 4.51021V8.20508H4.3774"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M15.9279 4.51021V8.20508H19.6228"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M8.07227 19.4893V15.7944H4.3774"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M15.9279 19.4893V15.7944H19.6228"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
       </g>
       <defs>
@@ -161,37 +161,37 @@ function PanelSizeIcon({ maximized }: { maximized: boolean }) {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <g clip-path="url(#clip0_43081_3479)">
+      <g clipPath="url(#clip0_43081_3479)">
         <path
           d="M23.0013 0.999023H0.998535V23.0018H23.0013V0.999023Z"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+          strokeWidth="1.99723"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
         <path
           d="M4.37744 8.20463V4.50977H8.07231"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M19.6228 8.20463V4.50977H15.928"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M4.37744 15.7939V19.4888H8.07231"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
         <path
           d="M19.6228 15.7939V19.4888H15.928"
           stroke="currentColor"
-          stroke-width="1.99723"
-          stroke-miterlimit="10"
+          strokeWidth="1.99723"
+          strokeMiterlimit="10"
         />
       </g>
       <defs>

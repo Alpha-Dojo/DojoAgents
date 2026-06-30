@@ -481,6 +481,8 @@ export function FolioNavCurveBenchmarkHead({
   chips,
   loading = false,
 }: FolioNavCurveBenchmarkHeadProps) {
+  const { t } = useTranslation();
+
   if (loading || chips.length === 0) {
     return null;
   }
@@ -492,17 +494,21 @@ export function FolioNavCurveBenchmarkHead({
     return { maxDate, datesDiffer };
   })();
 
-  const visibleChips = chips.slice(0, 2);
-  const overflowChips = chips.slice(2);
+  const visibleChips = chips.slice(0, 1);
+  const overflowChips = chips.slice(1);
   const overflowTitle = overflowChips.map((chip) => chip.label).join('\n');
 
-  const renderBenchmarkChip = (chip: FolioBenchmarkHeadChip) => {
+  const renderBenchmarkChip = (
+    chip: FolioBenchmarkHeadChip,
+    variant: 'primary' | 'overflow',
+  ) => {
     const isClosed = sessionMeta.datesDiffer && chip.date < sessionMeta.maxDate;
+    const formattedDate = formatPerformanceAsOfDate(chip.date);
     return (
       <span
         key={chip.symbol}
-        className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]}`}
-        title={chip.label}
+        className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]} folio-performance__inline-benchmark--${variant}`}
+        title={`${chip.label} · ${formattedDate}`}
       >
         <span className="folio-performance__inline-flag" aria-hidden>
           {MARKET_FLAG[chip.market]}
@@ -522,7 +528,7 @@ export function FolioNavCurveBenchmarkHead({
               : 'folio-performance__inline-date'
           }
         >
-          {formatPerformanceAsOfDate(chip.date)}
+          {formattedDate}
         </span>
       </span>
     );
@@ -530,17 +536,21 @@ export function FolioNavCurveBenchmarkHead({
 
   return (
     <div className="folio-performance__inline-benchmarks">
-      {visibleChips.map(renderBenchmarkChip)}
+      {visibleChips.map((chip) => renderBenchmarkChip(chip, 'primary'))}
       {overflowChips.length > 0 ? (
         <details className="folio-performance__benchmark-overflow">
           <summary
             className="folio-performance__benchmark-overflow-trigger"
             title={overflowTitle}
+            aria-label={t('folio.moreBenchmarks', { count: overflowChips.length })}
           >
             +{overflowChips.length}
           </summary>
           <div className="folio-performance__benchmark-overflow-menu">
-            {overflowChips.map(renderBenchmarkChip)}
+            <div className="folio-performance__benchmark-overflow-title">
+              {t('folio.otherBenchmarks')}
+            </div>
+            {overflowChips.map((chip) => renderBenchmarkChip(chip, 'overflow'))}
           </div>
         </details>
       ) : null}

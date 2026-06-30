@@ -511,6 +511,8 @@ export const enMessages: MessageTree = {
     performanceChart: 'Net Value Curve',
     performanceLegendPortfolio: 'Portfolio',
     performanceLegendBenchmark: 'Benchmark',
+    otherBenchmarks: 'Other benchmarks',
+    moreBenchmarks: '{count} more benchmarks',
     allocationTitle: 'Sector Allocation',
     detailTabsLabel: 'Holdings & analysis',
     holdingsTitle: 'Holdings',

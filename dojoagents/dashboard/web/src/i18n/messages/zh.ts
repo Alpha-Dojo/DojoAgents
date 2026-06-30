@@ -508,6 +508,8 @@ export const zhMessages = {
     performanceChart: '净值曲线',
     performanceLegendPortfolio: '组合净值',
     performanceLegendBenchmark: 'Benchmark',
+    otherBenchmarks: '其他参考指数',
+    moreBenchmarks: '另外 {count} 个参考指数',
     allocationTitle: '行业分布',
     detailTabsLabel: '持仓与分析',
     holdingsTitle: '持仓明细',

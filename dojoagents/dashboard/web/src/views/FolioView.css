@@ -1312,7 +1312,7 @@
 
 /* Overview */
 .folio-overview {
-  min-width: 720px;
+  /* min-width: 720px; */
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1702,6 +1702,10 @@
   font-weight: 600;
 }
 
+.folio-performance__inline-benchmark--primary .folio-performance__inline-date {
+  display: none;
+}
+
 .folio-performance__benchmark-overflow {
   position: relative;
   flex-shrink: 0;
@@ -1747,7 +1751,7 @@
   right: 0;
   display: flex;
   width: max-content;
-  min-width: 220px;
+  min-width: 246px;
   max-width: min(320px, calc(100vw - 32px));
   flex-direction: column;
   gap: 4px;
@@ -1758,9 +1762,24 @@
   box-shadow: 0 12px 28px rgb(0 0 0 / 38%);
 }
 
+.folio-performance__benchmark-overflow-title {
+  padding: 2px 4px 4px;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.folio-performance__inline-benchmark--overflow {
+  display: grid;
+  grid-template-columns: auto minmax(88px, 1fr) auto auto;
+}
+
 .folio-performance__benchmark-overflow-menu .folio-performance__inline-benchmark {
   width: 100%;
   max-width: none;
+  padding: 5px 6px;
 }
 
 .folio-performance__benchmark-overflow-menu .folio-performance__inline-benchmark-label {
@@ -3955,6 +3974,10 @@
     justify-content: flex-start;
     flex-wrap: wrap;
     overflow: visible;
+  }
+
+  .folio-performance__inline-benchmark--primary .folio-performance__inline-benchmark-label {
+    display: none;
   }
 
   .folio-performance__benchmark {
