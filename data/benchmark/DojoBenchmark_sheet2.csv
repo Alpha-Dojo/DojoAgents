@@ -1,0 +1,14 @@
+"Claude&OpenAI 金融智能服务，核心目标是解决分析师的工作效率问题，主要目标是帮助分析师从各种 PDF 资料中 整理出 Excel 数据表格。而并非针对 C 端用户的投资分析建议
+
+金融服务测评 Benchmark 论文链接：https://arxiv.org/pdf/2508.00828
+",,,
+类别名称 (Task Name),难度,核心定义,具体样例 (Question Example)
+定量检索 (Quantitative Retrieval),简单 (Easy),直接从文档中提取数字信息，无需计算 。 ,“截至 2024 年 12 月 31 日的季度，Salesforce (NYSE:CRM) 的季度收入是多少？”   
+定性检索 (Qualitative Retrieval),简单 (Easy),直接提取或总结非数字信息 。  ,“描述微软 (NASDAQ:MSFT) 的产品供应和商业模式？”   
+数值推理 (Numerical Reasoning),简单 (Easy),对关键数字进行计算或汇总以得出答案 。  ,“亚马逊从 2021-2024 年，每年源自 AWS 的收入百分比是多少？3 年复合年增长率 (CAGR) 是多少？”   
+复杂检索 (Complex Retrieval),中等 (Medium),需要综合多个文档中的信息进行数值或非数值的总结 。  ,“请简要总结 Viking Therapeutics (NASDAQ: VKTX) 最近进行的融资情况。”   
+报表调整 (Adjustments),中等 (Medium),桥接 GAAP（公认会计原则）和 Non-GAAP 财务指标的定量和定性分析 。  ,“Lemonade Insurance 截至 2024 年 12 月 31 日年度的调整后 EBITDA 是多少？”   
+超预期或不及预期 (Beat or Miss),中等 (Medium),通过对比连续季度的报告，比较管理层的前瞻性指引与实际结果 。  ,“Lam Research 2024 年按季度的收入与管理层预测（取中值）相比如何？请以超预期或不及预期的百分比格式呈现。”   
+趋势分析 (Trends),困难 (Hard),分析单一公司报告结构内的模式，或计算并结合背景说明业绩的演变 。  ,“从 2022 年到 2024 年，Airbnb 在哪个地理区域的收入增长最多？”   
+财务建模 (Financial Modeling),困难 (Hard),需要额外的金融专业知识来定义和评估的复杂数值计算 。  ,“截至 2024 财年末，亚马逊有多少并购火力（包括资产负债表现金、非受限现金等，以及高达 2 倍 GAAP EBITDA 的杠杆）？”   
+市场分析 (Market Analysis),困难 (Hard),对一家或多家公司进行高级分析，需要统一比较指标或使用复杂的推理和因果关系 。  ,“比较 FAANG 公司在 2022-2024 年间的季度收入增长。”   

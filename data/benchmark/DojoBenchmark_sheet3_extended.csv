@@ -1,0 +1,286 @@
+"问题大类","问题小类","问题难度","问题定义","问题案例","展示样式","用户轨迹案例【优先单轮对话轨迹，多轮对话轨迹待补充】"
+"金融逻辑进阶分析","多季度 Beat/Miss 连续追踪","中等","横跨连续四个季度对比管理层 Guidance 与实际结果，判断超预期或不及预期的趋势方向","Q1: ""英特尔 (INTC) 过去四个季度，管理层给出的季度收入 Guidance 中值与实际收入相比，哪一季度的超/不及预期幅度最大？这个趋势说明了什么？""
+Q2: ""台积电 (TSM) 最近连续两个季度的 Gross Margin 实际值与管理层此前的 Guidance 区间相比，分别是超预期还是不及预期？幅度多少？""
+Q3: ""亚马逊 (AMZN) 过去三个季度的 AWS 分部收入，与各季度管理层在上一季 Earnings Call 中给出的 Guidance 相比，整体趋势是持续超预期还是开始收窄？""","折线图 (Line Chart) + 情绪标签 (Sentiment Tags)","User: 英特尔 (INTC) 过去四个季度，管理层给出的季度收入 Guidance 中值与实际收入相比，哪一季度的超/不及预期幅度最大？这个趋势说明了什么？
+Thought:
+  1. 典型多季度 Beat/Miss 追踪场景，需要逐季对比。
+  2. 调用个股财务接口，获取英特尔过去四季度的实际收入和对应的管理层 Guidance 中值。
+  3. 计算各季度偏差率，找出幅度最大的季度，并判断趋势方向。
+Action: get_ticker_financials(ticker=""INTC"", periods=4)
+Observation: {""quarterly_results"": [{""quarter"": ""25Q1"", ""actual_revenue"": 12.7, ""guidance_mid"": 13.0, ""beat_miss_pct"": ""-2.31%""}, {""quarter"": ""25Q2"", ""actual_revenue"": 13.5, ""guidance_mid"": 13.2, ""beat_miss_pct"": ""+2.27%""}, {""quarter"": ""25Q3"", ""actual_revenue"": 14.3, ""guidance_mid"": 13.8, ""beat_miss_pct"": ""+3.62%""}, {""quarter"": ""25Q4"", ""actual_revenue"": 14.0, ""guidance_mid"": 14.8, ""beat_miss_pct"": ""-5.41%""}]}
+Thought:
+  1. 25Q4 不及预期幅度最大（-5.41%），25Q1 也不及预期（-2.31%）。
+  2. 中间两季超预期，但 25Q4 再度大幅不及，趋势出现 V 形反转后重新下行。
+  3. 这种模式往往预示管理层对 Guidance 的把控能力在下滑，市场信心受损。
+Response:
+[Render: 折线图 (Guidance vs 实际收入) + 情绪标签 (Beat/Miss per quarter)]
+英特尔过去四季度的 Guidance 追踪如下：
+  25Q1：不及预期 -2.31%
+  25Q2：超预期 +2.27%
+  25Q3：超预期 +3.62%（本周期超预期幅度最大）
+  25Q4：不及预期 -5.41%（本周期不及预期幅度最大，也是四季中偏差绝对值最大的）
+趋势解读：英特尔 Guidance 准确率呈现 V 形反转后再度下行的态势。25Q4 的大幅 Miss（-5.41%）暗示管理层对需求端的判断出现系统性偏差，将对下一季度 Guidance 的市场可信度形成压制。"
+"金融逻辑进阶分析","毛利率 Guidance 与实际值对标","中等","对比管理层在 Earnings Call 中给出的 Gross Margin Guidance 区间与实际落点，评估盈利质量趋势","Q1: ""台积电 (TSM) 最近两个季度的毛利率（Gross Margin）实际值与管理层此前 Guidance 区间相比，分别是超预期还是不及预期？幅度多少？""
+Q2: ""英伟达 (NVDA) 最新两个季度的 Non-GAAP Gross Margin 是否持续落在管理层 Guidance 区间的上沿？这意味着什么？""
+Q3: ""美团 (3690.HK) 最近一个季度的经调整 EBITDA Margin 与上季度管理层给出的展望目标相比，改善还是恶化？""","情绪标签 (Sentiment Tags) + 核心指标卡片 (KPI Cards)","User: 台积电 (TSM) 最近两个季度的毛利率（Gross Margin）实际值与管理层此前 Guidance 区间相比，分别是超预期还是不及预期？幅度多少？
+Thought:
+  1. 需要获取 TSM 近两季的实际 Gross Margin 与管理层 Guidance 区间上下限。
+  2. 判断实际值落点（高于/低于/在区间内）并计算与中值的偏差幅度。
+Action: get_ticker_financials(ticker=""TSM"", periods=2, metrics=[""gross_margin"", ""guidance""])
+Observation: {""quarterly_results"": [{""quarter"": ""25Q3"", ""actual_gross_margin"": ""57.8%"", ""guidance_low"": ""54.5%"", ""guidance_high"": ""56.5%"", ""beat_miss"": ""+1.3pp vs 上沿""}, {""quarter"": ""25Q4"", ""actual_gross_margin"": ""59.2%"", ""guidance_low"": ""55.0%"", ""guidance_high"": ""57.0%"", ""beat_miss"": ""+2.2pp vs 上沿""}]}
+Thought:
+  1. 两季度均超出 Guidance 上沿：25Q3 超出 +1.3pp，25Q4 超出 +2.2pp 且幅度扩大。
+  2. 连续超出 Guidance 上沿且幅度递增，说明先进制程（3nm/2nm）定价权持续强化，Scale 效应正在释放。
+Response:
+[Render: 情绪标签 + Gross Margin KPI 卡片对比]
+台积电最近两季 Gross Margin 表现：
+  25Q3：实际 57.8%，Guidance 区间 54.5%–56.5%，超出上沿 +1.3 个百分点（pp）
+  25Q4：实际 59.2%，Guidance 区间 55.0%–57.0%，超出上沿 +2.2pp（超出幅度进一步扩大）
+连续两季超出 Guidance 上沿，且幅度递增，表明先进制程产能处于严重供不应求状态，台积电对 AI 芯片客户（英伟达、苹果）具备极强的价格转嫁能力，盈利质量持续提升。"
+"金融逻辑进阶分析","供应链事件与跨市场成分股关联下钻","困难","将非结构化的供应链突发事件与 DojoSphere 跨市场成分股数据关联，评估冲击链条方向和幅度","Q1: ""英伟达最新 AI 芯片供应链由于代工厂产能遭遇瓶颈，这对港股和 A 股中直接受益于台积电 CoWoS 先进封装订单的成分股有什么连锁影响？帮我找出受影响最大的两只。""
+Q2: ""苹果 (AAPL) 供应链传出下半年 iPhone 砍单快讯，请帮我在 DojoSphere 的'智能手机'板块里找出与苹果供应链重合度最高的 A 股成分股，并评估它们的短期下行风险。""
+Q3: ""三星和美光正在争夺 AI HBM 内存主导权，这对港股'半导体存储'板块成分股的估值逻辑有何影响？哪只受益，哪只受损？""","归因树状图 (Tree Map) + 动态数据表格 (Data Table)","User: 英伟达最新 AI 芯片供应链由于代工厂产能遭遇瓶颈，这对港股和 A 股中直接受益于台积电 CoWoS 先进封装订单的成分股有什么连锁影响？帮我找出受影响最大的两只。
+Thought:
+  1. 供应链事件下钻：产能瓶颈 → 台积电代工延误 → 影响依赖 CoWoS 封装的 AI 算力产业链。
+  2. 需要在 DojoSphere 的'集成电路制造'和'封装测试'板块找港股和 A 股相关成分股。
+  3. 评估各成分股与台积电 CoWoS 订单的业务重合度，判断利空/利好方向。
+Action: get_taxonomy_tree()
+Observation: {""L3"": [{""id"": ""ic_manufacturing""}, {""id"": ""ic_packaging""}]}
+Action: filter_sector_constituents(level1_id=""tech"", level2_id=""semiconductor"", level3_id=""ic_packaging"", market=""sh"")
+Observation: [{""ticker"": ""002156.SZ"", ""name"": ""通富微电"", ""pe"": 22.4, ""market_cap"": 28500000000}, {""ticker"": ""600584.SS"", ""name"": ""长电科技"", ""pe"": 18.7, ""market_cap"": 42000000000}]
+Action: filter_sector_constituents(level1_id=""tech"", level2_id=""semiconductor"", level3_id=""ic_packaging"", market=""hk"")
+Observation: [{""ticker"": ""0522.HK"", ""name"": ""ASM 太平洋"", ""pe"": 16.2, ""market_cap"": 65000000000}]
+Action: get_ticker_news_and_events(ticker=""002156.SZ"")
+Observation: {""news"": [{""title"": ""通富微电获英伟达 CoWoS 订单放量，下半年产能利用率有望突破 95%""}]}
+Thought:
+  1. 通富微电和长电科技均为台积电 CoWoS 封装产业链受益方，产能瓶颈反而是利好——订单需求超过供给，封装厂议价权提升。
+  2. 受影响最大（正向受益）：通富微电（直接获得英伟达 CoWoS 订单）、长电科技（市值更大的封装龙头）。
+Response:
+[Render: 归因树状图 + 成分股影响对比表]
+供应链事件拆解完毕：产能瓶颈的核心受益方反而是封装产业链。
+  正向冲击最大（利好）：
+  1. 通富微电 (002156.SZ)：最新快讯显示已直接承接英伟达 CoWoS 封装订单放量，产能瓶颈背景下议价权大幅提升。
+  2. 长电科技 (600584.SS)：A 股封装市值最大龙头，同类受益逻辑，市场资金有望将其作为确定性更高的首选标的。"
+"投资组合构建与动态管理","持仓集中度与风险雷达诊断","困难","调用持仓组合的 Risk Exposure 五维风控面板，识别集中度超标或 Beta/Vol 过高的成分股，并给出调仓建议","Q1: ""帮我检查一下我的'中美科技互联'组合，当前的板块集中度风险和单一持仓上限风险是否同时超标？风险雷达图里哪个维度最红？""
+Q2: ""我的'全球半导体制造'组合的 Beta/Vol 风险维度是否超过警戒线（1.5x 大盘波动率）？如果超标，应该用什么策略把它调回绿区？""
+Q3: ""对比我的'高股息红利盘'和'A股人工智能'两个组合，哪一个在 Risk Exposure 五个维度上的综合风险评分更低？哪个组合更适合当前震荡市持有？""","冲击仪表盘 (Impact Gauge) + 风险雷达图 (Risk Radar)","User: 帮我检查一下我的'中美科技互联'组合，当前的板块集中度风险和单一持仓上限风险是否同时超标？风险雷达图里哪个维度最红？
+Thought:
+  1. 风控诊断任务。需要读取持仓组合的 Risk Exposure 五维面板数据。
+  2. 重点关注：板块集中度（Sector Concentration，阈值 35%）和单一持仓上限（Max Single Holding，阈值 15%）两个维度。
+  3. 根据 Traffic-light 状态判断哪个维度触红。
+Action: list_or_search_portfolios(query=""中美科技互联"")
+Observation: [{""portfolio_id"": ""folio_idx_001"", ""name"": ""中美科技互联""}]
+Action: get_portfolio_analysis(portfolio_id=""folio_idx_001"", include_risk_exposure=True)
+Observation: {""risk_exposure"": {""sector_concentration"": {""value"": 72, ""threshold"": 35, ""status"": ""red""}, ""max_single_holding"": {""value"": 40, ""threshold"": 15, ""status"": ""red""}, ""cross_market"": {""value"": 60, ""threshold"": 80, ""status"": ""green""}, ""liquidity"": {""value"": 2.1, ""status"": ""yellow""}, ""beta_vol"": {""value"": 1.8, ""threshold"": 1.5, ""status"": ""red""}}}
+Thought:
+  1. 板块集中度（72%）和单一持仓上限（40%）均同时超标（双红）。
+  2. Beta/Vol 也超标（1.8x），三个维度同时触红。
+  3. 风险雷达图中最红的维度：板块集中度（72% vs 阈值 35%，超标幅度最大）。
+Response:
+[Render: 风险雷达图 (Risk Radar) + 五维 Traffic-light 状态表]
+紧急预警！您的'中美科技互联'组合当前有三个风险维度同时触红：
+  板块集中度（Sector Concentration）：当前 72%，远超警戒阈值 35%，超标幅度最大——这是风险雷达图中最红的维度。
+  单一持仓上限（Max Single Holding）：当前最大单持仓权重 40%，超过 15% 警戒线 1.6 倍。
+  Beta/Vol：组合波动率达大盘的 1.8 倍，超过 1.5x 警戒线。
+  流动性：当前 2.1 天变现周期，处于黄区。
+  跨市场分散（Cross-market）：60%，暂在绿区。
+建议立即执行 Risk Parity 再平衡，将最大单持仓压回 15% 以下，并补充非科技板块资产以稀释集中度风险。"
+"投资组合构建与动态管理","Brinson 归因分解与超额收益来源识别","中等","调用 DojoFolio 的 Brinson-Hood-Beebower 归因瀑布图，识别超额收益中选股与行业配置各自贡献的比例","Q1: ""对比标普 500 指数，我的'核心美股持仓'组合过去一年的超额收益主要来自选股还是行业配置？Brinson 归因里哪个环节贡献最大？""
+Q2: ""我的'中美科技互联'组合的 Return Attribution 里，交易/残差项（Trading/Residual）是正贡献还是负贡献？这说明我的交易时机选择是否合理？""
+Q3: ""帮我对比'A股人工智能'和'高股息红利盘'两个组合的 Brinson 归因结果，哪个组合的选股能力（Stock Selection）贡献更高？""","归因瀑布图 (Waterfall Chart)","User: 对比标普 500 指数，我的'核心美股持仓'组合过去一年的超额收益主要来自选股还是行业配置？Brinson 归因里哪个环节贡献最大？
+Thought:
+  1. Return Attribution 任务，需要调取 Brinson-Hood-Beebower 归因结果。
+  2. 四个 BHB 环节：Benchmark → Sector Allocation → Stock Selection → Trading/Residual → Portfolio Total。
+  3. 比较各环节数值大小，找出贡献最大项。
+Action: list_or_search_portfolios(query=""核心美股持仓"")
+Observation: [{""portfolio_id"": ""folio_idx_us01"", ""name"": ""核心美股持仓""}]
+Action: get_portfolio_analysis(portfolio_id=""folio_idx_us01"", benchmark=""SPX"", include_attribution=True)
+Observation: {""attribution"": {""benchmark_return"": ""+18.5%"", ""sector_allocation"": ""+2.1%"", ""stock_selection"": ""+6.8%"", ""trading_residual"": ""-0.4%"", ""portfolio_total"": ""+27.0%""}}
+Thought:
+  1. 超额收益来源拆解：选股贡献 +6.8%，行业配置贡献 +2.1%，交易残差 -0.4%。
+  2. 选股能力（Stock Selection）是超额收益的绝对主力，贡献了超额部分的约 76%。
+Response:
+[Render: Brinson 归因瀑布图]
+'核心美股持仓'组合过去一年相对标普 500 的归因拆解：
+  基准收益（S&P 500）：+18.5%
+  + 行业配置（Sector Allocation）：+2.1%
+  + 选股（Stock Selection）：+6.8%（超额收益的核心引擎）
+  - 交易/残差（Trading/Residual）：-0.4%
+  = 组合总收益：+27.0%
+结论：您的超额收益 8.5% 中，约 80% 来源于出色的选股能力，行业配置贡献约 25%，交易时机轻微拖累了 -5%。选股是您的核心 Alpha 来源。"
+"投资组合构建与动态管理","条件触发式再平衡决策","中等","判断持仓中特定成分股是否触达预设风控阈值（如股息率下滑、权重漂移），并执行相应的再平衡操作","Q1: ""我的'高股息红利盘'组合里，如果某只成分股的股息率（Dividend Yield）从建仓时的 6% 下降到了 3.5%，是否触发我设定的再平衡阈值？应该剔除哪只，补入什么标的？""
+Q2: ""我的'全球半导体制造'组合里，台积电（TSM）的权重因为股价上涨已经从初始 20% 漂移到了 38%，超过了我设定的单一持仓上限（25%）。请帮我触发再平衡，把超出部分均匀分配给其他成分股。""
+Q3: ""我的'中美科技互联'组合在最近一次美股大跌后，PLTR 的最大回撤超过了 -30%，触发了我设定的风控止损线。请帮我把它剔除，并用等权再平衡填补空缺。""","动态数据表格 (Data Table) + 调仓确认看板","User: 我的'高股息红利盘'组合里，如果某只成分股的股息率（Dividend Yield）从建仓时的 6% 下降到了 3.5%，是否触发我设定的再平衡阈值？应该剔除哪只，补入什么标的？
+Thought:
+  1. 条件判断 + 写操作任务。先检查持仓，找出当前股息率已跌破阈值的成分股。
+  2. 确认触发条件后，从同类板块（高股息）中筛选替代标的，执行替换和再平衡。
+Action: list_or_search_portfolios(query=""高股息红利盘"")
+Observation: [{""portfolio_id"": ""folio_idx_div01"", ""name"": ""高股息红利盘""}]
+Action: get_portfolio_analysis(portfolio_id=""folio_idx_div01"", include_performance=True)
+Observation: {""holdings"": [{""ticker"": ""0939.HK"", ""name"": ""建设银行"", ""div_yield_current"": ""6.8%"", ""weight"": ""25%""}, {""ticker"": ""0941.HK"", ""name"": ""中国移动"", ""div_yield_current"": ""3.4%"", ""weight"": ""25%"", ""div_yield_inception"": ""6.1%""}, {""ticker"": ""1398.HK"", ""name"": ""工商银行"", ""div_yield_current"": ""6.2%"", ""weight"": ""25%""}, {""ticker"": ""0883.HK"", ""name"": ""中国海洋石油"", ""div_yield_current"": ""7.1%"", ""weight"": ""25%""}]}
+Thought:
+  1. 中国移动 (0941.HK) 的当前股息率 3.4%，低于 3.5% 阈值，触发替换条件。
+  2. 需要在港股高股息板块筛选替代标的，找出股息率当前高于 5% 的候选。
+Action: filter_sector_constituents(level1_id=""telecom"", level2_id=""operator"", market=""hk"", sort_by=""div_yield"", min_div_yield=5.0)
+Observation: [{""ticker"": ""0762.HK"", ""name"": ""中国联合网络通信"", ""div_yield"": ""6.3%"", ""pe"": 9.2}]
+Response:
+[Render: 调仓前后对比表 + 触发条件确认标签]
+触发条件已确认！中国移动（0941.HK）的当前股息率已从建仓时的 6.1% 跌至 3.4%，低于您设定的 3.5% 再平衡阈值。
+调仓动作：
+  剔除：中国移动 (0941.HK)，当前股息率 3.4%
+  补入：中国联合网络通信 (0762.HK)，当前股息率 6.3%，PE 9.2 倍
+  再平衡：等权分配，各持仓恢复至 25%
+调仓已完成，组合整体加权股息率从 5.88% 提升至 6.60%，高股息策略纯度恢复。"
+"金融逻辑进阶分析","跨市场事件驱动与供应链新闻多文档融合","中等","将突发新闻事件与 DojoCore 新闻面板和 DojoSphere 跨市场成分股数据关联，输出多文档综合归因","Q1: ""英伟达最新 AI 芯片供应链由于代工厂产能遭遇瓶颈，结合台积电最新 Earnings Call 的产能指引，两者在信息上是否存在矛盾？帮我综合 DojoCore 的新闻和事件面板给出判断。""
+Q2: ""美国商务部最新出口管制快讯说将对 HBM 芯片加征限制，结合 DojoSphere 港股'半导体存储'板块成分股的最新新闻，哪些公司会直接受损，哪些能从中受益？""
+Q3: ""苹果 (AAPL) 供应链砍单新闻与大行（富国银行）评级调降同日发生，结合 DojoCore 的新闻面板和分析师面板，帮我综合判断：这是单一利空还是共振利空？短期股价压力有多大？""","时间轴 (Timeline) + 归因链条图","User: 苹果 (AAPL) 供应链砍单新闻与大行（富国银行）评级调降同日发生，结合 DojoCore 的新闻面板和分析师面板，帮我综合判断：这是单一利空还是共振利空？短期股价压力有多大？
+Thought:
+  1. 多文档融合判断任务。需要同时读取 DojoCore 的新闻事件流和分析师评级变动。
+  2. 判断两个利空是否具有相互强化（共振）的逻辑关系，而不是两个孤立事件。
+  3. 综合评估短期股价压力的量级。
+Action: get_ticker_news_and_events(ticker=""AAPL"")
+Observation: {""events"": [{""date"": ""2026-06-14"", ""type"": ""大行评级"", ""detail"": ""富国银行将 AAPL 评级下调至中性，目标价调低至 163 美元，主因下半年 iPhone 出货展望疲软""}, {""date"": ""2026-06-14"", ""type"": ""新闻"", ""detail"": ""供应链多家 ODM 厂商证实苹果 iPhone 17 系列下半年订单削减约 10-15%""}]}
+Action: get_ticker_realtime_quote(ticker=""AAPL"")
+Observation: {""ticker"": ""AAPL"", ""latest_price"": 168.20, ""pe_ttm"": 27.4, ""52w_high"": 198.5}
+Thought:
+  1. 两个利空事件同日发生，且互相印证——分析师下调正是以砍单为核心逻辑依据，形成强共振。
+  2. 估值角度：当前 PE 27.4 倍，目标价 163 对应下行空间约 -3.1%。
+  3. 情绪放大风险：砍单 + 评级调降共振，实际跌幅可能高于目标价隐含值。
+Response:
+[Render: 时间轴（利空事件链）+ 短期压力量化表]
+判断：这是典型的共振利空，而非单一利空叠加。
+共振逻辑：富国银行的评级下调，其核心依据正是供应链砍单的实证数据——分析师基本面判断与产业链硬数据同日互相印证，形成""基本面 × 机构信心""双重崩塌。
+短期股价压力评估：
+  基于目标价（163 美元）的下行空间：-3.1%
+  考虑情绪共振放大：-6%~-9%
+  当前股价距 52 周高点（198.5 美元）已回调约 15%，多头护盘意愿存在，但短期反弹动力不足。"
+"金融逻辑进阶分析","GAAP 与 Non-GAAP 财务调整项解读","中等","解读公司财报中 GAAP 与 Non-GAAP 盈利数字的差异，识别主要调整项（SBC、摊销、重组费用等）对利润表的影响","Q1: ""阿里巴巴最新季报中，报告净利润和 Non-GAAP 调整后净利润之间的差额是多少？主要的调整项目是什么（SBC、商誉摊销等）？""
+Q2: ""微软 (MSFT) 最新财年的 GAAP 净利润与 Non-GAAP 净利润相差多少？SBC（Stock-based Compensation）费用的摊销对哪条利润线的扭曲最大？""
+Q3: ""亚马逊 (AMZN) 最新季度的 GAAP Operating Income 与 Non-GAAP Operating Income 差距在收窄还是扩大？这对其真实盈利能力的判断有什么影响？""","核心指标卡片 (KPI Cards) + 动态数据表格 (Data Table)","User: 阿里巴巴最新季报中，报告净利润和 Non-GAAP 调整后净利润之间的差额是多少？主要的调整项目是什么（SBC、商誉摊销等）？
+Thought:
+  1. GAAP vs Non-GAAP 调整解读任务，需要提取财报的调节表（Reconciliation Table）数据。
+  2. 关注主要调整项：SBC（股权激励费用）、无形资产摊销（Amortization of Intangibles）、商誉减值（Goodwill Impairment）等。
+Action: get_ticker_financials(ticker=""9988.HK"", include_gaap_bridge=True)
+Observation: {""gaap_net_income"": 28500000000, ""non_gaap_net_income"": 42800000000, ""adjustments"": {""sbc"": 8200000000, ""amortization_of_intangibles"": 4100000000, ""investment_fair_value_change"": 2000000000}, ""currency"": ""CNY""}
+Thought:
+  1. GAAP 净利润 285 亿元，Non-GAAP 净利润 428 亿元，差额 143 亿元（Non-GAAP 高出约 50.2%）。
+  2. 最大调整项：SBC 82 亿元，占差额 57.3%；无形资产摊销 41 亿元，占 28.7%；公允价值变动 20 亿元，占 14%。
+Response:
+[Render: GAAP vs Non-GAAP 调节桥接表（Waterfall KPI）]
+阿里巴巴最新季度的 GAAP 与 Non-GAAP 利润桥接：
+  GAAP 净利润：285 亿元
+  + SBC（股权激励）加回：+82 亿元（最大调整项，占比 57%）
+  + 无形资产摊销（Amortization）加回：+41 亿元
+  + 投资公允价值变动加回：+20 亿元
+  = Non-GAAP 净利润：428 亿元（比 GAAP 数字高出约 50%）
+解读：SBC 是真实发生的股东稀释代价，切忌将 Non-GAAP 净利润直接等同于现金盈利。"
+"金融基础数据认知","公司名称解析与行情快速定位","简单","用户以中文公司名称而非 ticker 发起查询，模型须先调用 search_company_ticker 解析出正确的 ticker 与市场，再获取行情数据","Q1: ""帮我查一下联想集团现在的股价和市盈率。""
+Q2: ""宁德时代最新的总市值是多少？它的 PB 在 A 股新能源板块里算贵吗？""
+Q3: ""我想看看美团今天的涨跌幅，以及它的港股股息率是多少？""","核心指标卡片 (KPI Cards)","User: 帮我查一下联想集团现在的股价和市盈率。
+Thought:
+  1. 用户使用中文名称""联想集团""而非 ticker，须先解析 ticker 与市场代码。
+  2. 解析成功后再调用行情接口获取现价和市盈率。
+Action: search_company_ticker(q=""联想集团"")
+Observation: {""query"": ""联想集团"", ""items"": [{""ticker"": ""0992"", ""market"": ""hk"", ""name"": {""zh"": ""联想集团"", ""en"": ""Lenovo Group""}, ""market_cap"": 84600000000}]}
+Thought:
+  1. 已解析：ticker=0992，market=hk。
+  2. 调用行情接口获取现价与市盈率。
+Action: get_ticker_realtime_quote(ticker=""0992"", market=""hk"")
+Observation: {""ticker"": ""0992"", ""market"": ""hk"", ""last_price"": 9.18, ""change_percent"": 1.44, ""pe"": 14.2, ""pb"": 1.8, ""market_cap"": 84600000000, ""dividend_yield"": 2.1}
+Thought:
+  1. 联想集团 (0992.HK) 现价 9.18 港元，今日涨 1.44%，PE TTM 14.2 倍，PB 1.8 倍，股息率 2.1%。
+Response:
+[Render: 核心指标卡片]
+联想集团 (0992.HK) 实时行情：
+  现价：9.18 港元（今日 +1.44%）
+  滚动市盈率 (PE TTM)：14.2 倍
+  市净率 (PB)：1.8 倍
+  总市值：约 846 亿港元
+  股息率：2.1%"
+"金融逻辑进阶分析","个股历史估值区间与当前位置诊断","中等","调用 get_ticker_price_trends 获取 K 线与 PE 波段历史数据，判断当前股价和估值相对历史区间的高低位置","Q1: ""台积电 (TSM) 过去一年的历史 PE 波动区间是多少？现在的 PE 处于历史高位还是低位？""
+Q2: ""帮我看看英伟达 (NVDA) 的 K 线走势，它现在的股价距历史最高点回撤了多少？""
+Q3: ""腾讯控股 (0700.HK) 过去一年的 PE 均值和±1 标准差区间是多少？当前 PE 落在哪个区间？""","折线图 (Line Chart) + PE 波段图","User: 台积电 (TSM) 过去一年的历史 PE 波动区间是多少？现在的 PE 处于历史高位还是低位？
+Thought:
+  1. 需要获取 TSM 的历史 K 线和 PE 波段数据，取最近 252 个交易日。
+  2. 从 pe_band[] 中提取均值（mean）和±1σ 区间（upper1/lower1），与最新 pe 值对比定位。
+Action: get_ticker_price_trends(ticker=""TSM"", market=""us"", limit=252)
+Observation: {""ticker"": ""TSM"", ""market"": ""us"", ""period_start"": ""2025-06-20"", ""period_end"": ""2026-06-20"", ""klines"": [{""datetime"": ""2025-06-20"", ""open"": 148.2, ""high"": 151.0, ""low"": 147.5, ""close"": 149.8}, {""datetime"": ""2026-06-20"", ""open"": 198.4, ""high"": 201.3, ""low"": 197.1, ""close"": 199.6}], ""pe_band"": [{""date"": ""2025-06-20"", ""pe"": 18.4, ""mean"": 20.1, ""upper1"": 23.8, ""lower1"": 16.4, ""upper2"": 27.5, ""lower2"": 12.7}, {""date"": ""2026-06-20"", ""pe"": 24.3, ""mean"": 20.1, ""upper1"": 23.8, ""lower1"": 16.4, ""upper2"": 27.5, ""lower2"": 12.7}]}
+Thought:
+  1. 过去一年 PE 均值 20.1 倍，±1σ 区间 16.4–23.8 倍，±2σ 区间 12.7–27.5 倍。
+  2. 当前 PE 24.3 倍，已突破 +1σ 上沿（23.8），进入历史偏高区间但仍在 +2σ（27.5）以内。
+  3. 52 周价格区间：最低 149.8（2025-06-20）→ 最高 199.6（2026-06-20），当前处年内高点附近。
+Response:
+[Render: PE 波段折线图（均值 ±1σ ±2σ 通道）]
+台积电 (TSM) 过去一年 PE 估值诊断：
+  历史均值：20.1 倍
+  ±1σ 区间：16.4–23.8 倍（正常波动带）
+  ±2σ 区间：12.7–27.5 倍（极端区间）
+  当前 PE：24.3 倍 → 已突破 +1σ 上沿，处于历史偏贵区间
+  52 周价格低点/高点：149.8 / 199.6 美元，当前近年内高位
+结论：台积电当前估值处于近一年高位，AI 算力需求溢价明显；若后续季报 Gross Margin 无法持续超预期，估值压缩风险值得警惕。"
+"跨市场策略推演与资产配置","全市场条件选股与低估值挖掘","困难","调用 screen_market_stocks 跨市场筛选满足多重财务阈值的标的，输出排名列表与投资逻辑","Q1: ""帮我在美股里找出所有 PE 低于 15 倍、今年以来涨幅超过 20% 的公司，按市值从大到小列出前 10 名。""
+Q2: ""在 A股 和港股中，筛选市值大于 500 亿人民币、今日涨跌幅超过 +3% 的个股，哪些板块集中度最高？""
+Q3: ""帮我做一个全市场（美股+A股+港股）的低 PE 高 PB 安全边际筛选：PE 低于 12，PB 低于 1.5，列出前 5 名。""","动态数据表格 (Data Table) + 排名榜单","User: 帮我在美股里找出所有 PE 低于 15 倍、今年以来涨幅超过 20% 的公司，按市值从大到小列出前 10 名。
+Thought:
+  1. 跨市场条件选股，不需要先查 taxonomy，直接调用 screen_market_stocks。
+  2. days=0 表示今年以来累计涨幅（window_change_percent），设置 min_return_pct=20，max_pe=15，market=us，sort_by=market_cap，limit=10。
+Action: screen_market_stocks(market=""us"", days=0, max_pe=15, min_return_pct=20, sort_by=""market_cap"", sort_order=""desc"", limit=10)
+Observation: {""days"": 0, ""market"": ""us"", ""match_count"": 34, ""items"": [{""ticker"": ""BRK.B"", ""market"": ""us"", ""name"": {""zh"": ""伯克希尔哈撒韦B"", ""en"": ""Berkshire Hathaway B""}, ""last_price"": 512.4, ""window_change_percent"": 28.3, ""market_cap"": 1120000000000, ""pe"": 11.2, ""pb"": 1.4}, {""ticker"": ""JPM"", ""market"": ""us"", ""name"": {""zh"": ""摩根大通"", ""en"": ""JPMorgan Chase""}, ""last_price"": 248.7, ""window_change_percent"": 23.1, ""market_cap"": 710000000000, ""pe"": 12.8, ""pb"": 1.9}, {""ticker"": ""XOM"", ""market"": ""us"", ""name"": {""zh"": ""埃克森美孚"", ""en"": ""Exxon Mobil""}, ""last_price"": 118.3, ""window_change_percent"": 21.4, ""market_cap"": 468000000000, ""pe"": 13.6, ""pb"": 2.1}]}
+Thought:
+  1. 全市场共 34 只美股同时满足 PE<15 且今年涨幅>20%，以下列出市值前 3（示例）。
+  2. 集中在金融、能源板块——低 PE 行业特征。
+Response:
+[Render: 动态数据表格，按市值降序]
+美股低 PE（<15 倍）+ 今年涨幅 >20% 筛选结果（共 34 只，展示前 10）：
+  1. 伯克希尔哈撒韦B (BRK.B)：PE 11.2x，今年涨 +28.3%，市值 1.12 万亿美元
+  2. 摩根大通 (JPM)：PE 12.8x，今年涨 +23.1%，市值 7100 亿美元
+  3. 埃克森美孚 (XOM)：PE 13.6x，今年涨 +21.4%，市值 4680 亿美元
+  …（共 10 条）
+规律：满足条件的标的高度集中于金融与能源板块，这两类行业天然具备低 PE 特征。科技股整体被排除在外，估值溢价使其难以同时满足 PE<15 的门槛。"
+"金融基础数据认知","全市场宏观概览与基准指数追踪","简单","调用 get_market_overview 获取三大市场的总市值、加权 PE 及基准指数表现，给出宏观市场健康度快照","Q1: ""今天美股、A股、港股三个市场分别涨跌了多少？哪个市场表现最强？""
+Q2: ""目前三大市场的整体加权市盈率分别是多少？横向比较哪个市场估值最贵？""
+Q3: ""帮我看一下过去 5 个交易日，美股和港股哪个市场整体涨幅更大？""","核心指标卡片 (KPI Cards) + 折线图 (Line Chart)","User: 今天美股、A股、港股三个市场分别涨跌了多少？哪个市场表现最强？
+Thought:
+  1. 宏观市场快照任务，调用 get_market_overview，days=1 获取单日涨跌数据。
+  2. 从 benchmarks 字段读取各市场基准指数的 change_percent，从 markets 字段读取加权 PE 和总市值。
+Action: get_market_overview(days=1)
+Observation: {""days"": 1, ""as_of"": ""2026-06-26"", ""markets"": {""us"": {""listed_count"": 5842, ""total_market_cap"": 52400000000000, ""weighted_pe"": 24.8}, ""cn"": {""listed_count"": 5318, ""total_market_cap"": 87200000000000, ""weighted_pe"": 14.3}, ""hk"": {""listed_count"": 2187, ""total_market_cap"": 39100000000000, ""weighted_pe"": 10.6}}, ""benchmarks"": {""us"": [{""symbol"": ""^SPX"", ""name"": {""zh"": ""标普500"", ""en"": ""S&P 500""}, ""change_percent"": 0.82, ""price"": 5814.2}], ""cn"": [{""symbol"": ""000001.SS"", ""name"": {""zh"": ""上证指数"", ""en"": ""Shanghai Composite""}, ""change_percent"": -0.34, ""price"": 3421.7}], ""hk"": [{""symbol"": ""^HSI"", ""name"": {""zh"": ""恒生指数"", ""en"": ""Hang Seng""}, ""change_percent"": 1.56, ""price"": 23845.0}]}}
+Thought:
+  1. 今日涨跌：港股恒生 +1.56%（最强）> 美股标普 500 +0.82% > A股上证 -0.34%（唯一下跌市场）。
+  2. 估值对比：美股 PE 24.8 倍最贵，A股 14.3 倍居中，港股 10.6 倍最便宜。
+Response:
+[Render: 三市场 KPI 卡片]
+今日三大市场表现（截至 2026-06-26）：
+  港股恒生指数：+1.56%（今日最强）
+  美股标普 500：+0.82%
+  A股上证指数：-0.34%（唯一飘绿市场）
+横向估值快照：美股 PE 24.8 倍（最贵）/ A股 14.3 倍 / 港股 10.6 倍（最便宜）
+点评：港股今日领涨，但估值仍为三市最低，安全边际相对充足；A股走弱或受情绪面拖累，但绝对估值已接近历史低位区间。"
+"投资组合构建与动态管理","主题建仓全流程：创建组合-批量加仓-市值加权分配","中等","模拟用户完整的 DojoAgent 写操作流程：调用 manage_portfolio 创建组合，add_portfolio_holdings 批量加仓，auto_allocate_portfolio 按策略分配权重","Q1: ""帮我新建一个叫'A股半导体龙头'的组合，把中芯国际、韦尔股份、中微公司加进去，用市值加权分配。""
+Q2: ""帮我创建一个美股 AI 算力主题组合，包含英伟达、博通、超威半导体，用等权重分配，并告诉我建仓后每只的持仓权重是多少。""
+Q3: ""帮我新建一个'港股高股息'组合，加入中国海洋石油、建设银行、中国移动，按市值加权后告诉我最终权重。""","调仓确认看板 + 动态数据表格 (Data Table)","User: 帮我新建一个叫'A股半导体龙头'的组合，把中芯国际、韦尔股份、中微公司加进去，用市值加权分配。
+Thought:
+  1. 完整写操作流程：创建组合 → 批量加仓 → 市值加权分配。
+  2. 需要先解析中文名称为 ticker，再执行三步写操作。
+Action: search_company_ticker(q=""中芯国际"")
+Observation: {""items"": [{""ticker"": ""688981"", ""market"": ""cn"", ""name"": {""zh"": ""中芯国际"", ""en"": ""SMIC""}, ""market_cap"": 380000000000}]}
+Action: search_company_ticker(q=""韦尔股份"")
+Observation: {""items"": [{""ticker"": ""603501"", ""market"": ""cn"", ""name"": {""zh"": ""韦尔股份"", ""en"": ""Will Semiconductor""}, ""market_cap"": 112000000000}]}
+Action: search_company_ticker(q=""中微公司"")
+Observation: {""items"": [{""ticker"": ""688012"", ""market"": ""cn"", ""name"": {""zh"": ""中微公司"", ""en"": ""AMEC""}, ""market_cap"": 98000000000}]}
+Action: manage_portfolio(action=""create"", name=""A股半导体龙头"", kind=""agent"")
+Observation: {""id"": ""folio_new_001"", ""name"": ""A股半导体龙头"", ""holdings"": []}
+Action: add_portfolio_holdings(portfolio_id=""folio_new_001"", holdings=[{""ticker"": ""688981"", ""market"": ""cn""}, {""ticker"": ""603501"", ""market"": ""cn""}, {""ticker"": ""688012"", ""market"": ""cn""}])
+Observation: {""id"": ""folio_new_001"", ""name"": ""A股半导体龙头"", ""holdings"": [{""ticker"": ""688981"", ""shares"": 0, ""weight"": 0}, {""ticker"": ""603501"", ""shares"": 0, ""weight"": 0}, {""ticker"": ""688012"", ""shares"": 0, ""weight"": 0}]}
+Action: auto_allocate_portfolio(portfolio_id=""folio_new_001"", allocation_strategy=""market_cap"")
+Observation: {""id"": ""folio_new_001"", ""name"": ""A股半导体龙头"", ""holdings"": [{""ticker"": ""688981"", ""market"": ""cn"", ""shares"": 2100, ""weight"": 63.6}, {""ticker"": ""603501"", ""market"": ""cn"", ""shares"": 700, ""weight"": 18.7}, {""ticker"": ""688012"", ""market"": ""cn"", ""shares"": 600, ""weight"": 17.7}]}
+Thought:
+  1. 组合创建成功，三只个股按市值加权：中芯国际 63.6%（市值最大）、韦尔股份 18.7%、中微公司 17.7%。
+  2. 持仓量均为 100 的整数倍（A股手数规则）。
+Response:
+[Render: 调仓确认看板 + 持仓权重表]
+'A股半导体龙头'组合已创建完毕，三只龙头按市值加权分配结果如下：
+  中芯国际 (688981.SS)：2100 股，权重 63.6%（市值 3800 亿，最重仓）
+  韦尔股份 (603501.SS)：700 股，权重 18.7%（市值 1120 亿）
+  中微公司 (688012.SS)：600 股，权重 17.7%（市值 980 亿）
+分配逻辑：市值加权策略将最大权重给予中芯国际，与其龙头地位匹配。A 股每手 100 股的规则已自动执行取整。"
