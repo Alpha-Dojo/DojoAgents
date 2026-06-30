@@ -506,7 +506,6 @@ class AgentLoop:
         model_context_window = await self.model_context_registry.resolve(
             provider_name,
             provider_cfg,
-            client=self._openai_client_for_context(provider_cfg),
         )
         session_max_tokens = model_context_window
         cap = self.config.session_max_tokens_cap

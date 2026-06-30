@@ -53,7 +53,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
         temp_path = None
         # ===== 只在 Linux/Unix 上执行目录 fsync =====
         # Windows 执行 os.open(path.parent, os.O_RDONLY) 会抛出 PermissionError
-        if os.name == 'posix':  # Linux / macOS / Unix
+        if os.name == "posix":  # Linux / macOS / Unix
             try:
                 directory_fd = os.open(path.parent, os.O_RDONLY)
                 try:
@@ -63,7 +63,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
             except OSError:
                 # 如果目录 fsync 失败，忽略（不影响主流程）
                 pass
-        
+
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
@@ -79,13 +79,6 @@ class AtomicJsonStore:
 
     def path_for(self, key: str) -> Path:
         return _safe_key_path(self.root, key, self.suffix)
-
-    # def _lock_for(self, key: str) -> asyncio.Lock:
-    #     lock = self._locks.get(key)
-    #     if lock is None:
-    #         lock = asyncio.Lock()
-    #         self._locks[key] = lock
-    #     return lock
 
     def _serialize(self, data: Any) -> str:
         return (
