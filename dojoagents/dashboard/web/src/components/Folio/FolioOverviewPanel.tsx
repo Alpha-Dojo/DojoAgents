@@ -262,7 +262,7 @@ export function FolioOverviewPanel({
     return entries;
   }, [benchmarkOptions, candidateIndexLabel, portfolio.performance, t, text]);
 
-  const showConfig = !loading && (hasPortfolioContent ? configExpanded : true);
+  const showConfig = hasPortfolioContent ? configExpanded : !loading;
 
   const handleApplyConfig = () => {
     onApplyConfig(draftConfig);
