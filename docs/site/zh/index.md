@@ -25,7 +25,7 @@ DojoAgents 是一个面向量化金融分析工作流的 Agent Runtime。它把 
 
 ## 文档状态
 
-这套 MkDocs 文档采用“正式站点内容 + 设计记录分层”的结构。主导航中的指南和 reference 以当前仓库实现为准；旧的规划、迁移和原型材料保留在 [设计记录](design-notes/index.md)，用于理解演进背景。
+这套 MkDocs 文档只呈现当前正式内容。主导航中的指南、架构、reference 和开发文档以当前仓库实现为准；历史规划、迁移和原型材料保留在 `docs/plans/`，不作为正式读者入口。
 
 ## 快速命令
 
@@ -50,4 +50,3 @@ npm run build
 ```bash
 dojoagents dashboard --host 127.0.0.1 --port 8765
 ```
-

@@ -20,6 +20,7 @@ interface ProviderPreset {
   label: string;
   baseUrl: string;
   apiKeyEnv: string;
+  author: string;
   models: ModelPreset[];
 }
 
@@ -28,6 +29,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     apiKeyEnv: 'OPENAI_API_KEY',
+    author: 'openai',
     models: [
       { value: 'gpt-5.5', label: 'GPT-5.5' },
       { value: 'gpt-5.4', label: 'GPT-5.4' },
@@ -41,6 +43,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Anthropic',
     baseUrl: 'https://api.anthropic.com/v1',
     apiKeyEnv: 'ANTHROPIC_API_KEY',
+    author: 'anthropic',
     models: [
       { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
       { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
@@ -52,6 +55,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     apiKeyEnv: 'GEMINI_API_KEY',
+    author: 'google',
     models: [
       { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
       { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
@@ -63,6 +67,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
     apiKeyEnv: 'DEEPSEEK_API_KEY',
+    author: 'deepseek',
     models: [
       { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
       { value: 'deepseek-chat', label: 'DeepSeek Chat' },
@@ -73,6 +78,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Alibaba Tongyi',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKeyEnv: 'DASHSCOPE_API_KEY',
+    author: 'qwen',
     models: [
       { value: 'qwen3.7-max', label: 'Qwen3.7 Max' },
       { value: 'qwen3.7-plus', label: 'Qwen3.7 Plus' },
@@ -85,6 +91,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Zhipu GLM',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKeyEnv: 'ZHIPUAI_API_KEY',
+    author: 'z-ai',
     models: [
       { value: 'glm-5.2', label: 'GLM-5.2' },
       { value: 'glm-5v-turbo', label: 'GLM-5V Turbo' },
@@ -99,6 +106,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Moonshot',
     baseUrl: 'https://api.moonshot.cn/v1',
     apiKeyEnv: 'MOONSHOT_API_KEY',
+    author: 'moonshotai',
     models: [
       { value: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
       { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
@@ -113,6 +121,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Ollama',
     baseUrl: 'http://localhost:11434/v1',
     apiKeyEnv: '',
+    author: 'ollama',
     models: [
       { value: 'llama3.1', label: 'Llama 3.1' },
       { value: 'qwen2.5-coder', label: 'Qwen2.5 Coder' },
@@ -124,6 +133,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Zhipu GLM (legacy)',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKeyEnv: 'ZHIPUAI_API_KEY',
+    author: 'z-ai',
     models: [
       { value: 'glm-5.2', label: 'GLM-5.2' },
       { value: 'glm-5v-turbo', label: 'GLM-5V Turbo' },
@@ -138,6 +148,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Kimi (legacy)',
     baseUrl: 'https://api.moonshot.cn/v1',
     apiKeyEnv: 'MOONSHOT_API_KEY',
+    author: 'moonshotai',
     models: [
       { value: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
       { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
@@ -152,6 +163,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'MiniMax',
     baseUrl: 'https://api.minimax.chat/v1',
     apiKeyEnv: 'MINIMAX_API_KEY',
+    author: 'minimax',
     models: [
       { value: 'abab6.5s-chat', label: 'ABAB6.5s Chat' },
       { value: 'abab6.5g-chat', label: 'ABAB6.5g Chat' },
@@ -197,6 +209,10 @@ function providerLabel(name: string): string {
   return LLM_PROVIDER_PRESETS[name]?.label ?? name;
 }
 
+function providerDefaultAuthor(name: string): string {
+  return LLM_PROVIDER_PRESETS[name]?.author ?? '';
+}
+
 function modelPresetValue(provider: ProviderForm, preset?: ProviderPreset): string {
   if (!preset) return CUSTOM_MODEL_VALUE;
   return preset.models.some((model) => model.value === provider.model) ? provider.model : CUSTOM_MODEL_VALUE;
@@ -212,27 +228,56 @@ function isConfiguredModel(model: string, configuredModel: string): boolean {
   return configuredModel.length > 0 && model === configuredModel;
 }
 
+function splitAuthorAndModel(model: string): { author: string; model: string } | null {
+  const trimmed = model.trim();
+  const slashIndex = trimmed.indexOf('/');
+  if (slashIndex <= 0 || slashIndex >= trimmed.length - 1) return null;
+  const author = trimmed.slice(0, slashIndex).trim();
+  const nextModel = trimmed.slice(slashIndex + 1).trim();
+  if (!author || !nextModel) return null;
+  return { author, model: nextModel };
+}
+
+function normalizeProviderForm(providerName: string, provider: ProviderForm): ProviderForm {
+  const parsed = splitAuthorAndModel(provider.model);
+  if (parsed) {
+    return {
+      ...provider,
+      author: parsed.author,
+      model: parsed.model,
+    };
+  }
+  if (provider.author.trim()) return provider;
+  const defaultAuthor = providerDefaultAuthor(providerName);
+  if (!defaultAuthor) return provider;
+  return {
+    ...provider,
+    author: defaultAuthor,
+  };
+}
+
 function buildForm(cfg: SettingsConfig): SettingsFormState {
   const llm = asRecord(cfg.llm_provider);
   const providers: Record<string, ProviderForm> = {};
 
   for (const name of KNOWN_PROVIDERS) {
-    providers[name] = { model: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[name] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
   }
 
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
     const provider = asRecord(value);
-    providers[name] = {
+    providers[name] = normalizeProviderForm(name, {
       model: asString(provider.model),
+      author: asString(provider.author),
       base_url: asString(provider.base_url),
       api_key_env: asString(provider.api_key_env),
       api_key: provider.api_key === '***' ? '' : asString(provider.api_key),
-    };
+    });
   }
 
   const defaultProvider = asString(llm.default, 'openai');
   if (!providers[defaultProvider]) {
-    providers[defaultProvider] = { model: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[defaultProvider] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
   }
 
   const agent = asRecord(cfg.agent);
@@ -333,11 +378,13 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
 
 function buildPatch(form: SettingsFormState): SettingsConfig {
   const providers: Record<string, unknown> = {};
-  for (const [name, provider] of Object.entries(form.llm_provider.providers)) {
-    if (!provider.model && !provider.base_url && !provider.api_key_env && !provider.api_key && name !== form.llm_provider.default) {
+  for (const [name, rawProvider] of Object.entries(form.llm_provider.providers)) {
+    const provider = normalizeProviderForm(name, rawProvider);
+    if (!provider.model && !provider.author && !provider.base_url && !provider.api_key_env && !provider.api_key && name !== form.llm_provider.default) {
       continue;
     }
     const next: Record<string, unknown> = { model: provider.model };
+    if (provider.author) next.author = provider.author;
     if (provider.base_url) next.base_url = provider.base_url;
     if (provider.api_key_env) next.api_key_env = provider.api_key_env;
     if (provider.api_key) next.api_key = provider.api_key;
@@ -490,12 +537,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     onChange: (value: string) => void,
     placeholder?: string,
     type = 'text',
+    readOnly = false,
   ) => (
     <DojoInput
       size="sm"
       type={type}
       value={value}
       placeholder={placeholder}
+      readOnly={readOnly}
       autoComplete={type === 'password' ? 'off' : undefined}
       onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
     />
@@ -607,6 +656,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                               nextProvider.model = model.value;
                               nextProvider.base_url = preset.baseUrl;
                               nextProvider.api_key_env = preset.apiKeyEnv;
+                              nextProvider.author = preset.author;
+                              const normalized = normalizeProviderForm(name, nextProvider);
+                              draft.llm_provider.providers[name] = normalized;
                             });
                           }}
                           options={[
@@ -641,7 +693,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                             value={provider.model}
                             onChange={(event) =>
                               updateField((draft) => {
-                                draft.llm_provider.providers[name].model = event.target.value;
+                                const nextProvider = draft.llm_provider.providers[name];
+                                nextProvider.model = event.target.value;
+                                draft.llm_provider.providers[name] = normalizeProviderForm(name, nextProvider);
                               })
                             }
                           />
@@ -654,7 +708,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                       </Field>
                       <Field label="Base URL">
                         {textInput(provider.base_url, (value) =>
-                          updateField((draft) => { draft.llm_provider.providers[name].base_url = value; }), preset?.baseUrl ?? 'https://api.openai.com/v1')}
+                          updateField((draft) => {
+                            const nextProvider = draft.llm_provider.providers[name];
+                            nextProvider.base_url = value;
+                            draft.llm_provider.providers[name] = normalizeProviderForm(name, nextProvider);
+                          }), preset?.baseUrl ?? 'https://api.openai.com/v1')}
+                      </Field>
+                      <Field label="Author">
+                        {textInput(provider.author, () => {}, providerDefaultAuthor(name), 'text', true)}
                       </Field>
                       <Field label="API Key Env">
                         {textInput(provider.api_key_env, (value) =>
@@ -802,20 +863,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </Section>
 
               <Section title="Dojo SDK">
-                <form
-                  className="settings-credential-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handleSave();
-                  }}
-                >
-                  <Field label="API Key">{textInput(form.dojosdk.api_key, (value) => updateField((draft) => { draft.dojosdk.api_key = value; }), '***', 'password')}</Field>
-                  <Field label="Base URL">{textInput(form.dojosdk.base_url, (value) => updateField((draft) => { draft.dojosdk.base_url = value; }))}</Field>
-                  <Field label="Timeout (seconds)">{numberInput(form.dojosdk.timeout, (value) => updateField((draft) => { draft.dojosdk.timeout = value; }), 1)}</Field>
-                  <Field label="Max Retries">{numberInput(form.dojosdk.max_retries, (value) => updateField((draft) => { draft.dojosdk.max_retries = value; }), 0)}</Field>
-                </form>
+                <Field label="API Key">{textInput(form.dojosdk.api_key, (value) => updateField((draft) => { draft.dojosdk.api_key = value; }), '***', 'password')}</Field>
+                <Field label="Base URL">{textInput(form.dojosdk.base_url, (value) => updateField((draft) => { draft.dojosdk.base_url = value; }))}</Field>
+                <Field label="Timeout (seconds)">{numberInput(form.dojosdk.timeout, (value) => updateField((draft) => { draft.dojosdk.timeout = value; }), 1)}</Field>
+                <Field label="Max Retries">{numberInput(form.dojosdk.max_retries, (value) => updateField((draft) => { draft.dojosdk.max_retries = value; }), 0)}</Field>
               </Section>
-            </div>
+            </form>
           ) : null}
         </div>
 

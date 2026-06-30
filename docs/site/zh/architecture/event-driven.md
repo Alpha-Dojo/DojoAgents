@@ -19,4 +19,5 @@
 
 ## 深入阅读
 
-事件驱动设计后续应以本页为主继续补齐。
+- [dojo.v2 协议](../reference/dojo-v2-protocol.md)
+- [Dashboard API](../reference/dashboard-api.md)
