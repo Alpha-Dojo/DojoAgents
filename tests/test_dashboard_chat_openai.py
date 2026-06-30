@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
@@ -290,6 +291,54 @@ def test_chat_non_streaming_dojo_v2_extension():
     body = response.json()
     assert body["dojo"]["schema_version"] == "2.0"
     assert body["dojo"]["events"][-1]["type"] == "done"
+
+
+def test_chat_rejects_unsupported_image_input():
+    from dojoagents.agent.model_context import ModelContextInfo
+    from dojoagents.config.models import LLMProviderConfig
+
+    class FakeModelContextRegistry:
+        async def resolve_info(self, provider_name, provider_cfg):
+            assert provider_name == "zhipu"
+            assert provider_cfg.author == "z-ai"
+            assert provider_cfg.model == "glm-5.2"
+            return ModelContextInfo(
+                context_window=1048576,
+                input_modalities=("text",),
+                output_modalities=("text",),
+                canonical_slug="z-ai/glm-5.2-20260616",
+                provider_model_id="z-ai/glm-5.2",
+                author="z-ai",
+                slug="glm-5.2",
+            )
+
+    runtime = _make_fake_runtime()
+    runtime.agent.provider_config = LLMProviderConfig(model="glm-5.2", author="z-ai")
+    runtime.agent.model_context_registry = FakeModelContextRegistry()
+    runtime.agent.llm_provider = type("FakeProvider", (), {"name": "zhipu"})()
+    client = TestClient(_make_app(runtime))
+    data_url = "data:image/png;base64," + base64.b64encode(b"abc").decode("ascii")
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "model": "zhipu",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe this"},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            "stream": False,
+            "metadata": {"session_id": "s-img"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "does not support input modalities: image" in response.json()["error"]
 
 
 # ── CORS tests ───────────────────────────────────────────────────────

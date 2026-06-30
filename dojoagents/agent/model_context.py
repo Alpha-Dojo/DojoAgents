@@ -155,6 +155,13 @@ def _openrouter_lookup_parts(provider_cfg: LLMProviderConfig) -> tuple[str | Non
     return author, slug
 
 
+def _should_lookup_openrouter_info(provider_cfg: LLMProviderConfig) -> bool:
+    author, slug = _openrouter_lookup_parts(provider_cfg)
+    if not slug:
+        return False
+    return bool(author or _is_openrouter_config(provider_cfg))
+
+
 class ModelContextRegistry:
     def __init__(
         self,
@@ -290,7 +297,7 @@ class ModelContextRegistry:
         return None
 
     async def _retrieve_openrouter_info(self, provider_cfg: LLMProviderConfig) -> ModelContextInfo | None:
-        if not provider_cfg.model:
+        if not provider_cfg.model or not _should_lookup_openrouter_info(provider_cfg):
             return None
         cached_models = self._read_openrouter_models_cache()
         if cached_models is not None:
@@ -333,6 +340,22 @@ class ModelContextRegistry:
     ) -> ModelContextInfo:
         model_id = provider_cfg.model
         openrouter_info = await self._retrieve_openrouter_info(provider_cfg)
+        if provider_cfg.context_window and provider_cfg.context_window > 0:
+            override = int(provider_cfg.context_window)
+            if not model_id:
+                return ModelContextInfo(context_window=override)
+            cache_key = self._cache_key(provider_name, model_id)
+            if openrouter_info is not None:
+                info = openrouter_info.with_context_window(override)
+                self._write_cache_info(cache_key, info)
+                return info
+            cached = self._read_cache_info(cache_key)
+            if cached is not None:
+                return cached.with_context_window(override)
+            return ModelContextInfo(context_window=override)
+        if not model_id:
+            return ModelContextInfo(context_window=self.default_context_window)
+
         cache_key = self._cache_key(provider_name, model_id)
         cached = self._read_cache_info(cache_key)
         if cached is not None:
