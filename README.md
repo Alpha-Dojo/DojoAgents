@@ -3,12 +3,11 @@
 </div>
 
 <p align="center">
-  <a href="https://discord.gg/YOUR_LINK"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://weixin.qq.com/YOUR_LINK"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
-  <a href="https://huggingface.co/YOUR_LINK"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>  
-  <a href="https://github.com/YOUR_REPO/discussions"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
+  <a href="https://discord.gg/CCRvSvdvr"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/Alpha-Dojo/DojoAgents"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="https://huggingface.co/AlphaDojo"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>
+  <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
-
 
 ---
 
@@ -18,11 +17,11 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
 
 ## ✨ Why DojoAgents?
 
-**🧠 Loop-Driven Cognitive Portfolio Agent (Our Core Engine):** Powered by advanced Loop-Engineering, this is not a basic Q&A bot. It is an iterative reasoning engine deeply integrated with your portfolio, capable of executing complex financial workflows across four dimensions:
+**🧠 Loop-Driven Cognitive Portfolio Agent (Our Core Engine):** Most financial AI tools are built for quick outputs: news summaries, single-stock explanations, basic indicator readings, or generic market commentary. Our Loop-Driven Cognitive Portfolio Agent is built for portfolio-aware reasoning, connecting your holdings with market data and running structured analysis across four dimensions:
 * **Fundamental Data Cognition:** Instantly fetches, structures, and cross-references raw multi-market data (K-lines, financials, news).
 * **Advanced Logic Analysis:** Interprets valuation bands, momentum indicators, and sector taxonomy to uncover hidden market mechanics.
 * **Cross-Market Strategy Deduction:** Formulates macro asset allocation and maps market linkages (e.g., autonomously reasoning through *"Why US semiconductor software dropped while A-shares surged"* via multi-step tool execution).
-* **Dynamic Portfolio Management:** Continuously diagnoses risk exposure, monitors net-worth curves, and evaluates performance attribution for optimal rebalancing.
+* **Dynamic Portfolio Management:** Continuously diagnoses risk exposure, monitors net-worth curves, and evaluates performance attribution to support more informed rebalancing decisions.
 
 **📊 Four-Pillar Dashboard:** An out-of-the-box, institutional-grade React SPA featuring:
 - **Portfolio (The Command Center):** Net worth curves, live risk exposure, and smart position tracking.
@@ -32,7 +31,8 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
 
 **🤖 Autonomous Quant Analyst:** Powered by multi-agent collaboration, it autonomously conducts background market research, tracks sector rotations, and monitors your risk exposure while you sleep.
 
-**📱 Omnichannel & Always On:** Get personalized daily briefings or real-time alert pushes directly to your Slack, Telegram, Discord, Feishu, or WeChat.
+**📱 **Planned Omnichannel Updates**: Future versions will support personalized daily briefings and alert notifications through Slack, Telegram, Discord, Feishu, WeChat, or email.
+
 
 ## 🚀 Quick Start
 
@@ -114,3 +114,7 @@ Ready to build custom quantitative skills, integrate proprietary data, or deploy
 We are building the ultimate open-source financial AI, and we'd love your help! Check out our Contribution Guidelines to see how you can add new tools, refine the agent prompts, or expand market coverage.
 
 **License:** DojoAgents is open-source under the Apache License 2.0.
+
+## ⚠️ Disclaimer
+
+This project is for educational, research, and demonstration purposes only and does not provide investment advice or trading recommendations. Trading financial instruments involves significant risk, including possible loss of capital. All data, analysis, and outputs are for reference only and may not be accurate, complete, or up to date. Users are responsible for their own investment decisions, and this project and its contributors are not liable for any loss resulting from reliance on the information provided. Third-party names, logos, and brands are used for identification purposes only and do not imply endorsement or affiliation.

@@ -6,7 +6,7 @@ import { formatCompactNumber } from '../../utils/entityCharts';
 import { activeClassificationRole, findSectorOptionIndex } from '../../utils/entitySectorOptions';
 import { CORE_METRIC_COLUMN_COUNT } from '../../utils/entityKeyMetrics';
 import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
-import { EntityAddToFolioButton } from './EntityAddToFolioButton';
+import { EntityCreateOrderButton } from './EntityCreateOrderButton';
 import { EntitySectorCycleButton } from './EntitySectorCycleButton';
 import { EntitySectorToolbar } from './EntitySectorToolbar';
 import { EntityTickerSearch } from './EntityTickerSearch';
@@ -90,7 +90,7 @@ export function EntitySnapshotPanel({
               {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
             </span>
           </div>
-          <EntityAddToFolioButton ticker={ticker} market={market} />
+          <EntityCreateOrderButton ticker={ticker} market={market} name={text(asset.name)} />
         </div>
 
         <div className="core-snapshot__controls">

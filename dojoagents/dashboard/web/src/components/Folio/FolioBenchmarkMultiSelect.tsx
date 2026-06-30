@@ -4,19 +4,38 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { formatPerformanceReturnPercent, PERFORMANCE_MARKET_CLASS } from '../../utils/sectorPerformanceSeries';
 
-export interface FolioBenchmarkMultiSelectOption {
+export type FolioBenchmarkMultiSelectOption = {
+  kind: 'option';
   symbol: string;
   label: string;
   market: MarketCode;
-}
+};
+
+export type FolioBenchmarkMultiSelectHeader = {
+  kind: 'header';
+  id: string;
+  label: string;
+};
+
+export type FolioBenchmarkMultiSelectEntry =
+  | FolioBenchmarkMultiSelectOption
+  | FolioBenchmarkMultiSelectHeader;
 
 interface FolioBenchmarkMultiSelectProps {
   'aria-label': string;
   className?: string;
-  options: FolioBenchmarkMultiSelectOption[];
+  options: FolioBenchmarkMultiSelectEntry[];
   selected: string[];
   onToggle: (symbol: string) => void;
+  /** Single-choice mode: replaces selection and closes the menu on pick. */
+  singleSelect?: boolean;
+  onSelect?: (symbol: string) => void;
+  /** Rebased benchmark index (100 = flat); shown beside the trigger label when set. */
+  returnValue?: number | null;
+  /** Match folio-performance head chips instead of standalone dropdown styling. */
+  variant?: 'default' | 'inline';
 }
 
 function ChevronIcon() {
@@ -67,6 +86,10 @@ export function FolioBenchmarkMultiSelect({
   options,
   selected,
   onToggle,
+  singleSelect = false,
+  onSelect,
+  returnValue = null,
+  variant = 'default',
 }: FolioBenchmarkMultiSelectProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -74,9 +97,14 @@ export function FolioBenchmarkMultiSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLUListElement>(null);
 
+  const selectableOptions = useMemo(
+    () => options.filter((entry): entry is FolioBenchmarkMultiSelectOption => entry.kind === 'option'),
+    [options],
+  );
+
   const selectedOptions = useMemo(
-    () => options.filter((option) => selected.includes(option.symbol)),
-    [options, selected],
+    () => selectableOptions.filter((option) => selected.includes(option.symbol)),
+    [selectableOptions, selected],
   );
 
   const triggerLabel = useMemo(() => {
@@ -150,20 +178,39 @@ export function FolioBenchmarkMultiSelect({
     };
   }, [open, updateDropdownPosition]);
 
+  const handleOptionClick = useCallback(
+    (symbol: string) => {
+      if (singleSelect) {
+        onSelect?.(symbol);
+        setOpen(false);
+        return;
+      }
+      onToggle(symbol);
+    },
+    [onSelect, onToggle, singleSelect],
+  );
+
   const dropdown = open
     ? createPortal(
         <ul
           className="folio-benchmark-multi__dropdown dojo-dropdown-select__dropdown"
           role="listbox"
           aria-label={ariaLabel}
-          aria-multiselectable="true"
+          aria-multiselectable={singleSelect ? 'false' : 'true'}
           ref={dropdownRef}
           style={dropdownStyle}
         >
-          {options.map((option) => {
-            const active = selected.includes(option.symbol);
+          {options.map((entry) => {
+            if (entry.kind === 'header') {
+              return (
+                <li key={entry.id} role="presentation" className="folio-benchmark-multi__group">
+                  <span className="folio-benchmark-multi__group-label">{entry.label}</span>
+                </li>
+              );
+            }
+            const active = selected.includes(entry.symbol);
             return (
-              <li key={option.symbol} role="presentation">
+              <li key={entry.symbol} role="presentation">
                 <button
                   type="button"
                   role="option"
@@ -171,13 +218,13 @@ export function FolioBenchmarkMultiSelect({
                   className={`folio-benchmark-multi__option dojo-dropdown-select__option${
                     active ? ' folio-benchmark-multi__option--active' : ''
                   }`}
-                  onClick={() => onToggle(option.symbol)}
+                  onClick={() => handleOptionClick(entry.symbol)}
                 >
                   <span className="folio-benchmark-multi__option-leading">
                     <span className="folio-benchmark-select__flag" aria-hidden>
-                      {MARKET_FLAG[option.market]}
+                      {MARKET_FLAG[entry.market]}
                     </span>
-                    <span className="dojo-dropdown-select__option-label">{option.label}</span>
+                    <span className="dojo-dropdown-select__option-label">{entry.label}</span>
                   </span>
                   <span
                     className={`folio-benchmark-multi__check-slot${
@@ -198,33 +245,87 @@ export function FolioBenchmarkMultiSelect({
 
   const triggerPrefix =
     selectedOptions.length === 1 ? (
-      <span className="folio-benchmark-select__flag" aria-hidden>
+      <span
+        className={
+          variant === 'inline' ? 'folio-performance__inline-flag' : 'folio-benchmark-select__flag'
+        }
+        aria-hidden
+      >
         {MARKET_FLAG[selectedOptions[0].market]}
       </span>
     ) : null;
 
+  const inlineMarket =
+    variant === 'inline' && selectedOptions.length === 1 ? selectedOptions[0].market : null;
+
   return (
     <div
-      className={['folio-benchmark-multi', open ? 'folio-benchmark-multi--open' : '', className]
+      className={[
+        'folio-benchmark-multi',
+        open ? 'folio-benchmark-multi--open' : '',
+        variant === 'inline' ? 'folio-benchmark-multi--inline' : '',
+        className,
+      ]
         .filter(Boolean)
         .join(' ')}
       ref={rootRef}
     >
       <button
         type="button"
-        className={`folio-benchmark-multi__trigger dojo-dropdown-select__trigger${
-          open ? ' dojo-dropdown-select__trigger--open' : ''
-        }`}
+        className={
+          variant === 'inline'
+            ? [
+                'folio-benchmark-multi__trigger',
+                'folio-performance__inline-benchmark',
+                inlineMarket
+                  ? `folio-performance__inline-market--${PERFORMANCE_MARKET_CLASS[inlineMarket]}`
+                  : '',
+                open ? 'folio-benchmark-multi__trigger--open' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
+            : `folio-benchmark-multi__trigger dojo-dropdown-select__trigger${
+                open ? ' dojo-dropdown-select__trigger--open' : ''
+              }`
+        }
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <span className="dojo-dropdown-select__value">
-          {triggerPrefix}
-          <span className="dojo-dropdown-select__value-label">{triggerLabel}</span>
-        </span>
-        <ChevronIcon />
+        {variant === 'inline' ? (
+          <>
+            {triggerPrefix}
+            <span className="folio-performance__inline-benchmark-label">{triggerLabel}</span>
+            {returnValue != null ? (
+              <span
+                className={`folio-performance__inline-return folio-performance__inline-return--${
+                  returnValue >= 100 ? 'up' : 'down'
+                }`}
+              >
+                {formatPerformanceReturnPercent(returnValue)}
+              </span>
+            ) : null}
+            <ChevronIcon />
+          </>
+        ) : (
+          <>
+            <span className="dojo-dropdown-select__value">
+              {triggerPrefix}
+              <span className="dojo-dropdown-select__value-label">{triggerLabel}</span>
+              {singleSelect && returnValue != null ? (
+                <span
+                  className={`folio-benchmark-multi__trigger-return folio-benchmark-multi__trigger-return--${
+                    returnValue >= 100 ? 'up' : 'down'
+                  }`}
+                >
+                  {formatPerformanceReturnPercent(returnValue)}
+                </span>
+              ) : null}
+            </span>
+            <ChevronIcon />
+          </>
+        )}
       </button>
       {dropdown}
     </div>

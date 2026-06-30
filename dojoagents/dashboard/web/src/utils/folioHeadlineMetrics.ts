@@ -1,69 +1,66 @@
 import type { FolioPortfolioDetail } from '../api/folio';
-import type { FolioPerformanceView } from '../types/folio';
 import { FOLIO_MARKETS } from '../types/folio';
 import type { MarketCode } from '../types/market';
-import { resolveBenchmarkStats } from './folioPerformanceStats';
 
-export interface FolioHeadlineMetricValue {
-  pct: number | null;
-  usd: number | null;
+export interface FolioHeadlineMarketRow {
+  market: MarketCode;
+  assets: number | null;
+  totalPnlPct: number;
+  todayPnlPct: number;
 }
 
 export interface FolioHeadlineMetricsView {
-  alpha: FolioHeadlineMetricValue;
-  totalPnl: FolioHeadlineMetricValue;
-  dailyDelta: number | null;
+  byMarket: FolioHeadlineMarketRow[];
 }
 
-function weightedCumulativeReturn(
-  performance: FolioPerformanceView | null | undefined,
-  netValueByMarket: Partial<Record<MarketCode, number>>,
-): number | null {
-  if (!performance) return null;
+function marketAssets(detail: FolioPortfolioDetail, market: MarketCode): number | null {
+  const net = detail.netValueByMarket[market] ?? 0;
+  if (net > 0) return net;
 
-  let totalWeight = 0;
-  let weightedSum = 0;
-  for (const market of FOLIO_MARKETS) {
-    const weight = netValueByMarket[market] ?? 0;
-    const pct = performance.statsByMarket?.[market]?.cumulative_return_pct;
-    if (weight <= 0 || pct == null || Number.isNaN(pct)) continue;
-    totalWeight += weight;
-    weightedSum += pct * weight;
+  const positions = detail.positions.filter((row) => row.market === market);
+  if (positions.length > 0) {
+    const sum = positions.reduce((acc, row) => acc + row.marketValue, 0);
+    if (sum > 0) return sum;
   }
-  if (totalWeight <= 0) return null;
-  return weightedSum / totalWeight;
+
+  const capital = detail.config?.capitalByMarket[market] ?? 0;
+  return capital > 0 ? capital : null;
 }
 
-function sumCostBasisUsd(detail: FolioPortfolioDetail): number | null {
-  const { costBasisByMarket } = detail;
-  const total = FOLIO_MARKETS.reduce((sum, market) => sum + (costBasisByMarket[market] ?? 0), 0);
-  return total > 0 ? total : null;
+function marketHasHoldings(detail: FolioPortfolioDetail, market: MarketCode): boolean {
+  return detail.positions.some((row) => row.market === market && row.shares > 0);
 }
 
-export function computeFolioHeadlineMetrics(
-  detail: FolioPortfolioDetail,
-  benchmarkSymbol: string | null,
-): FolioHeadlineMetricsView {
-  const portfolioReturn = weightedCumulativeReturn(detail.performance, detail.netValueByMarket);
-  const benchmarkReturn = resolveBenchmarkStats(detail.performance, benchmarkSymbol)?.cumulative_return_pct ?? null;
+function marketTodayPnl(detail: FolioPortfolioDetail, market: MarketCode): number {
+  if (!marketHasHoldings(detail, market)) return 0;
 
-  const costBasisUsd = sumCostBasisUsd(detail);
-  const netValueUsd = detail.netValueUsd;
-  const totalPnlUsd =
-    netValueUsd != null && costBasisUsd != null ? netValueUsd - costBasisUsd : null;
+  const positions = detail.positions.filter(
+    (row) => row.market === market && row.shares > 0,
+  );
+  const netValue = positions.reduce((acc, row) => acc + row.marketValue, 0);
+  if (netValue <= 0) return 0;
+  return positions.reduce((acc, row) => acc + row.changePercent * row.marketValue, 0) / netValue;
+}
 
-  const alphaPct =
-    portfolioReturn != null && benchmarkReturn != null
-      ? portfolioReturn - benchmarkReturn
-      : null;
-  const alphaUsd =
-    alphaPct != null && costBasisUsd != null
-      ? (costBasisUsd * alphaPct) / 100
-      : null;
+function marketTotalPnlPct(detail: FolioPortfolioDetail, market: MarketCode): number {
+  if (!marketHasHoldings(detail, market)) return 0;
 
+  const capital = detail.config?.capitalByMarket[market] ?? 0;
+  const net = detail.netValueByMarket[market] ?? 0;
+  if (capital > 0 && net > 0) {
+    return ((net - capital) / capital) * 100;
+  }
+
+  return detail.performance?.statsByMarket?.[market]?.cumulative_return_pct ?? 0;
+}
+
+export function computeFolioHeadlineMetrics(detail: FolioPortfolioDetail): FolioHeadlineMetricsView {
   return {
-    alpha: { pct: alphaPct, usd: alphaUsd },
-    totalPnl: { pct: portfolioReturn, usd: totalPnlUsd },
-    dailyDelta: detail.todayChange,
+    byMarket: FOLIO_MARKETS.map((market) => ({
+      market,
+      assets: marketAssets(detail, market),
+      totalPnlPct: marketTotalPnlPct(detail, market),
+      todayPnlPct: marketTodayPnl(detail, market),
+    })),
   };
 }

@@ -9,19 +9,28 @@ from dojoagents.dashboard.schemas.domain_api import (
     AddPortfolioHoldingRequestV1,
     AddPortfolioHoldingsRequestV1,
     AutoAllocateRequestV1,
+    CancelPortfolioOrderRequestV1,
+    CreatePortfolioOrderRequestV1,
     ManagePortfolioRequestV1,
     PortfolioAnalysisResponseV1,
     PortfolioListResponseV1,
     RemovePortfolioHoldingRequestV1,
     UpdateHoldingsMetadataRequestV1,
 )
-from dojoagents.dashboard.schemas.portfolio import CreatePortfolioRequest, UpdatePortfolioRequest
+from dojoagents.dashboard.schemas.portfolio import (
+    AddPortfolioHoldingRequest,
+    CancelPortfolioOrderRequest,
+    CreatePortfolioOrderRequest,
+    CreatePortfolioRequest,
+    UpdatePortfolioRequest,
+)
 from dojoagents.dashboard.services.domain_api import (
     build_portfolio_analysis_v1,
     build_portfolio_list_v1,
     build_update_request_from_manage,
     portfolio_detail_to_analysis,
 )
+from dojoagents.dashboard.services.portfolio_service import PortfolioOrderFillError, PortfolioValidationError
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
@@ -77,15 +86,20 @@ async def manage_portfolio(
     if body.action == "create":
         if not body.name:
             raise HTTPException(status_code=400, detail="name is required for create")
-        created = await registry.portfolio_service.create(CreatePortfolioRequest(name=body.name))
+        created = await registry.portfolio_service.create(
+            CreatePortfolioRequest(name=body.name, kind=body.kind or "manual"),
+        )
         return portfolio_detail_to_analysis(created)
     if not body.portfolio_id:
         raise HTTPException(status_code=400, detail="portfolio_id is required")
     if body.action == "update":
-        detail = await registry.portfolio_service.update(
-            body.portfolio_id,
-            build_update_request_from_manage(body),
-        )
+        try:
+            detail = await registry.portfolio_service.update(
+                body.portfolio_id,
+                build_update_request_from_manage(body),
+            )
+        except PortfolioValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if detail is None:
             raise HTTPException(status_code=404, detail="portfolio not found")
         return portfolio_detail_to_analysis(detail)
@@ -126,13 +140,12 @@ async def add_holdings_batch(
     body: AddPortfolioHoldingsRequestV1,
     registry=Depends(get_financial_registry),
 ) -> PortfolioAnalysisResponseV1:
-    detail = None
-    for holding in body.holdings:
-        detail = await registry.portfolio_service.add_holding(body.portfolio_id, holding)
-        if detail is None:
-            raise HTTPException(status_code=404, detail="portfolio or ticker not found")
+    detail = await registry.portfolio_service.add_holdings_batch(
+        body.portfolio_id,
+        [holding for holding in body.holdings],
+    )
     if detail is None:
-        raise HTTPException(status_code=400, detail="holdings are required")
+        raise HTTPException(status_code=404, detail="portfolio or ticker not found")
     return portfolio_detail_to_analysis(detail)
 
 
@@ -190,4 +203,60 @@ async def auto_allocate(
     detail = await registry.portfolio_service.auto_allocate(body.portfolio_id, body)
     if detail is None:
         raise HTTPException(status_code=404, detail="portfolio not found")
+    return portfolio_detail_to_analysis(detail)
+
+
+@router.post(
+    "/orders",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="create_portfolio_order",
+    summary="Place a buy/sell order for a portfolio position",
+)
+async def create_order(
+    body: CreatePortfolioOrderRequestV1,
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    try:
+        detail = await registry.portfolio_service.create_order(
+            body.portfolio_id,
+            CreatePortfolioOrderRequest(
+                ticker=body.ticker,
+                market=body.market,
+                order_side=body.order_side,
+                price=body.price,
+                qty=body.qty,
+                order_time=body.order_time,
+            ),
+        )
+    except PortfolioOrderFillError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": str(exc),
+                "code": exc.code,
+                "order_id": exc.order_id,
+                "context": exc.context,
+            },
+        ) from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio or ticker not found")
+    return portfolio_detail_to_analysis(detail)
+
+
+@router.delete(
+    "/orders",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="cancel_portfolio_order",
+    summary="Cancel a pending portfolio order",
+)
+async def cancel_order(
+    body: CancelPortfolioOrderRequestV1,
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    detail = await registry.portfolio_service.cancel_order(
+        body.portfolio_id,
+        CancelPortfolioOrderRequest(order_id=body.order_id),
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio or order not found")
     return portfolio_detail_to_analysis(detail)

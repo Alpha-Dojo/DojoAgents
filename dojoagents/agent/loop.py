@@ -27,6 +27,14 @@ from dojoagents.agent.hooks.token_compression import TokenCompressionHook
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
 from dojoagents.agent.token_policy import TokenCompressionPolicy
+from dojoagents.agent.multimodal import (
+    IMAGE_TURN_EXCLUDED_TOOLS,
+    MULTIMODAL_IMAGE_PROTOCOL,
+    openai_content_has_images,
+    openai_content_text,
+    openai_content_to_strands_blocks,
+    strands_image_block_to_openai_part,
+)
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.config.models import LLMProviderConfig
 
@@ -324,8 +332,19 @@ def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | 
                 tool_results.append({"role": "tool", "name": tr.get("name") or "unknown", "tool_call_id": tr.get("toolUseId"), "content": res_content})
 
         if role == "user":
-            if text_content.strip() or not tool_results:
-                dojo_messages.append({"role": "user", "content": text_content})
+            user_parts: list[dict[str, Any]] = []
+            if text_content.strip():
+                user_parts.append({"type": "text", "text": text_content})
+            for block in content_list:
+                if isinstance(block, dict) and "image" in block:
+                    image_part = strands_image_block_to_openai_part(block)
+                    if image_part is not None:
+                        user_parts.append(image_part)
+            if user_parts and not tool_results:
+                if len(user_parts) == 1 and user_parts[0].get("type") == "text":
+                    dojo_messages.append({"role": "user", "content": user_parts[0]["text"]})
+                else:
+                    dojo_messages.append({"role": "user", "content": user_parts})
         elif role == "assistant":
             assistant_msg = {"role": "assistant", "content": text_content}
             if tool_calls:
@@ -452,9 +471,12 @@ class AgentLoop:
 
         emit_phase("planning")
 
+        user_content = request.metadata.get("user_content", request.message)
+        image_turn = openai_content_has_images(user_content)
+
         # 1. Build the system prompt
         blocks = [
-            "You are DojoAgents, a quantitative finance analysis agent.",
+            "You are DojoAgents, a full-market finance analysis agent.",
             self.skill_manager.prompt_block(platform=request.channel),
             self.memory_manager.build_system_prompt(),
             await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),
@@ -465,8 +487,12 @@ class AgentLoop:
         # Inject dashboard-specific structured visualization guidance.
         if request.channel == "dashboard":
             from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+            from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
 
             blocks.append(DASHBOARD_VIZ_PROTOCOL)
+            blocks.append(DASHBOARD_TOOL_PROTOCOL)
+        if image_turn:
+            blocks.append(MULTIMODAL_IMAGE_PROTOCOL)
         system = "\n\n".join(block for block in blocks if block)
 
         # Plan activation check
@@ -528,6 +554,7 @@ class AgentLoop:
         invocation_state["_dojo_event_sink"] = event_sink
         invocation_state["_dojo_compression_policy"] = compression_policy
         invocation_state["_dojo_provider_state"] = self.provider_state
+        invocation_state["_dojo_image_turn"] = image_turn
 
         model = DojoStrandsModelBridge(self.llm_provider, model_id)
         model.update_config(context_window_limit=session_max_tokens)
@@ -539,11 +566,16 @@ class AgentLoop:
             role = msg["role"]
             content = msg.get("content")
 
-            content_blocks = []
-            if isinstance(content, str) and content:
-                content_blocks.append({"text": content})
-
             if role == "assistant":
+                content_blocks = []
+                if isinstance(content, str) and content:
+                    content_blocks.append({"text": content})
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = str(part.get("text") or "")
+                            if text:
+                                content_blocks.append({"text": text})
                 if "tool_calls" in msg and msg["tool_calls"]:
                     for tc in msg["tool_calls"]:
                         func = tc.get("function") or {}
@@ -576,19 +608,23 @@ class AgentLoop:
                     history_msg["reasoning"] = msg["reasoning_content"]
                 history_msgs.append(history_msg)
             elif role == "tool":
+                tool_content = content if isinstance(content, str) else str(content or "")
                 history_msgs.append(
                     {
                         "role": "user",
-                        "content": [{"toolResult": {"status": "success", "toolUseId": msg.get("tool_call_id"), "name": msg.get("name"), "content": [{"text": content or ""}]}}],
+                        "content": [{"toolResult": {"status": "success", "toolUseId": msg.get("tool_call_id"), "name": msg.get("name"), "content": [{"text": tool_content or ""}]}}],
                     }
                 )
             else:
-                history_msgs.append({"role": role, "content": content_blocks})
+                blocks = openai_content_to_strands_blocks(content)
+                if blocks:
+                    history_msgs.append({"role": role, "content": blocks})
 
         # Context token tracking & run-start compression
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
+        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
         estimated_prompt = _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
         if compression_policy.should_compress(
@@ -611,9 +647,12 @@ class AgentLoop:
 
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        temp_with_prompt = temp_messages + [{"role": "user", "content": request.message}]
+        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
-        used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(temp_with_prompt)
+        used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(
+            flatten_messages_for_compress(temp_with_prompt)
+        )
         remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
@@ -624,7 +663,10 @@ class AgentLoop:
                 tool_specs.append(plugin_tool.schema())
 
         strands_tools = []
+        excluded_tools = IMAGE_TURN_EXCLUDED_TOOLS if image_turn else frozenset()
         for spec in self.tool_executor.registry.all():
+            if spec.name in excluded_tools:
+                continue
             strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id, event_sink=event_sink))
 
         # 5. Set up hooks (Memory Hook & Plugin Hook)
@@ -692,6 +734,23 @@ class AgentLoop:
 
         # Define before tool call hook to check Dojo's guardrails
         async def check_guardrails_before(event: BeforeToolCallEvent) -> None:
+            if event.tool_use and invocation_state.get("_dojo_image_turn"):
+                tool_name = str(event.tool_use.get("name") or "")
+                if tool_name in IMAGE_TURN_EXCLUDED_TOOLS:
+                    from dojoagents.agent.guardrails import toolguard_synthetic_result, ToolGuardrailDecision
+
+                    decision = ToolGuardrailDecision(
+                        action="block",
+                        code="image_turn_tool_block",
+                        message=(
+                            f"Blocked {tool_name}: the user attached image(s) in this turn. "
+                            "Answer from the image directly instead of using shell or code tools."
+                        ),
+                        tool_name=tool_name,
+                    )
+                    blocked_res = toolguard_synthetic_result(decision)
+                    event.cancel_tool = blocked_res["content"]
+                    return
             if not event.selected_tool and event.tool_use:
                 # Dynamically construct the tool!
                 event.selected_tool = DojoBridgedTool(
@@ -730,6 +789,13 @@ class AgentLoop:
                     event.tool_use["name"] = repaired.name
                     event.tool_use["input"] = dict(repaired.arguments)
                     harness_state.tool_calls.append(repaired)
+                    block_message = active_harness.block_tool_call(repaired, harness_state)
+                    if block_message:
+                        event.cancel_tool = block_message
+                        harness_state.blocked_calls.append(
+                            {"tool": repaired.name, "arguments": dict(repaired.arguments), "reason": block_message},
+                        )
+                        return
             if event.tool_use:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
@@ -878,8 +944,18 @@ class AgentLoop:
         )
 
         # 7. Run Agent
+        user_prompt = openai_content_to_strands_blocks(user_content)
+        if not user_prompt:
+            user_prompt = request.message
+        if image_turn:
+            LOGGER.info(
+                "Multimodal user turn: session_id=%s provider=%s text_len=%d",
+                request.session_id,
+                provider_name,
+                len(openai_content_text(user_content)),
+            )
         try:
-            result = await agent.invoke_async(prompt=request.message, invocation_state=invocation_state, limits=limits)
+            result = await agent.invoke_async(prompt=user_prompt, invocation_state=invocation_state, limits=limits)
             response_text = str(result).strip()
             iterations = result.metrics.cycle_count if result.metrics else 1
             stopped_reason = None
@@ -959,12 +1035,52 @@ class AgentLoop:
         harness_state.final_response = response_text
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")
-            decision = active_harness.validate_progress(harness_state)
-            if not decision.complete:
-                response_text = active_harness.build_recovery_prompt(decision, locale)
-                metadata["stopped"] = decision.stop_code
+            max_harness_recovery_turns = max(3, self.config.max_iterations - 1)
+            harness_recovery_turns = 0
+            while True:
+                decision = active_harness.validate_progress(harness_state)
+                if decision.complete:
+                    break
+
+                recovery_prompt = active_harness.build_recovery_prompt(decision, locale)
                 if event_sink is not None:
-                    event_sink.eval_hint(response_text, decision.issues)
+                    event_sink.eval_hint(recovery_prompt, decision.issues)
+
+                if not decision.allow_extra_steps or harness_recovery_turns >= max_harness_recovery_turns:
+                    response_text = recovery_prompt
+                    metadata["stopped"] = decision.stop_code
+                    metadata["harness_issues"] = list(decision.issues)
+                    break
+
+                harness_recovery_turns += 1
+                LOGGER.info(
+                    "Harness recovery turn %d/%d for session_id=%s: %s",
+                    harness_recovery_turns,
+                    max_harness_recovery_turns,
+                    request.session_id,
+                    recovery_prompt[:240],
+                )
+                try:
+                    result = await agent.invoke_async(
+                        prompt=recovery_prompt,
+                        invocation_state=invocation_state,
+                        limits=limits,
+                    )
+                except Exception as exc:
+                    LOGGER.exception("Harness recovery invoke failed for session_id=%s", request.session_id)
+                    response_text = recovery_prompt
+                    metadata["stopped"] = decision.stop_code
+                    metadata["harness_recovery_error"] = str(exc)
+                    break
+
+                response_text = str(result).strip()
+                harness_state.final_response = response_text
+                if result.metrics:
+                    iterations = result.metrics.cycle_count
+                    metadata["iterations"] = iterations
+                if result.stop_reason == "limit_turns":
+                    metadata["stopped"] = "iteration_limit"
+                    break
 
         if event_sink is not None:
             event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))

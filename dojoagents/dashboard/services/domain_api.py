@@ -13,8 +13,10 @@ from dojoagents.dashboard.schemas.domain_api import (
     MarketOverviewResponse,
     MarketSectorMovers,
     MarketStatsSnapshot,
+    PortfolioCandidateRow,
     PortfolioHoldingRow,
     PortfolioKpi,
+    PortfolioOrderRow,
     PeBandPoint,
     PortfolioAnalysisResponseV1,
     PortfolioListResponseV1,
@@ -32,6 +34,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     StockScreenResponse,
     TickerEventItem,
     TickerFinancialsResponseV1,
+    TickerFinancialsBatchResponseV1,
     TickerNewsItem,
     TickerNewsEventsResponseV1,
     TickerPriceTrendsResponseV1,
@@ -40,6 +43,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     TickerSectorPath,
     IncomeDistributionSlice,
     MAX_TICKER_QUOTES_BATCH,
+    MAX_TICKER_FINANCIALS_BATCH,
 )
 from dojoagents.dashboard.schemas.portfolio import (
     PortfolioCapitalConfig,
@@ -244,6 +248,50 @@ def _date_bounds(rows: list[Any], *keys: str) -> tuple[Optional[str], Optional[s
     return min(dates), max(dates)
 
 
+def _candidate_row(item: Any) -> PortfolioCandidateRow:
+    data = _model_dict(item)
+    return PortfolioCandidateRow(
+        ticker=str(data.get("ticker") or ""),
+        name=str(data.get("name") or data.get("ticker") or ""),
+        name_zh=str(data.get("name_zh") or ""),
+        name_en=str(data.get("name_en") or ""),
+        market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
+        price=finite_float(data.get("price")),
+        change_percent=finite_float(data.get("change_percent")),
+        market_cap=finite_float(data.get("market_cap")),
+        pe=finite_optional_float(data.get("pe")),
+        pb=finite_optional_float(data.get("pb")),
+        dividend_yield=finite_optional_float(data.get("dividend_yield")),
+        eps=finite_optional_float(data.get("eps")),
+        turn_rate=finite_optional_float(data.get("turn_rate")),
+        sector_l1=str(data.get("sector_l1") or ""),
+        sector_l2=str(data.get("sector_l2") or ""),
+        sector_l3=str(data.get("sector_l3") or ""),
+    )
+
+
+def _order_row(item: Any) -> PortfolioOrderRow:
+    data = _model_dict(item)
+    side = str(data.get("order_side") or "buy")
+    status = str(data.get("order_status") or "pending")
+    return PortfolioOrderRow(
+        id=str(data.get("id") or ""),
+        ticker=str(data.get("ticker") or ""),
+        name=str(data.get("name") or data.get("ticker") or ""),
+        name_zh=str(data.get("name_zh") or ""),
+        name_en=str(data.get("name_en") or ""),
+        market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
+        order_side="sell" if side == "sell" else "buy",
+        order_status=status if status in {"pending", "filled", "cancelled", "rejected"} else "pending",
+        price=finite_float(data.get("price")),
+        qty=finite_float(data.get("qty")),
+        order_time=data.get("order_time"),
+        fill_time=data.get("fill_time"),
+        fill_price=finite_optional_float(data.get("fill_price")),
+        created_at=str(data.get("created_at") or ""),
+    )
+
+
 def _holding_row(item: Any) -> PortfolioHoldingRow:
     data = _model_dict(item)
     return PortfolioHoldingRow(
@@ -299,6 +347,8 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
     nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
     benchmark_by_market: dict[str, list[SectorPerformancePoint]] = {}
     stats_by_market: dict[str, SectorPerformanceStats] = {}
+    candidate_nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
+    candidate_stats_by_market: dict[str, SectorPerformanceStats] = {}
     benchmark_symbol_by_market = {to_native_market_code(market) or market: str(symbol) for market, symbol in (performance.get("benchmark_symbol_by_market") or {}).items()}
     for market, series in (performance.get("series_by_market") or {}).items():
         series_data = _model_dict(series)
@@ -309,6 +359,12 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         stats_by_market[market_key] = _risk_stats(series_data.get("stats") or {})
         if series_data.get("benchmark_symbol"):
             benchmark_symbol_by_market[market_key] = str(series_data["benchmark_symbol"])
+    for market, points in (performance.get("candidate_series_by_market") or {}).items():
+        market_key = to_native_market_code(market) or market
+        candidate_nav_by_market[market_key] = _performance_points(points)
+    for market, stats in (performance.get("candidate_stats_by_market") or {}).items():
+        market_key = to_native_market_code(market) or market
+        candidate_stats_by_market[market_key] = _risk_stats(stats)
     if not nav_by_market and dates:
         nav_by_market["all"] = _market_performance_points(dates, list(performance.get("portfolio") or []))
         benchmark_by_market["all"] = _market_performance_points(dates, list(performance.get("benchmark") or []))
@@ -319,16 +375,20 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
         benchmark=data.get("benchmark"),
         start_date=config.get("start_date"),
         capital_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (config.get("capital_by_market") or {}).items()},
-        holdings=[_holding_row(item) for item in data.get("holdings") or []],
+        candidates=[_candidate_row(item) for item in data.get("candidates") or []],
+        holdings=[_holding_row(item) for item in data.get("positions") or data.get("holdings") or []],
         kpis=[_portfolio_kpi(item) for item in data.get("kpis") or []],
         performance_window_start=performance.get("window_start"),
         performance_window_end=performance.get("window_end"),
         nav_by_market=nav_by_market,
+        candidate_nav_by_market=candidate_nav_by_market,
         benchmark_by_market=benchmark_by_market,
         benchmark_symbol_by_market=benchmark_symbol_by_market,
         stats_by_market=stats_by_market,
+        candidate_stats_by_market=candidate_stats_by_market,
         net_value_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (data.get("net_value_by_market") or {}).items()},
         cost_basis_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (data.get("cost_basis_by_market") or {}).items()},
+        orders=[_order_row(item) for item in data.get("orders") or []],
     )
 
 
@@ -344,6 +404,242 @@ def _precomputed_market_candidates(market: Optional[str]) -> list[Optional[str]]
         if candidate not in candidates:
             candidates.append(candidate)
     return candidates or [None]
+
+
+class SectorPathResolutionError(ValueError):
+    def __init__(self, message: str, *, suggestions: list[Any] | None = None) -> None:
+        super().__init__(message)
+        self.suggestions = list(suggestions or [])
+
+
+def _looks_like_index_guess(level1_id: str, level2_id: str, level3_id: str) -> bool:
+    parts = (level1_id.strip(), level2_id.strip(), level3_id.strip())
+    if not all(parts):
+        return False
+    if all(part.isdigit() and len(part) <= 2 for part in parts):
+        return True
+    if len(set(parts)) == 1 and parts[0].isdigit():
+        return True
+    return parts == ("1", "2", "3")
+
+
+def _format_sector_path_suggestions(paths: list[Any], *, limit: int = 3) -> str:
+    lines: list[str] = []
+    for path in paths[:limit]:
+        label = path.level3_zh or path.level3_en or path.level3_id
+        lines.append(f"{path.level1_id}/{path.level2_id}/{path.level3_id} ({label})")
+    return "; ".join(lines)
+
+
+def _format_sector_path_id(level1_id: str, level2_id: str, level3_id: str) -> str:
+    return f"{level1_id}/{level2_id}/{level3_id}"
+
+
+def _parse_sector_path_id(value: str) -> tuple[str, str, str] | None:
+    text = str(value or "").strip()
+    if not text or text.count("/") != 2:
+        return None
+    parts = [part.strip() for part in text.split("/", 2)]
+    if not all(parts):
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+_SECTOR_CONCEPT_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "具身智能": ("机器人", "robotics", "robot", "自动化", "automation", "机械", "embodied"),
+    "embodied ai": ("机器人", "robotics", "robot", "automation", "具身"),
+    "embodied intelligence": ("机器人", "robotics", "robot", "automation"),
+    "人工智能": ("ai", "artificial intelligence", "机器学习", "machine learning", "深度学习"),
+    "ai": ("人工智能", "artificial intelligence", "机器学习", "machine learning"),
+    "半导体": ("芯片", "chip", "semiconductor", "集成电路"),
+    "chip": ("半导体", "芯片", "semiconductor"),
+    "新能源": ("光伏", "solar", "风电", "wind", "储能", "battery", "electric vehicle", "ev"),
+    "高息": ("dividend", "utility", "reit", "银行", "bank"),
+    "机器人": ("robotics", "robot", "自动化", "automation", "具身智能"),
+}
+
+
+def _expand_sector_search_queries(query: str) -> list[str]:
+    needle = str(query or "").strip()
+    if not needle:
+        return []
+    lowered = needle.lower()
+    expanded: list[str] = [needle]
+    for key, synonyms in _SECTOR_CONCEPT_SYNONYMS.items():
+        key_lower = key.lower()
+        if key_lower == lowered or key_lower in lowered or lowered in key_lower:
+            for term in synonyms:
+                if term not in expanded:
+                    expanded.append(term)
+            if key not in expanded:
+                expanded.append(key)
+            continue
+        for term in synonyms:
+            term_lower = term.lower()
+            if term_lower == lowered or term_lower in lowered or lowered in term_lower:
+                if key not in expanded:
+                    expanded.append(key)
+                for related in synonyms:
+                    if related not in expanded:
+                        expanded.append(related)
+                break
+    return expanded
+
+
+def _sector_search_item(path: Any, *, hit: Any | None = None) -> dict[str, Any]:
+    sector_path_id = _format_sector_path_id(path.level1_id, path.level2_id, path.level3_id)
+    item: dict[str, Any] = {
+        "sector_path_id": sector_path_id,
+        "level1_id": path.level1_id,
+        "level2_id": path.level2_id,
+        "level3_id": path.level3_id,
+        "level3_name_zh": path.level3_zh,
+        "level3_name_en": path.level3_en,
+        "breadcrumb_zh": " > ".join(
+            part for part in (path.level1_zh, path.level2_zh, path.level3_zh) if part
+        ),
+        "breadcrumb_en": " > ".join(
+            part for part in (path.level1_en, path.level2_en, path.level3_en) if part
+        ),
+        "next_call": {
+            "tool": "filter_sector_constituents",
+            "arguments": {
+                "sector_path_id": sector_path_id,
+                "level1_id": path.level1_id,
+                "level2_id": path.level2_id,
+                "level3_id": path.level3_id,
+                "market": "us",
+                "scope": "L3",
+                "days": 1,
+            },
+        },
+        "get_sector_analysis_example": {
+            "sector_path_id": sector_path_id,
+            "level1_id": path.level1_id,
+            "level2_id": path.level2_id,
+            "level3_id": path.level3_id,
+            "scope": "L3",
+        },
+    }
+    if hit is not None:
+        item["match_score"] = hit.score
+        item["matched_level"] = hit.matched_level
+        item["matched_label"] = hit.matched_label
+        item["matched_via_query"] = hit.matched_query
+    return item
+
+
+def _looks_like_sector_label(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if any("\u4e00" <= char <= "\u9fff" for char in text):
+        return True
+    return any(char.isalpha() for char in text) and len(text) > 2
+
+
+def resolve_sector_path(
+    registry: Any,
+    *,
+    sector_path_id: str = "",
+    level1_id: str = "",
+    level2_id: str = "",
+    level3_id: str = "",
+    sector_name: Optional[str] = None,
+    level1_name: Optional[str] = None,
+    level2_name: Optional[str] = None,
+    level3_name: Optional[str] = None,
+    market: Optional[str] = None,
+) -> Any:
+    store = registry.sector_store
+    path_id = str(sector_path_id or "").strip()
+    if path_id:
+        parsed = _parse_sector_path_id(path_id)
+        if parsed is None:
+            raise SectorPathResolutionError(
+                f"Invalid sector_path_id {path_id!r}. Expected format level1_id/level2_id/level3_id "
+                "from search_sector_taxonomy."
+            )
+        l1, l2, l3 = parsed
+        path = store.find_resolved_path(l1, l2, l3)
+        if path is not None:
+            return path
+        if _looks_like_index_guess(l1, l2, l3):
+            raise SectorPathResolutionError(
+                f"Rejected guessed sector_path_id {path_id}. "
+                "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
+                "verbatim from the result. Do not use array indices or trial-and-error."
+            )
+        raise SectorPathResolutionError(
+            f"unknown sector_path_id: {path_id}. "
+            "Call search_sector_taxonomy with the concept keyword and copy ids from the best match."
+        )
+
+    l1 = str(level1_id or "").strip()
+    l2 = str(level2_id or "").strip()
+    l3 = str(level3_id or "").strip()
+    name_query = str(sector_name or level3_name or "").strip()
+
+    if l1 and l2 and l3:
+        path = store.find_resolved_path(l1, l2, l3)
+        if path is not None:
+            return path
+        if not name_query and not level1_name and not level2_name and not level3_name:
+            if _looks_like_index_guess(l1, l2, l3):
+                raise SectorPathResolutionError(
+                    f"Rejected guessed sector path {l1}/{l2}/{l3}. "
+                    "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
+                    "from the best match. Do not use array indices or loop guesses."
+                )
+
+    if l1 and l1 == l2 == l3:
+        path = store.find_resolved_path_by_any_sector_id(l1)
+        if path is not None:
+            return path
+
+    if l3 and not l1 and not l2:
+        path = store.find_resolved_path_by_level3_id(l3)
+        if path is not None:
+            return path
+
+    label_path = store.find_resolved_path_by_labels(
+        level_1_zh=level1_name or (l1 if _looks_like_sector_label(l1) else ""),
+        level_1_en=level1_name or (l1 if _looks_like_sector_label(l1) else ""),
+        level_2_zh=level2_name or (l2 if _looks_like_sector_label(l2) else ""),
+        level_2_en=level2_name or (l2 if _looks_like_sector_label(l2) else ""),
+        level_3_zh=level3_name or name_query or (l3 if _looks_like_sector_label(l3) else ""),
+        level_3_en=level3_name or name_query or (l3 if _looks_like_sector_label(l3) else ""),
+    )
+    if label_path is not None:
+        return label_path
+
+    if name_query:
+        matches = store.search_resolved_paths(name_query, limit=2)
+        if len(matches) == 1:
+            return matches[0]
+
+    if l1 and l2 and l3:
+        path = _fallback_precomputed_sector_path(
+            registry,
+            level1_id=l1,
+            level2_id=l2,
+            level3_id=l3,
+            market=market,
+        )
+        if path is not None:
+            return path
+
+    query = name_query or (l3 if _looks_like_sector_label(l3) else "") or l3 or l2 or l1
+    suggestions = store.search_resolved_paths(query, limit=3) if query else []
+    attempted = "/".join(part for part in (l1, l2, l3) if part) or query or "?"
+    message = (
+        f"unknown sector path: {attempted}. "
+        "Call search_sector_taxonomy with the concept keyword, pick the best match, then pass "
+        "sector_path_id or level1_id/level2_id/level3_id verbatim."
+    )
+    if suggestions:
+        message += " Did you mean: " + _format_sector_path_suggestions(suggestions) + "?"
+    raise SectorPathResolutionError(message, suggestions=suggestions)
 
 
 def _fallback_precomputed_sector_path(
@@ -389,17 +685,26 @@ def resolve_sector_analysis_path(
     level1_id: str,
     level2_id: str,
     level3_id: str,
+    sector_name: Optional[str] = None,
+    level1_name: Optional[str] = None,
+    level2_name: Optional[str] = None,
+    level3_name: Optional[str] = None,
+    market: Optional[str] = None,
 ) -> Any | None:
-    path = registry.sector_store.find_resolved_path(level1_id, level2_id, level3_id)
-    if path is not None:
-        return path
-    return _fallback_precomputed_sector_path(
-        registry,
-        level1_id=level1_id,
-        level2_id=level2_id,
-        level3_id=level3_id,
-        market=None,
-    )
+    try:
+        return resolve_sector_path(
+            registry,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            sector_name=sector_name,
+            level1_name=level1_name,
+            level2_name=level2_name,
+            level3_name=level3_name,
+            market=market,
+        )
+    except SectorPathResolutionError:
+        return None
 
 
 async def search_company_ticker(
@@ -425,33 +730,132 @@ async def search_company_ticker(
 def build_taxonomy_tree(registry) -> dict[str, Any]:
     document = registry.sector_store.to_taxonomy_document()
     data = document.model_dump(mode="json") if hasattr(document, "model_dump") else dict(document or {})
+    tree = [
+        {
+            "level1_id": level1.get("level1_id") or level1.get("id") or "",
+            "name": level1.get("name") or {},
+            "description": level1.get("description"),
+            "children": [
+                {
+                    "level2_id": level2.get("level2_id") or level2.get("id") or "",
+                    "name": level2.get("name") or {},
+                    "description": level2.get("description"),
+                    "children": [
+                        {
+                            "level3_id": level3.get("level3_id") or level3.get("id") or "",
+                            "name": level3.get("name") or {},
+                            "definition": level3.get("definition"),
+                        }
+                        for level3 in level2.get("level_3", [])
+                    ],
+                }
+                for level2 in level1.get("level_2", [])
+            ],
+        }
+        for level1 in data.get("level_1", [])
+    ]
+
+    example_l3_paths: list[dict[str, str]] = []
+    for l1 in tree[:3]:
+        l1_id = str(l1.get("level1_id") or "")
+        for l2 in (l1.get("children") or [])[:2]:
+            l2_id = str(l2.get("level2_id") or "")
+            for l3 in (l2.get("children") or [])[:2]:
+                l3_id = str(l3.get("level3_id") or "")
+                if not (l1_id and l2_id and l3_id):
+                    continue
+                name = l3.get("name") or {}
+                example_l3_paths.append(
+                    {
+                        "level1_id": l1_id,
+                        "level2_id": l2_id,
+                        "level3_id": l3_id,
+                        "name_zh": str(name.get("zh") or ""),
+                        "name_en": str(name.get("en") or ""),
+                    }
+                )
+                if len(example_l3_paths) >= 5:
+                    break
+            if len(example_l3_paths) >= 5:
+                break
+        if len(example_l3_paths) >= 5:
+            break
+
+    first = example_l3_paths[0] if example_l3_paths else None
+    filter_example = None
+    if first is not None:
+        filter_example = {
+            "level1_id": first["level1_id"],
+            "level2_id": first["level2_id"],
+            "level3_id": first["level3_id"],
+            "market": "us",
+            "scope": "L3",
+            "days": 1,
+        }
+
     return {
         "version": data.get("version") or "api",
         "id_scheme": data.get("id_scheme") or "sector_id",
-        "tree": [
-            {
-                "level1_id": level1.get("level1_id") or level1.get("id") or "",
-                "name": level1.get("name") or {},
-                "description": level1.get("description"),
-                "children": [
-                    {
-                        "level2_id": level2.get("level2_id") or level2.get("id") or "",
-                        "name": level2.get("name") or {},
-                        "description": level2.get("description"),
-                        "children": [
-                            {
-                                "level3_id": level3.get("level3_id") or level3.get("id") or "",
-                                "name": level3.get("name") or {},
-                                "definition": level3.get("definition"),
-                            }
-                            for level3 in level2.get("level_3", [])
-                        ],
-                    }
-                    for level2 in level1.get("level_2", [])
-                ],
-            }
-            for level1 in data.get("level_1", [])
-        ],
+        "usage": (
+            "Copy level1_id, level2_id, level3_id from the SAME L3 branch below. "
+            "These are opaque sector_id strings (e.g. 153/160/161), NOT array indices 1/2/3."
+        ),
+        "playbook": {
+            "step_1": "For keyword/concept requests use search_sector_taxonomy first; use get_taxonomy_tree for full tree.",
+            "step_2": "Pick one entry from example_l3_paths OR search_sector_taxonomy results.",
+            "step_3": "Call filter_sector_constituents with the three ids plus market.",
+            "forbidden": "Never pass 1, 2, 3 or child index as ids. Never use search_company_ticker for themes.",
+            "alternative": "Or call filter_sector_constituents with sector_name = exact L3 name_zh or name_en.",
+        },
+        "example_l3_paths": example_l3_paths,
+        "filter_sector_constituents_example": filter_example,
+        "tree": tree,
+    }
+
+
+def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> dict[str, Any]:
+    needle = str(query or "").strip()
+    if not needle:
+        raise ValueError("query is required")
+
+    store = registry.sector_store
+    cap = max(1, min(limit, 25))
+    search_queries = _expand_sector_search_queries(needle)
+    best_hits: dict[tuple[str, str, str], Any] = {}
+    for term in search_queries:
+        for hit in store.search_resolved_paths_scored(term, limit=cap * 2):
+            key = (hit.path.level1_id, hit.path.level2_id, hit.path.level3_id)
+            existing = best_hits.get(key)
+            if existing is None or hit.score > existing.score:
+                best_hits[key] = hit
+
+    ranked = sorted(
+        best_hits.values(),
+        key=lambda hit: (
+            -hit.score,
+            hit.path.level3_zh or hit.path.level3_en or "",
+            hit.path.level3_id,
+        ),
+    )[:cap]
+    items = [_sector_search_item(hit.path, hit=hit) for hit in ranked]
+
+    top = items[0] if items else None
+    return {
+        "query": needle,
+        "expanded_queries": search_queries[1:] or None,
+        "count": len(items),
+        "id_resolution": (
+            "Each item includes sector_path_id and level1_id/level2_id/level3_id. "
+            "Copy them verbatim into filter_sector_constituents or get_sector_analysis — "
+            "IDs resolve by exact lookup, not fuzzy name matching."
+        ),
+        "usage": (
+            "1) Pick the highest match_score item. "
+            "2) Call filter_sector_constituents with next_call.arguments (change market). "
+            "3) Optional: get_sector_analysis with get_sector_analysis_example."
+        ),
+        "best_match": top,
+        "items": items,
     }
 
 
@@ -812,18 +1216,22 @@ async def build_sector_constituents_v1(
     scope: str,
     market: Optional[str],
     days: int,
+    sector_name: Optional[str] = None,
+    level1_name: Optional[str] = None,
+    level2_name: Optional[str] = None,
+    level3_name: Optional[str] = None,
 ) -> SectorConstituentsResponseV1:
-    path = registry.sector_store.find_resolved_path(level1_id, level2_id, level3_id)
-    if path is None:
-        path = _fallback_precomputed_sector_path(
-            registry,
-            level1_id=level1_id,
-            level2_id=level2_id,
-            level3_id=level3_id,
-            market=market,
-        )
-    if path is None:
-        raise ValueError(f"unknown sector path: {level1_id}/{level2_id}/{level3_id}")
+    path = resolve_sector_path(
+        registry,
+        level1_id=level1_id,
+        level2_id=level2_id,
+        level3_id=level3_id,
+        sector_name=sector_name,
+        level1_name=level1_name,
+        level2_name=level2_name,
+        level3_name=level3_name,
+        market=market,
+    )
     # Removed performance_cache usage
     response = await list_sector_constituents(
         registry.stock_store,
@@ -895,6 +1303,56 @@ async def build_tickers_quotes_v1(
     )
 
 
+def _indicator_has_valuation(row: dict[str, Any], metric: str) -> bool:
+    if metric == "pe":
+        keys = ("pe_ttm", "pe_ratio", "pe", "pe_dynamic")
+    else:
+        keys = ("pb_ttm", "pb_ratio", "pb")
+    for key in keys:
+        value = finite_optional_float(row.get(key))
+        if value is not None and value > 0:
+            return True
+    return False
+
+
+def _quote_valuation_metrics(registry, internal_market: str, ticker: str) -> tuple[float | None, float | None]:
+    quote = resolve_core_ticker_quote(
+        ticker,
+        market=internal_market,
+        stock_store=registry.stock_store,
+    )
+    if quote is None:
+        return None, None
+    pe = finite_optional_float(quote.pe)
+    pb = finite_optional_float(quote.pb)
+    return (
+        pe if pe is not None and pe > 0 else None,
+        pb if pb is not None and pb > 0 else None,
+    )
+
+
+def _enrich_indicator_valuation(
+    rows: list[Any],
+    *,
+    pe: float | None,
+    pb: float | None,
+) -> list[dict[str, Any]]:
+    normalized = [_model_dict(row) for row in rows]
+    if not normalized or (pe is None and pb is None):
+        return normalized
+    latest = dict(normalized[-1])
+    changed = False
+    if pe is not None and not _indicator_has_valuation(latest, "pe"):
+        latest["pe_ttm"] = pe
+        changed = True
+    if pb is not None and not _indicator_has_valuation(latest, "pb"):
+        latest["pb_ttm"] = pb
+        changed = True
+    if not changed:
+        return normalized
+    return [*normalized[:-1], latest]
+
+
 async def build_ticker_financials_v1(
     registry,
     *,
@@ -942,6 +1400,8 @@ async def build_ticker_financials_v1(
             )
         )
     period_start, period_end = _date_bounds(filtered, "std_report_date", "report_date")
+    pe, pb = _quote_valuation_metrics(registry, internal_market, response.ticker)
+    enriched = _enrich_indicator_valuation(filtered, pe=pe, pb=pb)
     return TickerFinancialsResponseV1(
         ticker=response.ticker,
         market=to_native_market_code(response.market) or response.market,
@@ -949,8 +1409,55 @@ async def build_ticker_financials_v1(
         as_of=response.as_of,
         period_start=period_start,
         period_end=period_end,
-        indicators=filtered,
+        pe=pe,
+        pb=pb,
+        indicators=enriched,
         income_distributions=distributions,
+    )
+
+
+async def build_tickers_financials_v1(
+    registry,
+    *,
+    tickers: list[str],
+    market: Optional[str],
+    start_date: Optional[str],
+    end_date: Optional[str],
+    limit: Optional[int],
+    report_type: Optional[str],
+) -> TickerFinancialsBatchResponseV1:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in tickers:
+        ticker = raw.strip().upper()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        normalized.append(ticker)
+    normalized = normalized[:MAX_TICKER_FINANCIALS_BATCH]
+
+    results = await asyncio.gather(
+        *(
+            build_ticker_financials_v1(
+                registry,
+                ticker=ticker,
+                market=market,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                report_type=report_type,
+            )
+            for ticker in normalized
+        )
+    )
+    items = [item for item in results if item is not None]
+    found = {item.ticker.upper() for item in items}
+    not_found = [ticker for ticker in normalized if ticker not in found]
+    return TickerFinancialsBatchResponseV1(
+        market=to_native_market_code(market) if market else None,
+        count=len(items),
+        not_found=not_found,
+        items=items,
     )
 
 
@@ -1110,8 +1617,11 @@ async def build_portfolio_analysis_v1(
     benchmark_by_market = dict(DEFAULT_BENCHMARKS)
     if benchmark:
         normalized = benchmark.strip()
-        for key in benchmark_by_market:
-            benchmark_by_market[key] = normalized
+        from dojoagents.dashboard.services.portfolio_candidate_index import parse_candidate_index_symbol
+
+        if not parse_candidate_index_symbol(normalized):
+            for key in benchmark_by_market:
+                benchmark_by_market[key] = normalized
     detail = await registry.portfolio_service.get_detail(
         portfolio_id,
         include_performance=include_performance,
@@ -1139,6 +1649,7 @@ def build_update_request_from_manage(body) -> UpdatePortfolioRequest:
         )
     return UpdatePortfolioRequest(
         name=body.name,
+        kind=body.kind,
         pinned=body.pinned,
         config=config,
         shares_by_ticker=body.shares_by_ticker,

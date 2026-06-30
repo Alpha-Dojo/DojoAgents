@@ -324,6 +324,7 @@ class TickerQuoteResponseV1(BaseModel):
 
 
 MAX_TICKER_QUOTES_BATCH = 50
+MAX_TICKER_FINANCIALS_BATCH = 50
 
 
 class TickerQuotesBatchResponseV1(BaseModel):
@@ -346,8 +347,17 @@ class TickerFinancialsResponseV1(BaseModel):
     as_of: Optional[str] = None
     period_start: Optional[str] = None
     period_end: Optional[str] = None
+    pe: Optional[float] = Field(None, description="Trailing/dynamic P/E from live quote when absent in indicators")
+    pb: Optional[float] = Field(None, description="P/B from live quote when absent in indicators")
     indicators: List[Dict[str, Any]] = Field(default_factory=list)
     income_distributions: List[IncomeDistributionSlice] = Field(default_factory=list)
+
+
+class TickerFinancialsBatchResponseV1(BaseModel):
+    market: Optional[str] = None
+    count: int = 0
+    not_found: List[str] = Field(default_factory=list)
+    items: List[TickerFinancialsResponseV1] = Field(default_factory=list)
 
 
 class TickerNewsItem(BaseModel):
@@ -431,6 +441,25 @@ class PortfolioListResponseV1(BaseModel):
     items: List[PortfolioSummaryItem] = Field(default_factory=list)
 
 
+class PortfolioCandidateRow(BaseModel):
+    ticker: str
+    name: str
+    name_zh: str = ""
+    name_en: str = ""
+    market: str
+    price: float = 0.0
+    change_percent: float = 0.0
+    market_cap: float = 0.0
+    pe: Optional[float] = None
+    pb: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    eps: Optional[float] = None
+    turn_rate: Optional[float] = None
+    sector_l1: str = ""
+    sector_l2: str = ""
+    sector_l3: str = ""
+
+
 class PortfolioHoldingRow(BaseModel):
     ticker: str
     name: str
@@ -463,6 +492,23 @@ class PortfolioKpi(BaseModel):
     delta_tone: Optional[Literal["positive", "negative", "neutral", "risk"]] = None
 
 
+class PortfolioOrderRow(BaseModel):
+    id: str
+    ticker: str
+    name: str = ""
+    name_zh: str = ""
+    name_en: str = ""
+    market: str
+    order_side: Literal["buy", "sell"]
+    order_status: Literal["pending", "filled", "cancelled", "rejected"] = "pending"
+    price: float = 0.0
+    qty: float = 0.0
+    order_time: Optional[str] = None
+    fill_time: Optional[str] = None
+    fill_price: Optional[float] = None
+    created_at: str = ""
+
+
 class PortfolioAnalysisResponseV1(BaseModel):
     id: str = ""
     name: str = ""
@@ -470,16 +516,20 @@ class PortfolioAnalysisResponseV1(BaseModel):
     benchmark: Optional[str] = None
     start_date: Optional[str] = None
     capital_by_market: Dict[str, float] = Field(default_factory=dict)
+    candidates: List[PortfolioCandidateRow] = Field(default_factory=list)
     holdings: List[PortfolioHoldingRow] = Field(default_factory=list)
     kpis: List[PortfolioKpi] = Field(default_factory=list)
     performance_window_start: Optional[str] = None
     performance_window_end: Optional[str] = None
     nav_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
+    candidate_nav_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
     benchmark_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
     benchmark_symbol_by_market: Dict[str, str] = Field(default_factory=dict)
     stats_by_market: Dict[str, SectorPerformanceStats] = Field(default_factory=dict)
+    candidate_stats_by_market: Dict[str, SectorPerformanceStats] = Field(default_factory=dict)
     net_value_by_market: Dict[str, float] = Field(default_factory=dict)
     cost_basis_by_market: Dict[str, float] = Field(default_factory=dict)
+    orders: List[PortfolioOrderRow] = Field(default_factory=list)
 
 
 class ManagePortfolioRequestV1(BaseModel):
@@ -549,6 +599,21 @@ class UpdateHoldingsMetadataRequestV1(BaseModel):
     portfolio_id: str
     open_date_by_ticker: Optional[Dict[str, Optional[str]]] = None
     shares_by_ticker: Optional[Dict[str, float]] = None
+
+
+class CreatePortfolioOrderRequestV1(BaseModel):
+    portfolio_id: str
+    ticker: str = Field(..., min_length=1)
+    market: Optional[str] = Field(None, description="Market code: us, cn, hk")
+    order_side: Literal["buy", "sell"]
+    price: float = Field(..., gt=0)
+    qty: float = Field(..., gt=0)
+    order_time: Optional[str] = Field(None, description="Optional execution date (YYYY-MM-DD or ISO)")
+
+
+class CancelPortfolioOrderRequestV1(BaseModel):
+    portfolio_id: str
+    order_id: str = Field(..., min_length=1)
 
 
 AddPortfolioHoldingRequest = AddPortfolioHoldingRequestV1

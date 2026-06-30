@@ -1,10 +1,7 @@
-import type { AgentChatMessage, AgentChatRole } from '../types/agent';
+import type { AgentChatMessage, AgentApiMessage, AgentApiContentPart } from '../types/agent';
 import { resolveActivitySteps, toolItemsFromSteps } from './agentActivityTimeline';
 
-export type AgentApiMessage = {
-  role: AgentChatRole;
-  content: string;
-};
+export type { AgentApiMessage, AgentApiContentPart };
 
 function assistantFallbackContent(message: AgentChatMessage, fallback: string): string {
   const steps = resolveActivitySteps(message);
@@ -17,6 +14,21 @@ function assistantFallbackContent(message: AgentChatMessage, fallback: string): 
     .join('\n\n');
   if (thinkText) return thinkText;
   return fallback;
+}
+
+function buildUserApiContent(message: AgentChatMessage): string | AgentApiContentPart[] | null {
+  const text = message.content.trim();
+  const images = message.images ?? [];
+  if (!text && images.length === 0) return null;
+  if (images.length === 0) return text;
+  const parts: AgentApiContentPart[] = [];
+  if (text) {
+    parts.push({ type: 'text', text });
+  }
+  for (const image of images) {
+    parts.push({ type: 'image_url', image_url: { url: image.dataUrl } });
+  }
+  return parts;
 }
 
 /** Drop the trailing in-progress assistant bubble before writing to session storage. */
@@ -50,12 +62,16 @@ export function prepareMessagesForApi(
 ): AgentApiMessage[] {
   const prepared: AgentApiMessage[] = [];
   for (const message of messages) {
+    if (message.role === 'user') {
+      const userContent = buildUserApiContent(message);
+      if (userContent) {
+        prepared.push({ role: message.role, content: userContent });
+      }
+      continue;
+    }
     const trimmed = message.content.trim();
     if (trimmed) {
       prepared.push({ role: message.role, content: trimmed });
-      continue;
-    }
-    if (message.role !== 'assistant') {
       continue;
     }
     const fallback = assistantFallbackContent(message, assistantFallback).trim();
