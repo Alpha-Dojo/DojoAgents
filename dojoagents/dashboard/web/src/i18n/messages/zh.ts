@@ -490,6 +490,8 @@ export const zhMessages = {
     unpinPortfolio: '取消置顶',
     collapseAllPortfolios: '折叠全部组合',
     expandAllPortfolios: '展开全部组合',
+    collapsePortfolioSidebar: '收起投资组合侧边栏',
+    expandPortfolioSidebar: '展开投资组合侧边栏',
     collapsePortfolio: '折叠 {name}',
     expandPortfolio: '展开 {name}',
     sidebarCandidates: '候选股',

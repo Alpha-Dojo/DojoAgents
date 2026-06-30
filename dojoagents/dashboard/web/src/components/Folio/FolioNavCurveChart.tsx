@@ -492,39 +492,58 @@ export function FolioNavCurveBenchmarkHead({
     return { maxDate, datesDiffer };
   })();
 
+  const visibleChips = chips.slice(0, 2);
+  const overflowChips = chips.slice(2);
+  const overflowTitle = overflowChips.map((chip) => chip.label).join('\n');
+
+  const renderBenchmarkChip = (chip: FolioBenchmarkHeadChip) => {
+    const isClosed = sessionMeta.datesDiffer && chip.date < sessionMeta.maxDate;
+    return (
+      <span
+        key={chip.symbol}
+        className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]}`}
+        title={chip.label}
+      >
+        <span className="folio-performance__inline-flag" aria-hidden>
+          {MARKET_FLAG[chip.market]}
+        </span>
+        <span className="folio-performance__inline-benchmark-label">{chip.label}</span>
+        <span
+          className={`folio-performance__inline-return folio-performance__inline-return--${
+            chip.value >= 100 ? 'up' : 'down'
+          }`}
+        >
+          {formatPerformanceReturnPercent(chip.value)}
+        </span>
+        <span
+          className={
+            isClosed
+              ? 'folio-performance__inline-date folio-performance__inline-date--closed'
+              : 'folio-performance__inline-date'
+          }
+        >
+          {formatPerformanceAsOfDate(chip.date)}
+        </span>
+      </span>
+    );
+  };
+
   return (
     <div className="folio-performance__inline-benchmarks">
-      {chips.map((chip) => {
-        const isClosed = sessionMeta.datesDiffer && chip.date < sessionMeta.maxDate;
-        return (
-          <span
-            key={chip.symbol}
-            className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]}`}
-            title={chip.label}
+      {visibleChips.map(renderBenchmarkChip)}
+      {overflowChips.length > 0 ? (
+        <details className="folio-performance__benchmark-overflow">
+          <summary
+            className="folio-performance__benchmark-overflow-trigger"
+            title={overflowTitle}
           >
-            <span className="folio-performance__inline-flag" aria-hidden>
-              {MARKET_FLAG[chip.market]}
-            </span>
-            <span className="folio-performance__inline-benchmark-label">{chip.label}</span>
-            <span
-              className={`folio-performance__inline-return folio-performance__inline-return--${
-                chip.value >= 100 ? 'up' : 'down'
-              }`}
-            >
-              {formatPerformanceReturnPercent(chip.value)}
-            </span>
-            <span
-              className={
-                isClosed
-                  ? 'folio-performance__inline-date folio-performance__inline-date--closed'
-                  : 'folio-performance__inline-date'
-              }
-            >
-              {formatPerformanceAsOfDate(chip.date)}
-            </span>
-          </span>
-        );
-      })}
+            +{overflowChips.length}
+          </summary>
+          <div className="folio-performance__benchmark-overflow-menu">
+            {overflowChips.map(renderBenchmarkChip)}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

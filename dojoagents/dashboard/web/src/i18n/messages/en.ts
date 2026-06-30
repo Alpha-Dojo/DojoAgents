@@ -493,6 +493,8 @@ export const enMessages: MessageTree = {
     unpinPortfolio: 'Unpin portfolio',
     collapseAllPortfolios: 'Collapse all portfolios',
     expandAllPortfolios: 'Expand all portfolios',
+    collapsePortfolioSidebar: 'Collapse portfolio sidebar',
+    expandPortfolioSidebar: 'Expand portfolio sidebar',
     collapsePortfolio: 'Collapse {name}',
     expandPortfolio: 'Expand {name}',
     sidebarCandidates: 'Candidates',
