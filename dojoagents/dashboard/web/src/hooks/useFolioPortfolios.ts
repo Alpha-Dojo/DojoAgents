@@ -652,6 +652,7 @@ export function useFolioPortfolios() {
         setListError(null);
       } catch (err: unknown) {
         setListError(err instanceof Error ? err.message : 'Failed to promote portfolio');
+        throw err;
       }
     },
     [detail?.id, listCacheKey],
@@ -740,6 +741,7 @@ export function useFolioPortfolios() {
         setListError(null);
       } catch (err: unknown) {
         setListError(err instanceof Error ? err.message : 'Failed to delete portfolio');
+        throw err;
       }
     },
     [detail?.id, listCacheKey],

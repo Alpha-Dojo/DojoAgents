@@ -544,10 +544,6 @@
   box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
 }
 
-.folio-sidebar__item--pinned {
-  border-color: var(--cyan);
-}
-
 .folio-sidebar__item-select {
   position: absolute;
   z-index: 0;
