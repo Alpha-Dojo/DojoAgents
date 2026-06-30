@@ -113,7 +113,8 @@ class KlineStore:
             LOGGER.exception("Failed to fetch kline for %s: %s", symbol, e)
             raise e
 
-        df = df.sort_values(by="bar_time")
+        if not df['bar_time'].is_monotonic_increasing:   # already sorted 
+            df = df.sort_values('bar_time')
 
         start = start_time[:10] if start_time else None
         end = end_time[:10] if end_time else None
@@ -123,8 +124,8 @@ class KlineStore:
         if end:
             df = df[df["bar_time"] <= end]
 
-        if limit > 0:
-            df = df.tail(limit)
+        if limit > 0 and len(df) > limit:
+            df = df.iloc[-limit:]
 
         bars = [b for row in df.to_dict(orient="records") if (b := parse_kline_bar(row)) is not None]
         if not bars:
