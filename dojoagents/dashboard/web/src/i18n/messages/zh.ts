@@ -548,7 +548,7 @@ export const zhMessages = {
     collapsePortfolio: '折叠 {name}',
     expandPortfolio: '展开 {name}',
     sidebarCandidates: '候选股',
-    sidebarToday: '今日盈亏',
+    sidebarToday: '今日涨跌',
     sidebarHoldings: '持仓股',
     sidebarNetValue: '总净值',
     sidebarTotalPnl: '总盈亏',
