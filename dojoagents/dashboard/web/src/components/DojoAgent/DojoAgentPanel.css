@@ -3,6 +3,7 @@
   flex-shrink: 0;
   width: 0;
   min-width: 0;
+  max-width: 50%;
   height: 100%;
   display: flex;
   flex-direction: row;
@@ -75,6 +76,7 @@
   left: 0;
   z-index: 40;
   width: 100vw;
+  max-width: 100vw;
   height: calc(100dvh - var(--app-header-height));
   border-left-color: transparent;
   border-top: 1px solid var(--border-dim);
