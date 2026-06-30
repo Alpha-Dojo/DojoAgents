@@ -45,6 +45,7 @@ import {
   type MarketSeriesPoint,
   type PerformanceHeadSnapshot,
 } from '../../utils/sectorPerformanceSeries';
+import { resolveFolioChartSeriesByMarket } from '../../utils/folioNavSeries';
 
 const MARKETS = PERFORMANCE_MARKETS;
 const CHART_W = 640;
@@ -300,10 +301,10 @@ export function useFolioNavCurveModel(
 ) {
   const rebasedByMarket = useMemo(() => {
     if (!performance) return {} as Partial<Record<MarketCode, MarketSeriesPoint[]>>;
+    const chartSeries = resolveFolioChartSeriesByMarket(performance);
     const result: Partial<Record<MarketCode, MarketSeriesPoint[]>> = {};
     for (const market of MARKETS) {
-      const source = performance.seriesByMarket[market];
-      const raw = toMarketSeriesPoints(normalizeSeries(source));
+      const raw = toMarketSeriesPoints(chartSeries[market]);
       if (raw.length >= 2) {
         result[market] = rebaseMarketSeries(raw);
       }

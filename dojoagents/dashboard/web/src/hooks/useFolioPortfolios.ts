@@ -29,6 +29,7 @@ import {
   emptyMarketSnapshots,
   type FolioMarketSnapshotsByMarket,
 } from '../utils/folioPortfolioSnapshot';
+import { folioHasNavPerformance } from '../utils/folioNavSeries';
 
 function loadStoredActiveId(): string | null {
   return readActiveFolioPortfolioId();
@@ -39,10 +40,7 @@ function storeActiveId(id: string, name?: string | null) {
 }
 
 function hasNavPerformance(detail: FolioPortfolioDetail | null | undefined): boolean {
-  if (!detail?.performance) return false;
-  return (['us', 'cn', 'hk'] as MarketCode[]).some(
-    (market) => (detail.performance?.seriesByMarket[market]?.length ?? 0) >= 2,
-  );
+  return folioHasNavPerformance(detail?.performance);
 }
 
 export interface FolioPortfolioListItem {
