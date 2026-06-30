@@ -138,6 +138,26 @@
   line-height: 1;
 }
 
+.header-util__docs {
+  text-decoration: none;
+}
+
+.header-docs__icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  opacity: 0.65;
+  filter: invert(1);
+  transition: opacity 0.15s ease;
+}
+
+.header-util__docs:hover .header-docs__icon,
+.header-util__docs:focus-visible .header-docs__icon,
+.header-compact-more__docs:hover .header-docs__icon,
+.header-compact-more__docs:focus-visible .header-docs__icon {
+  opacity: 1;
+}
+
 .header-util__agent {
   display: inline-flex;
   align-items: center;
@@ -184,7 +204,8 @@
 }
 
 .header-compact-more__button,
-.header-compact-more__settings {
+.header-compact-more__settings,
+.header-compact-more__docs {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -194,6 +215,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
+  text-decoration: none;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -206,7 +228,9 @@
 .header-compact-more__button--active,
 .header-compact-more__settings:hover,
 .header-compact-more__settings:focus-visible,
-.header-compact-more__settings--active {
+.header-compact-more__settings--active,
+.header-compact-more__docs:hover,
+.header-compact-more__docs:focus-visible {
   outline: none;
   color: var(--color-accent-primary);
   background: var(--color-surface-muted);

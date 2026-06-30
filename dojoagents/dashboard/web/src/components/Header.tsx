@@ -10,6 +10,7 @@ import './Header.css';
 import './LanguageSwitcher.css';
 import './TradingClockSwitcher.css';
 import Logo from '../assets/images/logo.svg';
+import DocsIcon from '../assets/svg/docs.svg';
 
 function WechatQrImage() {
   return (
@@ -147,6 +148,17 @@ export function Header({
           <LanguageSwitcher />
           <span className="header-util__sep" aria-hidden />
           <HeaderSocialLinks />
+          {/* <span className="header-util__sep" aria-hidden /> */}
+          <a
+            className="icon-button header-util__icon-button header-util__docs"
+            href="https://docs.alphadojo.ai"
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t('header.docs')}
+            title={t('header.docs')}
+          >
+            <img className="header-docs__icon" src={DocsIcon} alt="" aria-hidden />
+          </a>
           <span className="header-util__sep" aria-hidden />
           <button
             type="button"
@@ -158,7 +170,7 @@ export function Header({
           >
             <SettingsIcon />
           </button>
-          <span className="header-util__sep" aria-hidden />
+          {/* <span className="header-util__sep" aria-hidden /> */}
           {!agentPinned ? (
             <button
               type="button"
@@ -211,6 +223,17 @@ export function Header({
               <div className="header-compact-more__menu">
                 <LanguageSwitcher />
                 <HeaderSocialLinks />
+                <a
+                  className="header-compact-more__docs"
+                  href="https://docs.alphadojo.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t('header.docs')}
+                  title={t('header.docs')}
+                  onClick={() => setCompactMenuOpen(false)}
+                >
+                  <img className="header-docs__icon" src={DocsIcon} alt="" aria-hidden />
+                </a>
                 <button
                   type="button"
                   className={`header-compact-more__settings ${settingsOpen ? 'header-compact-more__settings--active' : ''}`}

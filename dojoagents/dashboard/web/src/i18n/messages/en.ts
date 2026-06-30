@@ -67,6 +67,7 @@ export const enMessages: MessageTree = {
     openAgent: 'Open DojoAgent',
     settings: 'Settings',
     openSettings: 'Open settings',
+    docs: 'Documentation',
     tabFolio: 'Portfolio',
     tabMarket: 'Markets',
     tabSector: 'Sectors',

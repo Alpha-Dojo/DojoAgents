@@ -64,6 +64,7 @@ export const zhMessages = {
     openAgent: '打开 DojoAgent',
     settings: '设置',
     openSettings: '打开设置',
+    docs: '文档',
     tabFolio: '我的组合',
     tabMarket: '市场动态',
     tabSector: '板块发现',
