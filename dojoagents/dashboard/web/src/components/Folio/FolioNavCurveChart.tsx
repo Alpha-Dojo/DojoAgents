@@ -21,7 +21,7 @@ import {
 import { formatSignedPercent, priceTickValues } from '../../utils/entityCharts';
 import { formatStockPrice } from '../../utils/marketStats';
 import { buildFolioOrderChartMarkers, type FolioOrderChartMarker } from '../../utils/folioOrderMarkers';
-import { MARKET_CODE, MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
   PERFORMANCE_MARKET_CLASS,
@@ -447,9 +447,7 @@ export function FolioNavCurveMarketHead({
             key={market}
             className={`folio-performance__inline-market folio-performance__inline-market--${PERFORMANCE_MARKET_CLASS[market]}`}
           >
-            <span className="folio-performance__inline-flag" aria-hidden>
-              {MARKET_FLAG[market]}
-            </span>
+            <img className="folio-performance__inline-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
             <span className="folio-performance__inline-code">{MARKET_CODE[market]}</span>
             <span
               className={`folio-performance__inline-return folio-performance__inline-return--${
@@ -486,9 +484,7 @@ export function FolioNavCurveBenchmarkHead({
           className={`folio-performance__inline-benchmark folio-performance__inline-benchmark--${PERFORMANCE_MARKET_CLASS[chip.market]}`}
           title={chip.label}
         >
-          <span className="folio-performance__inline-flag" aria-hidden>
-            {MARKET_FLAG[chip.market]}
-          </span>
+          <img className="folio-performance__inline-flag" src={MARKET_FLAG_IMAGE[chip.market]} alt="" aria-hidden />
           <span className="folio-performance__inline-benchmark-label">{chip.label}</span>
           <span
             className={`folio-performance__inline-return folio-performance__inline-return--${

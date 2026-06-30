@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { FolioOverviewPanel } from '../components/Folio/FolioOverviewPanel';
 import { FolioPortfolioSidebar } from '../components/Folio/FolioPortfolioSidebar';
 import { LoadingIndicator } from '../components/ui/LoadingIndicator';
@@ -12,6 +13,7 @@ interface FolioViewProps {
 
 export function FolioView({ onNavigateTab }: FolioViewProps) {
   const { t } = useTranslation();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const {
     portfolios,
     allPortfolios,
@@ -51,7 +53,11 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
 
   return (
     <section className="folio-view" aria-label="Portfolio">
-      <div className="folio-view__layout">
+      <div
+        className={`folio-view__layout ${
+          sidebarCollapsed ? 'folio-view__layout--sidebar-collapsed' : ''
+        }`}
+      >
         <FolioPortfolioSidebar
           portfolios={portfolios}
           allPortfolios={allPortfolios}
@@ -60,6 +66,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
           loading={listLoading}
           creating={creatingPortfolio}
           createError={createError}
+          collapsed={sidebarCollapsed}
           onSelect={setActiveId}
           onRename={renamePortfolio}
           onDelete={deletePortfolio}
@@ -67,6 +74,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
           onPromoteToManual={promotePortfolioToManual}
           onCreate={createPortfolio}
           onSearchQueryChange={setSearchQuery}
+          onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         />
 
         {activePortfolio ? (

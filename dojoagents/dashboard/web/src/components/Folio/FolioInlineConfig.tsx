@@ -9,7 +9,8 @@ import {
   toggleCapitalEnUnit,
   type FolioCapitalEnUnit,
 } from '../../utils/folioCapitalInput';
-import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
+import { DojoButton } from '../ui';
 import { FolioStartDatePicker } from './FolioStartDatePicker';
 
 interface FolioInlineConfigProps {
@@ -69,9 +70,7 @@ export function FolioInlineConfig({
       {FOLIO_MARKETS.map((market) => (
         <article key={market} className="folio-headline__card">
           <span className="folio-headline__title folio-config-inline__title">
-            <span className="folio-headline__market-flag" aria-hidden>
-              {MARKET_FLAG[market]}
-            </span>
+            <img className="folio-headline__market-flag" src={MARKET_FLAG_IMAGE[market]} alt="" aria-hidden />
             {t(MARKET_TITLE_KEY[market])}
           </span>
           <div className="folio-config-inline__body">
@@ -102,14 +101,15 @@ export function FolioInlineConfig({
         </article>
       ))}
 
-      <button
-        type="button"
-        className="folio-headline__card folio-config-inline__apply"
+      <DojoButton
+        size="sm"
+        variant="secondary"
+        className="folio-config-inline__apply"
         disabled={!configDirty}
         onClick={onApply}
       >
         {t('folio.applyConfig')}
-      </button>
+      </DojoButton>
     </section>
   );
 }

@@ -44,6 +44,7 @@
   min-width: 38px;
   padding: 0;
   aspect-ratio: 1;
+  border: none;
 }
 
 .dojo-button--icon.dojo-button--sm {
@@ -58,8 +59,8 @@
 
 .dojo-button--icon > svg,
 .dojo-button--icon > img {
-  width: 1em;
-  height: 1em;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -146,6 +147,22 @@
   background: rgb(187 41 52 / 7%);
   border-color: rgb(187 41 52 / 22%);
   color: rgb(255 154 162 / 42%);
+}
+
+.dojo-button--icon.dojo-button--secondary {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.dojo-button--icon.dojo-button--secondary:hover:not(:disabled) { 
+  background: var(--green);
+  color: var(--color-text-primary);
+}
+.dojo-button--icon.dojo-button--secondary:active:not(:disabled),
+.dojo-button--icon.dojo-button--secondary.is-active {
+  background: var(--color-accent-pressed);
+  color: var(--color-text-primary);
 }
 
 .dojo-field {

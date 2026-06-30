@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
 import { computeFolioHeadlineMetrics } from '../../utils/folioHeadlineMetrics';
 import { formatCompactAmount, formatSignedPercent } from '../../utils/folioFormat';
-import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 
 interface FolioHeadlineMetricsProps {
   portfolio: FolioPortfolioDetail;
@@ -44,9 +44,7 @@ export function FolioHeadlineMetrics({ portfolio, loading = false }: FolioHeadli
           {metrics.byMarket.map((row) => (
             <li key={row.market} className="folio-headline__market-col">
               <span className="folio-headline__market-label">
-                <span className="folio-headline__market-flag" aria-hidden>
-                  {MARKET_FLAG[row.market]}
-                </span>
+                <img className="folio-headline__market-flag" src={MARKET_FLAG_IMAGE[row.market]} alt="" aria-hidden />
                 {MARKET_LABEL[row.market]}
               </span>
               <span className="folio-headline__market-value folio-headline__value--neutral">
@@ -63,9 +61,7 @@ export function FolioHeadlineMetrics({ portfolio, loading = false }: FolioHeadli
           {metrics.byMarket.map((row) => (
             <li key={row.market} className="folio-headline__market-col">
               <span className="folio-headline__market-label">
-                <span className="folio-headline__market-flag" aria-hidden>
-                  {MARKET_FLAG[row.market]}
-                </span>
+                <img className="folio-headline__market-flag" src={MARKET_FLAG_IMAGE[row.market]} alt="" aria-hidden />
                 {MARKET_LABEL[row.market]}
               </span>
               <span className={`folio-headline__market-value ${toneClass(row.totalPnlPct)}`}>
@@ -82,9 +78,7 @@ export function FolioHeadlineMetrics({ portfolio, loading = false }: FolioHeadli
           {metrics.byMarket.map((row) => (
             <li key={row.market} className="folio-headline__market-col">
               <span className="folio-headline__market-label">
-                <span className="folio-headline__market-flag" aria-hidden>
-                  {MARKET_FLAG[row.market]}
-                </span>
+                <img className="folio-headline__market-flag" src={MARKET_FLAG_IMAGE[row.market]} alt="" aria-hidden />
                 {MARKET_LABEL[row.market]}
               </span>
               <span className={`folio-headline__market-value ${toneClass(row.todayPnlPct)}`}>
