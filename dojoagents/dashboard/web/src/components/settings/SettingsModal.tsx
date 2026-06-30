@@ -545,7 +545,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
       value={value}
       placeholder={placeholder}
       readOnly={readOnly}
-      autoComplete={type === 'password' ? 'off' : undefined}
       onChange={(event: ChangeEvent<HTMLInputElement>) => onChange(event.target.value)}
     />
   );
@@ -863,12 +862,20 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </Section>
 
               <Section title="Dojo SDK">
-                <Field label="API Key">{textInput(form.dojosdk.api_key, (value) => updateField((draft) => { draft.dojosdk.api_key = value; }), '***', 'password')}</Field>
-                <Field label="Base URL">{textInput(form.dojosdk.base_url, (value) => updateField((draft) => { draft.dojosdk.base_url = value; }))}</Field>
-                <Field label="Timeout (seconds)">{numberInput(form.dojosdk.timeout, (value) => updateField((draft) => { draft.dojosdk.timeout = value; }), 1)}</Field>
-                <Field label="Max Retries">{numberInput(form.dojosdk.max_retries, (value) => updateField((draft) => { draft.dojosdk.max_retries = value; }), 0)}</Field>
+                <form
+                  className="settings-credential-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSave();
+                  }}
+                >
+                  <Field label="API Key">{textInput(form.dojosdk.api_key, (value) => updateField((draft) => { draft.dojosdk.api_key = value; }), '***', 'password')}</Field>
+                  <Field label="Base URL">{textInput(form.dojosdk.base_url, (value) => updateField((draft) => { draft.dojosdk.base_url = value; }))}</Field>
+                  <Field label="Timeout (seconds)">{numberInput(form.dojosdk.timeout, (value) => updateField((draft) => { draft.dojosdk.timeout = value; }), 1)}</Field>
+                  <Field label="Max Retries">{numberInput(form.dojosdk.max_retries, (value) => updateField((draft) => { draft.dojosdk.max_retries = value; }), 0)}</Field>
+                </form>
               </Section>
-            </form>
+            </div>
           ) : null}
         </div>
 
