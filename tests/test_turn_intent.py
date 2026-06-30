@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import pytest
+
+from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+from dojoagents.agent.models import ChatRequest, ToolCall, ToolResult
+from dojoagents.agent.turn_intent import build_turn_intent_anchor
+
+
+def _request(message: str = "分析候选池", *, history: list | None = None) -> ChatRequest:
+    metadata: dict = {"dashboard_tab": "folio", "locale": "zh"}
+    if history is not None:
+        metadata["history"] = history
+    return ChatRequest(
+        user_id="local",
+        session_id="sess-1",
+        channel="dashboard",
+        message=message,
+        metadata=metadata,
+    )
+
+
+def test_turn_intent_anchor_only_when_history_exists() -> None:
+    assert build_turn_intent_anchor(_request()) == ""
+    anchor = build_turn_intent_anchor(
+        _request(
+            "帮我分析全球AI大模型概念组合",
+            history=[{"role": "user", "content": "创建一个半导体组合"}],
+        )
+    )
+    assert "当前任务" in anchor
+    assert "全球AI大模型概念组合" in anchor
+    assert "不要继续执行旧任务" in anchor
+
+
+def test_portfolio_harness_does_not_match_folio_tab_alone() -> None:
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_request())
+    assert harness.matches(_request(), state) is False
+
+
+def test_portfolio_harness_matches_after_write_tool() -> None:
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_request("创建组合"))
+    state.tool_results.append(
+        ToolResult(
+            call_id="c1",
+            name="portfolio_write_create",
+            ok=True,
+            data={"id": "p-1"},
+            resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": "p-1"}],
+        )
+    )
+    assert harness.matches(_request("创建组合"), state) is True
+
+
+def test_portfolio_harness_blocks_create_during_analysis_run() -> None:
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_request("分析候选池"))
+    state.tool_results.append(
+        ToolResult(call_id="c1", name="portfolio_read_search", ok=True, data={"items": []})
+    )
+    state.tool_results.append(
+        ToolResult(call_id="c2", name="portfolio_read_detail", ok=True, data={"id": "p-1"})
+    )
+    blocked = harness.block_tool_call(
+        ToolCall(id="c3", name="portfolio_write_create", arguments={"name": "New"}),
+        state,
+    )
+    assert blocked is not None
+    assert "portfolio_write_create" in blocked
