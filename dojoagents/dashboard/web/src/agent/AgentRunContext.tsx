@@ -18,7 +18,7 @@ import {
   clearActiveRunDraft,
   clearStreamDraft,
   loadActiveRunDraft,
-  loadStreamDraft,
+  loadStreamDraftFull,
   saveActiveRunDraft,
   saveStreamDraft,
 } from './agentStorage';
@@ -332,6 +332,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
           error?: string | null;
           data?: Record<string, unknown> | null;
           viz_blocks?: import('../types/agentViz').AgentVizBlock[];
+          resource_changes?: Record<string, unknown>[];
         }) => {
           consumeEvent(() => {
             state.assistantSteps = resolveToolResult(
@@ -346,7 +347,12 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
               payload.call_id,
             );
             patchRunDraft(state);
-            void syncFolioFromAgentTool(payload.tool, payload.ok, payload.data ?? null);
+            void syncFolioFromAgentTool(
+              payload.tool,
+              payload.ok,
+              payload.data ?? null,
+              payload.resource_changes ?? null,
+            );
           });
         },
         onEvalHint: ({ issues }: { issues: string[] }) => {
@@ -469,10 +475,10 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const active = loadActiveRunDraft();
     if (!active) return;
-    const streamDraft = loadStreamDraft();
-    if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
 
     void (async () => {
+      const streamDraft = await loadStreamDraftFull(active.sessionId);
+      if (!streamDraft || streamDraft.sessionId !== active.sessionId) return;
       try {
         const status = await fetchAgentRunStatus(active.runId);
         if (status.status === 'cancelled') {
@@ -507,6 +513,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
       }
 
       const { run_id: runId } = await createAgentRun({
+        session_id: params.sessionId,
         model_id: params.modelId,
         locale: params.locale,
         messages: params.apiMessages,

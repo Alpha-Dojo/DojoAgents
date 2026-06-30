@@ -1,4 +1,4 @@
-import { candleSlot, chartY, niceMinMax } from './coreCharts';
+import { candleSlot, chartY, niceMinMax } from './entityCharts';
 
 export interface AgentKlineBar {
   date: string;

@@ -31,6 +31,7 @@ from dojoagents.config.models import (
     WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
+    SessionsConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -61,28 +62,58 @@ def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
     api_key = raw.get("api_key")
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
+    context_window = raw.get("context_window")
+    model = raw.get("model")
     return LLMProviderConfig(
-        model=raw.get("model", "gpt-4.1"),
+        model=str(model) if isinstance(model, str) and model.strip() else None,
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        context_window=int(context_window) if context_window is not None else None,
     )
+
+
+def resolve_provider_config(llm: LLMConfig) -> tuple[str | None, LLMProviderConfig | None]:
+    if not llm.providers:
+        return None, None
+    name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
+    if name is None:
+        name = next(iter(llm.providers))
+    return name, llm.providers[name]
 
 
 def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     providers = {name: _provider_config(value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
-    if not providers:
-        providers = {"openai": LLMProviderConfig(api_key=os.getenv("OPENAI_API_KEY"))}
     llm = LLMConfig(
-        default=raw.get("llm_provider", {}).get("default", "openai"),
+        default=raw.get("llm_provider", {}).get("default"),
         providers=providers,
     )
-    default_provider = llm.providers.get(llm.default) or next(iter(llm.providers.values()))
+    _, default_provider = resolve_provider_config(llm)
     agent_raw = raw.get("agent", {})
+    compression_ratio = agent_raw.get("compression_threshold_ratio", agent_raw.get("threshold_ratio", 0.8))
+    cap_raw = agent_raw.get("session_max_tokens_cap")
+    if "model" in agent_raw:
+        agent_model = agent_raw.get("model")
+        if not isinstance(agent_model, str) or not agent_model.strip():
+            agent_model = None
+    elif default_provider is not None and default_provider.model:
+        agent_model = default_provider.model
+    else:
+        agent_model = None
     agent = AgentConfig(
-        model=agent_raw.get("model", default_provider.model),
-        max_iterations=int(agent_raw.get("max_iterations", 8)),
+        model=agent_model,
+        max_iterations=int(agent_raw.get("max_iterations", 100)),
         max_tool_workers=int(agent_raw.get("max_tool_workers", 4)),
+        lazy_skills=bool(agent_raw.get("lazy_skills", True)),
+        enable_skill_cache=bool(agent_raw.get("enable_skill_cache", True)),
+        enable_guardrails=bool(agent_raw.get("enable_guardrails", True)),
+        enable_think_scrubbing=bool(agent_raw.get("enable_think_scrubbing", True)),
+        enable_context_compression=bool(agent_raw.get("enable_context_compression", True)),
+        compression_threshold_ratio=float(compression_ratio),
+        session_max_tokens_cap=int(cap_raw) if cap_raw is not None else None,
+        default_context_window=int(agent_raw.get("default_context_window", 32768)),
+        session_max_tokens=int(agent_raw.get("session_max_tokens", 100000)),
+        threshold_ratio=float(compression_ratio),
         default_skills=list(agent_raw.get("default_skills", ["dojo-quant-analyst"])),
     )
     sandbox_raw = raw.get("tools", {}).get("sandbox", {})
@@ -116,6 +147,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
+    sessions_raw = raw.get("sessions", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -148,7 +180,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             profiler=ProfilerConfig(enabled=bool(dashboard_raw.get("profiler", {}).get("enabled", False))),
             financial=FinancialDashboardConfig(
                 enabled=bool(financial_raw.get("enabled", True)),
-                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/dojo")),
+                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/huggingface/hub")),
                 dashboard_data_root=str(financial_raw.get("dashboard_data_root", "~/.dojo/dashboard-data")),
                 stock_quote_refresh_seconds=int(financial_raw.get("stock_quote_refresh_seconds", 15)),
                 constituent_kline_post_close_poll_seconds=int(financial_raw.get("constituent_kline_post_close_poll_seconds", 300)),
@@ -183,6 +215,15 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             auto_plan_threshold=int(planning_raw.get("auto_plan_threshold", 100)),
             plan_store_path=str(planning_raw.get("plan_store_path", "~/.dojo/agents/plans")),
             max_plan_steps=int(planning_raw.get("max_plan_steps", 10)),
+        ),
+        sessions=SessionsConfig(
+            enabled=bool(sessions_raw.get("enabled", True)),
+            provider=str(sessions_raw.get("provider", "dojo_repository")),
+            root=str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions")),
+            agent_id=str(sessions_raw.get("agent_id", "dojo-agent")),
+            persist_openai_history=bool(sessions_raw.get("persist_openai_history", True)),
+            sync_memory=bool(sessions_raw.get("sync_memory", True)),
+            export_default_dir=str(sessions_raw.get("export_default_dir", "~/Desktop/dojo-chat-export")),
         ),
     )
 
@@ -225,7 +266,11 @@ class ConfigStore:
 
     def redacted(self) -> dict[str, Any]:
         data = asdict(self.snapshot())
-        for provider in data.get("llm_provider", {}).get("providers", {}).values():
+        for name, provider in data.get("llm_provider", {}).get("providers", {}).items():
+            configured = bool(provider.get("api_key"))
+            if not configured and name == "ollama":
+                configured = bool(str(provider.get("model") or "").strip())
+            provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
         return data

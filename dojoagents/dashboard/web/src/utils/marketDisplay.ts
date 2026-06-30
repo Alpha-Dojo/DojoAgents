@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 import cnFlag from '../assets/images/cn.png';
 import hkFlag from '../assets/images/hk.png';
 import usFlag from '../assets/images/us.png';

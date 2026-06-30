@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 
 const STORAGE_KEY = 'alphadojo-market-order';
 export const DEFAULT_MARKET_ORDER: MarketCode[] = ['us', 'cn', 'hk'];

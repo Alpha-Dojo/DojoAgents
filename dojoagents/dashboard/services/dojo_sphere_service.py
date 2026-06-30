@@ -20,17 +20,22 @@ class DojoSphereService:
         *,
         refresh: bool = False,
     ) -> dict[str, Any]:
-        del key, refresh
+        if not refresh:
+            cached = await self.metrics_store.get(key)
+            if isinstance(cached, dict) and "payload" in cached:
+                return cached
         try:
             payload = await compute()
         except Exception:
             raise
-        return {
+        wrapped = {
             "payload": payload,
             "as_of": payload.get("as_of"),
             "source": "computed",
             "stale": bool(payload.get("stale", False)),
         }
+        await self.metrics_store.put(key, wrapped)
+        return wrapped
 
     async def metrics(
         self,

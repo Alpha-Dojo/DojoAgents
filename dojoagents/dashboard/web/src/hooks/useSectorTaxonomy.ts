@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchSectorTaxonomy } from '../api/dojoSphere';
+import { fetchSectorTaxonomy } from '../api/sector';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorTaxonomyDocument } from '../types/sectorTaxonomy';

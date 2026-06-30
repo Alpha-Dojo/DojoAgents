@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 
 /** A/HK lot size: multiples of 100, minimum 100 when allocated. */
 export function normalizeLotShares(rawShares: number, lotSize = 100): number {

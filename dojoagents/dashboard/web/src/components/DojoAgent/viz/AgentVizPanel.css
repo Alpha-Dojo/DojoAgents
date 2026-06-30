@@ -46,9 +46,9 @@
 }
 
 .agent-viz-block {
-  border: 1px solid rgba(0, 229, 255, 0.14);
+  border: 1px solid var(--border-dim);
   border-radius: 10px;
-  background: rgba(6, 12, 22, 0.62);
+  /* background: rgba(6, 12, 22, 0.62); */
   overflow: hidden;
 }
 
@@ -114,7 +114,8 @@
   gap: 8px;
   padding: 6px 8px;
   border-radius: 8px;
-  background: rgba(15, 28, 48, 0.55);
+  /* background: rgba(15, 28, 48, 0.55); */
+  background: #000;
 }
 
 .agent-viz-kpi-row--us {
@@ -170,7 +171,8 @@
   gap: 2px;
   padding: 5px 6px;
   border-radius: 6px;
-  background: rgba(30, 58, 95, 0.28);
+  /* background: rgba(30, 58, 95, 0.28); */
+  background: var(--bg-elevated);
   min-width: 0;
 }
 

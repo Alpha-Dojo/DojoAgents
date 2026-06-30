@@ -2,262 +2,60 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+import os
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
-from dojoagents.agent.runtime import Runtime
 from dojoagents.agent.models import ToolCall
-from dojoagents.tools.registry import ToolRegistry
-from dojoagents.tools.executor import ToolExecutor
-from dojoagents.tools.sandbox import SandboxPolicy
-from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
-
-# Import response models from dojo SDK to mock return values properly
-from dojo.types.models import (
-    KLineResponse,
-    TickerResponse,
-    NewsResponse,
-    CurrentQuoteResponse,
-    StockKlineResponse,
-    FinancialsResponse,
-    StockNewsResponse,
+from dojoagents.agent.runtime import Runtime
+from dojoagents.config.models import DojoSDKConfig
+from dojoagents.tools.dojo_sdk_tool import (
+    DojoSDKToolManager,
+    HF_REGISTRY,
+    OFFLINE_TOOL_BINDINGS,
+    get_dojo_sdk_specs,
 )
+from dojoagents.tools.executor import ToolExecutor
+from dojoagents.tools.registry import ToolRegistry
+from dojoagents.tools.sandbox import SandboxPolicy
+from dojo.types.models import BenchmarkCatalogResponse, CurrentQuoteResponse, StockKlineResponse, StockNewsResponse
+
+YSTOCK_INFO_REPRO_ARGS = {
+    "symbols": ["SPY", "2800.HK", "510300.SH"],
+    "market": "us",
+    "only_simple_fields": True,
+}
+YSTOCK_INFO_REPRO_SYMBOLS = {"SPY", "2800.HK", "510300.SH"}
+
+
+def test_hf_registry_coverage():
+    assert set(OFFLINE_TOOL_BINDINGS) == set(HF_REGISTRY)
+    specs = get_dojo_sdk_specs()
+    assert len(specs) == len(HF_REGISTRY)
+    assert len({spec.name for spec in specs}) == len(HF_REGISTRY)
 
 
 def test_dojo_sdk_tools_discovery():
-    """Verify that DojoSDK tools are registered and discovered under default runtime bootstrapping."""
     runtime = Runtime.from_default_config()
     all_tools = [spec.name for spec in runtime.agent.tool_executor.registry.all()]
-    
-    assert "dojo.sdk.get_kline" in all_tools
-    assert "dojo.sdk.get_ticker" in all_tools
-    assert "dojo.sdk.get_news" in all_tools
+
+    assert "dojo.sdk.stock.kline" in all_tools
+    assert "dojo.sdk.stock.current_quote" in all_tools
+    assert "dojo.sdk.benchmark.catalog" in all_tools
+    assert "dojo.sdk.get_ticker" not in all_tools
 
 
 @pytest.mark.asyncio
-async def test_dojo_sdk_get_kline_tool():
-    """Test get_kline tool handler and parameter passing."""
+async def test_dojo_sdk_stock_kline_tool():
     registry = ToolRegistry()
     for spec in get_dojo_sdk_specs():
         registry.register(spec)
 
     executor = ToolExecutor(registry, SandboxPolicy())
-    
-    # Mock AsyncDojo client and get_kline response
-    mock_response = KLineResponse(
-        exchange="BINANCE",
-        bz_type="SPOT",
-        symbol="BTCUSDT",
-        klines=[[1717462800000, 68000.0, 69000.0, 67500.0, 68500.0, 150.5]]
-    )
-    
-    mock_get_kline = AsyncMock(return_value=mock_response)
-    
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
-        # Wire the mock to client properties
-        instance = mock_async_dojo.return_value
-        instance.market_data.get_kline = mock_get_kline
-        
-        tool_call = ToolCall(
-            id="tc-kline",
-            name="dojo.sdk.get_kline",
-            arguments={
-                "exchange": "BINANCE",
-                "bz_type": "SPOT",
-                "symbol": "BTCUSDT",
-                "kline_t": "1h",
-                "limit": 10
-            }
-        )
-        
-        result = await executor.execute_one(tool_call)
-        
-        assert result.ok
-        assert "tc-kline" == result.call_id
-        
-        # Verify JSON content matches mock response
-        data = json.loads(result.content)
-        assert data["exchange"] == "BINANCE"
-        assert data["bz_type"] == "SPOT"
-        assert data["symbol"] == "BTCUSDT"
-        assert len(data["klines"]) == 1
-        assert data["klines"][0][1] == 68000.0
-        
-        # Verify mock was called with correct parameters
-        mock_get_kline.assert_called_once_with(
-            exchange="BINANCE",
-            bz_type="SPOT",
-            symbol="BTCUSDT",
-            kline_t="1h",
-            limit=10
-        )
-
-
-@pytest.mark.asyncio
-async def test_dojo_sdk_get_ticker_tool():
-    """Test get_ticker tool handler."""
-    registry = ToolRegistry()
-    for spec in get_dojo_sdk_specs():
-        registry.register(spec)
-
-    executor = ToolExecutor(registry, SandboxPolicy())
-    
-    mock_response = TickerResponse(
-        exchange="BINANCE",
-        bz_type="SPOT",
-        symbol="ETHUSDT",
-        price=3500.0,
-        volume=12000.5
-    )
-    
-    mock_get_ticker = AsyncMock(return_value=mock_response)
-    
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
-        instance = mock_async_dojo.return_value
-        instance.market_data.get_ticker = mock_get_ticker
-        
-        tool_call = ToolCall(
-            id="tc-ticker",
-            name="dojo.sdk.get_ticker",
-            arguments={
-                "exchange": "BINANCE",
-                "bz_type": "SPOT",
-                "symbol": "ETHUSDT"
-            }
-        )
-        
-        result = await executor.execute_one(tool_call)
-        
-        assert result.ok
-        data = json.loads(result.content)
-        assert data["exchange"] == "BINANCE"
-        assert data["symbol"] == "ETHUSDT"
-        assert data["price"] == 3500.0
-        
-        mock_get_ticker.assert_called_once_with(
-            exchange="BINANCE",
-            bz_type="SPOT",
-            symbol="ETHUSDT"
-        )
-
-
-@pytest.mark.asyncio
-async def test_dojo_sdk_get_news_tool():
-    """Test get_news tool handler."""
-    registry = ToolRegistry()
-    for spec in get_dojo_sdk_specs():
-        registry.register(spec)
-
-    executor = ToolExecutor(registry, SandboxPolicy())
-    
-    mock_response = NewsResponse(
-        news=[
-            {"title": "Bitcoin Surges Above 68k", "sentiment": "bullish"},
-            {"title": "Fed Holds Rates Steady", "sentiment": "neutral"}
-        ]
-    )
-    
-    mock_get_news = AsyncMock(return_value=mock_response)
-    
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
-        instance = mock_async_dojo.return_value
-        instance.news.get_news = mock_get_news
-        
-        tool_call = ToolCall(
-            id="tc-news",
-            name="dojo.sdk.get_news",
-            arguments={"limit": 5}
-        )
-        
-        result = await executor.execute_one(tool_call)
-        
-        assert result.ok
-        data = json.loads(result.content)
-        assert len(data["news"]) == 2
-        assert data["news"][0]["title"] == "Bitcoin Surges Above 68k"
-        
-        mock_get_news.assert_called_once_with(limit=5)
-
-
-def test_dojo_sdk_config_injection():
-    """Verify that configuration settings are passed to AsyncDojo during tool spec generation."""
-    from dojoagents.config.models import DojoSDKConfig
-    
-    config = DojoSDKConfig(
-        api_key="test-api-key",
-        base_url="https://test.dojo.api",
-        timeout=30.0,
-        max_retries=3
-    )
-    
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
-        specs = get_dojo_sdk_specs(config)
-        # Specs are returned successfully (3 generic + 4 stock tools)
-        assert len(specs) == 7
-        
-        # Trigger client lazy initialization by accessing the client of the manager
-        from dojoagents.tools.dojo_sdk_tool import DojoSDKToolManager
-        manager = DojoSDKToolManager(config)
-        client = manager.client
-        
-        # Verify AsyncDojo was instantiated with the correct kwargs
-        mock_async_dojo.assert_called_once_with(
-            api_key="test-api-key",
-            base_url="https://test.dojo.api",
-            timeout=30.0,
-            max_retries=3
-        )
-
-
-@pytest.mark.asyncio
-async def test_dojo_sdk_get_stock_quote_tool():
-    """Test get_stock_quote tool handler."""
-    registry = ToolRegistry()
-    for spec in get_dojo_sdk_specs():
-        registry.register(spec)
-
-    executor = ToolExecutor(registry, SandboxPolicy())
-    
-    mock_response = CurrentQuoteResponse(
-        symbol="AAPL",
-        price=180.5,
-        volume=50000.0
-    )
-    
-    mock_get_quote = AsyncMock(return_value=mock_response)
-    
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
-        instance = mock_async_dojo.return_value
-        instance.stocks.get_quote = mock_get_quote
-        
-        tool_call = ToolCall(
-            id="tc-stock-quote",
-            name="dojo.sdk.get_stock_quote",
-            arguments={"symbols": ["AAPL"]}
-        )
-        
-        result = await executor.execute_one(tool_call)
-        
-        assert result.ok
-        data = json.loads(result.content)
-        assert data["symbol"] == "AAPL"
-        assert data["price"] == 180.5
-        
-        mock_get_quote.assert_called_once_with(symbols=["AAPL"])
-
-
-@pytest.mark.asyncio
-async def test_dojo_sdk_get_stock_kline_tool():
-    """Test get_stock_kline tool handler."""
-    registry = ToolRegistry()
-    for spec in get_dojo_sdk_specs():
-        registry.register(spec)
-
-    executor = ToolExecutor(registry, SandboxPolicy())
-    
     mock_response = StockKlineResponse(
         total_num=1,
-        klines=[
+        data=[
             {
                 "symbol": "AAPL",
                 "kline_t": "1d",
@@ -268,109 +66,199 @@ async def test_dojo_sdk_get_stock_kline_tool():
                 "close": 181.5,
                 "vol": 1000.0,
             }
-        ]
+        ],
     )
-    
     mock_get_kline = AsyncMock(return_value=mock_response)
-    
+
     with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_kline = mock_get_kline
-        
-        tool_call = ToolCall(
-            id="tc-stock-kline",
-            name="dojo.sdk.get_stock_kline",
-            arguments={
-                "symbol": "AAPL",
-                "kline_t": "1d",
-                "limit": 50
-            }
+
+        result = await executor.execute_one(
+            ToolCall(
+                id="tc-stock-kline",
+                name="dojo.sdk.stock.kline",
+                arguments={"symbol": "AAPL", "kline_t": "1d", "limit": 50},
+            )
         )
-        
-        result = await executor.execute_one(tool_call)
-        
+
         assert result.ok
         data = json.loads(result.content)
         assert data["total_num"] == 1
-        assert len(data["klines"]) == 1
-        assert data["klines"][0]["symbol"] == "AAPL"
-        
+        assert data["data"][0]["symbol"] == "AAPL"
         mock_get_kline.assert_called_once_with(
             symbol="AAPL",
             kline_t="1D",
-            limit=50,
             start_time=None,
-            end_time=None
+            end_time=None,
+            price_adj_type=None,
+            price_adj_date=None,
+            limit=50,
         )
 
 
 @pytest.mark.asyncio
-async def test_dojo_sdk_get_stock_financials_tool():
-    """Test get_stock_financials tool handler."""
+async def test_dojo_sdk_stock_current_quote_tool():
     registry = ToolRegistry()
     for spec in get_dojo_sdk_specs():
         registry.register(spec)
 
     executor = ToolExecutor(registry, SandboxPolicy())
-    
-    mock_response = FinancialsResponse(
-        symbol="MSFT",
-        financials=[{"year": 2023, "revenue": 211000}]
-    )
-    
-    mock_get_financials = AsyncMock(return_value=mock_response)
-    
+    mock_response = CurrentQuoteResponse(symbol="AAPL", price=180.5, volume=50000.0)
+    mock_get_quote = AsyncMock(return_value=mock_response)
+
     with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
-        instance.stocks.get_financials = mock_get_financials
-        
-        tool_call = ToolCall(
-            id="tc-stock-financials",
-            name="dojo.sdk.get_stock_financials",
-            arguments={"symbol": "MSFT", "lookback": 3}
+        instance.stocks.get_quote = mock_get_quote
+
+        result = await executor.execute_one(
+            ToolCall(
+                id="tc-stock-quote",
+                name="dojo.sdk.stock.current_quote",
+                arguments={"symbols": ["AAPL"]},
+            )
         )
-        
-        result = await executor.execute_one(tool_call)
-        
+
         assert result.ok
         data = json.loads(result.content)
-        assert data["symbol"] == "MSFT"
-        assert len(data["financials"]) == 1
-        
-        mock_get_financials.assert_called_once_with(symbol="MSFT", lookback=3)
+        assert data["symbol"] == "AAPL"
+        assert data["price"] == 180.5
+        mock_get_quote.assert_called_once_with(symbols=["AAPL"])
 
 
 @pytest.mark.asyncio
-async def test_dojo_sdk_get_stock_news_tool():
-    """Test get_stock_news tool handler."""
+async def test_dojo_sdk_stock_ystock_info_forwards_repro_args():
+    """Mock: repro args from SSE run must reach get_ystock_info unchanged."""
     registry = ToolRegistry()
     for spec in get_dojo_sdk_specs():
         registry.register(spec)
 
     executor = ToolExecutor(registry, SandboxPolicy())
-    
-    mock_response = StockNewsResponse(
-        symbol="TSLA",
-        news=[{"title": "Tesla Announces Q2 Earnings"}]
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-stock-ystock-info",
+            name="dojo.sdk.stock.ystock_info",
+            arguments=dict(YSTOCK_INFO_REPRO_ARGS),
+        )
     )
-    
+
+    assert result.ok
+    data = json.loads(result.content)
+    assert data["total_num"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dojo_sdk_stock_ystock_info_symbols_filter():
+    """Live: explicit symbols must filter results (not return full US market).
+
+    Reproduces dashboard run run-7ee0f436 where total_num was 13166.
+
+    Run manually:
+      DOJO_ONLINE=1 DOJO_API_KEY=... uv run --extra dev python -m pytest \\
+        tests/test_dojo_sdk_tool.py::test_dojo_sdk_stock_ystock_info_symbols_filter -v -s
+    """
+    if os.environ.get("DOJO_ONLINE", "0").lower() not in ("1", "true", "yes", "on"):
+        pytest.skip("Set DOJO_ONLINE=1 to hit the live API (offline HF path uses separate auth/cache).")
+    if not os.environ.get("DOJO_API_KEY"):
+        pytest.skip("Set DOJO_API_KEY to run live ystock_info symbol-filter check.")
+
+    registry = ToolRegistry()
+    for spec in get_dojo_sdk_specs():
+        registry.register(spec)
+
+    executor = ToolExecutor(registry, SandboxPolicy())
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-stock-ystock-info-live",
+            name="dojo.sdk.stock.ystock_info",
+            arguments=dict(YSTOCK_INFO_REPRO_ARGS),
+        )
+    )
+
+    assert result.ok, result.error
+    data = json.loads(result.content)
+    rows = data.get("data") or []
+    total = data.get("total_num", len(rows))
+    tickers = {row.get("ticker") or row.get("symbol") for row in rows if row.get("ticker") or row.get("symbol")}
+
+    print(f"ystock_info repro: total_num={total}, row_count={len(rows)}, " f"tickers={sorted(tickers)[:20]}{'...' if len(tickers) > 20 else ''}")
+
+    assert total <= len(YSTOCK_INFO_REPRO_SYMBOLS), f"symbols filter failed: total_num={total} for {YSTOCK_INFO_REPRO_ARGS!r}; " f"sample tickers={sorted(tickers)[:10]}"
+    assert tickers <= YSTOCK_INFO_REPRO_SYMBOLS, f"unexpected tickers outside request: {sorted(tickers - YSTOCK_INFO_REPRO_SYMBOLS)[:10]}"
+
+
+@pytest.mark.asyncio
+async def test_dojo_sdk_stock_news_tool():
+    registry = ToolRegistry()
+    for spec in get_dojo_sdk_specs():
+        registry.register(spec)
+
+    executor = ToolExecutor(registry, SandboxPolicy())
+    mock_response = StockNewsResponse(symbol="TSLA", news=[{"title": "Tesla Announces Q2 Earnings"}])
     mock_get_news = AsyncMock(return_value=mock_response)
-    
+
     with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_news = mock_get_news
-        
-        tool_call = ToolCall(
-            id="tc-stock-news",
-            name="dojo.sdk.get_stock_news",
-            arguments={"symbol": "TSLA", "limit": 10}
+
+        result = await executor.execute_one(
+            ToolCall(
+                id="tc-stock-news",
+                name="dojo.sdk.stock.news",
+                arguments={"symbol": "TSLA", "page": 1, "page_size": 10},
+            )
         )
-        
-        result = await executor.execute_one(tool_call)
-        
+
         assert result.ok
         data = json.loads(result.content)
         assert data["symbol"] == "TSLA"
         assert len(data["news"]) == 1
-        
-        mock_get_news.assert_called_once_with(symbol="TSLA", limit=10)
+        mock_get_news.assert_called_once_with(symbol="TSLA", page=1, page_size=10)
+
+
+@pytest.mark.asyncio
+async def test_dojo_sdk_benchmark_catalog_tool():
+    registry = ToolRegistry()
+    for spec in get_dojo_sdk_specs():
+        registry.register(spec)
+
+    executor = ToolExecutor(registry, SandboxPolicy())
+    mock_response = BenchmarkCatalogResponse(total_num=1, data=[{"symbol": "SPX", "name": "S&P 500"}])
+    mock_get_catalog = AsyncMock(return_value=mock_response)
+
+    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+        instance = mock_async_dojo.return_value
+        instance.benchmark.get_catalog = mock_get_catalog
+
+        result = await executor.execute_one(
+            ToolCall(
+                id="tc-benchmark-catalog",
+                name="dojo.sdk.benchmark.catalog",
+                arguments={},
+            )
+        )
+
+        assert result.ok
+        data = json.loads(result.content)
+        assert data["data"][0]["symbol"] == "SPX"
+        mock_get_catalog.assert_called_once_with()
+
+
+def test_dojo_sdk_config_injection():
+    config = DojoSDKConfig(
+        api_key="test-api-key",
+        base_url="https://test.dojo.api",
+        timeout=30.0,
+        max_retries=3,
+    )
+
+    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+        manager = DojoSDKToolManager(config)
+        _ = manager.client
+
+        mock_async_dojo.assert_called_once_with(
+            api_key="test-api-key",
+            base_url="https://test.dojo.api",
+            timeout=30.0,
+            max_retries=3,
+        )

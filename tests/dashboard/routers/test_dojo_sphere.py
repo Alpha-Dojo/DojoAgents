@@ -22,6 +22,22 @@ async def test_sphere_service_performance_returns_computed_payload(tmp_path) -> 
 
 
 @pytest.mark.asyncio
+async def test_sphere_service_performance_caches_wrapped_payload(tmp_path) -> None:
+    service = DojoSphereService(SectorMetricsStore(tmp_path, schema_version=1))
+    calls = {"count": 0}
+
+    async def compute():
+        calls["count"] += 1
+        return {"points": [{"date": "2026-06-20", "us": 101}], "as_of": "2026-06-20"}
+
+    first = await service.performance("L3/1/2/3", compute)
+    second = await service.performance("L3/1/2/3", compute)
+
+    assert first == second
+    assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_sphere_service_performance_propagates_failure(tmp_path) -> None:
     service = DojoSphereService(SectorMetricsStore(tmp_path, schema_version=1))
 

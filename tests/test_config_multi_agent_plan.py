@@ -9,7 +9,8 @@ from dojoagents.config.models import (
     PlanConfig,
     WebToolsConfig,
 )
-from dojoagents.config.loader import _to_config
+from dojoagents.config.loader import _to_config, resolve_provider_config
+from dojoagents.config.models import LLMConfig, LLMProviderConfig
 
 
 class TestMultiAgentConfig:
@@ -73,6 +74,35 @@ class TestConfigLoader:
         cfg = _to_config({})
         assert cfg.multi_agent.enabled is False
         assert cfg.planning.enabled is False
+        assert cfg.agent.model is None
+        assert cfg.llm_provider.providers == {}
+
+    def test_no_default_model_without_llm_provider(self):
+        cfg = _to_config({"agent": {"max_iterations": 5}})
+        assert cfg.agent.model is None
+        assert cfg.llm_provider.default is None
+
+    def test_inherits_model_from_configured_provider(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openai": {"model": "test-model", "api_key_env": "OPENAI_API_KEY"},
+                    }
+                },
+                "agent": {"max_iterations": 2},
+            }
+        )
+        assert cfg.agent.model == "test-model"
+
+    def test_resolve_provider_config_without_default(self):
+        llm = LLMConfig(
+            default=None,
+            providers={"openai": LLMProviderConfig(model="m1")},
+        )
+        name, provider = resolve_provider_config(llm)
+        assert name == "openai"
+        assert provider.model == "m1"
 
     def test_parses_web_tools(self):
         cfg = _to_config(

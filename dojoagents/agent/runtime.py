@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dojoagents.agent.loop import AgentLoop
-from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.session_manager import DojoAgentSessionManager
+from dojoagents.agent.provider_state import ProviderConversationState
+from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
+from dojoagents.config.loader import resolve_provider_config
+from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.harnesses import PortfolioTaskHarness
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
@@ -18,6 +22,7 @@ from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.skill_manage import SkillManagerTool
+from dojoagents.logging import LOGGER
 
 
 @dataclass
@@ -25,6 +30,7 @@ class Runtime:
     config: AgentsConfig
     config_store: ConfigStore
     agent: AgentLoop
+    sessions: DojoAgentSessionManager
     extensions: DojoExtensionRegistry
     scheduler: JobStore
 
@@ -159,26 +165,59 @@ class Runtime:
 
         discover_and_register_mcp_tools(tool_registry, config.mcp_servers)
         if plugin_registry._mcp_configs:
-            from dojoagents.logging import LOGGER
-
             LOGGER.debug(f"Registering MCP tools config from plugins: {plugin_registry._mcp_configs}")
             discover_and_register_mcp_tools(tool_registry, plugin_registry._mcp_configs)
 
         tool_names = [spec.name for spec in tool_registry.all()]
         skill_manager.loaded_tools = set(tool_names)
 
-        provider_cfg = config.llm_provider.providers.get(config.llm_provider.default)
+        provider_state = ProviderConversationState()
+        provider_name, provider_cfg = resolve_provider_config(config.llm_provider)
         if provider_cfg is None:
-            provider_cfg = next(iter(config.llm_provider.providers.values()))
-        provider = OpenAICompatibleProvider(
-            api_key=provider_cfg.api_key,
-            base_url=provider_cfg.base_url,
-        )
-        provider.name = config.llm_provider.default
+            provider = UnconfiguredLLMProvider()
+            LOGGER.info("Runtime started without LLM provider configuration")
+        elif provider_name == "gemini":
+            provider = GeminiNativeProvider(
+                api_key=provider_cfg.api_key,
+                api_key_env=provider_cfg.api_key_env,
+                base_url=provider_cfg.base_url,
+            )
+            LOGGER.info(
+                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+                provider_name,
+                type(provider).__name__,
+                provider_cfg.model,
+                getattr(provider_cfg, "base_url", None),
+                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+            )
+        else:
+            provider = OpenAICompatibleProvider(
+                api_key=provider_cfg.api_key,
+                base_url=provider_cfg.base_url,
+            )
+            provider.name = provider_name or "openai"
+            LOGGER.info(
+                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+                provider_name,
+                type(provider).__name__,
+                provider_cfg.model,
+                getattr(provider_cfg, "base_url", None),
+                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+            )
 
         memory = MemoryManager()
         if config.memory.provider == "skill_summary":
             memory.add_provider(SkillSummaryMemoryProvider(config.memory.generated_skill_dir))
+
+        sessions = DojoAgentSessionManager(
+            root=config.sessions.root,
+            memory_manager=memory,
+            agent_id=config.sessions.agent_id,
+            provider=config.sessions.provider,
+            sync_memory=config.sessions.sync_memory,
+            export_default_dir=config.sessions.export_default_dir,
+            enabled=config.sessions.enabled,
+        )
 
         agent = AgentLoop(
             llm_provider=provider,
@@ -192,6 +231,9 @@ class Runtime:
             config=config.agent,
             plan_activation_hook=plan_hook,
             task_harnesses=[PortfolioTaskHarness()],
+            provider_config=provider_cfg,
+            provider_state=provider_state,
+            session_manager=sessions,
         )
 
         # Wire pool runtime reference after agent creation
@@ -222,6 +264,7 @@ class Runtime:
             config=config,
             config_store=store,
             agent=agent,
+            sessions=sessions,
             extensions=extensions,
             scheduler=JobStore(Path(config.scheduler.store).expanduser()),
         )

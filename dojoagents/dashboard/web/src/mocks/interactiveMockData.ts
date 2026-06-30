@@ -3,27 +3,27 @@ import type {
   CoreTickerPeBandResponse,
   CoreTickerQuoteResponse,
   CoreTickerSectorResponse,
-} from '../api/dojoCore';
-import type { BenchmarkCatalogResponse } from '../api/dojoMesh';
+} from '../api/entity';
+import type { BenchmarkCatalogResponse } from '../api/market';
 import type {
   FolioPortfolioDetailResponse,
   FolioPortfolioSummaryResponse,
-} from '../api/dojoFolio';
-import type { BenchmarkCard, DojoMeshOverview, MarketCode, MarketStats, SectorItem } from '../types/dojoMesh';
+} from '../api/folio';
+import type { BenchmarkCard, MarketOverview, MarketCode, MarketStats, SectorItem } from '../types/market';
 import type {
-  CoreSectorOption,
-  CoreTickerEventsResponse,
-  CoreTickerFinIndicatorsResponse,
-  CoreTickerIncomeResponse,
-  CoreTickerNewsResponse,
-  CoreTickerSearchItem,
-} from '../types/dojoCore';
+  EntitySectorOption,
+  EntityTickerEventsResponse,
+  EntityTickerFinIndicatorsResponse,
+  EntityTickerIncomeResponse,
+  EntityTickerNewsResponse,
+  EntityTickerSearchItem,
+} from '../types/entity';
 import type {
   SectorConstituentsResponse,
   SectorLevelKey,
   SectorPerformanceResponse,
   SectorScopeMetricsResponse,
-} from '../types/dojoSphere';
+} from '../types/sector';
 import type { SectorTaxonomyDocument } from '../types/sectorTaxonomy';
 import { fetchJson } from '../api/http';
 
@@ -54,7 +54,7 @@ function marketCapBase(market: MarketCode): number {
   return 1_180_000_000_000;
 }
 
-const sectorOptions: CoreSectorOption[] = [
+const sectorOptions: EntitySectorOption[] = [
   {
     role: 'primary',
     level1Id: 'technology',
@@ -79,7 +79,7 @@ const sectorOptions: CoreSectorOption[] = [
   },
 ];
 
-const mockTickers: CoreTickerSearchItem[] = [
+const mockTickers: EntityTickerSearchItem[] = [
   { ticker: 'NVDA', market: 'us', name: { zh: '英伟达', en: 'NVIDIA' }, market_cap: 3_280_000_000_000 },
   { ticker: 'AAPL', market: 'us', name: { zh: '苹果', en: 'Apple' }, market_cap: 3_050_000_000_000 },
   { ticker: 'AMD', market: 'us', name: { zh: '超威半导体', en: 'AMD' }, market_cap: 270_000_000_000 },
@@ -97,7 +97,7 @@ function tickerIndex(ticker: string): number {
   return index >= 0 ? index : 0;
 }
 
-function getTicker(ticker: string, market?: MarketCode): CoreTickerSearchItem {
+function getTicker(ticker: string, market?: MarketCode): EntityTickerSearchItem {
   return (
     mockTickers.find((item) => item.ticker === ticker && (!market || item.market === market)) ??
     mockTickers.find((item) => item.ticker === ticker) ??
@@ -145,7 +145,7 @@ function buildSector(name: string, code: string, market: MarketCode, change: num
   };
 }
 
-export function fetchMockDojoMeshOverview(): Promise<DojoMeshOverview> {
+export function fetchMockMarketOverview(): Promise<MarketOverview> {
   const stats: Record<MarketCode, MarketStats> = {
     us: { market: 'us', listed_count: 5128, total_market_cap: 58_400_000_000_000, weighted_pe: 27.8, simple_pe: 31.2, pe_sample_count: 4312 },
     cn: { market: 'cn', listed_count: 5362, total_market_cap: 88_100_000_000_000, weighted_pe: 18.4, simple_pe: 29.1, pe_sample_count: 4720 },
@@ -169,13 +169,13 @@ export function fetchMockDojoMeshOverview(): Promise<DojoMeshOverview> {
         ],
       },
     ]),
-  ) as DojoMeshOverview['markets'];
+  ) as MarketOverview['markets'];
 
   return delay({ as_of: '2026-06-16', markets });
 }
 
 export function fetchMockBenchmarkCatalog(): Promise<BenchmarkCatalogResponse> {
-  return fetchMockDojoMeshOverview().then((overview) => ({
+  return fetchMockMarketOverview().then((overview) => ({
     as_of: overview.as_of,
     markets: {
       us: { default_benchmark: 'MOCK-us-1', benchmarks: overview.markets.us.benchmarks },
@@ -185,7 +185,7 @@ export function fetchMockBenchmarkCatalog(): Promise<BenchmarkCatalogResponse> {
   }));
 }
 
-export function fetchMockCoreTickerSearch(params: { q: string; market?: MarketCode; limit?: number }): Promise<CoreTickerSearchItem[]> {
+export function fetchMockEntityTickerSearch(params: { q: string; market?: MarketCode; limit?: number }): Promise<EntityTickerSearchItem[]> {
   const q = params.q.trim().toLowerCase();
   const items = mockTickers
     .filter((item) => !params.market || item.market === params.market)
@@ -386,7 +386,7 @@ export function fetchMockCoreTickerFinIndicators(params: {
   ticker: string;
   market?: MarketCode;
   limit?: number;
-}): Promise<CoreTickerFinIndicatorsResponse> {
+}): Promise<EntityTickerFinIndicatorsResponse> {
   const item = getTicker(params.ticker, params.market);
   const seed = tickerIndex(item.ticker) + 1;
   const count = params.limit ?? 20;
@@ -429,7 +429,7 @@ export function fetchMockCoreTickerFinIndicators(params: {
   return delay({ ticker: item.ticker, market: item.market, report_type: 'quarterly', as_of: '2026-06-16', source: 'local', items });
 }
 
-export function fetchMockCoreTickerEvents(params: { ticker: string; market?: MarketCode }): Promise<CoreTickerEventsResponse> {
+export function fetchMockCoreTickerEvents(params: { ticker: string; market?: MarketCode }): Promise<EntityTickerEventsResponse> {
   const item = getTicker(params.ticker, params.market);
   return delay({
     ticker: item.ticker,
@@ -443,7 +443,7 @@ export function fetchMockCoreTickerEvents(params: { ticker: string; market?: Mar
   });
 }
 
-export function fetchMockCoreTickerNews(params: { ticker: string; market?: MarketCode }): Promise<CoreTickerNewsResponse> {
+export function fetchMockCoreTickerNews(params: { ticker: string; market?: MarketCode }): Promise<EntityTickerNewsResponse> {
   const item = getTicker(params.ticker, params.market);
   return delay({
     ticker: item.ticker,
@@ -457,7 +457,7 @@ export function fetchMockCoreTickerNews(params: { ticker: string; market?: Marke
   });
 }
 
-export function fetchMockCoreTickerIncome(params: { ticker: string; market?: MarketCode }): Promise<CoreTickerIncomeResponse> {
+export function fetchMockCoreTickerIncome(params: { ticker: string; market?: MarketCode }): Promise<EntityTickerIncomeResponse> {
   const item = getTicker(params.ticker, params.market);
   return delay({
     ticker: item.ticker,

@@ -17,6 +17,7 @@ const COL_LABEL_KEYS: Record<string, string> = {
   change_percent: 'agentViz.col.todayPnl',
   total_return_pct: 'agentViz.col.totalPnl',
   pe: 'agentViz.col.pe',
+  last_price: 'agentViz.col.price',
   weight: 'agentViz.col.weight',
   level1_id: 'agentViz.col.l1',
   level2_id: 'agentViz.col.l2',
@@ -191,6 +192,7 @@ function resolveBlockTitle(block: AgentVizBlock, t: TranslateFn, locale: AppLoca
     get_sector_analysis: (kind) =>
       kind === 'line' ? 'agentViz.sectorNav' : 'agentViz.sectorPerformance',
     filter_sector_constituents: 'agentViz.sectorConstituents',
+    get_ticker_realtime_quote: 'agentViz.realtimeQuotes',
     list_or_search_portfolios: 'agentViz.portfolios',
   };
 

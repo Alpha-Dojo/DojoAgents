@@ -9,8 +9,8 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
-
 import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
@@ -18,6 +18,8 @@ from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
 from dojoagents.dashboard.services.stock_sector_store import MARKETS, StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
+
+ProgressCallback = Callable[[str, int, int], None]
 
 PRECOMPUTE_DIR = "dojo_sector_precomputed"
 CONSTITUENTS_FILE = "constituents.parquet"
@@ -97,6 +99,25 @@ def _dedupe_kline_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [deduped[key] for key in sorted(deduped)]
 
 
+def _count_candidate_assignments(
+    *,
+    sector_store: SectorStore,
+    stock_sector_store: StockSectorStore,
+) -> int:
+    total = 0
+    for path in sector_store.iter_resolved_paths():
+        for market in MARKETS:
+            total += len(
+                stock_sector_store.assignments_for_path(
+                    path,
+                    sector_store=sector_store,
+                    market=market,
+                    scope="L3",
+                )
+            )
+    return total
+
+
 async def prepare_sector_precompute_input(
     *,
     sector_store: SectorStore,
@@ -105,6 +126,7 @@ async def prepare_sector_precompute_input(
     kline_store: KlineStore,
     start_date: str,
     end_date: str | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> PrecomputeInputSnapshot:
     lookback_start = _previous_day(start_date)
     checker = ConstituentEligibilityChecker(kline_store)
@@ -129,6 +151,17 @@ async def prepare_sector_precompute_input(
         "unresolved_assignments": len(stock_sector_store.unresolved_assignments(sector_store)),
     }
 
+    assignment_total = _count_candidate_assignments(
+        sector_store=sector_store,
+        stock_sector_store=stock_sector_store,
+    )
+    assignment_progress = 0
+    if on_progress is not None:
+        if assignment_total == 0:
+            on_progress("prepare", 1, 1)
+        else:
+            on_progress("prepare", assignment_progress, assignment_total)
+
     for path in sector_store.iter_resolved_paths():
         for market in MARKETS:
             assignments = stock_sector_store.assignments_for_path(
@@ -139,68 +172,73 @@ async def prepare_sector_precompute_input(
             )
             stats["markets"][market]["candidate_assignments"] += len(assignments)
             for assignment in assignments:
-                stock = stock_store.get(assignment.market, assignment.ticker)
-                if stock is None:
-                    stats["markets"][assignment.market]["missing_stock"] += 1
-                    continue
-                if stock.stock_quote is None:
-                    stats["markets"][assignment.market]["missing_quote"] += 1
-                    continue
-                if stock.stock_quote.market_cap <= 0:
-                    stats["markets"][assignment.market]["non_positive_cap"] += 1
-                    continue
-                if not await checker.is_eligible(stock):
-                    stats["markets"][assignment.market]["missing_kline"] += 1
-                    continue
+                try:
+                    stock = stock_store.get(assignment.market, assignment.ticker)
+                    if stock is None:
+                        stats["markets"][assignment.market]["missing_stock"] += 1
+                        continue
+                    if stock.stock_quote is None:
+                        stats["markets"][assignment.market]["missing_quote"] += 1
+                        continue
+                    if stock.stock_quote.market_cap <= 0:
+                        stats["markets"][assignment.market]["non_positive_cap"] += 1
+                        continue
+                    if not await checker.is_eligible(stock):
+                        stats["markets"][assignment.market]["missing_kline"] += 1
+                        continue
 
-                dedupe_key = (
-                    assignment.market,
-                    path.level1_id,
-                    path.level2_id,
-                    path.level3_id,
-                    assignment.ticker,
-                    assignment.role,
-                )
-                if dedupe_key in seen_constituents:
-                    continue
-                seen_constituents.add(dedupe_key)
-                constituents.append(
-                    {
-                        "level1_id": path.level1_id,
-                        "level2_id": path.level2_id,
-                        "level3_id": path.level3_id,
-                        "market": assignment.market,
-                        "ticker": assignment.ticker,
-                        "role": assignment.role,
-                        "market_cap": float(stock.stock_quote.market_cap),
-                        "pe": float(stock.stock_quote.pe) if stock.stock_quote.pe > 0 else None,
-                    }
-                )
-                stats["markets"][assignment.market]["eligible_constituents"] += 1
-
-                ticker_key = (assignment.market, assignment.ticker)
-                if ticker_key in seen_tickers:
-                    continue
-                seen_tickers.add(ticker_key)
-                response = await kline_store.get_or_fetch_kline(
-                    assignment.ticker,
-                    market=assignment.market,
-                    kline_t="1D",
-                    start_time=lookback_start,
-                    end_time=end_date,
-                    limit=0,
-                )
-                if response is None or not response.bars:
-                    continue
-                for bar in response.bars:
-                    ticker_daily_rows.append(
+                    dedupe_key = (
+                        assignment.market,
+                        path.level1_id,
+                        path.level2_id,
+                        path.level3_id,
+                        assignment.ticker,
+                        assignment.role,
+                    )
+                    if dedupe_key in seen_constituents:
+                        continue
+                    seen_constituents.add(dedupe_key)
+                    constituents.append(
                         {
+                            "level1_id": path.level1_id,
+                            "level2_id": path.level2_id,
+                            "level3_id": path.level3_id,
                             "market": assignment.market,
                             "ticker": assignment.ticker,
-                            "trade_date": str(bar.bar_time)[:10],
-                            "close": float(bar.close),
+                            "role": assignment.role,
+                            "market_cap": float(stock.stock_quote.market_cap),
+                            "pe": float(stock.stock_quote.pe) if stock.stock_quote.pe > 0 else None,
                         }
                     )
+                    stats["markets"][assignment.market]["eligible_constituents"] += 1
+
+                    ticker_key = (assignment.market, assignment.ticker)
+                    if ticker_key in seen_tickers:
+                        continue
+                    seen_tickers.add(ticker_key)
+                    response = await kline_store.get_or_fetch_kline(
+                        assignment.ticker,
+                        market=assignment.market,
+                        kline_t="1D",
+                        start_time=lookback_start,
+                        end_time=end_date,
+                        limit=0,
+                    )
+                    if response is None or not response.bars:
+                        continue
+                    for bar in response.bars:
+                        ticker_daily_rows.append(
+                            {
+                                "market": assignment.market,
+                                "ticker": assignment.ticker,
+                                "trade_date": str(bar.bar_time)[:10],
+                                "close": float(bar.close),
+                            }
+                        )
+                finally:
+                    assignment_progress += 1
+                    if on_progress is not None:
+                        on_progress("prepare", assignment_progress, assignment_total)
 
     return PrecomputeInputSnapshot(
         start_date=start_date,
@@ -471,6 +509,7 @@ async def build_sector_precomputed(
     out_dir: Path | None = None,
     upload_client: Any | None = None,
     upload_dataset_name: str = PRECOMPUTE_DIR,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Compute sector constituents and daily index levels from ``start_date`` onward."""
     data_root = data_root.expanduser().resolve()
@@ -483,19 +522,31 @@ async def build_sector_precomputed(
         kline_store=kline_store,
         start_date=start_date,
         end_date=end_date,
+        on_progress=on_progress,
     )
+    if on_progress is not None:
+        on_progress("compute", 0, 1)
     manifest, staging_dir = await asyncio.to_thread(
         compute_and_stage_sector_precomputed,
         snapshot,
         out_dir,
     )
+    if on_progress is not None:
+        on_progress("compute", 1, 1)
+        on_progress("publish", 0, 1)
     published_dir = await asyncio.to_thread(
         publish_staged_sector_precomputed,
         staging_dir,
         out_dir,
     )
+    if on_progress is not None:
+        on_progress("publish", 1, 1)
     manifest["published_dir"] = str(published_dir)
     if upload_client is not None:
+        if on_progress is not None:
+            on_progress("upload", 0, 1)
         await upload_client.upload_dataset(upload_dataset_name, str(published_dir))
+        if on_progress is not None:
+            on_progress("upload", 1, 1)
         manifest["uploaded_dataset"] = upload_dataset_name
     return manifest

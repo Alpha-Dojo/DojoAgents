@@ -1,0 +1,351 @@
+{
+  "id": "2c775a0a6cf3",
+  "name": "DojoFolio 大模型与应用",
+  "subtitle": "",
+  "kind": "agent",
+  "pinned": false,
+  "start_date": "2025-01-01",
+  "capital_by_market": {
+    "cn": 1000000.0,
+    "hk": 1000000.0,
+    "us": 1000000.0
+  },
+  "holdings": [
+    {
+      "ticker": "DELL",
+      "market": "us",
+      "shares": 377.0,
+      "added_at": "2026-06-23T09:02:24.495581+00:00"
+    },
+    {
+      "ticker": "IBM",
+      "market": "us",
+      "shares": 196.0,
+      "added_at": "2026-06-23T09:02:24.497911+00:00"
+    },
+    {
+      "ticker": "WDC",
+      "market": "us",
+      "shares": 960.0,
+      "added_at": "2026-06-23T09:02:24.498842+00:00"
+    },
+    {
+      "ticker": "GOOG",
+      "market": "us",
+      "shares": 227.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "PLTR",
+      "market": "us",
+      "shares": 570.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "CRM",
+      "market": "us",
+      "shares": 129.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "ACN",
+      "market": "us",
+      "shares": 123.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "ADBE",
+      "market": "us",
+      "shares": 97.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "BIDU",
+      "market": "us",
+      "shares": 522.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "PATH",
+      "market": "us",
+      "shares": 3354.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "GTLB",
+      "market": "us",
+      "shares": 760.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "INOD",
+      "market": "us",
+      "shares": 1081.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "SOUN",
+      "market": "us",
+      "shares": 2123.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "BBAI",
+      "market": "us",
+      "shares": 9482.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "ASAN",
+      "market": "us",
+      "shares": 2095.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "AI",
+      "market": "us",
+      "shares": 1242.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "GLOB",
+      "market": "us",
+      "shares": 201.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "RZLV",
+      "market": "us",
+      "shares": 11063.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "XWIN",
+      "market": "us",
+      "shares": 65876.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "GDYN",
+      "market": "us",
+      "shares": 1950.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "SUPX",
+      "market": "us",
+      "shares": 12013.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "API",
+      "market": "us",
+      "shares": 10604.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "DVLT",
+      "market": "us",
+      "shares": 21523.0,
+      "added_at": "2026-06-24T13:39:31.922044+00:00"
+    },
+    {
+      "ticker": "002230.SZ",
+      "market": "cn",
+      "shares": 1500.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "300418.SZ",
+      "market": "cn",
+      "shares": 1900.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "688343.SS",
+      "market": "cn",
+      "shares": 1400.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "688327.SS",
+      "market": "cn",
+      "shares": 5900.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "300229.SZ",
+      "market": "cn",
+      "shares": 3500.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "300624.SZ",
+      "market": "cn",
+      "shares": 1100.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "300634.SZ",
+      "market": "cn",
+      "shares": 3300.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "688787.SS",
+      "market": "cn",
+      "shares": 700.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "002657.SZ",
+      "market": "cn",
+      "shares": 4000.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "688207.SS",
+      "market": "cn",
+      "shares": 5000.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "603636.SS",
+      "market": "cn",
+      "shares": 6700.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "002122.SZ",
+      "market": "cn",
+      "shares": 20800.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "300688.SZ",
+      "market": "cn",
+      "shares": 2200.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "688369.SS",
+      "market": "cn",
+      "shares": 3600.0,
+      "added_at": "2026-06-24T13:39:37.232489+00:00"
+    },
+    {
+      "ticker": "0992.HK",
+      "market": "hk",
+      "shares": 5300.0,
+      "added_at": "2026-06-23T09:02:24.499351+00:00"
+    },
+    {
+      "ticker": "0763.HK",
+      "market": "hk",
+      "shares": 2200.0,
+      "added_at": "2026-06-23T09:02:24.500352+00:00"
+    },
+    {
+      "ticker": "3296.HK",
+      "market": "hk",
+      "shares": 1100.0,
+      "added_at": "2026-06-23T09:02:24.501292+00:00"
+    },
+    {
+      "ticker": "2513.HK",
+      "market": "hk",
+      "shares": 400.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "9888.HK",
+      "market": "hk",
+      "shares": 600.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "0100.HK",
+      "market": "hk",
+      "shares": 200.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "0020.HK",
+      "market": "hk",
+      "shares": 35300.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "2718.HK",
+      "market": "hk",
+      "shares": 200.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "2706.HK",
+      "market": "hk",
+      "shares": 600.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "1357.HK",
+      "market": "hk",
+      "shares": 17700.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "6682.HK",
+      "market": "hk",
+      "shares": 1000.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "1384.HK",
+      "market": "hk",
+      "shares": 900.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "9678.HK",
+      "market": "hk",
+      "shares": 300.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "6636.HK",
+      "market": "hk",
+      "shares": 500.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "2121.HK",
+      "market": "hk",
+      "shares": 9000.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "6608.HK",
+      "market": "hk",
+      "shares": 6000.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "0547.HK",
+      "market": "hk",
+      "shares": 106300.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "2438.HK",
+      "market": "hk",
+      "shares": 79700.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    },
+    {
+      "ticker": "0343.HK",
+      "market": "hk",
+      "shares": 250600.0,
+      "added_at": "2026-06-24T13:39:42.452376+00:00"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { AgentVizBlock } from '../../../types/agentViz';
-import { buildDonutPaths } from '../../../utils/coreIncomeDistribution';
+import { buildDonutPaths } from '../../../utils/entityIncomeDistribution';
 import { buildSparklinePath } from '../../../utils/folioFormat';
 import {
   buildAgentNavReturnAxisTicks,
@@ -510,7 +510,14 @@ function LineBlock({ block }: { block: AgentVizBlock }) {
 
 function BarBlock({ block }: { block: AgentVizBlock }) {
   const categories = (block.payload.categories as string[] | undefined) ?? [];
-  const series = (block.payload.series as { label: string; values: (number | null)[] }[] | undefined) ?? [];
+  const rawSeries = Array.isArray(block.payload.series) ? block.payload.series : [];
+  const series = rawSeries.filter(
+    (candidate): candidate is { label: string; values: (number | null)[] } =>
+      candidate != null &&
+      typeof candidate === 'object' &&
+      typeof candidate.label === 'string' &&
+      Array.isArray(candidate.values),
+  );
   const market = normalizeAgentMarket(block.payload.market);
   if (!categories.length || !series.length) return null;
   const flat = series.flatMap((s) => s.values.filter((v): v is number => typeof v === 'number'));

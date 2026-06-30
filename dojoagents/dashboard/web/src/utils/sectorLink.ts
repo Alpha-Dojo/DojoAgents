@@ -1,4 +1,4 @@
-import type { BilingualText, MarketCode, SectorItem } from '../types/dojoMesh';
+import type { BilingualText, MarketCode, SectorItem } from '../types/market';
 
 /** Stable cross-market key from level-3 English slug in concept_code. */
 export function sectorLinkKey(conceptCode: string): string | null {

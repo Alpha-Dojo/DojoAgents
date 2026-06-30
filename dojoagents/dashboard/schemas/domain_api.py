@@ -323,6 +323,16 @@ class TickerQuoteResponseV1(BaseModel):
     sector_paths: List[TickerSectorPath] = Field(default_factory=list)
 
 
+MAX_TICKER_QUOTES_BATCH = 50
+
+
+class TickerQuotesBatchResponseV1(BaseModel):
+    market: Optional[str] = None
+    count: int = 0
+    not_found: List[str] = Field(default_factory=list)
+    items: List[TickerQuoteResponseV1] = Field(default_factory=list)
+
+
 class IncomeDistributionSlice(BaseModel):
     dimension: Literal["industry", "product", "region"]
     report_date: Optional[str] = None

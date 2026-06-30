@@ -1,5 +1,5 @@
 .surface-card,
-.core-card,
+.entity-card,
 .folio-card,
 .sphere-card,
 .market-hero {
@@ -7,9 +7,11 @@
   min-height: 0;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background:
+  background: #07101AE5;
+
+  /* background:
     linear-gradient(360deg, rgb(255 255 255 / 2%) 0%, rgb(255 255 255 / 0.2%) 100%),
-    var(--bg-panel);
+    var(--bg-panel); */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -105,6 +107,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
+  padding: 4px;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -233,8 +236,8 @@
 }
 
 .status-text,
-.dojo-mesh-view__status,
-.core-chart-stage__status,
+.market-view__status,
+.entity-chart-stage__status,
 .core-risk__status-text,
 .sphere-level-risk__status,
 .sphere-level-sparkline__status,

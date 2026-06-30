@@ -11,9 +11,7 @@ async def test_scheduler_runs_job_through_runtime_and_saves_output(tmp_path):
 
     class FakeAgent:
         async def run(self, request):
-            assert request.quant == QuantContext(
-                market="crypto", symbols=["BTC-USD"], timeframe="1d"
-            )
+            assert request.quant == QuantContext(market="crypto", symbols=["BTC-USD"], timeframe="1d")
             return AgentResponse(content="daily brief", session_id=request.session_id)
 
     class FakeRuntime:
@@ -66,6 +64,7 @@ def test_dashboard_exposes_health_jobs_extensions_and_chat(tmp_path):
                 )
             )
             from dojoagents.dojo_extensions.research import DojoResearchExtension
+
             self.extensions = DojoExtensionRegistry()
             self.extensions.register(DojoResearchExtension())
             self.config_store = None
@@ -126,3 +125,17 @@ agent:
     assert runtime.config.agent.max_iterations == 2
     assert runtime.agent.config.model == "test-model"
     assert runtime.extensions.status()[0]["name"] == "dojo_research"
+
+
+def test_runtime_starts_without_llm_provider_config(tmp_path):
+    from dojoagents.agent.providers import UnconfiguredLLMProvider
+    from dojoagents.agent.runtime import Runtime
+    from dojoagents.config.loader import ConfigStore
+
+    config_path = tmp_path / "agents.yaml"
+    config_path.write_text("agent:\n  max_iterations: 2\n", encoding="utf-8")
+
+    runtime = Runtime.from_config_store(ConfigStore(config_path))
+
+    assert runtime.config.agent.model is None
+    assert isinstance(runtime.agent.llm_provider, UnconfiguredLLMProvider)

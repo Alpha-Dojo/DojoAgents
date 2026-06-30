@@ -1,6 +1,6 @@
-import type { FolioHolding, FolioPerformanceView } from '../types/dojoFolio';
-import type { MarketCode } from '../types/dojoMesh';
-import { FOLIO_MARKETS } from '../types/dojoFolio';
+import type { FolioHolding, FolioPerformanceView } from '../types/folio';
+import type { MarketCode } from '../types/market';
+import { FOLIO_MARKETS } from '../types/folio';
 import { resolveBenchmarkStats } from './folioPerformanceStats';
 
 export type RiskStatus = 'red' | 'yellow' | 'green';

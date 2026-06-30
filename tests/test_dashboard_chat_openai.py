@@ -142,6 +142,45 @@ def test_completion_request_promotes_history_from_messages():
     assert info["event_format"] == "dojo.v2"
 
 
+def test_sync_runtime_agent_from_config_uses_native_gemini_provider():
+    from dojoagents.agent.gemini_provider import GeminiNativeProvider
+    from dojoagents.config.models import AgentsConfig, LLMConfig, LLMProviderConfig, AgentConfig
+    from dojoagents.dashboard.server import _sync_runtime_agent_from_config
+
+    class FakeStore:
+        def snapshot(self):
+            return AgentsConfig(
+                llm_provider=LLMConfig(
+                    default="gemini",
+                    providers={
+                        "gemini": LLMProviderConfig(
+                            model="gemini-2.5-pro",
+                            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                            api_key="test-key",
+                            api_key_env="GEMINI_API_KEY",
+                        )
+                    },
+                ),
+                agent=AgentConfig(model="gpt-4.1"),
+            )
+
+    class FakeAgent:
+        def __init__(self):
+            self.llm_provider = None
+            self.provider_config = None
+            self.config = AgentConfig(model="gpt-4.1")
+            self.model_context_registry = None
+
+    runtime = MagicMock()
+    runtime.config_store = FakeStore()
+    runtime.agent = FakeAgent()
+
+    model = _sync_runtime_agent_from_config(runtime, "gemini")
+
+    assert model == "gemini-2.5-pro"
+    assert isinstance(runtime.agent.llm_provider, GeminiNativeProvider)
+
+
 # ── Non-streaming /api/chat tests ────────────────────────────────────
 
 

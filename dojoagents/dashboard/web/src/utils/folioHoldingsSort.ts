@@ -1,4 +1,4 @@
-import type { FolioPortfolioDetail } from '../api/dojoFolio';
+import type { FolioPortfolioDetail } from '../api/folio';
 
 export type FolioHoldingsSortKey = 'openDate' | 'weight' | 'changePercent' | 'totalReturnPct';
 export type FolioHoldingsSortDir = 'asc' | 'desc';

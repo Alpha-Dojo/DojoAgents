@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import uuid
@@ -16,6 +17,7 @@ from dojoagents.dashboard.routers import (
     dojo_folio,
     dojo_mesh,
     dojo_sphere,
+    chat_sessions,
     market,
     markets,
     portfolio,
@@ -26,10 +28,9 @@ from dojoagents.dashboard.routers import (
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager
-from dojoagents.dashboard.services.market_close_schedule import MarketCloseSchedule  # noqa
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
-from dojoagents.dashboard.tools import register_dashboard_portfolio_tools
+from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +48,12 @@ from dojoagents.agent.events import AgentEventSink
 from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
 from dojoagents.quant.context import QuantContext
 from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.gemini_provider import GeminiNativeProvider
+from dojoagents.agent.model_context import ModelContextRegistry
+from dojoagents.agent.token_ledger import SessionTokenLedger
+from dojoagents.logging import LOGGER
 
 
 def _jsonable(value: Any) -> Any:
@@ -88,19 +94,51 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
 
     config = store.snapshot()
     selected_provider = (provider_name or config.llm_provider.default or "").strip()
-    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
-        selected_provider = config.llm_provider.default
-    provider_cfg = config.llm_provider.providers.get(selected_provider)
+    resolved_name, provider_cfg = resolve_provider_config(config.llm_provider)
     if provider_cfg is None:
         return selected_provider or "default"
+    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
+        selected_provider = resolved_name or selected_provider
 
-    llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
-    llm_provider.name = selected_provider
+    if selected_provider == "gemini":
+        llm_provider = GeminiNativeProvider(
+            api_key=provider_cfg.api_key,
+            api_key_env=provider_cfg.api_key_env,
+            base_url=provider_cfg.base_url,
+        )
+    else:
+        llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+        llm_provider.name = selected_provider
+    LOGGER.info(
+        "Dashboard synced runtime agent provider: requested=%s selected=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+        provider_name,
+        selected_provider,
+        type(llm_provider).__name__,
+        provider_cfg.model,
+        getattr(provider_cfg, "base_url", None),
+        bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+    )
     agent.llm_provider = llm_provider
+    agent.provider_config = provider_cfg
     if is_dataclass(getattr(agent, "config", None)):
-        agent.config = replace(agent.config, model=provider_cfg.model)
+        agent.config = replace(
+            agent.config,
+            model=provider_cfg.model,
+            enable_context_compression=config.agent.enable_context_compression,
+            compression_threshold_ratio=config.agent.compression_threshold_ratio,
+            session_max_tokens_cap=config.agent.session_max_tokens_cap,
+            default_context_window=config.agent.default_context_window,
+        )
     elif hasattr(agent, "config"):
         agent.config.model = provider_cfg.model
+        agent.config.enable_context_compression = config.agent.enable_context_compression
+        agent.config.compression_threshold_ratio = config.agent.compression_threshold_ratio
+        agent.config.session_max_tokens_cap = config.agent.session_max_tokens_cap
+        agent.config.default_context_window = config.agent.default_context_window
+    if hasattr(agent, "model_context_registry"):
+        agent.model_context_registry = ModelContextRegistry(
+            default_context_window=config.agent.default_context_window,
+        )
     return provider_cfg.model
 
 
@@ -226,6 +264,20 @@ async def _close_dojo_client(client: Any) -> None:
         await close()
 
 
+async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
+    run = runtime.agent.run
+    if event_sink is None:
+        return await run(req)
+    try:
+        signature = inspect.signature(run)
+    except (TypeError, ValueError):
+        return await run(req, event_sink=event_sink)
+    accepts_event_sink = "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    if accepts_event_sink:
+        return await run(req, event_sink=event_sink)
+    return await run(req)
+
+
 def create_app(
     runtime: Any,
     *,
@@ -235,6 +287,7 @@ def create_app(
 ) -> FastAPI:
     registry = store_registry or FinancialDomainRegistry()
     if hasattr(runtime, "agent") and hasattr(runtime.agent, "tool_executor"):
+        register_dashboard_domain_tools(runtime.agent.tool_executor.registry, registry)
         register_dashboard_portfolio_tools(runtime.agent.tool_executor.registry, registry)
 
     store = getattr(runtime, "config_store", None)
@@ -267,31 +320,24 @@ def create_app(
         refresh_task = None
         try:
             if hasattr(client, "preload_offline_data"):
-                import logging
-
-                logger = logging.getLogger(__name__)
-
-                logger.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
+                LOGGER.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
                 await client.preload_offline_data()
-                logger.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
+                LOGGER.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
 
-            import logging
-
-            logging.getLogger(__name__).info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
+            LOGGER.info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
             await registry.init_and_load_all(
                 client,
                 data_root=resolved_data_root,
                 preload=True,
             )
-            logging.getLogger(__name__).info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
+            LOGGER.info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry
             app.state.agent_run_manager = AgentRunManager()
 
             # Start background refresh loop
-            # schedule = MarketCloseSchedule()
-            # refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", schedule=schedule, store_registry=registry))
+            refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", store_registry=registry))
 
             yield
         finally:
@@ -307,6 +353,7 @@ def create_app(
                 reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
+    app.state.runtime = runtime
     app.state.config_store = store
     app.state.financial_registry = registry
 
@@ -321,6 +368,7 @@ def create_app(
     app.include_router(dojo_sphere.router, prefix="/api/v1")
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
+    app.include_router(chat_sessions.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -402,19 +450,27 @@ def create_app(
         model = info["model"]
         event_format = info.get("event_format", "openai.v1")
         _sync_runtime_agent_from_config(runtime, model)
+        sessions = getattr(runtime, "sessions", None)
 
         if is_stream:
             # SSE streaming mode
             queue: asyncio.Queue = asyncio.Queue()
             run_id = f"run-{uuid.uuid4().hex[:8]}"
             event_sink = make_event_queue_sink(queue, run_id=run_id, session_id=req.session_id)
+            session_handle = None
+            if sessions is not None:
+                session_handle = await sessions.begin_run(req, model=model, run_id=run_id)
 
             async def _stream_and_restore():
                 try:
-                    await runtime.agent.run(req, event_sink=event_sink)
+                    response = await _run_agent(runtime, req, event_sink=event_sink)
+                    if sessions is not None and session_handle is not None:
+                        await sessions.finish_run(session_handle, response, events=event_sink.events)
                     await asyncio.sleep(0)
                     await queue.put(None)
                 except Exception as exc:
+                    if sessions is not None and session_handle is not None:
+                        await sessions.fail_run(session_handle, str(exc))
                     await asyncio.sleep(0)
                     await queue.put(exc)
                     raise
@@ -443,9 +499,20 @@ def create_app(
         # Non-streaming mode
         dojo_extension = None
         sink: AgentEventSink | None = None
+        run_id = f"run-{uuid.uuid4().hex[:8]}"
         if event_format == "dojo.v2":
-            sink = AgentEventSink(run_id=f"run-{uuid.uuid4().hex[:8]}", session_id=req.session_id)
-        response: AgentResponse = await runtime.agent.run(req, event_sink=sink)
+            sink = AgentEventSink(run_id=run_id, session_id=req.session_id)
+        session_handle = None
+        if sessions is not None:
+            session_handle = await sessions.begin_run(req, model=model, run_id=run_id)
+        try:
+            response: AgentResponse = await _run_agent(runtime, req, event_sink=sink)
+        except Exception as exc:
+            if sessions is not None and session_handle is not None:
+                await sessions.fail_run(session_handle, str(exc))
+            raise
+        if sessions is not None and session_handle is not None:
+            await sessions.finish_run(session_handle, response, events=(sink.events if sink is not None else []))
         if sink is not None:
             dojo_extension = {
                 "schema_version": "2.0",
@@ -468,10 +535,43 @@ def create_app(
             return JSONResponse(status_code=422, content={"error": str(exc)})
         manager: AgentRunManager = app.state.agent_run_manager
         _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
+        sessions = getattr(runtime, "sessions", None)
+        session_handle_ref: dict[str, Any] = {}
+
+        async def _on_started(record: Any) -> None:
+            if sessions is None:
+                return
+            session_handle_ref["handle"] = await sessions.begin_run(req, model=info.get("model", "default"), run_id=record.id)
+
+        async def _on_completed(record: Any, response: AgentResponse) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.finish_run(handle, response, events=record.events)
+
+        async def _on_failed(record: Any, exc: Exception) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.fail_run(handle, str(exc))
+
+        async def _on_cancelled(record: Any) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.cancel_run(handle)
+
         record = await manager.create_run(
             request=req,
             model=info.get("model", "default"),
             agent=runtime.agent,
+            on_started=_on_started,
+            on_completed=_on_completed,
+            on_failed=_on_failed,
+            on_cancelled=_on_cancelled,
         )
         return {
             "run_id": record.id,
@@ -479,6 +579,19 @@ def create_app(
             "status": record.status,
             "model": record.model,
         }
+
+    @app.get("/api/chat/sessions/{session_id}/tokens")
+    async def get_chat_session_tokens(session_id: str) -> Any:
+        from dojoagents.agent.token_ledger import SessionTokenState
+
+        ledger = SessionTokenLedger()
+        path = ledger._store.path_for(session_id)
+        if not path.exists():
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        raw = ledger._store._read_sync(path, session_id)
+        if not isinstance(raw, dict):
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        return SessionTokenState(**raw).snapshot()
 
     @app.get("/api/chat/runs/{run_id}")
     async def get_chat_run(run_id: str) -> Any:
@@ -571,6 +684,13 @@ def create_app(
             @app.get("/canvas-template.html")
             async def serve_canvas_template():
                 return FileResponse(canvas_template_path)
+
+        favicon_path = static_dir / "favicon.svg"
+        if favicon_path.is_file():
+
+            @app.get("/favicon.svg")
+            async def serve_favicon():
+                return FileResponse(favicon_path, media_type="image/svg+xml")
 
         index_path = static_dir / "index.html"
         if index_path.is_file():

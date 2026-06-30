@@ -95,6 +95,26 @@ class RunFailedEvent(AgentEvent):
     code: str = "runtime_error"
 
 
+@dataclass
+class TokenUsageEvent(AgentEvent):
+    last_prompt_tokens: int = 0
+    last_completion_tokens: int = 0
+    last_total_tokens: int = 0
+    session_max_tokens: int = 0
+    compression_threshold_ratio: float = 0.8
+    utilization_ratio: float = 0.0
+    cumulative_total_tokens: int = 0
+    compression_count: int = 0
+    model_context_window: int = 0
+    loop_count: int = 0
+
+
+@dataclass
+class ContextCompactedEvent(AgentEvent):
+    compression_count: int = 0
+    estimated_prompt_tokens: int = 0
+
+
 class AgentEventSink:
     def __init__(
         self,
@@ -212,3 +232,27 @@ class AgentEventSink:
 
     def error(self, message: str, code: str = "runtime_error") -> dict[str, Any]:
         return self._dispatch(RunFailedEvent, type="error", message=message, code=code)
+
+    def token_usage(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        return self._dispatch(
+            TokenUsageEvent,
+            type="token_usage",
+            last_prompt_tokens=int(snapshot.get("last_prompt_tokens", 0)),
+            last_completion_tokens=int(snapshot.get("last_completion_tokens", 0)),
+            last_total_tokens=int(snapshot.get("last_total_tokens", 0)),
+            session_max_tokens=int(snapshot.get("session_max_tokens", 0)),
+            compression_threshold_ratio=float(snapshot.get("compression_threshold_ratio", 0.8)),
+            utilization_ratio=float(snapshot.get("utilization_ratio", 0.0)),
+            cumulative_total_tokens=int(snapshot.get("cumulative_total_tokens", 0)),
+            compression_count=int(snapshot.get("compression_count", 0)),
+            model_context_window=int(snapshot.get("model_context_window", 0)),
+            loop_count=int(snapshot.get("loop_count", 0)),
+        )
+
+    def context_compacted(self, compression_count: int, estimated_prompt_tokens: int) -> dict[str, Any]:
+        return self._dispatch(
+            ContextCompactedEvent,
+            type="context_compacted",
+            compression_count=compression_count,
+            estimated_prompt_tokens=estimated_prompt_tokens,
+        )

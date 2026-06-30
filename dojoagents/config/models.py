@@ -10,21 +10,22 @@ DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 @dataclass(frozen=True)
 class LLMProviderConfig:
-    model: str = "gpt-4.1"
+    model: str | None = None
     base_url: str | None = None
-    api_key_env: str | None = "OPENAI_API_KEY"
+    api_key_env: str | None = None
     api_key: str | None = None
+    context_window: int | None = None
 
 
 @dataclass(frozen=True)
 class LLMConfig:
-    default: str = "openai"
-    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {"openai": LLMProviderConfig()})
+    default: str | None = None
+    providers: dict[str, LLMProviderConfig] = field(default_factory=lambda: {})
 
 
 @dataclass(frozen=True)
 class AgentConfig:
-    model: str = "gpt-4.1"
+    model: str | None = None
     max_iterations: int = 100
     max_tool_workers: int = 4
     lazy_skills: bool = True
@@ -32,8 +33,11 @@ class AgentConfig:
     enable_guardrails: bool = True
     enable_think_scrubbing: bool = True
     enable_context_compression: bool = True
-    session_max_tokens: int = 100000
-    threshold_ratio: float = 0.9
+    compression_threshold_ratio: float = 0.8
+    session_max_tokens_cap: int | None = None
+    default_context_window: int = 32768
+    session_max_tokens: int = 100000  # legacy cap fallback when session_max_tokens_cap unset
+    threshold_ratio: float = 0.8  # legacy alias for compression_threshold_ratio
     default_skills: list[str] = field(default_factory=lambda: ["dojo-quant-analyst"])
 
 
@@ -101,7 +105,7 @@ class ProfilerConfig:
 @dataclass(frozen=True)
 class FinancialDashboardConfig:
     enabled: bool = True
-    sdk_cache_dir: str = "~/.cache/dojo"
+    sdk_cache_dir: str = "~/.cache/huggingface/hub"
     dashboard_data_root: str = "~/.dojo/dashboard-data"
     stock_quote_refresh_seconds: int = 15
     constituent_kline_post_close_poll_seconds: int = 300
@@ -171,6 +175,17 @@ class PlanConfig:
 
 
 @dataclass(frozen=True)
+class SessionsConfig:
+    enabled: bool = True
+    provider: str = "dojo_repository"
+    root: str = "~/.dojo/agents/strands_sessions"
+    agent_id: str = "dojo-agent"
+    persist_openai_history: bool = True
+    sync_memory: bool = True
+    export_default_dir: str = "~/Desktop/dojo-chat-export"
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     version: int = 1
     llm_provider: LLMConfig = field(default_factory=LLMConfig)
@@ -187,3 +202,4 @@ class AgentsConfig:
     dojosdk: DojoSDKConfig = field(default_factory=DojoSDKConfig)
     multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
     planning: PlanConfig = field(default_factory=PlanConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)

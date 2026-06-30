@@ -1,9 +1,106 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentActivityStep } from '../../types/agent';
 import { AgentEvalHints } from './AgentEvalHints';
 import { AgentThinkStep } from './AgentThinking';
 import { AgentToolStep } from './AgentToolActivity';
+import { agentToolLabel } from '../../utils/agentToolLabels';
+
+const REPEATED_TOOL_THRESHOLD = 3;
+
+type TimelineEntry =
+  | { kind: 'step'; step: AgentActivityStep }
+  | { kind: 'tool-group'; steps: Extract<AgentActivityStep, { kind: 'tool' }>[] };
+
+function isCompactableToolStep(step: AgentActivityStep): step is Extract<AgentActivityStep, { kind: 'tool' }> {
+  return (
+    step.kind === 'tool' &&
+    step.item.status === 'done' &&
+    !step.item.error &&
+    !step.item.resultSummary &&
+    (step.item.vizBlocks?.length ?? 0) === 0
+  );
+}
+
+function buildTimelineEntries(steps: AgentActivityStep[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+  for (let index = 0; index < steps.length; ) {
+    const step = steps[index];
+    if (!isCompactableToolStep(step)) {
+      entries.push({ kind: 'step', step });
+      index += 1;
+      continue;
+    }
+
+    const group = [step];
+    let nextIndex = index + 1;
+    while (nextIndex < steps.length) {
+      const candidate = steps[nextIndex];
+      if (!isCompactableToolStep(candidate) || candidate.item.tool !== step.item.tool) {
+        break;
+      }
+      group.push(candidate);
+      nextIndex += 1;
+    }
+
+    if (group.length >= REPEATED_TOOL_THRESHOLD) {
+      entries.push({ kind: 'tool-group', steps: group });
+    } else {
+      entries.push(
+        ...group.map(
+          (item): TimelineEntry => ({ kind: 'step', step: item }),
+        ),
+      );
+    }
+    index = nextIndex;
+  }
+  return entries;
+}
+
+function RepeatedToolGroup({
+  steps,
+}: {
+  steps: Extract<AgentActivityStep, { kind: 'tool' }>[];
+}) {
+  const { locale } = useTranslation();
+  const uiLocale = locale === 'zh' ? 'zh' : 'en';
+  const [expanded, setExpanded] = useState(false);
+  const totalLatencyMs = steps.reduce((sum, step) => sum + (step.item.latencyMs ?? 0), 0);
+  const label = agentToolLabel(steps[0]?.item.tool ?? '', uiLocale);
+  const summary =
+    uiLocale === 'zh'
+      ? `${label} ×${steps.length} · ${Math.round(totalLatencyMs)}ms`
+      : `${label} ×${steps.length} · ${Math.round(totalLatencyMs)}ms`;
+  const toggleLabel =
+    uiLocale === 'zh'
+      ? expanded
+        ? '收起重复调用'
+        : '展开重复调用'
+      : expanded
+        ? 'Hide repeated calls'
+        : 'Show repeated calls';
+
+  return (
+    <div className="dojo-agent-tool-activity__group">
+      <button
+        type="button"
+        className="dojo-agent-tool-activity__group-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span className="dojo-agent-tool-activity__group-summary">{summary}</span>
+        <span className="dojo-agent-tool-activity__group-meta">{toggleLabel}</span>
+      </button>
+      {expanded ? (
+        <div className="dojo-agent-tool-activity__group-body">
+          {steps.map((step) => (
+            <AgentToolStep key={step.id} item={step.item} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 interface AgentActivityTimelineProps {
   steps: AgentActivityStep[];
@@ -22,6 +119,7 @@ export function AgentActivityTimeline({
 }: AgentActivityTimelineProps) {
   const { t } = useTranslation();
   const [phaseElapsedSec, setPhaseElapsedSec] = useState(0);
+  const entries = useMemo(() => buildTimelineEntries(steps), [steps]);
 
   useEffect(() => {
     if (!streaming || !phase) {
@@ -42,7 +140,16 @@ export function AgentActivityTimeline({
 
   return (
     <div className="dojo-agent-timeline" aria-live="polite">
-      {steps.map((step) => {
+      {entries.map((entry, index) => {
+        if (entry.kind === 'tool-group') {
+          return (
+            <RepeatedToolGroup
+              key={`tool-group-${entry.steps[0]?.id ?? index}`}
+              steps={entry.steps}
+            />
+          );
+        }
+        const step = entry.step;
         if (step.kind === 'think') {
           return (
             <AgentThinkStep

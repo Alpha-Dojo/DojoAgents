@@ -144,7 +144,7 @@ class SectorStore:
                 key = (path.level3_zh.strip().lower(), path.level3_en.strip().lower())
                 self._paths_by_level3_label.setdefault(key, []).append(path)
             self.loaded = True
-            LOGGER.info("[SectorStore] Successfully loaded sector tree data via dojosdk.")
+            LOGGER.debug("[SectorStore] Successfully loaded sector tree data via dojosdk.")
         except Exception as e:
             LOGGER.exception(f"[SectorStore] Failed to load sector tree: {e}")
             raise

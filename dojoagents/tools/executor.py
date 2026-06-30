@@ -7,7 +7,10 @@ from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
+from dojoagents.tools.terminal_tool import truncate_output
 from dojoagents.logging import LOGGER
+
+_MAX_TOOL_RESULT_CHARS = 30000
 
 
 class ToolExecutor:
@@ -84,6 +87,9 @@ class ToolExecutor:
         normalized = self.presenters.normalize(call.name, normalized)
 
         content = str(normalized.get("content", ""))
+        if len(content) > _MAX_TOOL_RESULT_CHARS:
+            content = truncate_output(content, _MAX_TOOL_RESULT_CHARS)
+            normalized["truncated"] = True
         metadata = dict(normalized.get("metadata", {}))
         if session_id:
             metadata.setdefault("session_id", session_id)

@@ -8,10 +8,10 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { useAppTab } from './hooks/useAppTab';
 import type { AppTab } from './navigation/appTab';
-import { DojoCoreView } from './views/DojoCoreView';
-import { DojoFolioView } from './views/DojoFolioView';
-import { DojoMeshView } from './views/DojoMeshView';
-import { DojoSphereView } from './views/DojoSphereView';
+import { EntityView } from './views/EntityView';
+import { FolioView } from './views/FolioView';
+import { MarketView } from './views/MarketView';
+import { SectorView } from './views/SectorView';
 import './styles/marketDirection.css';
 import './styles/chartDate.css';
 import './styles/panelTitle.css';
@@ -28,28 +28,28 @@ function MainView({
   agentVisible: boolean;
 }) {
   switch (tab) {
-    case 'mesh':
+    case 'market':
       return (
         <div className="app-main__pane">
-          <DojoMeshView onNavigateTab={onNavigateTab} agentOpen={agentVisible} />
+          <MarketView onNavigateTab={onNavigateTab} agentOpen={agentVisible} />
         </div>
       );
-    case 'sphere':
+    case 'sector':
       return (
         <div className="app-main__pane">
-          <DojoSphereView onNavigateTab={onNavigateTab} />
+          <SectorView onNavigateTab={onNavigateTab} />
         </div>
       );
-    case 'core':
+    case 'entity':
       return (
         <div className="app-main__pane">
-          <DojoCoreView onNavigateTab={onNavigateTab} />
+          <EntityView onNavigateTab={onNavigateTab} />
         </div>
       );
     case 'folio':
       return (
         <div className="app-main__pane">
-          <DojoFolioView onNavigateTab={onNavigateTab} />
+          <FolioView onNavigateTab={onNavigateTab} />
         </div>
       );
     default:
@@ -58,7 +58,7 @@ function MainView({
 }
 
 export default function App() {
-  const { tab, setTab } = useAppTab('mesh');
+  const { tab, setTab } = useAppTab('folio');
   const [userAgentOpen, setUserAgentOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const agentPinned = tab === 'folio';

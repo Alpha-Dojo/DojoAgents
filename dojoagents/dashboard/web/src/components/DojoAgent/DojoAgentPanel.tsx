@@ -11,7 +11,7 @@ import {
   AGENT_DRAFT_STORAGE_KEY,
   AGENT_SESSIONS_STORAGE_KEY,
   clearStreamDraft,
-  loadStreamDraft,
+  loadStreamDraftFull,
   saveStreamDraft,
 } from "../../agent/agentStorage";
 import { useAgentSessions } from "../../agent/useAgentSessions";
@@ -24,13 +24,14 @@ import "../AgentModelSwitcher.css";
 import { AgentActivityTimeline } from "./AgentActivityTimeline";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
-import { AgentVizPanel } from "./viz/AgentVizPanel";
 import {
   resolveActivitySteps,
   toggleThinkStep,
 } from "../../utils/agentActivityTimeline";
 import {
+  attachDerivedVizBlocks,
   collectVizBlocksFromSteps,
+  hasRenderedChartBlocks,
   stripRenderedChartBlocks,
 } from "../../utils/agentVizContent";
 import {
@@ -40,6 +41,8 @@ import {
 } from "../../utils/agentMessages";
 import "./DojoAgentPanel.css";
 import { DojoButton } from "../ui";
+import trashIcon from "../../assets/svg/trash.svg";
+import agentIcon from '../../assets/svg/agent.svg';
 
 interface DojoAgentPanelProps {
   open: boolean;
@@ -86,56 +89,6 @@ function HistoryIcon() {
   );
 }
 
-function NewChatIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <path
-        d="M3 4.5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 13 4.5v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.25V4.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M8.25 6v3M6.75 7.5h3"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <path
-        d="M4.5 4.5l7 7M11.5 4.5l-7 7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-      <path
-        d="M2.5 4.5h9M5.25 4.5V3.25a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 .75.75V4.5M5.5 6.75v3.5M8.5 6.75v3.5M4 4.5l.35 6.3a1 1 0 0 0 1 .85h3.3a1 1 0 0 0 1-.85L10 4.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function DojoAgentPanel({
   open,
   pinned = false,
@@ -148,6 +101,7 @@ export function DojoAgentPanel({
   const { selectedModelId, agentReady, selectedModel, setSelectedModelId } =
     useAgentModel();
   const {
+    sessionsHydrated,
     sessions,
     activeSessionId,
     activeSession,
@@ -170,11 +124,14 @@ export function DojoAgentPanel({
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [maximized, setMaximized] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
     null,
   );
   const [recoveredNotice, setRecoveredNotice] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -188,16 +145,22 @@ export function DojoAgentPanel({
   const panelError = error ?? sessionRun.error;
 
   useEffect(() => {
-    const draft = loadStreamDraft();
-    if (!draft?.interrupted) return;
-    const finalized = finalizeIncompleteAssistantMessages(
-      draft.messages,
-      t("agent.interrupted"),
-    );
-    replaceSessionMessages(draft.sessionId, finalized, draft.modelId);
-    selectSession(draft.sessionId);
-    setRecoveredNotice(true);
-    clearStreamDraft();
+    let cancelled = false;
+    void (async () => {
+      const draft = await loadStreamDraftFull();
+      if (cancelled || !draft?.interrupted) return;
+      const finalized = finalizeIncompleteAssistantMessages(
+        draft.messages,
+        t("agent.interrupted"),
+      );
+      replaceSessionMessages(draft.sessionId, finalized, draft.modelId);
+      selectSession(draft.sessionId);
+      setRecoveredNotice(true);
+      clearStreamDraft();
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recover once on mount
   }, []);
 
@@ -208,7 +171,25 @@ export function DojoAgentPanel({
   }, [recoveredNotice]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const onScroll = () => {
+      const distance =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      stickToBottomRef.current = distance <= 96;
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [activeSessionId, open]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: streaming ? "auto" : "smooth",
+    });
   }, [messages, streaming, sessionRun.draftMessages]);
 
   const flushPersistDraft = useCallback(
@@ -266,6 +247,11 @@ export function DojoAgentPanel({
   }, [open, reloadFromStorage]);
 
   useEffect(() => {
+    if (open || pinned) return;
+    setMaximized(false);
+  }, [open, pinned]);
+
+  useEffect(() => {
     if (!activeSessionId || !isSessionRunning(activeSessionId)) return;
     wireRunCallbacks(activeSessionId, {
       onComplete: (finalMessages) => {
@@ -288,6 +274,7 @@ export function DojoAgentPanel({
     setInput("");
     setHistoryOpen(false);
     setRecoveredNotice(false);
+    stickToBottomRef.current = true;
     clearStreamDraft();
     createSession(selectedModelId);
   }, [createSession, selectedModelId]);
@@ -298,6 +285,7 @@ export function DojoAgentPanel({
         setHistoryOpen(false);
         return;
       }
+      stickToBottomRef.current = true;
       setSwitchingSessionId(sessionId);
       setError(null);
       setInput("");
@@ -316,7 +304,7 @@ export function DojoAgentPanel({
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || streaming || !selectedModel?.available) return;
+    if (!sessionsHydrated || !text || streaming || !selectedModel?.available) return;
 
     const sessionId = ensureActiveSession(selectedModelId);
     const userMessage: AgentChatMessage = { role: "user", content: text };
@@ -330,6 +318,7 @@ export function DojoAgentPanel({
 
     setInput("");
     setError(null);
+    stickToBottomRef.current = true;
 
     try {
       await startRun({
@@ -365,6 +354,7 @@ export function DojoAgentPanel({
     messages,
     persistMessages,
     schedulePersistDraft,
+    sessionsHydrated,
     selectedModel?.available,
     input,
     startRun,
@@ -387,8 +377,12 @@ export function DojoAgentPanel({
   };
 
   const canSend =
-    Boolean(selectedModel?.available) && input.trim().length > 0 && !streaming;
+    sessionsHydrated &&
+    Boolean(selectedModel?.available) &&
+    input.trim().length > 0 &&
+    !streaming;
   const displayMessages = messages;
+  const maximizeLabel = t(maximized ? "agent.minimize" : "agent.maximize");
 
   const toggleThinkBlock = useCallback(
     (messageIndex: number, blockId: string) => {
@@ -429,6 +423,7 @@ export function DojoAgentPanel({
   );
 
   const isOpen = pinned || open;
+  const panelMaximized = isOpen && maximized;
 
   return (
     <aside
@@ -437,8 +432,11 @@ export function DojoAgentPanel({
         pinned ? " dojo-agent-panel--pinned" : ""
       }${interactive ? " dojo-agent-panel--interactive" : ""}${
         resizing ? " dojo-agent-panel--resizing" : ""
+      }${panelMaximized ? " dojo-agent-panel--maximized" : ""
       }`}
-      style={isOpen ? { width: panelWidth } : undefined}
+      style={
+        isOpen ? (maximized ? undefined : { width: panelWidth }) : undefined
+      }
       role="complementary"
       aria-labelledby="dojo-agent-title"
       aria-hidden={!isOpen}
@@ -456,11 +454,14 @@ export function DojoAgentPanel({
       <div className="dojo-agent-panel__inner">
         <header className="dojo-agent-panel__head">
           <h2 id="dojo-agent-title" className="dojo-agent-panel__title">
+            <img src={agentIcon} alt="" className="dojo-agent-panel__title-icon" aria-hidden />
             DojoAgent
           </h2>
           <div className="dojo-agent-panel__head-actions">
-            <button
-              type="button"
+            <DojoButton
+              icon
+              size="xs"
+              variant="secondary"
               className={`dojo-agent-panel__toolbar-btn ${
                 historyOpen ? "dojo-agent-panel__toolbar-btn--active" : ""
               }`}
@@ -469,27 +470,59 @@ export function DojoAgentPanel({
               title={t("agent.history")}
               onClick={() => setHistoryOpen((prev) => !prev)}
             >
-              <HistoryIcon />
-            </button>
-            <button
-              type="button"
+              <span
+                className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--history"
+                aria-hidden
+              />
+            </DojoButton>
+            <DojoButton
+              icon
+              size="xs"
+              variant="secondary"
               className="dojo-agent-panel__toolbar-btn"
               aria-label={t("agent.newChat")}
               title={t("agent.newChat")}
               onClick={handleNewSession}
             >
-              <NewChatIcon />
-            </button>
+              <span
+                className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--message"
+                aria-hidden
+              />
+            </DojoButton>
+            <DojoButton
+              icon
+              size="xs"
+              variant="secondary"
+              className="dojo-agent-panel__toolbar-btn"
+              aria-pressed={maximized}
+              aria-label={maximizeLabel}
+              title={maximizeLabel}
+              onClick={() => setMaximized((prev) => !prev)}
+            >
+              <span
+                className={`dojo-agent-panel__toolbar-icon ${
+                  maximized
+                    ? "dojo-agent-panel__toolbar-icon--minimize"
+                    : "dojo-agent-panel__toolbar-icon--maximize"
+                }`}
+                aria-hidden
+              />
+            </DojoButton>
             {!pinned ? (
-              <button
-                type="button"
+              <DojoButton
+                icon
+                size="xs"
+                variant="error"
                 className="dojo-agent-panel__toolbar-btn dojo-agent-panel__toolbar-btn--close"
                 aria-label={t("agent.close")}
                 title={t("agent.close")}
                 onClick={onClose}
               >
-                <CloseIcon />
-              </button>
+                <span
+                  className="dojo-agent-panel__toolbar-icon dojo-agent-panel__toolbar-icon--close"
+                  aria-hidden
+                />
+              </DojoButton>
             ) : null}
           </div>
         </header>
@@ -549,15 +582,17 @@ export function DojoAgentPanel({
                             {formatSessionTime(session.updatedAt)}
                           </span>
                         </button>
-                        <button
-                          type="button"
+                        <DojoButton
+                          icon
+                          size="xs"
+                          variant="error"
                           className="dojo-agent-panel__history-delete"
                           aria-label={t("agent.deleteSession")}
                           disabled={isLoading}
                           onClick={() => deleteSession(session.id)}
                         >
-                          <TrashIcon />
-                        </button>
+                          <img src={trashIcon} alt="" aria-hidden />
+                        </DojoButton>
                       </div>
                     </li>
                   );
@@ -589,6 +624,7 @@ export function DojoAgentPanel({
             </div>
           ) : null}
           <div
+            ref={messagesContainerRef}
             className={`dojo-agent-panel__messages${
               switchingSessionId ? " dojo-agent-panel__messages--hidden" : ""
             }`}
@@ -616,7 +652,11 @@ export function DojoAgentPanel({
                 streaming &&
                 message.role === "assistant" &&
                 index === displayMessages.length - 1;
-              const activitySteps = resolveActivitySteps(message);
+              const rawActivitySteps = resolveActivitySteps(message);
+              const activitySteps =
+                message.role === "assistant"
+                  ? attachDerivedVizBlocks(rawActivitySteps)
+                  : rawActivitySteps;
               const hasActivity = activitySteps.length > 0;
               const messageVizBlocks =
                 message.role === "assistant"
@@ -626,7 +666,7 @@ export function DojoAgentPanel({
                 message.role === "assistant"
                   ? stripRenderedChartBlocks(
                       message.content,
-                      messageVizBlocks.length > 0,
+                      hasRenderedChartBlocks(messageVizBlocks),
                     )
                   : message.content;
               const showAssistantBubble =
@@ -668,9 +708,6 @@ export function DojoAgentPanel({
                             toggleThinkBlock(index, blockId)
                           }
                         />
-                        {messageVizBlocks.length > 0 ? (
-                          <AgentVizPanel blocks={messageVizBlocks} />
-                        ) : null}
                         {displayContent ? (
                           <AgentMarkdown
                             content={displayContent}

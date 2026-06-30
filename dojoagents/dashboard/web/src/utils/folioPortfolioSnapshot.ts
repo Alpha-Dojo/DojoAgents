@@ -1,6 +1,6 @@
-import type { FolioHolding } from '../types/dojoFolio';
-import { FOLIO_MARKETS } from '../types/dojoFolio';
-import type { MarketCode } from '../types/dojoMesh';
+import type { FolioHolding } from '../types/folio';
+import { FOLIO_MARKETS } from '../types/folio';
+import type { MarketCode } from '../types/market';
 
 export interface FolioMarketSnapshot {
   todayChange: number | null;

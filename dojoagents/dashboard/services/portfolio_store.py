@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from dojoagents.dashboard.services.file_store_base import _atomic_write_text
+from dojoagents.logging import LOGGER
 
 MARKETS = ("us", "sh", "hk")
 INDEX_FILENAME = "index.json"
@@ -44,10 +45,51 @@ class PortfolioStore:
 
     def __init__(self, data_root: Path) -> None:
         self.root = data_root / "portfolio"
+
+        # Check if the store points to ~/.dojo/data/portfolio and has no portfolio data
+        default_portfolio_path = Path("~/.dojo/data/portfolio").expanduser().resolve()
+        try:
+            is_default = self.root.resolve() == default_portfolio_path
+        except Exception:
+            is_default = False
+
+        import os
+
+        if is_default or os.environ.get("_FORCE_COPY_DEFAULTS") == "1":
+            # Check if there are any portfolio JSON files (excluding index.json)
+            has_data = False
+            if self.root.exists():
+                try:
+                    if any(p.name != INDEX_FILENAME for p in self.root.glob("*.json")):
+                        has_data = True
+                except Exception:
+                    pass
+            if not has_data:
+                self._copy_default_portfolios()
+
         self.root.mkdir(parents=True, exist_ok=True)
         self.index_path = self.root / INDEX_FILENAME
         self._index: dict[str, Any] = {"version": STORE_VERSION, "portfolios": []}
         self._load_sync()
+
+    def _copy_default_portfolios(self) -> None:
+        import shutil
+
+        default_dir = Path(__file__).parents[2] / "data" / "default_portfolios"
+        if not default_dir.exists():
+            default_dir = Path(__file__).parents[2] / "data" / "default_portfolio"
+
+        if default_dir.exists() and default_dir.is_dir():
+            LOGGER.info(f"Copying default portfolios from {default_dir} to {self.root}")
+            try:
+                self.root.mkdir(parents=True, exist_ok=True)
+                for file_path in default_dir.glob("*"):
+                    if file_path.is_file():
+                        shutil.copy(file_path, self.root / file_path.name)
+            except Exception as e:
+                LOGGER.exception(f"Failed to copy default portfolios from {default_dir} to {self.root}: {e}")
+        else:
+            LOGGER.warning(f"Default portfolios directory not found at {default_dir}")
 
     @staticmethod
     def _portfolio_path(root: Path, portfolio_id: str) -> Path:

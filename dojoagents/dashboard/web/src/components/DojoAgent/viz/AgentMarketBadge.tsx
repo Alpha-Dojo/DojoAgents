@@ -1,4 +1,4 @@
-import type { MarketCode } from '../../../types/dojoMesh';
+import type { MarketCode } from '../../../types/market';
 import { MARKET_CODE, MARKET_FLAG } from '../../../utils/marketDisplay';
 
 interface AgentMarketBadgeProps {

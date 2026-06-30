@@ -1,6 +1,6 @@
-import type { MarketCode } from '../types/dojoMesh';
-import type { FolioHolding } from '../types/dojoFolio';
-import { INCOME_SLICE_COLORS } from './coreIncomeDistribution';
+import type { MarketCode } from '../types/market';
+import type { FolioHolding } from '../types/folio';
+import { INCOME_SLICE_COLORS } from './entityIncomeDistribution';
 
 export type FolioSectorLevel = 'L1' | 'L2' | 'L3';
 

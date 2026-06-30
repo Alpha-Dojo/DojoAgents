@@ -4,6 +4,7 @@ import re
 from typing import List, Any
 
 from dojoagents.dashboard.schemas.stock import Stock
+from dojoagents.dashboard.services.domain_utils import finite_float
 from dojoagents.dashboard.services.sector_store import SectorStore
 from dojoagents.dashboard.schemas.dojo_mesh import (
     BilingualText,
@@ -23,12 +24,12 @@ def slugify(text: str) -> str:
 
 
 def _stock_bilingual_name(stock: Stock) -> BilingualText:
-    en = (stock.long_name or stock.short_name or stock.ticker).strip()
     quote = stock.stock_quote
-    if stock.market in ("sh", "hk") and quote and quote.name:
+    if quote and quote.name:
         zh = quote.name.strip()
     else:
         zh = (stock.short_name or stock.long_name or stock.ticker).strip()
+    en = (stock.short_name or stock.long_name or stock.ticker).strip()
     return BilingualText(zh=zh, en=en)
 
 
@@ -68,8 +69,8 @@ def build_market_sectors(
         if not path:
             continue
 
-        change_percent = float(row.get("daily_return_pct") or 0.0)
-        avg_market_cap = float(row.get("avg_market_cap") or 0.0)
+        change_percent = finite_float(row.get("daily_return_pct"))
+        avg_market_cap = finite_float(row.get("avg_market_cap"))
         member_count = int(row.get("member_count") or 0)
 
         # 2. Fetch sample members
@@ -95,9 +96,9 @@ def build_market_sectors(
                 SectorMemberItem(
                     ticker=ticker,
                     name=BilingualText(zh=ticker, en=ticker),  # Placeholder
-                    last_price=float(td.get("close") or 0.0),
-                    market_cap=float(c.get("market_cap") or 0.0),
-                    change_percent=float(td.get("daily_return_pct") or 0.0),
+                    last_price=finite_float(td.get("close")),
+                    market_cap=finite_float(c.get("market_cap")),
+                    change_percent=finite_float(td.get("daily_return_pct")),
                 )
             )
 

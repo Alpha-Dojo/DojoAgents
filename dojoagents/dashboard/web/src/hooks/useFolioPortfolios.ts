@@ -9,14 +9,14 @@ import {
   type FolioPortfolioDetail,
   removeFolioHolding,
   updateFolioPortfolio,
-} from '../api/dojoFolio';
+} from '../api/folio';
 import { ApiError } from '../api/http';
 import { FOLIO_UPDATED_EVENT, type FolioUpdatedDetail } from '../navigation/folio_sync';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached, invalidateCache, invalidateCachePrefix, setCached } from '../cache/queryCache';
-import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../types/dojoFolio';
-import { FOLIO_MARKETS } from '../types/dojoFolio';
-import type { MarketCode } from '../types/dojoMesh';
+import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../types/folio';
+import { FOLIO_MARKETS } from '../types/folio';
+import type { MarketCode } from '../types/market';
 import type { FolioPortfolioHoldingsPreview } from '../utils/folioPortfolioSearch';
 import { searchPortfoliosClient } from '../utils/folioPortfolioSearch';
 import {
@@ -167,7 +167,7 @@ export function useFolioPortfolios() {
   const [createError, setCreateError] = useState<string | null>(null);
   const createInFlightRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [benchmarkSymbol, setBenchmarkSymbol] = useState<string | null>(null);
+  const [benchmarkSymbols, setBenchmarkSymbols] = useState<string[]>([]);
 
   const [activeId, setActiveIdState] = useState<string>(() => loadStoredActiveId() ?? '');
   const [detail, setDetail] = useState<FolioPortfolioDetail | null>(null);
@@ -273,8 +273,10 @@ export function useFolioPortfolios() {
   }, [listItems]);
 
   useEffect(() => {
-    setBenchmarkSymbol(null);
+    setBenchmarkSymbols([]);
   }, [activeId]);
+
+  const primaryBenchmarkSymbol = benchmarkSymbols[0] ?? null;
 
   useEffect(() => {
     if (!activeId) {
@@ -285,7 +287,7 @@ export function useFolioPortfolios() {
     }
 
     let cancelled = false;
-    const detailCacheKey = cacheKeys.folioPortfolio(activeId, benchmarkSymbol);
+    const detailCacheKey = cacheKeys.folioPortfolio(activeId, primaryBenchmarkSymbol);
     const cached = getCached<FolioPortfolioDetail>(detailCacheKey);
     const cachedUsable =
       cached?.id === activeId &&
@@ -302,7 +304,7 @@ export function useFolioPortfolios() {
     }
 
     void fetchFolioPortfolioDetail(activeId, {
-      benchmark: benchmarkSymbol,
+      benchmark: primaryBenchmarkSymbol,
       includePerformance: true,
       startDate: cached?.id === activeId ? cached.config?.startDate : undefined,
     })
@@ -339,7 +341,7 @@ export function useFolioPortfolios() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, benchmarkSymbol]);
+  }, [activeId, primaryBenchmarkSymbol]);
 
   const activePortfolio = useMemo(() => {
     if (!activeId) return null;
@@ -416,12 +418,12 @@ export function useFolioPortfolios() {
   );
 
   const commitDetail = useCallback((updated: FolioPortfolioDetail) => {
-    const cached = readCachedPortfolioDetail(updated.id, benchmarkSymbol);
+    const cached = readCachedPortfolioDetail(updated.id, primaryBenchmarkSymbol);
     const merged = mergePortfolioDetail(cached, updated);
     if (!hasNavPerformance(merged)) {
       invalidateCachePrefix(`folio-portfolio:${merged.id}:`);
     }
-    setCached(cacheKeys.folioPortfolio(merged.id, benchmarkSymbol), merged);
+    setCached(cacheKeys.folioPortfolio(merged.id, primaryBenchmarkSymbol), merged);
     setSnapshotByPortfolioId((prev) => ({
       ...prev,
       [merged.id]: computeMarketSnapshots(
@@ -457,13 +459,13 @@ export function useFolioPortfolios() {
 
     if (!hasNavPerformance(merged)) {
       void fetchFolioPortfolioDetail(merged.id, {
-        benchmark: benchmarkSymbol,
+        benchmark: primaryBenchmarkSymbol,
         includePerformance: true,
         startDate: merged.config?.startDate,
       })
         .then((response) => {
           if (response.id !== activeIdRef.current) return;
-          setCached(cacheKeys.folioPortfolio(response.id, benchmarkSymbol), response);
+          setCached(cacheKeys.folioPortfolio(response.id, primaryBenchmarkSymbol), response);
           setDetail(response);
           setSnapshotByPortfolioId((prev) => ({
             ...prev,
@@ -477,7 +479,13 @@ export function useFolioPortfolios() {
           // Best-effort; holdings already updated.
         });
     }
-  }, [benchmarkSymbol]);
+  }, [primaryBenchmarkSymbol]);
+
+  const toggleBenchmarkSymbol = useCallback((symbol: string) => {
+    setBenchmarkSymbols((prev) =>
+      prev.includes(symbol) ? prev.filter((item) => item !== symbol) : [...prev, symbol],
+    );
+  }, []);
 
   const refreshPortfolioList = useCallback(
     async (options?: { selectId?: string; preferAgent?: boolean }) => {
@@ -800,8 +808,10 @@ export function useFolioPortfolios() {
     holdingsByPortfolioId,
     searchQuery,
     setSearchQuery,
-    benchmarkSymbol,
-    setBenchmarkSymbol,
+    benchmarkSymbols,
+    setBenchmarkSymbols,
+    toggleBenchmarkSymbol,
+    primaryBenchmarkSymbol,
     activePortfolio,
     activeId,
     setActiveId,

@@ -44,6 +44,14 @@ def _group_rows_by_market(rows: list[dict[str, Any]]) -> dict[str, list[dict[str
     return grouped
 
 
+def _market_label(market: str) -> str:
+    return {
+        "us": "US",
+        "cn": "CN",
+        "hk": "HK",
+    }.get(market, market.upper())
+
+
 def _block(
     kind: VizKind,
     payload: dict[str, Any],
@@ -203,10 +211,13 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
     if not isinstance(markets, dict) or not markets:
         return []
     market_groups = []
+    ordered_markets: list[str] = []
+    weighted_pe_values: list[float | None] = []
     for raw_market, stats in markets.items():
         if not isinstance(stats, dict):
             continue
         market = _normalize_market(raw_market) or str(raw_market).lower()
+        ordered_markets.append(market)
         items = [
             {
                 "key": "market_cap",
@@ -243,9 +254,14 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
                     }
                 )
         market_groups.append({"market": market, "items": items})
+        weighted_pe_values.append(_num(stats.get("weighted_pe")))
     if not market_groups:
         return []
-    return [
+    ordered_pairs = sorted(
+        zip(ordered_markets, weighted_pe_values, strict=False),
+        key=lambda item: _MARKETS.index(item[0]) if item[0] in _MARKETS else len(_MARKETS),
+    )
+    blocks = [
         _block(
             "kpi_row",
             {"layout": "by_market", "markets": market_groups},
@@ -255,6 +271,27 @@ def _map_market_overview(data: dict[str, Any], truncated: bool) -> list[dict[str
             truncated=truncated,
         )
     ]
+    comparable_pairs = [(market, value) for market, value in ordered_pairs if value is not None]
+    if len(comparable_pairs) >= 2:
+        blocks.append(
+            _block(
+                "bar",
+                {
+                    "categories": [_market_label(market) for market, _ in comparable_pairs],
+                    "series": [
+                        {
+                            "label": "Weighted PE",
+                            "values": [value for _, value in comparable_pairs],
+                        }
+                    ],
+                },
+                title="Valuation comparison",
+                subtitle="Weighted PE",
+                source_tool="get_market_overview",
+                truncated=truncated,
+            )
+        )
+    return blocks
 
 
 def _map_sector_movers(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
@@ -379,7 +416,69 @@ def _first_quote(data: dict[str, Any]) -> dict[str, Any] | None:
     return data
 
 
+def _quote_table_columns() -> list[dict[str, Any]]:
+    return [
+        {"key": "ticker", "label": "Ticker"},
+        {"key": "name_zh", "label": "Name"},
+        {"key": "last_price", "label": "Price", "format": "number"},
+        {"key": "change_percent", "label": "Today P&L", "format": "percent"},
+        {"key": "pe", "label": "PE", "format": "number"},
+        {"key": "market_cap", "label": "Mkt Cap", "format": "market_cap"},
+    ]
+
+
+def _rows_from_quote_items(items: list[Any], *, limit: int = 50) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw in items[:limit]:
+        if not isinstance(raw, dict):
+            continue
+        name_zh, name_en = _bilingual_name(raw.get("name"))
+        rows.append(
+            {
+                "ticker": raw.get("ticker") or raw.get("symbol"),
+                "market": _normalize_market(raw.get("market")) or raw.get("market"),
+                "name_zh": raw.get("name_zh") or name_zh or name_en,
+                "name_en": raw.get("name_en") or name_en,
+                "last_price": _num(raw.get("last_price") or raw.get("price")),
+                "change_percent": _num(raw.get("change_percent") or raw.get("change_pct")),
+                "pe": _num(raw.get("pe")),
+                "market_cap": _num(raw.get("market_cap")),
+            }
+        )
+    return rows
+
+
 def _map_ticker_quote(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
+    items = data.get("items")
+    if isinstance(items, list) and len(items) >= 2:
+        rows = _rows_from_quote_items(items)
+        if rows:
+            market = _normalize_market(data.get("market"))
+            grouped = [{"market": code, "rows": market_rows} for code, market_rows in _group_rows_by_market(rows).items() if market_rows]
+            payload: dict[str, Any] = {
+                "layout": "by_market" if grouped and not market else "flat",
+                "columns": _quote_table_columns(),
+            }
+            if grouped and not market:
+                payload["groups"] = grouped
+            else:
+                payload["rows"] = rows
+            subtitle = f"{data.get('count', len(rows))} tickers"
+            not_found = data.get("not_found")
+            if isinstance(not_found, list) and not_found:
+                subtitle = f"{subtitle} · {len(not_found)} missing"
+            return [
+                _block(
+                    "table",
+                    payload,
+                    title="Realtime quotes",
+                    subtitle=subtitle,
+                    market=market,
+                    source_tool="get_ticker_realtime_quote",
+                    truncated=truncated or bool(data.get("truncated")),
+                )
+            ]
+
     quote = _first_quote(data)
     if not isinstance(quote, dict):
         return []
@@ -829,6 +928,26 @@ def _generic_kpi_row(data: dict[str, Any], truncated: bool) -> list[dict[str, An
         return [_block("kpi_row", {"layout": "by_market", "markets": data["markets"]}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
     if isinstance(data.get("items"), list) and data["items"]:
         return [_block("kpi_row", {"items": data["items"]}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
+    metrics = data.get("metrics")
+    if isinstance(metrics, list) and metrics:
+        items = []
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                continue
+            trend = str(metric.get("trend") or "").strip().lower()
+            tone = "positive" if trend == "up" else "negative" if trend == "down" else "neutral" if trend else None
+            items.append(
+                {
+                    "key": metric.get("key"),
+                    "label": str(metric.get("label") or metric.get("name") or metric.get("key") or ""),
+                    "value": metric.get("value"),
+                    "meta": metric.get("meta"),
+                    "delta": metric.get("delta"),
+                    "tone": tone,
+                }
+            )
+        if items:
+            return [_block("kpi_row", {"items": items}, title=str(data.get("title") or "KPIs"), subtitle=data.get("subtitle"), truncated=truncated)]
     return []
 
 
@@ -839,6 +958,37 @@ def _generic_bar(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
                 "bar", {"categories": data["categories"], "series": data["series"]}, title=str(data.get("title") or "Bar chart"), subtitle=data.get("subtitle"), truncated=truncated
             )
         ]
+    labels = data.get("labels")
+    if isinstance(labels, list) and labels:
+        categories = [str(label) for label in labels]
+        series = []
+        preferred = [
+            ("pe_current", "当前PE"),
+            ("pe_median", "历史中位数PE"),
+            ("current", "Current"),
+            ("median", "Median"),
+        ]
+        for key, label in preferred:
+            values = data.get(key)
+            if isinstance(values, list):
+                series.append({"name": key, "label": label, "values": [_num(value) for value in values]})
+        if not series:
+            for key, values in data.items():
+                if key in {"labels", "title", "subtitle", "market"}:
+                    continue
+                if isinstance(values, list):
+                    series.append({"name": key, "label": key.replace("_", " ").title(), "values": [_num(value) for value in values]})
+        if series:
+            return [
+                _block(
+                    "bar",
+                    {"categories": categories, "series": series},
+                    title=str(data.get("title") or "Bar chart"),
+                    subtitle=data.get("subtitle"),
+                    truncated=truncated,
+                    market=_normalize_market(data.get("market")),
+                )
+            ]
     return []
 
 
@@ -853,6 +1003,33 @@ def _generic_hbar_rank(data: dict[str, Any], truncated: bool) -> list[dict[str, 
                 truncated=truncated,
             )
         ]
+    items = data.get("items")
+    if isinstance(items, list) and items:
+        gainers = []
+        losers = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            value = _num(item.get("value"))
+            if value is None:
+                continue
+            row = {"label": str(item.get("label") or item.get("name") or item.get("key") or ""), "value": value}
+            if value >= 0:
+                gainers.append(row)
+            else:
+                losers.append(row)
+        if gainers or losers:
+            return [
+                _block(
+                    "hbar_rank",
+                    {"gainers": gainers, "losers": losers},
+                    title=str(data.get("title") or "Rank"),
+                    subtitle=data.get("subtitle"),
+                    truncated=truncated,
+                )
+            ]
+    if isinstance(data.get("categories"), list) and isinstance(data.get("series"), list):
+        return _generic_bar(data, truncated)
     return []
 
 
@@ -890,10 +1067,11 @@ _ALIASES = {
     "add_portfolio_holding": "portfolio_analysis",
     "add_portfolio_holdings": "portfolio_analysis",
     "auto_allocate_portfolio": "portfolio_analysis",
-    "dojo.sdk.get_stock_quote": "ticker_quote",
-    "dojo.sdk.get_stock_kline": "ticker_kline",
-    "dojo.sdk.get_kline": "ticker_kline",
-    "dojo.sdk.get_stock_news": "news_timeline",
+    "dojo.sdk.stock.current_quote": "ticker_quote",
+    "dojo.sdk.stock.kline": "ticker_kline",
+    "dojo.sdk.forex.kline": "ticker_kline",
+    "dojo.sdk.benchmark.kline": "ticker_kline",
+    "dojo.sdk.stock.news": "news_timeline",
     "portfolio_read_list": "portfolio_list",
     "portfolio_read_search": "portfolio_list",
     "portfolio_read_detail": "portfolio_analysis",
@@ -934,6 +1112,9 @@ def _auto_blocks(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
     if data.get("ticker") or data.get("symbol"):
         if any(key in data for key in ("last_price", "price", "change_percent", "change_pct")):
             candidates.append("ticker_quote")
+    items = data.get("items")
+    if isinstance(items, list) and items and "not_found" in data:
+        candidates.insert(0, "ticker_quote")
     if "items" in data:
         candidates.append("stock_screen")
     for candidate in candidates:

@@ -1,5 +1,5 @@
-import type { FolioPerformanceStats, FolioPerformanceView } from '../types/dojoFolio';
-import type { MarketCode } from '../types/dojoMesh';
+import type { FolioPerformanceStats, FolioPerformanceView } from '../types/folio';
+import type { MarketCode } from '../types/market';
 
 const TRADING_DAYS_YEAR = 252;
 const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];

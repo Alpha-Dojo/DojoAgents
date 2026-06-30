@@ -86,6 +86,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKeyEnv: 'ZHIPUAI_API_KEY',
     models: [
+      { value: 'glm-5.2', label: 'GLM-5.2' },
       { value: 'glm-5.1', label: 'GLM-5.1' },
       { value: 'glm-5', label: 'GLM-5' },
       { value: 'glm-4.7', label: 'GLM-4.7' },
@@ -123,6 +124,7 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     apiKeyEnv: 'ZHIPUAI_API_KEY',
     models: [
+      { value: 'glm-5.2', label: 'GLM-5.2' },
       { value: 'glm-5.1', label: 'GLM-5.1' },
       { value: 'glm-5', label: 'GLM-5' },
       { value: 'glm-4.7', label: 'GLM-4.7' },
@@ -198,6 +200,16 @@ function modelPresetValue(provider: ProviderForm, preset?: ProviderPreset): stri
   return preset.models.some((model) => model.value === provider.model) ? provider.model : CUSTOM_MODEL_VALUE;
 }
 
+function configuredProviderModel(config: SettingsConfig | null, providerName: string): string {
+  const llm = asRecord(config?.llm_provider);
+  const provider = asRecord(asRecord(llm.providers)[providerName]);
+  return asString(provider.model).trim();
+}
+
+function isConfiguredModel(model: string, configuredModel: string): boolean {
+  return configuredModel.length > 0 && model === configuredModel;
+}
+
 function buildForm(cfg: SettingsConfig): SettingsFormState {
   const llm = asRecord(cfg.llm_provider);
   const providers: Record<string, ProviderForm> = {};
@@ -245,6 +257,12 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
       enable_guardrails: asBool(agent.enable_guardrails, true),
       enable_think_scrubbing: asBool(agent.enable_think_scrubbing, true),
       enable_context_compression: asBool(agent.enable_context_compression, true),
+      compression_threshold_ratio: asNumber(agent.compression_threshold_ratio, 0.8),
+      default_context_window: asNumber(agent.default_context_window, 32768),
+      session_max_tokens_cap:
+        agent.session_max_tokens_cap === null || agent.session_max_tokens_cap === undefined
+          ? null
+          : asNumber(agent.session_max_tokens_cap, 32768),
     },
     tools: {
       sandbox: {
@@ -558,6 +576,15 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   const provider = form.llm_provider.providers[name];
                   const preset = LLM_PROVIDER_PRESETS[name];
                   const selectedPresetValue = modelPresetValue(provider, preset);
+                  const configuredModel = configuredProviderModel(rawConfig, name);
+                  const configuredPresetValue = modelPresetValue(
+                    { ...provider, model: configuredModel },
+                    preset,
+                  );
+                  const currentModelIsConfigured = isConfiguredModel(
+                    provider.model,
+                    configuredModel,
+                  );
                   return (
                     <div className="settings-subsection" key={name}>
                       <h3>{providerLabel(name)}</h3>
@@ -578,15 +605,45 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                           options={[
                             ...(preset?.models.map((model) => ({
                               value: model.value,
-                              label: model.label,
+                              label:
+                                model.value === configuredModel
+                                  ? `${model.label} · ${t('settings.configured')}`
+                                  : model.label,
                             })) ?? []),
-                            { value: CUSTOM_MODEL_VALUE, label: 'Custom model' },
+                            {
+                              value: CUSTOM_MODEL_VALUE,
+                              label:
+                                configuredModel &&
+                                configuredPresetValue === CUSTOM_MODEL_VALUE
+                                  ? `Custom model · ${t('settings.configured')}`
+                                  : 'Custom model',
+                            },
                           ]}
                         />
                       </Field>
                       <Field label="Model">
-                        {textInput(provider.model, (value) =>
-                          updateField((draft) => { draft.llm_provider.providers[name].model = value; }))}
+                        <div
+                          className={`settings-model-control ${
+                            currentModelIsConfigured
+                              ? 'settings-model-control--configured'
+                              : ''
+                          }`}
+                        >
+                          <DojoInput
+                            size="sm"
+                            value={provider.model}
+                            onChange={(event) =>
+                              updateField((draft) => {
+                                draft.llm_provider.providers[name].model = event.target.value;
+                              })
+                            }
+                          />
+                          {provider.model === configuredModel && currentModelIsConfigured ? (
+                            <span className="settings-model-configured">
+                              {t('settings.configured')}
+                            </span>
+                          ) : null}
+                        </div>
                       </Field>
                       <Field label="Base URL">
                         {textInput(provider.base_url, (value) =>
@@ -619,6 +676,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <CheckboxField label="Enable Think Scrubbing" checked={form.agent.enable_think_scrubbing} onChange={(checked) => updateField((draft) => { draft.agent.enable_think_scrubbing = checked; })} />
                   <CheckboxField label="Enable Context Compression" checked={form.agent.enable_context_compression} onChange={(checked) => updateField((draft) => { draft.agent.enable_context_compression = checked; })} />
                 </div>
+                <Field label="Compression Threshold Ratio (0-1)">
+                  {numberInput(form.agent.compression_threshold_ratio, (value) => updateField((draft) => { draft.agent.compression_threshold_ratio = value; }), 0.1)}
+                </Field>
+                <Field label="Default Context Window (fallback tokens)">
+                  {numberInput(form.agent.default_context_window, (value) => updateField((draft) => { draft.agent.default_context_window = value; }), 1024)}
+                </Field>
               </Section>
 
               <Section title="Multi-Agent">

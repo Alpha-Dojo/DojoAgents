@@ -19,9 +19,11 @@ def compute_risk_stats(nav: list[float]) -> PortfolioRiskStats:
     sharpe: float | None = None
     if returns:
         daily_vol = statistics.pstdev(returns)
-        volatility = daily_vol * math.sqrt(252) * 100
         if daily_vol > 0:
+            volatility = daily_vol * math.sqrt(252) * 100
             sharpe = statistics.fmean(returns) / daily_vol * math.sqrt(252)
+        else:
+            volatility = 0.0
 
     peak = values[0]
     max_drawdown = 0.0
@@ -35,11 +37,11 @@ def compute_risk_stats(nav: list[float]) -> PortfolioRiskStats:
         annualized = ((values[-1] / values[0]) ** (252 / (len(values) - 1)) - 1) * 100
         calmar = annualized / abs(max_drawdown)
     return PortfolioRiskStats(
-        cumulative_return_pct=cumulative,
-        volatility_pct=volatility,
-        sharpe_ratio=sharpe,
-        max_drawdown_pct=max_drawdown,
-        calmar_ratio=calmar,
+        cumulative_return_pct=cumulative if cumulative is None or math.isfinite(cumulative) else None,
+        volatility_pct=volatility if volatility is None or math.isfinite(volatility) else None,
+        sharpe_ratio=sharpe if sharpe is None or math.isfinite(sharpe) else None,
+        max_drawdown_pct=max_drawdown if math.isfinite(max_drawdown) else 0.0,
+        calmar_ratio=calmar if calmar is None or math.isfinite(calmar) else None,
         trading_days=len(values),
     )
 

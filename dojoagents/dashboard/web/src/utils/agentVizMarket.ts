@@ -1,4 +1,4 @@
-import type { MarketCode } from '../types/dojoMesh';
+import type { MarketCode } from '../types/market';
 
 export const AGENT_VIZ_MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 

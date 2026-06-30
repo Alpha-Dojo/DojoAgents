@@ -52,7 +52,14 @@ class FakeBackgroundAgent:
             event_sink.delta("done")
             event_sink.done(
                 model_id="gpt-4.1",
-                tool_trace=[{"call_id": "call-1", "tool": "portfolio_write_create", "ok": True}],
+                tool_trace=[
+                    {
+                        "call_id": "call-1",
+                        "tool": "portfolio_write_create",
+                        "arguments": {"name": "Quality"},
+                        "ok": True,
+                    }
+                ],
                 tool_steps=1,
             )
         return AgentResponse(
@@ -122,7 +129,9 @@ def test_create_background_run_and_fetch_status_and_events():
     assert any(payload["type"] == "tool_start" and payload["call_id"] == "call-1" for payload in payloads)
     assert any(payload["type"] == "tool_result" and payload["call_id"] == "call-1" for payload in payloads)
     tool_result = next(payload for payload in payloads if payload["type"] == "tool_result")
+    done = next(payload for payload in payloads if payload["type"] == "done")
     assert tool_result["viz_blocks"][0]["kind"] == "table"
+    assert done["tool_trace"][0]["arguments"] == {"name": "Quality"}
 
 
 def test_background_run_events_respect_cursor():

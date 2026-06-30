@@ -1,10 +1,10 @@
 import { buildLinePath } from './folioFormat';
-import { formatSignedPercent, priceTickValues } from './coreCharts';
+import { formatSignedPercent, priceTickValues } from './entityCharts';
 import {
   buildIndependentMarketPath,
   valueToChartY,
   type MarketSeriesPoint,
-} from './spherePerformanceSeries';
+} from './sectorPerformanceSeries';
 import { agentMarketLineColor, isBenchmarkSeries, normalizeAgentMarket } from './agentVizMarket';
 import type { AgentVizLineSeries } from '../types/agentViz';
 

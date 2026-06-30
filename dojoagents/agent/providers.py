@@ -1,7 +1,54 @@
 import json
 from typing import Any, Protocol, Callable
+from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
+
+_REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
+
+
+def _redact_provider_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _REDACTED_PROVIDER_KEYS:
+                redacted[key] = "[redacted]"
+            else:
+                redacted[key] = _redact_provider_metadata(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_provider_metadata(item) for item in value]
+    return value
+
+
+def _model_extra_dict(obj: Any) -> dict[str, Any]:
+    if obj is None:
+        return {}
+    model_extra = getattr(obj, "model_extra", None)
+    if isinstance(model_extra, dict):
+        return dict(model_extra)
+    if isinstance(obj, dict):
+        return dict(obj)
+    if hasattr(obj, "model_dump"):
+        dumped = obj.model_dump(exclude_none=True)
+        return dict(dumped) if isinstance(dumped, dict) else {}
+    return {}
+
+
+def _extract_tool_call_metadata(tc: Any, provider_name: str) -> dict[str, Any]:
+    tool_extra = _model_extra_dict(tc)
+    function_extra = _model_extra_dict(getattr(tc, "function", None))
+    metadata: dict[str, Any] = {}
+    if tool_extra or function_extra:
+        metadata["provider"] = provider_name
+    if tool_extra:
+        metadata["tool_call_extra"] = tool_extra
+    if function_extra:
+        metadata["raw_function_call"] = function_extra
+        thought_signature = function_extra.get("thought_signature") or function_extra.get("thoughtSignature")
+        if thought_signature is not None:
+            metadata["thought_signature"] = thought_signature
+    return metadata
 
 
 class LLMProvider(Protocol):
@@ -28,6 +75,27 @@ class LLMProviderRegistry:
 
     def get(self, name: str) -> LLMProvider:
         return self._providers[name]
+
+
+class UnconfiguredLLMProvider:
+    name = "unconfigured"
+    api_key = None
+    base_url = None
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        model: str,
+        stream: bool = False,
+        metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
+    ) -> LLMResult:
+        message = "No LLM provider configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."
+        if stream and stream_callback:
+            stream_callback(message)
+        return LLMResult(content=message, metadata={"provider": self.name, "live": False, "error": "no_provider"})
 
 
 class StaticLLMProvider:
@@ -75,6 +143,23 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
         self.base_url = base_url
 
+    @staticmethod
+    def _usage_dict(usage: Any) -> dict[str, int] | None:
+        if usage is None:
+            return None
+        prompt = getattr(usage, "prompt_tokens", None)
+        completion = getattr(usage, "completion_tokens", None)
+        total = getattr(usage, "total_tokens", None)
+        if prompt is None and completion is None:
+            return None
+        prompt_i = int(prompt or 0)
+        completion_i = int(completion or 0)
+        return {
+            "prompt_tokens": prompt_i,
+            "completion_tokens": completion_i,
+            "total_tokens": int(total if total is not None else prompt_i + completion_i),
+        }
+
     async def chat(
         self,
         messages: list[dict],
@@ -94,21 +179,48 @@ class OpenAICompatibleProvider:
 
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[{"type": "function", "function": tool} for tool in tools] or None,
-                stream=stream,
-            )
+            create_kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "tools": [{"type": "function", "function": tool} for tool in tools] or None,
+                "stream": stream,
+            }
+            if stream:
+                create_kwargs["stream_options"] = {"include_usage": True}
+            response = await client.chat.completions.create(**create_kwargs)
         except Exception as e:
-            LOGGER.exception(f"Error calling OpenAI API: {e}, messages: {messages}, tools: {tools}, model: {model}")
+            err_msg = str(e)
+            max_context, requested = parse_context_length_error(err_msg)
+            if max_context is not None or requested is not None:
+                LOGGER.warning(
+                    "Context length exceeded for model %s: max=%s requested=%s",
+                    model,
+                    max_context,
+                    requested,
+                )
+                raise ContextLengthExceededError(
+                    err_msg,
+                    max_context=max_context,
+                    requested_tokens=requested,
+                ) from e
+            LOGGER.exception(
+                "Error calling OpenAI API: %s, messages: %s, tools: %s, model: %s",
+                e,
+                _redact_provider_metadata(messages),
+                _redact_provider_metadata(tools),
+                model,
+            )
             raise e
 
         if stream and stream_callback:
             full_content = []
             full_reasoning = []
             tool_calls_buffer: dict[int, dict[str, Any]] = {}
+            stream_usage: dict[str, int] | None = None
             async for chunk in response:
+                chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
+                if chunk_usage is not None:
+                    stream_usage = chunk_usage
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_delta = getattr(delta, "reasoning_content", None) or (
@@ -124,13 +236,14 @@ class OpenAICompatibleProvider:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         if idx not in tool_calls_buffer:
-                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": ""}
+                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": "", "metadata": {}}
                         if tc_delta.id:
                             tool_calls_buffer[idx]["id"] = tc_delta.id
                         if tc_delta.function and tc_delta.function.name:
                             tool_calls_buffer[idx]["name"] = tc_delta.function.name
                         if tc_delta.function and tc_delta.function.arguments:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
+                        tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
             final_tool_calls = []
             for idx, tc in sorted(tool_calls_buffer.items()):
@@ -140,14 +253,19 @@ class OpenAICompatibleProvider:
                         args_dict = json.loads(tc["arguments"])
                     except json.JSONDecodeError:
                         args_dict = {"raw_arguments": tc["arguments"]}
-                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict))
+                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict, metadata=dict(tc["metadata"])))
+            metadata: dict[str, Any] = {
+                "provider": self.name,
+                "reasoning_content": "".join(full_reasoning),
+            }
+            if stream_usage is not None:
+                metadata["usage"] = stream_usage
+            else:
+                metadata["usage_available"] = False
             return LLMResult(
                 content="".join(full_content),
                 tool_calls=final_tool_calls,
-                metadata={
-                    "provider": self.name,
-                    "reasoning_content": "".join(full_reasoning),
-                },
+                metadata=metadata,
             )
         else:
             message = response.choices[0].message
@@ -163,14 +281,20 @@ class OpenAICompatibleProvider:
                             args_dict = json.loads(tc.function.arguments)
                         except json.JSONDecodeError:
                             args_dict = {"raw_arguments": tc.function.arguments}
-                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict))
+                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict, metadata=_extract_tool_call_metadata(tc, self.name)))
+            result_metadata: dict[str, Any] = {
+                "provider": self.name,
+                "reasoning_content": reasoning_content or "",
+            }
+            usage_dict = self._usage_dict(getattr(response, "usage", None))
+            if usage_dict is not None:
+                result_metadata["usage"] = usage_dict
+            else:
+                result_metadata["usage_available"] = False
             return LLMResult(
                 content=message.content or "",
                 tool_calls=final_tool_calls,
-                metadata={
-                    "provider": self.name,
-                    "reasoning_content": reasoning_content or "",
-                },
+                metadata=result_metadata,
             )
 
 

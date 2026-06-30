@@ -26,6 +26,7 @@ export interface AgentToolActivityItem {
   latencyMs?: number;
   error?: string | null;
   arguments?: Record<string, unknown>;
+  data?: Record<string, unknown> | null;
   resultSummary?: string | null;
   vizBlocks?: import('./agentViz').AgentVizBlock[];
 }
@@ -63,6 +64,7 @@ export interface AgentChatMessage {
 export type AgentLocale = 'zh' | 'en';
 
 export interface AgentChatRequest {
+  session_id: string;
   model_id: string;
   messages: AgentChatMessage[];
   locale?: AgentLocale;
@@ -99,6 +101,8 @@ export interface AgentSession {
   messages: AgentChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** Monotonic local version used to resolve async persistence races. */
+  revision?: number;
 }
 
 export interface AgentSessionStore {
@@ -124,6 +128,7 @@ export type AgentStreamEvent =
       error?: string | null;
       data?: Record<string, unknown> | null;
       viz_blocks?: import('./agentViz').AgentVizBlock[];
+      resource_changes?: Record<string, unknown>[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }

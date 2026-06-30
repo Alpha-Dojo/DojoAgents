@@ -1,21 +1,33 @@
 import pytest
-import time
 from unittest.mock import AsyncMock, MagicMock
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolResult, ToolCall
 from dojoagents.plugins import get_plugin_registry
 
+
+@pytest.fixture(autouse=True)
+def _reset_plugin_registry_state() -> None:
+    reg = get_plugin_registry()
+    reg._hooks.clear()
+    reg._decl_hooks.clear()
+    reg._tools.clear()
+    yield
+    reg._hooks.clear()
+    reg._decl_hooks.clear()
+    reg._tools.clear()
+
+
 @pytest.mark.asyncio
 async def test_agent_loop_hooks_integration():
     reg = get_plugin_registry()
-    
+
     # Mock LLM provider and other loop deps
     llm = AsyncMock()
     llm.chat.return_value = LLMResult(content="Final response from mock LLM", tool_calls=[])
-    
+
     executor = MagicMock()
     executor.registry.schema_list.return_value = []
-    
+
     skills = MagicMock()
     skills.prompt_block.return_value = ""
     memory = MagicMock()
@@ -29,31 +41,26 @@ async def test_agent_loop_hooks_integration():
     config.enable_guardrails = False
     config.enable_context_compression = False
     config.enable_think_scrubbing = False
-    
+
     # Register test hooks
     on_start_called = False
+
     def on_start(session_id, model):
         nonlocal on_start_called
         on_start_called = True
+
     reg._hooks["on_session_start"] = [on_start]
     reg._hooks["pre_llm_call"] = [lambda session_id, user_message: "injected context"]
     reg._hooks["transform_llm_output"] = [lambda response_text, session_id: response_text + " [appended]"]
-    
-    loop = AgentLoop(
-        llm_provider=llm,
-        tool_executor=executor,
-        skill_manager=skills,
-        memory_manager=memory,
-        extension_registry=extensions,
-        config=config
-    )
-    
+
+    loop = AgentLoop(llm_provider=llm, tool_executor=executor, skill_manager=skills, memory_manager=memory, extension_registry=extensions, config=config)
+
     req = ChatRequest(message="hello", user_id="user_1", session_id="sess_1", channel="test")
     resp = await loop.run(req)
-    
+
     assert on_start_called is True
     assert resp.content == "Final response from mock LLM [appended]"
-    
+
     # Verify pre_llm_call injection in messages passed to llm
     called_msgs = llm.chat.call_args[0][0]
     assert "injected context" in called_msgs[-1]["content"]
@@ -68,18 +75,14 @@ async def test_agent_loop_tool_hooks_integration():
     # First turn generates a tool call; second turn generates final response
     llm = AsyncMock()
     llm.chat.side_effect = [
-        LLMResult(content="I will call example_tool", tool_calls=[
-            ToolCall(id="call_1", name="example_tool", arguments={"param": "hello"})
-        ]),
-        LLMResult(content="Done processing tool results", tool_calls=[])
+        LLMResult(content="I will call example_tool", tool_calls=[ToolCall(id="call_1", name="example_tool", arguments={"param": "hello"})]),
+        LLMResult(content="Done processing tool results", tool_calls=[]),
     ]
 
     # Mock tool executor
     executor = AsyncMock()
     # execute_many returns ToolResult
-    executor.execute_many.return_value = [
-        ToolResult(call_id="call_1", name="example_tool", ok=True, content="Original result")
-    ]
+    executor.execute_many.return_value = [ToolResult(call_id="call_1", name="example_tool", ok=True, content="Original result")]
     executor.registry = MagicMock()
     executor.registry.schema_list.return_value = []
 
@@ -91,7 +94,7 @@ async def test_agent_loop_tool_hooks_integration():
     memory.sync_turn = AsyncMock(return_value=None)
     extensions = MagicMock()
     extensions.prompt_context.return_value = ""
-    
+
     config = MagicMock()
     config.max_iterations = 2
     config.enable_guardrails = False
@@ -141,17 +144,10 @@ async def test_agent_loop_tool_hooks_integration():
     reg._hooks["post_llm_call"] = [on_post_llm]
     reg._hooks["on_session_end"] = [on_end]
 
-    loop = AgentLoop(
-        llm_provider=llm,
-        tool_executor=executor,
-        skill_manager=skills,
-        memory_manager=memory,
-        extension_registry=extensions,
-        config=config
-    )
+    loop = AgentLoop(llm_provider=llm, tool_executor=executor, skill_manager=skills, memory_manager=memory, extension_registry=extensions, config=config)
 
     req = ChatRequest(message="run tool", user_id="user_1", session_id="sess_1", channel="test")
-    resp = await loop.run(req)
+    await loop.run(req)
 
     assert pre_tool_called is True
     assert post_tool_called is True
@@ -178,9 +174,7 @@ async def test_agent_loop_tool_blocking_integration():
 
     # First turn generates a tool call
     llm = AsyncMock()
-    llm.chat.return_value = LLMResult(content="I will call example_tool", tool_calls=[
-        ToolCall(id="call_1", name="example_tool", arguments={"param": "hello"})
-    ])
+    llm.chat.return_value = LLMResult(content="I will call example_tool", tool_calls=[ToolCall(id="call_1", name="example_tool", arguments={"param": "hello"})])
 
     # Mock tool executor: execute_many should NOT be called
     executor = AsyncMock()
@@ -195,7 +189,7 @@ async def test_agent_loop_tool_blocking_integration():
     memory.sync_turn = AsyncMock(return_value=None)
     extensions = MagicMock()
     extensions.prompt_context.return_value = ""
-    
+
     config = MagicMock()
     config.max_iterations = 2
     config.enable_guardrails = False
@@ -208,21 +202,14 @@ async def test_agent_loop_tool_blocking_integration():
 
     reg._hooks["pre_tool_call"] = [on_pre_tool_block]
 
-    loop = AgentLoop(
-        llm_provider=llm,
-        tool_executor=executor,
-        skill_manager=skills,
-        memory_manager=memory,
-        extension_registry=extensions,
-        config=config
-    )
+    loop = AgentLoop(llm_provider=llm, tool_executor=executor, skill_manager=skills, memory_manager=memory, extension_registry=extensions, config=config)
 
     req = ChatRequest(message="run tool", user_id="user_1", session_id="sess_1", channel="test")
     resp = await loop.run(req)
 
     # Tool executor should NOT have been called
     executor.execute_many.assert_not_called()
-    
+
     # It should abort and return the block message
     assert resp.content == "Access denied by plugin"
 
@@ -235,18 +222,18 @@ async def test_agent_loop_declarative_plugin_interception():
     reg._decl_hooks.clear()
 
     # Register mock declarative hook command for pre_tool_call
-    reg._decl_hooks["pre_tool_call"] = [{
-        "plugin_name": "mock_guardian",
-        "plugin_path": ".",
-        "command": "echo '{\"action\": \"block\", \"message\": \"Access denied by guardian script\"}'",
-        "matcher": None,
-        "async": False
-    }]
+    reg._decl_hooks["pre_tool_call"] = [
+        {
+            "plugin_name": "mock_guardian",
+            "plugin_path": ".",
+            "command": 'echo \'{"action": "block", "message": "Access denied by guardian script"}\'',
+            "matcher": None,
+            "async": False,
+        }
+    ]
 
     llm = AsyncMock()
-    llm.chat.return_value = LLMResult(content="calling tool", tool_calls=[
-        ToolCall(id="call_1", name="some_tool", arguments={})
-    ])
+    llm.chat.return_value = LLMResult(content="calling tool", tool_calls=[ToolCall(id="call_1", name="some_tool", arguments={})])
 
     executor = AsyncMock()
     executor.registry = MagicMock()
@@ -260,25 +247,17 @@ async def test_agent_loop_declarative_plugin_interception():
     memory.sync_turn = AsyncMock(return_value=None)
     extensions = MagicMock()
     extensions.prompt_context.return_value = ""
-    
+
     config = MagicMock()
     config.max_iterations = 2
     config.enable_guardrails = False
     config.enable_context_compression = False
     config.enable_think_scrubbing = False
 
-    loop = AgentLoop(
-        llm_provider=llm,
-        tool_executor=executor,
-        skill_manager=skills,
-        memory_manager=memory,
-        extension_registry=extensions,
-        config=config
-    )
+    loop = AgentLoop(llm_provider=llm, tool_executor=executor, skill_manager=skills, memory_manager=memory, extension_registry=extensions, config=config)
 
     req = ChatRequest(message="run", user_id="user_1", session_id="sess_1", channel="test")
     resp = await loop.run(req)
 
     assert resp.content == "Access denied by guardian script"
     executor.execute_many.assert_not_called()
-

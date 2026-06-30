@@ -1,26 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  parseTabHash,
   pushAppTab,
   readTabFromHistory,
   replaceAppTab,
+  resolveTabFromLocation,
+  shouldRewriteLegacyHash,
   type AppTab,
 } from '../navigation/appTab';
 
-export function useAppTab(initial: AppTab = 'mesh') {
-  const [tab, setTabState] = useState<AppTab>(() => {
-    return readTabFromHistory() ?? parseTabHash(window.location.hash) ?? initial;
-  });
+export function useAppTab(initial: AppTab = 'folio') {
+  const [tab, setTabState] = useState<AppTab>(() => resolveTabFromLocation(initial));
 
   useEffect(() => {
-    if (!readTabFromHistory()) {
-      replaceAppTab(initial);
+    const resolved = resolveTabFromLocation(initial);
+    setTabState(resolved);
+    if (shouldRewriteLegacyHash(window.location.hash) || readTabFromHistory() === null) {
+      replaceAppTab(resolved);
     }
   }, [initial]);
 
   useEffect(() => {
     const onPopState = () => {
-      setTabState(readTabFromHistory() ?? parseTabHash(window.location.hash) ?? 'mesh');
+      setTabState(resolveTabFromLocation('folio'));
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);

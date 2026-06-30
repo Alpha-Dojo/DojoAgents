@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import Optional
 
@@ -23,8 +22,7 @@ from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
-
-logger = logging.getLogger(__name__)
+from dojoagents.logging import LOGGER
 
 PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
     (
@@ -124,19 +122,19 @@ class FinancialDomainRegistry:
         except ImportError:
             tqdm = None
 
-        logger.info("Initializing and preloading registry data...")
+        LOGGER.debug("Initializing and preloading registry data...")
         phases = [store_names] if store_names is not None else PRELOAD_PHASES
         errors: list[Exception] = []
         for phase_idx, phase in enumerate(phases, 1):
             tasks = []
 
             async def _load_store(name: str, inst: Any) -> Any:
-                logger.info(f"开始加载 Store: {name} ...")
+                LOGGER.debug(f"开始加载 Store: {name} ...")
                 try:
                     await inst.load()
-                    logger.info(f"Store {name} 加载完成。")
+                    LOGGER.debug(f"Store {name} 加载完成。")
                 except Exception as e:
-                    logger.error(f"Store {name} 加载失败: {e}")
+                    LOGGER.error(f"Store {name} 加载失败: {e}")
                     raise
 
             for store_name in phase:
@@ -164,8 +162,8 @@ class FinancialDomainRegistry:
             for res in results:
                 if isinstance(res, Exception):
                     errors.append(res)
-                    logger.error("Registry preload error: %s", res)
-        logger.info("Registry preload complete.")
+                    LOGGER.error("Registry preload error: %s", res)
+        LOGGER.debug("Registry preload complete.")
         return errors
 
     def reset(self) -> None:
