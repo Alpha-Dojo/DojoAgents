@@ -3,6 +3,7 @@ from dojoagents.logging import LOGGER
 
 import argparse
 import asyncio
+import subprocess
 from pathlib import Path
 
 import uvicorn
@@ -13,6 +14,11 @@ from dojoagents.cli.gateway_setup import configure_gateway_adapters
 from dojoagents.dashboard.server import create_app as create_dashboard_app
 from dojoagents.gateway.server import create_runner_app as create_gateway_app
 from dojoagents.quant.context import QuantContext
+
+
+def _build_dashboard_frontend() -> None:
+    web_dir = Path(__file__).resolve().parents[1] / "dashboard" / "web"
+    subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -105,6 +111,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat":
         return asyncio.run(_run_chat(args))
     if args.command == "dashboard":
+        try:
+            _build_dashboard_frontend()
+        except (OSError, subprocess.CalledProcessError):
+            LOGGER.exception(
+                "Dashboard frontend build failed; starting with the existing built assets"
+            )
         runtime = Runtime.from_default_config()
         uvicorn.run(create_dashboard_app(runtime), host=args.host, port=args.port)
         return 0
