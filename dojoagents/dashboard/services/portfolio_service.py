@@ -798,6 +798,17 @@ class PortfolioService:
             primary = next(iter(candidate_market_perf.values()))
             window_start = primary.dates[0] if primary.dates else None
             window_end = primary.dates[-1] if primary.dates else None
+
+        benchmark_by_market = {market: item.benchmark for market, item in series.items()}
+        benchmark_symbol_by_market = {
+            market: item.benchmark_symbol for market, item in series.items()
+        }
+        for market, item in candidate_market_perf.items():
+            if not benchmark_by_market.get(market):
+                benchmark_by_market[market] = item.benchmark
+            if market not in benchmark_symbol_by_market:
+                benchmark_symbol_by_market[market] = item.benchmark_symbol
+
         return PortfolioPerformanceView(
             dates=primary.dates,
             portfolio=primary.portfolio,
@@ -806,8 +817,8 @@ class PortfolioService:
             window_end=window_end,
             series_by_market=series,
             candidate_series_by_market=candidate_series_by_market,
-            benchmark_by_market={market: item.benchmark for market, item in series.items()},
-            benchmark_symbol_by_market={market: item.benchmark_symbol for market, item in series.items()},
+            benchmark_by_market=benchmark_by_market,
+            benchmark_symbol_by_market=benchmark_symbol_by_market,
             stats_by_market={market: item.stats for market, item in series.items()},
             candidate_stats_by_market=candidate_stats_by_market,
         )

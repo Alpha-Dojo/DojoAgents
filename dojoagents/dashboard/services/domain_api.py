@@ -365,6 +365,23 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
     for market, stats in (performance.get("candidate_stats_by_market") or {}).items():
         market_key = to_native_market_code(market) or market
         candidate_stats_by_market[market_key] = _risk_stats(stats)
+
+    raw_benchmark_by_market = performance.get("benchmark_by_market") or {}
+    raw_benchmark_symbols = performance.get("benchmark_symbol_by_market") or {}
+    for market, points in candidate_nav_by_market.items():
+        if not nav_by_market.get(market):
+            nav_by_market[market] = points
+        if market not in stats_by_market and market in candidate_stats_by_market:
+            stats_by_market[market] = candidate_stats_by_market[market]
+        if market not in benchmark_by_market:
+            internal_market = normalize_market_code(market) or market
+            bench_values = raw_benchmark_by_market.get(internal_market) or raw_benchmark_by_market.get(market)
+            if bench_values and points:
+                dates = [point.date for point in points]
+                benchmark_by_market[market] = _market_performance_points(dates, list(bench_values))
+            symbol = raw_benchmark_symbols.get(internal_market) or raw_benchmark_symbols.get(market)
+            if symbol:
+                benchmark_symbol_by_market[market] = str(symbol)
     if not nav_by_market and dates:
         nav_by_market["all"] = _market_performance_points(dates, list(performance.get("portfolio") or []))
         benchmark_by_market["all"] = _market_performance_points(dates, list(performance.get("benchmark") or []))
