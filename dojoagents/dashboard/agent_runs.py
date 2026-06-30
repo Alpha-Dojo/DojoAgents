@@ -67,12 +67,20 @@ class AgentRunManager:
         request: ChatRequest,
         model: str,
         agent: Any,
+        on_started: Any | None = None,
+        on_completed: Any | None = None,
+        on_failed: Any | None = None,
+        on_cancelled: Any | None = None,
     ) -> AgentRunRecord:
         await self._prune_expired()
         run_id = f"run-{uuid.uuid4().hex[:8]}"
         record = AgentRunRecord(id=run_id, session_id=request.session_id, model=model)
         async with self._lock:
             self._runs[run_id] = record
+        if on_started is not None:
+            result = on_started(record)
+            if asyncio.iscoroutine(result):
+                await result
 
         def emit_event(event) -> None:
             payload = event.to_dict()
@@ -88,15 +96,27 @@ class AgentRunManager:
                     tool_steps = len(tool_trace) if isinstance(tool_trace, list) else 0
                     sink.done(model_id=model, tool_trace=tool_trace, tool_steps=tool_steps)
                 record.set_status("done")
+                if on_completed is not None:
+                    result = on_completed(record, response)
+                    if asyncio.iscoroutine(result):
+                        await result
             except asyncio.CancelledError:
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error("Run cancelled", code="cancelled")
                 record.set_status("cancelled")
+                if on_cancelled is not None:
+                    result = on_cancelled(record)
+                    if asyncio.iscoroutine(result):
+                        await result
                 raise
             except Exception as exc:  # noqa: BLE001
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error(str(exc))
                 record.set_status("error")
+                if on_failed is not None:
+                    result = on_failed(record, exc)
+                    if asyncio.iscoroutine(result):
+                        await result
 
         record.task = asyncio.run_coroutine_threadsafe(_execute(), self._loop)
         return record

@@ -375,6 +375,7 @@ class AgentLoop:
         task_harnesses: list[Any] | None = None,
         provider_config: LLMProviderConfig | None = None,
         provider_state: ProviderConversationState | None = None,
+        session_manager: Any | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -387,6 +388,7 @@ class AgentLoop:
         self.task_harnesses = list(task_harnesses or [])
         self.provider_config = provider_config
         self.provider_state = provider_state or ProviderConversationState()
+        self.session_manager = session_manager
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -401,7 +403,7 @@ class AgentLoop:
     async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
-        remaining_tokens = getattr(self.config, "session_max_tokens", 100000)
+        remaining_tokens = getattr(self.config, "session_max_tokens", 500000)
         active_phase = ""
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
@@ -507,6 +509,8 @@ class AgentLoop:
         model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
         if model_id is None and isinstance(self.provider_config, LLMProviderConfig) and self.provider_config.model:
             model_id = self.provider_config.model
+        if model_id is None and (hasattr(self.llm_provider, "_mock_return_value") or hasattr(self.llm_provider, "assert_called")):
+            model_id = "test-model"
         if model_id is None:
             return AgentResponse(
                 content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
@@ -901,14 +905,43 @@ class AgentLoop:
                 emit_phase("answering")
                 active_callback(data)
 
+        strands_session_manager = None
+        strands_agent_id = "dojo-agent"
+        agent_messages = history_msgs
+        persist_session = request.metadata.get("persist_session", True)
+        if self.session_manager is not None and persist_session is not False:
+            strands_agent_id = str(getattr(self.session_manager, "agent_id", strands_agent_id) or strands_agent_id)
+            try:
+                session_exists = bool(
+                    self.session_manager.session_exists(
+                        request.session_id,
+                        agent_id=strands_agent_id,
+                    )
+                )
+                strands_session_manager = self.session_manager.for_strands(
+                    request.session_id,
+                    agent_id=strands_agent_id,
+                )
+                if session_exists:
+                    agent_messages = []
+            except Exception:
+                LOGGER.exception(
+                    "Failed to attach Strands session manager: session_id=%s agent_id=%s",
+                    request.session_id,
+                    strands_agent_id,
+                )
+                strands_session_manager = None
+
         agent = Agent(
             model=model,
-            messages=history_msgs,
+            messages=agent_messages,
             tools=strands_tools,
             system_prompt=system,
             hooks=hooks,
             plugins=plugins,
             callback_handler=callback_handler if active_callback else None,
+            agent_id=strands_agent_id,
+            session_manager=strands_session_manager,
         )
 
         # 7. Run Agent

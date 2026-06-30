@@ -1,6 +1,5 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
-import { createRandomId } from '../utils/randomId';
 
 import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
@@ -279,7 +278,7 @@ export async function createAgentRun(
       model: body.model_id,
       messages: body.messages,
       metadata: {
-        session_id: createRandomId(),
+        session_id: body.session_id,
         locale: body.locale ?? 'zh',
         event_format: 'dojo.v2',
         ...(body.dashboard_tab ? { dashboard_tab: body.dashboard_tab } : {}),

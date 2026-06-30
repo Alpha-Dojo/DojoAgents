@@ -80,6 +80,7 @@ export interface AgentChatMessage {
 export type AgentLocale = 'zh' | 'en';
 
 export interface AgentChatRequest {
+  session_id: string;
   model_id: string;
   messages: AgentApiMessage[];
   locale?: AgentLocale;

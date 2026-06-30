@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import uuid
@@ -16,6 +17,7 @@ from dojoagents.dashboard.routers import (
     dojo_folio,
     dojo_mesh,
     dojo_sphere,
+    chat_sessions,
     market,
     markets,
     portfolio,
@@ -261,6 +263,20 @@ async def _close_dojo_client(client: Any) -> None:
         await close()
 
 
+async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
+    run = runtime.agent.run
+    if event_sink is None:
+        return await run(req)
+    try:
+        signature = inspect.signature(run)
+    except (TypeError, ValueError):
+        return await run(req, event_sink=event_sink)
+    accepts_event_sink = "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
+    if accepts_event_sink:
+        return await run(req, event_sink=event_sink)
+    return await run(req)
+
+
 def create_app(
     runtime: Any,
     *,
@@ -336,6 +352,7 @@ def create_app(
                 reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
+    app.state.runtime = runtime
     app.state.config_store = store
     app.state.financial_registry = registry
 
@@ -350,6 +367,7 @@ def create_app(
     app.include_router(dojo_sphere.router, prefix="/api/v1")
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
+    app.include_router(chat_sessions.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -431,19 +449,27 @@ def create_app(
         model = info["model"]
         event_format = info.get("event_format", "openai.v1")
         _sync_runtime_agent_from_config(runtime, model)
+        sessions = getattr(runtime, "sessions", None)
 
         if is_stream:
             # SSE streaming mode
             queue: asyncio.Queue = asyncio.Queue()
             run_id = f"run-{uuid.uuid4().hex[:8]}"
             event_sink = make_event_queue_sink(queue, run_id=run_id, session_id=req.session_id)
+            session_handle = None
+            if sessions is not None:
+                session_handle = await sessions.begin_run(req, model=model, run_id=run_id)
 
             async def _stream_and_restore():
                 try:
-                    await runtime.agent.run(req, event_sink=event_sink)
+                    response = await _run_agent(runtime, req, event_sink=event_sink)
+                    if sessions is not None and session_handle is not None:
+                        await sessions.finish_run(session_handle, response, events=event_sink.events)
                     await asyncio.sleep(0)
                     await queue.put(None)
                 except Exception as exc:
+                    if sessions is not None and session_handle is not None:
+                        await sessions.fail_run(session_handle, str(exc))
                     await asyncio.sleep(0)
                     await queue.put(exc)
                     raise
@@ -472,9 +498,20 @@ def create_app(
         # Non-streaming mode
         dojo_extension = None
         sink: AgentEventSink | None = None
+        run_id = f"run-{uuid.uuid4().hex[:8]}"
         if event_format == "dojo.v2":
-            sink = AgentEventSink(run_id=f"run-{uuid.uuid4().hex[:8]}", session_id=req.session_id)
-        response: AgentResponse = await runtime.agent.run(req, event_sink=sink)
+            sink = AgentEventSink(run_id=run_id, session_id=req.session_id)
+        session_handle = None
+        if sessions is not None:
+            session_handle = await sessions.begin_run(req, model=model, run_id=run_id)
+        try:
+            response: AgentResponse = await _run_agent(runtime, req, event_sink=sink)
+        except Exception as exc:
+            if sessions is not None and session_handle is not None:
+                await sessions.fail_run(session_handle, str(exc))
+            raise
+        if sessions is not None and session_handle is not None:
+            await sessions.finish_run(session_handle, response, events=(sink.events if sink is not None else []))
         if sink is not None:
             dojo_extension = {
                 "schema_version": "2.0",
@@ -497,10 +534,43 @@ def create_app(
             return JSONResponse(status_code=422, content={"error": str(exc)})
         manager: AgentRunManager = app.state.agent_run_manager
         _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
+        sessions = getattr(runtime, "sessions", None)
+        session_handle_ref: dict[str, Any] = {}
+
+        async def _on_started(record: Any) -> None:
+            if sessions is None:
+                return
+            session_handle_ref["handle"] = await sessions.begin_run(req, model=info.get("model", "default"), run_id=record.id)
+
+        async def _on_completed(record: Any, response: AgentResponse) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.finish_run(handle, response, events=record.events)
+
+        async def _on_failed(record: Any, exc: Exception) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.fail_run(handle, str(exc))
+
+        async def _on_cancelled(record: Any) -> None:
+            if sessions is None:
+                return
+            handle = session_handle_ref.get("handle")
+            if handle is not None:
+                await sessions.cancel_run(handle)
+
         record = await manager.create_run(
             request=req,
             model=info.get("model", "default"),
             agent=runtime.agent,
+            on_started=_on_started,
+            on_completed=_on_completed,
+            on_failed=_on_failed,
+            on_cancelled=_on_cancelled,
         )
         return {
             "run_id": record.id,

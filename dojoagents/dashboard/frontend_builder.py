@@ -1,3 +1,4 @@
+import os
 import portalocker
 import shutil
 import subprocess
@@ -5,13 +6,20 @@ from pathlib import Path
 
 from dojoagents.logging import LOGGER
 
+_REBUILD_ENV = "DOJO_DASHBOARD_REBUILD_FRONTEND"
+
+
+def _frontend_rebuild_forced() -> bool:
+    return os.environ.get(_REBUILD_ENV, "false").lower() in ("1", "true", "yes")
+
 
 def setup_frontend_static_files(source_dir: Path, target_dir: Path) -> None:
     """Checks and automatically builds the frontend project into the target directory."""
     index_file = target_dir / "index.html"
+    rebuild = _frontend_rebuild_forced()
 
     # Fast path check without lock
-    if target_dir.exists() and index_file.exists():
+    if not rebuild and target_dir.exists() and index_file.exists():
         LOGGER.info(f"Frontend static resources already exist in {target_dir}. Skipping build.")
         return
 
@@ -29,11 +37,14 @@ def setup_frontend_static_files(source_dir: Path, target_dir: Path) -> None:
             portalocker.lock(f.fileno(), portalocker.LOCK_EX)
 
             # Double check inside the lock
-            if target_dir.exists() and index_file.exists():
+            if not rebuild and target_dir.exists() and index_file.exists():
                 LOGGER.info(f"Frontend static resources already exist in {target_dir}. Skipping build.")
                 return
 
-            LOGGER.info("No frontend build found. Preparing to compile and package...")
+            if rebuild:
+                LOGGER.info(f"{_REBUILD_ENV} is set. Rebuilding frontend...")
+            else:
+                LOGGER.info("No frontend build found. Preparing to compile and package...")
 
             npm_path = shutil.which("npm")
             if not npm_path:

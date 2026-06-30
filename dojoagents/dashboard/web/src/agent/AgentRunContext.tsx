@@ -536,6 +536,12 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         runsRef.current.delete(params.sessionId);
         throw err;
       }
+      const { run_id: runId } = await createAgentRun({
+        session_id: params.sessionId,
+        model_id: params.modelId,
+        locale: params.locale,
+        messages: params.apiMessages,
+      });
 
       const state: InternalRunState = {
         sessionId: params.sessionId,

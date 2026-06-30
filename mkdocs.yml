@@ -57,6 +57,7 @@ plugins:
             添加 Gateway Adapter: Adding Gateway Adapter
             前端样式规范: Frontend Style Guide
             构建发布: Release Build
+            Docker 打包: Docker Packaging
             运维: Operations
             Dashboard 部署: Dashboard Deployment
             性能剖析: Performance Profiling
@@ -122,8 +123,21 @@ nav:
       - 仓库地图: development/repository-map.md
       - 本地开发: development/local-development.md
       - 测试: development/testing.md
+      - Session 设计与集成: development/session-history-design.md
       - 添加工具: development/adding-tools.md
       - 添加 Dashboard 路由: development/adding-dashboard-routes.md
       - 添加 Gateway Adapter: development/adding-gateway-adapters.md
       - 前端样式规范: development/frontend-style-guide.md
       - 构建发布: development/release-build.md
+      - Docker 打包: development/docker-packaging.md
+  - 运维:
+      - operations/index.md
+      - Dashboard 部署: operations/dashboard-deployment.md
+      - 性能剖析: operations/performance-profiler.md
+      - 排错: operations/troubleshooting.md
+      - 安全: operations/security.md
+  - 设计记录:
+      - design-notes/index.md
+      - 当前设计: design-notes/current-designs.md
+      - 历史设计: design-notes/historical-designs.md
+      - 迁移记录: design-notes/migration-notes.md
