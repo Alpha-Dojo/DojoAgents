@@ -545,7 +545,7 @@
 }
 
 .folio-sidebar__item--pinned {
-  border-color: rgba(255, 204, 128, 0.28);
+  border-color: var(--cyan);
 }
 
 .folio-sidebar__item-select {
@@ -779,9 +779,10 @@
 
 .folio-sidebar__stats-flag {
   display: inline-block;
+  width: 11px;
+  height: 11px;
   margin-right: 1px;
-  font-size: 11px;
-  line-height: 1;
+  object-fit: contain;
   vertical-align: middle;
 }
 
@@ -956,7 +957,7 @@
 .folio-overview__top {
   --folio-toolbar-height: 68px;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
   height: var(--folio-toolbar-height);
@@ -981,43 +982,7 @@
   flex: 0 0 34px;
   width: 34px;
   min-width: 34px;
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--border-dim);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.folio-config-toggle:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-}
-
-.folio-config-toggle--active {
-  border-color: rgba(0, 212, 170, 0.35);
-  background: rgba(0, 212, 170, 0.08);
-  color: var(--accent);
-}
-
-.folio-config-toggle:disabled {
-  cursor: default;
-  opacity: 1;
-}
-
-.folio-config-toggle:disabled.folio-config-toggle--active {
-  border-color: rgba(0, 212, 170, 0.35);
-  background: rgba(0, 212, 170, 0.08);
-  color: var(--accent);
+  height: 34px;
 }
 
 .folio-config-toggle--dirty::after {
@@ -1029,11 +994,6 @@
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
-}
-
-.folio-config-toggle__icon {
-  display: inline-flex;
-  opacity: 0.9;
 }
 
 .folio-headline {
@@ -1049,7 +1009,7 @@
   justify-content: flex-start;
   min-width: 0;
   height: 100%;
-  padding: 5px 10px 4px;
+  padding: 5px 8px 4px;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
@@ -1120,8 +1080,9 @@
 
 .folio-headline__market-flag {
   flex-shrink: 0;
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
 }
 
 .folio-headline__market-value {
@@ -1171,6 +1132,7 @@
   width: 100%;
   height: 100%;
   min-width: 0;
+  align-items: center;
 }
 
 .folio-config-inline__title {
@@ -1187,7 +1149,7 @@
   justify-content: center;
   min-height: 0;
   width: 100%;
-  padding: 4px 8px 6px;
+  padding: 4px 0 6px;
   box-sizing: border-box;
 }
 
@@ -1249,42 +1211,10 @@
 
 .folio-config-inline__apply {
   flex: 0 0 auto;
-  min-width: 72px;
-  max-width: 84px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 10px;
-  cursor: pointer;
-  border: 1px solid rgba(0, 212, 170, 0.32);
-  background: rgba(0, 212, 170, 0.08);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.01em;
-  text-align: center;
+  height: 36px;
+  /* min-width: 72px; */
+  /* max-width: 84px; */
   white-space: nowrap;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.folio-config-inline__apply:hover:not(:disabled) {
-  border-color: rgba(0, 212, 170, 0.5);
-  background: rgba(0, 212, 170, 0.14);
-}
-
-.folio-config-inline__apply:active:not(:disabled) {
-  background: rgba(0, 212, 170, 0.2);
-}
-
-.folio-config-inline__apply:disabled {
-  cursor: not-allowed;
-  border-color: var(--border-dim);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-dim);
 }
 
 .folio-config__grid {
@@ -1953,7 +1883,8 @@
   min-height: 0;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%);
+  background: #07101AE5;
+  /* background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%); */
   overflow: hidden;
 }
 
@@ -2129,22 +2060,35 @@
 }
 
 .folio-performance__window-select {
-  min-height: 24px;
-  padding: 2px 24px 2px 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.2;
-  color: var(--text-muted);
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background-color: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
+  width: auto;
 }
 
-.folio-performance__window-select:hover,
-.folio-performance__window-select:focus {
-  border-color: rgba(0, 212, 170, 0.35);
-  color: var(--text);
+.folio-performance__window-select .dojo-dropdown-select__trigger {
+  gap: 6px;
+  width: auto;
+  height: 26px;
+  padding: 0 7px 0 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.folio-performance__window-select .dojo-dropdown-select__value {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.folio-performance__window-select .dojo-dropdown-select__trigger:hover,
+.folio-performance__window-select .dojo-dropdown-select__trigger:focus-visible,
+.folio-performance__window-select .dojo-dropdown-select__trigger--open {
+  border-color: var(--green);
+  background: rgba(0, 0, 0, 0.25);
+  outline: none;
 }
 
 .folio-performance__head-tail {
@@ -2225,8 +2169,9 @@
 }
 
 .folio-performance__inline-flag {
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
   opacity: 0.92;
 }
 
@@ -2407,21 +2352,8 @@
   opacity: 0.85;
 }
 
-.folio-benchmark-multi__dropdown.dojo-dropdown-select__dropdown {
-  width: max-content;
-  padding: 3px;
-}
-
 .folio-benchmark-multi__dropdown .dojo-dropdown-select__option-label {
   white-space: nowrap;
-}
-
-.folio-benchmark-multi__dropdown .folio-benchmark-multi__option {
-  gap: 6px;
-  justify-content: flex-start;
-  width: auto;
-  min-width: 0;
-  padding: 5px 8px;
 }
 
 .folio-benchmark-multi__option {
@@ -2518,8 +2450,9 @@
 
 .folio-benchmark-select__flag {
   flex-shrink: 0;
-  font-size: 11px;
-  line-height: 1;
+  width: 11px;
+  height: 11px;
+  object-fit: contain;
 }
 
 .folio-performance__legend {
@@ -2720,7 +2653,9 @@
 }
 
 .folio-risk__market-flag {
-  font-size: 10px;
+  width: 10px;
+  height: 10px;
+  object-fit: contain;
 }
 
 .folio-risk__market-code {
@@ -3151,8 +3086,9 @@
 }
 
 .folio-market-label__flag {
-  font-size: 12px;
-  line-height: 1;
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
 }
 
 .folio-market-label__code {

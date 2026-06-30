@@ -18,6 +18,7 @@ import { FolioHoldingNameCell } from './FolioHoldingNameCell';
 import { FolioMarketLabel } from './FolioMarketLabel';
 import { TrashIcon } from './FolioSidebarIcons';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
+import { DojoButton } from '../ui';
 
 interface FolioCandidatesPanelProps {
   portfolio: FolioPortfolioDetail;
@@ -239,16 +240,18 @@ export function FolioCandidatesPanel({
                                 </button>
                               </td>
                               <td className="folio-table__remove-cell">
-                                <button
-                                  type="button"
-                                  className="folio-table__remove"
-                                  aria-label={t('folio.removeHolding', { ticker: row.ticker })}
+                                <DojoButton
+                                    icon
+                                    size="xs"
+                                    variant="error"
+                                    className="dojo-agent-olio-table__remove-delete"
+                                    aria-label={t('folio.removeHolding', { ticker: row.ticker })}
                                   disabled={removingTicker === row.ticker || isHeld}
                                   title={isHeld ? t('folio.candidateHeldLocked') : undefined}
                                   onClick={() => onRemoveCandidate(row.ticker, row.market)}
-                                >
-                                  <TrashIcon />
-                                </button>
+                                  >
+                                    <TrashIcon />
+                                </DojoButton>
                               </td>
                             </tr>
                           );

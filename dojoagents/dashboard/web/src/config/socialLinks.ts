@@ -2,7 +2,7 @@ import discordIcon from '../assets/svg/discord.svg';
 import githubIcon from '../assets/svg/github.svg';
 import huggingfaceIcon from '../assets/svg/huggingface.svg';
 import wechatIcon from '../assets/svg/wechat.svg';
-import WechatImg from '../assets/images/wechat-alphadojo.png';
+import WechatImg from '../assets/images/wechat.jpg';
 
 export const SOCIAL_LINKS = [
   {

@@ -1132,7 +1132,7 @@ export function DojoAgentPanel({
               <AgentModelSwitcher variant="composer" />
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className={
                   pendingImages.length > 0
                     ? "dojo-agent-panel__attach-btn dojo-agent-panel__attach-btn--active"
@@ -1160,7 +1160,7 @@ export function DojoAgentPanel({
             {streaming ? (
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className="dojo-agent-panel__send-btn"
                 aria-label={t("agent.stop")}
                 onClick={handleStop}
@@ -1170,7 +1170,7 @@ export function DojoAgentPanel({
             ) : (
               <DojoButton
                 variant="secondary"
-                size="sm"
+                size="xs"
                 className="dojo-agent-panel__send-btn"
                 disabled={!canSend}
                 aria-label={t("agent.send")}

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
-import { MARKET_FLAG } from '../../utils/marketDisplay';
+import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import { formatPerformanceReturnPercent, PERFORMANCE_MARKET_CLASS } from '../../utils/sectorPerformanceSeries';
 
 export type FolioBenchmarkMultiSelectOption = {
@@ -216,14 +216,19 @@ export function FolioBenchmarkMultiSelect({
                   role="option"
                   aria-selected={active}
                   className={`folio-benchmark-multi__option dojo-dropdown-select__option${
-                    active ? ' folio-benchmark-multi__option--active' : ''
+                    active
+                      ? ' folio-benchmark-multi__option--active dojo-dropdown-select__option--active'
+                      : ''
                   }`}
                   onClick={() => handleOptionClick(entry.symbol)}
                 >
                   <span className="folio-benchmark-multi__option-leading">
-                    <span className="folio-benchmark-select__flag" aria-hidden>
-                      {MARKET_FLAG[entry.market]}
-                    </span>
+                    <img
+                      className="folio-benchmark-select__flag"
+                      src={MARKET_FLAG_IMAGE[entry.market]}
+                      alt=""
+                      aria-hidden
+                    />
                     <span className="dojo-dropdown-select__option-label">{entry.label}</span>
                   </span>
                   <span
@@ -245,14 +250,14 @@ export function FolioBenchmarkMultiSelect({
 
   const triggerPrefix =
     selectedOptions.length === 1 ? (
-      <span
+      <img
         className={
           variant === 'inline' ? 'folio-performance__inline-flag' : 'folio-benchmark-select__flag'
         }
+        src={MARKET_FLAG_IMAGE[selectedOptions[0].market]}
+        alt=""
         aria-hidden
-      >
-        {MARKET_FLAG[selectedOptions[0].market]}
-      </span>
+      />
     ) : null;
 
   const inlineMarket =

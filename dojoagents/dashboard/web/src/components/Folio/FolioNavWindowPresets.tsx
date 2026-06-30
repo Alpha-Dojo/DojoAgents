@@ -1,5 +1,6 @@
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioNavWindowPreset } from '../../utils/folioNavWindow';
+import { DojoDropdownSelect } from '../ui/DojoDropdownSelect';
 
 const PRESETS: FolioNavWindowPreset[] = ['3m', '6m', '1y', 'all'];
 
@@ -20,22 +21,21 @@ interface FolioNavWindowPresetsProps {
 
 export function FolioNavWindowPresets({ value, onChange }: FolioNavWindowPresetsProps) {
   const { t } = useTranslation();
+  const ariaLabel = t('folio.navWindowLabel');
+  const options = PRESETS.map((preset) => ({
+    value: preset,
+    label: t(PRESET_LABEL_KEY[preset]),
+  }));
 
   return (
-    <label className="folio-performance__window-select-wrap">
-      <span className="sr-only">{t('folio.navWindowLabel')}</span>
-      <select
-        className="folio-performance__window-select folio-config__select"
+    <div className="folio-performance__window-select-wrap">
+      <DojoDropdownSelect
+        aria-label={ariaLabel}
+        className="folio-performance__window-select"
+        options={options}
         value={value}
-        aria-label={t('folio.navWindowLabel')}
-        onChange={(event) => onChange(event.target.value as FolioNavWindowPreset)}
-      >
-        {PRESETS.map((preset) => (
-          <option key={preset} value={preset}>
-            {t(PRESET_LABEL_KEY[preset])}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={(nextValue) => onChange(nextValue as FolioNavWindowPreset)}
+      />
+    </div>
   );
 }

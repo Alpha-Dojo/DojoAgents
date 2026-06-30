@@ -9,12 +9,6 @@ export const MARKET_FLAG_IMAGE: Record<MarketCode, string> = {
   hk: hkFlag,
 };
 
-export const MARKET_FLAG: Record<MarketCode, string> = {
-  us: '🇺🇸',
-  cn: '🇨🇳',
-  hk: '🇭🇰',
-};
-
 export const MARKET_CODE: Record<MarketCode, string> = {
   us: 'US',
   cn: 'CN',
