@@ -18,7 +18,11 @@ def compute_market_performance_stats(
     if not window_start or not window_end:
         return None
 
-    values = [(day, value) for day, value in series if window_start <= day <= window_end]
+    values = [
+        (day, value)
+        for day, value in series
+        if window_start <= day <= window_end and math.isfinite(value)
+    ]
     if len(values) < 2:
         return None
 
@@ -34,7 +38,9 @@ def compute_market_performance_stats(
         prev = values[index - 1][1]
         curr = values[index][1]
         if prev > 0:
-            daily_returns.append(curr / prev - 1)
+            daily_return = curr / prev - 1
+            if math.isfinite(daily_return):
+                daily_returns.append(daily_return)
 
     sharpe_ratio: Optional[float] = None
     volatility_pct: Optional[float] = None
@@ -64,7 +70,8 @@ def compute_market_performance_stats(
     if trading_days > 0 and max_drawdown_pct < 0:
         total_return = last_value / first_value
         annualized_return = total_return ** (TRADING_DAYS_YEAR / trading_days) - 1
-        calmar_ratio = round(annualized_return / abs(max_drawdown_pct / 100), 2)
+        if math.isfinite(annualized_return):
+            calmar_ratio = round(annualized_return / abs(max_drawdown_pct / 100), 2)
 
     return SectorPerformanceMarketStats(
         cumulative_return_pct=cumulative_return_pct,

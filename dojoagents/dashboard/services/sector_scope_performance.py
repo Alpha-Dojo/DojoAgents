@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -139,6 +140,19 @@ def _clip_series_to_window(
     return [SectorPerformanceMarketPoint(date=day, value=value) for day, value in series if window_start <= day <= window_end]
 
 
+def _sanitize_index_series(series: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+    sanitized: List[Tuple[str, float]] = []
+    for day, value in series:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(parsed):
+            continue
+        sanitized.append((day, parsed))
+    return sanitized
+
+
 def _precomputed_scope_level_ids(path: ResolvedSectorPath, scope: SectorLevel) -> tuple[str, str]:
     level2_id = path.level2_id if scope in ("L2", "L3") else ""
     level3_id = path.level3_id if scope == "L3" else ""
@@ -164,7 +178,13 @@ def _market_series_from_precomputed(
     if not daily_rows:
         return [], 0
     sorted_rows = sorted(daily_rows, key=lambda row: str(row.get("trade_date") or ""))
-    series = [(str(row["trade_date"]), float(row["index_level"])) for row in sorted_rows]
+    series = _sanitize_index_series(
+        [
+            (str(row.get("trade_date") or ""), row.get("index_level"))
+            for row in sorted_rows
+            if row.get("trade_date")
+        ]
+    )
     member_count = int(sorted_rows[-1].get("member_count") or 0)
     return series, member_count
 

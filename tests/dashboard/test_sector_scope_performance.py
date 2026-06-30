@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -87,3 +88,59 @@ async def test_compute_sector_scope_performance_reads_precomputed_without_live_o
     assert response.members_by_market["sh"] == 148
     assert response.series_by_market["us"][-1].value == 112.5
     assert response.series_by_market["us"][-1].date == "2026-06-21"
+
+
+@pytest.mark.asyncio
+async def test_compute_sector_scope_performance_filters_non_finite_precomputed_points() -> None:
+    path = SimpleNamespace(level1_id="72", level2_id="", level3_id="")
+    store = _FakePrecomputedStore(
+        [
+            {
+                "scope": "L1",
+                "level1_id": "72",
+                "level2_id": "",
+                "level3_id": "",
+                "market": "us",
+                "trade_date": "2025-02-19",
+                "index_level": 109.5543,
+                "member_count": 1052,
+            },
+            {
+                "scope": "L1",
+                "level1_id": "72",
+                "level2_id": "",
+                "level3_id": "",
+                "market": "us",
+                "trade_date": "2025-02-20",
+                "index_level": float("inf"),
+                "member_count": 1053,
+            },
+            {
+                "scope": "L1",
+                "level1_id": "72",
+                "level2_id": "",
+                "level3_id": "",
+                "market": "us",
+                "trade_date": "2025-02-21",
+                "index_level": float("inf"),
+                "member_count": 1053,
+            },
+        ]
+    )
+
+    async def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("live stock/kline stores must not be used for precomputed performance")
+
+    response = await compute_sector_scope_performance(
+        fail_if_called,
+        fail_if_called,
+        store,
+        path,
+        scope="L1",
+    )
+
+    assert response.members_by_market["us"] == 1053
+    assert [point.date for point in response.series_by_market["us"]] == ["2025-02-19"]
+    assert response.series_by_market["us"][0].value == pytest.approx(109.5543)
+    stats = response.stats_by_market.get("us")
+    assert stats is None or math.isfinite(stats.cumulative_return_pct or 0.0)
