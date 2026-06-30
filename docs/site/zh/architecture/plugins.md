@@ -27,4 +27,4 @@ Plugin 系统允许 DojoAgents 从内置插件和用户插件目录中加载 too
 ## 深入阅读
 
 - [Plugin Manifest Reference](../reference/plugin-manifest.md)
-- 后续补充：将旧版插件设计中仍有效的细节继续收敛到本页和 Plugin Manifest Reference
+- [添加工具](../development/adding-tools.md)

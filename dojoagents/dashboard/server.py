@@ -27,7 +27,7 @@ from dojoagents.dashboard.routers import (
     utility,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
-from dojoagents.dashboard.agent_runs import AgentRunManager
+from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
@@ -450,6 +450,10 @@ def create_app(
         event_format = info.get("event_format", "openai.v1")
         _sync_runtime_agent_from_config(runtime, model)
         sessions = getattr(runtime, "sessions", None)
+        try:
+            await validate_request_modalities(req, runtime.agent)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
 
         if is_stream:
             # SSE streaming mode
@@ -563,15 +567,18 @@ def create_app(
             if handle is not None:
                 await sessions.cancel_run(handle)
 
-        record = await manager.create_run(
-            request=req,
-            model=info.get("model", "default"),
-            agent=runtime.agent,
-            on_started=_on_started,
-            on_completed=_on_completed,
-            on_failed=_on_failed,
-            on_cancelled=_on_cancelled,
-        )
+        try:
+            record = await manager.create_run(
+                request=req,
+                model=info.get("model", "default"),
+                agent=runtime.agent,
+                on_started=_on_started,
+                on_completed=_on_completed,
+                on_failed=_on_failed,
+                on_cancelled=_on_cancelled,
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         return {
             "run_id": record.id,
             "session_id": record.session_id,

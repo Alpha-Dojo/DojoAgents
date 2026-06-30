@@ -11,6 +11,7 @@ DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 @dataclass(frozen=True)
 class LLMProviderConfig:
     model: str | None = None
+    author: str | None = None
     base_url: str | None = None
     api_key_env: str | None = None
     api_key: str | None = None

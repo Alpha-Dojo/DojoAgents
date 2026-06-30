@@ -23,5 +23,5 @@ Multi-Agent 不应替代通用 Agent Loop。它是更高层的编排能力，用
 
 ## 深入阅读
 
-- Multi-Agent 设计后续应以本页为主继续补齐
-- Event-driven 细节见 [Event-driven](event-driven.md)
+- [Event-driven](event-driven.md)
+- [配置](../reference/configuration.md)
