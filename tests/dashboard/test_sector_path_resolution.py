@@ -101,6 +101,32 @@ def test_resolve_sector_path_rejects_invalid_sector_path_id(sector_registry) -> 
         domain_api.resolve_sector_path(sector_registry, sector_path_id="bad-format")
 
 
+def test_resolve_sector_path_rejects_two_segment_sector_path_id(sector_registry) -> None:
+    with pytest.raises(domain_api.SectorPathResolutionError, match="three segments") as exc:
+        domain_api.resolve_sector_path(sector_registry, sector_path_id="1/2")
+    assert "scope=L2" in str(exc.value)
+
+
+def test_resolve_sector_path_accepts_level1_level2_anchor(sector_registry) -> None:
+    path = domain_api.resolve_sector_path(
+        sector_registry,
+        level1_id="1",
+        level2_id="2",
+    )
+    assert path.level1_id == "1"
+    assert path.level2_id == "2"
+    assert path.level3_id == "3"
+
+
+def test_resolve_sector_path_rejects_unknown_level1_level2_pair(sector_registry) -> None:
+    with pytest.raises(domain_api.SectorPathResolutionError, match="unknown sector path: 9/9"):
+        domain_api.resolve_sector_path(
+            sector_registry,
+            level1_id="9",
+            level2_id="9",
+        )
+
+
 def test_expand_sector_search_queries_includes_synonyms() -> None:
     expanded = domain_api._expand_sector_search_queries("具身智能")
     assert "机器人" in expanded

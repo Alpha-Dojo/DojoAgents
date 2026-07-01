@@ -11,6 +11,7 @@ import {
   removeFolioHolding,
   updateFolioPortfolio,
 } from '../api/folio';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 import { ApiError, parseApiErrorMessage } from '../api/http';
 import { FOLIO_UPDATED_EVENT, type FolioUpdatedDetail } from '../navigation/folio_sync';
 import {
@@ -129,6 +130,7 @@ function resolveDefaultPortfolioId(rows: FolioPortfolioListItem[]): string {
 }
 
 export function useFolioPortfolios() {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const listCacheKey = cacheKeys.folioPortfolios();
 
   const [listItems, setListItems] = useState<FolioPortfolioListItem[]>([]);
@@ -221,7 +223,7 @@ export function useFolioPortfolios() {
     return () => {
       cancelled = true;
     };
-  }, [listCacheKey]);
+  }, [listCacheKey, cacheEpoch]);
 
   useEffect(() => {
     if (listItems.length === 0) return;
@@ -322,7 +324,7 @@ export function useFolioPortfolios() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, apiBenchmarkSymbol]);
+  }, [activeId, apiBenchmarkSymbol, cacheEpoch]);
 
   const activePortfolio = useMemo(() => {
     if (!activeId) return null;

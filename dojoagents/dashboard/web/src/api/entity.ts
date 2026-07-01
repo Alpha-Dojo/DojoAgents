@@ -143,7 +143,7 @@ function financialsKey(
   startDate?: string,
   endDate?: string,
 ) {
-  return `fin:v2:${market ?? ''}:${ticker}:${startDate ?? ''}:${endDate ?? ''}`;
+  return `fin:v4:${market ?? ''}:${ticker}:${startDate ?? ''}:${endDate ?? ''}`;
 }
 
 function canonicalFinancialsKey(ticker: string, market?: MarketCode) {

@@ -177,6 +177,21 @@ class SectorStore:
     ) -> Optional[ResolvedSectorPath]:
         return self._path_by_ids.get((level1_id, level2_id, level3_id))
 
+    def find_anchor_path_for_level2(
+        self,
+        level1_id: str,
+        level2_id: str,
+    ) -> Optional[ResolvedSectorPath]:
+        """Return any L3 path under the given L1/L2 branch (anchor for L2-scope queries)."""
+        l1 = str(level1_id or "").strip()
+        l2 = str(level2_id or "").strip()
+        if not l1 or not l2:
+            return None
+        for path in self._resolved_paths:
+            if path.level1_id == l1 and path.level2_id == l2:
+                return path
+        return None
+
     def find_resolved_path_by_level3_id(self, level3_id: str) -> Optional[ResolvedSectorPath]:
         sid = str(level3_id or "").strip()
         if not sid:

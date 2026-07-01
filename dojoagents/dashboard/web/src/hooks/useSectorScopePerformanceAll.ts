@@ -4,8 +4,10 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 import type { SectorLevelKey, SectorPerformanceResponse } from '../types/sector';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 export function useSectorScopePerformanceAll(selection: SectorPathSelection | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = selection ? cacheKeys.sectorAnalysisBundle(selection) : null;
   const [performanceByLevel, setPerformanceByLevel] = useState<
     Partial<Record<SectorLevelKey, SectorPerformanceResponse>>
@@ -54,7 +56,7 @@ export function useSectorScopePerformanceAll(selection: SectorPathSelection | nu
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id]);
+  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id, cacheEpoch]);
 
   return { performanceByLevel, loading, error };
 }

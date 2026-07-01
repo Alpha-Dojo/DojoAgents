@@ -3,20 +3,28 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentToolActivityItem } from '../../types/agent';
 import type { AgentVizBlock } from '../../types/agentViz';
 import { agentToolLabel } from '../../utils/agentToolLabels';
-import { formatToolArguments } from '../../utils/agentToolDetail';
+import {
+  formatToolArguments,
+  getExecuteCodeResultContent,
+  getExecuteCodeSource,
+} from '../../utils/agentToolDetail';
 import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
 import doneIcon from '../../assets/svg/done.svg';
 import errorIcon from '../../assets/svg/error.svg';
 import { ChevronIcon } from '../Folio/FolioSidebarIcons';
 import { AgentVizBlockView } from './viz/AgentVizPanel';
 
-function ToolStepResults({
+function ToolStepDetails({
+  code,
   blocks,
   expanded,
+  resultContent,
   summary,
 }: {
+  code?: string | null;
   blocks: AgentVizBlock[];
   expanded: boolean;
+  resultContent?: string | null;
   summary?: string | null;
 }) {
   const { t, locale } = useTranslation();
@@ -28,10 +36,30 @@ function ToolStepResults({
   return (
     <div className="dojo-agent-tool-activity__results">
       <div className="dojo-agent-tool-activity__results-body">
+        {code ? (
+          <div className="dojo-agent-tool-activity__code-panel">
+            <p className="dojo-agent-tool-activity__code-head">
+              {locale === 'zh' ? '生成的 Python 代码' : 'Generated Python code'}
+            </p>
+            <pre className="dojo-agent-tool-activity__code-block">
+              <code>{code}</code>
+            </pre>
+          </div>
+        ) : null}
         {summary ? (
           <p className="dojo-agent-tool-activity__detail dojo-agent-tool-activity__detail--result">
             {summary}
           </p>
+        ) : null}
+        {resultContent ? (
+          <div className="dojo-agent-tool-activity__output-panel">
+            <p className="dojo-agent-tool-activity__output-head">
+              {locale === 'zh' ? '脚本执行结果' : 'Execution output'}
+            </p>
+            <pre className="dojo-agent-tool-activity__output-block">
+              <code>{resultContent}</code>
+            </pre>
+          </div>
         ) : null}
         {localizedBlocks.map((block) => (
           <AgentVizBlockView key={block.id} block={block} />
@@ -51,13 +79,24 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
   const uiLocale = locale === 'zh' ? 'zh' : 'en';
   const argDetail =
     item.arguments != null ? formatToolArguments(item.tool, item.arguments, uiLocale) : null;
+  const codeSource = getExecuteCodeSource(item.tool, item.arguments);
+  const resultContent = getExecuteCodeResultContent(item.tool, item.resultContent);
   const resultDetail = item.resultSummary ?? null;
   const vizBlocks = item.vizBlocks ?? [];
-  const showInlineResult = Boolean(resultDetail) && vizBlocks.length === 0;
-  const canExpandResults =
-    item.status !== 'running' && (vizBlocks.length > 0 || Boolean(resultDetail));
+  const showInlineResult = Boolean(resultDetail) && vizBlocks.length === 0 && !codeSource;
+  const canExpandDetails =
+    Boolean(codeSource) ||
+    Boolean(resultContent) ||
+    (item.status !== 'running' && (vizBlocks.length > 0 || Boolean(resultDetail)));
   const statusIcon =
     item.status === 'done' ? doneIcon : item.status === 'error' ? errorIcon : null;
+  const expandTitle = expanded
+    ? locale === 'zh'
+      ? '收起代码和结果'
+      : 'Hide code and results'
+    : locale === 'zh'
+      ? '查看代码和结果'
+      : 'View code and results';
 
   return (
     <div className={`dojo-agent-tool-activity__step dojo-agent-tool-activity__step--${item.status}`}>
@@ -77,8 +116,8 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
           <button
             type="button"
             className="dojo-agent-tool-activity__headline"
-            aria-expanded={canExpandResults ? expanded : undefined}
-            disabled={!canExpandResults}
+            aria-expanded={canExpandDetails ? expanded : undefined}
+            disabled={!canExpandDetails}
             onClick={() => setExpanded((prev) => !prev)}
           >
             <div className="dojo-agent-tool-activity__headline-info">
@@ -99,10 +138,10 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
                 </span>
               )}
             </div>
-            {canExpandResults ? (
+            {canExpandDetails ? (
               <span
                 className="dojo-agent-tool-activity__results-chevron"
-                title={expanded ? t('agent.hideResults') : t('agent.viewResults')}
+                title={codeSource ? expandTitle : expanded ? t('agent.hideResults') : t('agent.viewResults')}
               >
                 <ChevronIcon expanded={expanded} />
               </span>
@@ -116,9 +155,11 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
           ) : null}
         </div>
       </div>
-      <ToolStepResults
+      <ToolStepDetails
+        code={codeSource}
         blocks={vizBlocks}
         expanded={expanded}
+        resultContent={item.status === 'done' ? resultContent : null}
         summary={item.status === 'done' ? resultDetail : null}
       />
     </div>

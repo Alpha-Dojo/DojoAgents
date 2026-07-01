@@ -307,3 +307,13 @@ export async function fetchCrossMarketSectors(
     return empty;
   }
 }
+
+export interface MarketDataRevisionResponse {
+  revision: string;
+  preload_date: string | null;
+  updated_at: string | null;
+}
+
+export async function fetchMarketDataRevision(): Promise<MarketDataRevisionResponse> {
+  return fetchJson<MarketDataRevisionResponse>(`${API_PREFIX}/utility/market-data-revision`);
+}

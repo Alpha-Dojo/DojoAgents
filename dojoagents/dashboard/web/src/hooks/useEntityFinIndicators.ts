@@ -6,6 +6,7 @@ import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntityTickerFinIndicatorsResponse } from '../types/entity';
 
 import { REVENUE_CHART_YOY_BASELINE_START } from '../utils/entityFinIndicators';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface CoreFinIndicatorsCache {
   data: EntityTickerFinIndicatorsResponse;
@@ -13,6 +14,7 @@ interface CoreFinIndicatorsCache {
 }
 
 export function useEntityFinIndicators(ctx: EntityTickerContext | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey =
     ctx?.ticker ? cacheKeys.coreTickerFinIndicators(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
@@ -80,7 +82,7 @@ export function useEntityFinIndicators(ctx: EntityTickerContext | null) {
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 

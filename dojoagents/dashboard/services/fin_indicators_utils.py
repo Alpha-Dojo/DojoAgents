@@ -112,6 +112,42 @@ def _subtract_metric(current: object, previous: object) -> Optional[float]:
     return current_value - float(previous)
 
 
+def _scale_metric(value: object, ratio: float) -> Optional[float]:
+    if value is None:
+        return None
+    return float(value) * ratio
+
+
+def _median_hk_annual_single_quarter_ratio(by_fy_period: Dict[str, dict]) -> Optional[float]:
+    ratios: List[float] = []
+    for key, annual_row in by_fy_period.items():
+        if not key.endswith(f":{HK_PERIOD_ANNUAL}"):
+            continue
+        fiscal_year = key.split(":", 1)[0]
+        q3_row = by_fy_period.get(f"{fiscal_year}:{HK_PERIOD_Q3}")
+        if q3_row is None:
+            continue
+        annual_rev = annual_row.get("total_operating_revenue")
+        q3_rev = q3_row.get("total_operating_revenue")
+        if annual_rev is None or q3_rev is None:
+            continue
+        annual_value = float(annual_rev)
+        q3_value = float(q3_rev)
+        if annual_value <= 0:
+            continue
+        q4_single = annual_value - q3_value
+        if q4_single <= 0 or q4_single >= annual_value:
+            continue
+        ratios.append(q4_single / annual_value)
+    if not ratios:
+        return None
+    ratios.sort()
+    mid = len(ratios) // 2
+    if len(ratios) % 2:
+        return ratios[mid]
+    return (ratios[mid - 1] + ratios[mid]) / 2
+
+
 def deaccumulate_hk_fin_rows(rows: List[dict]) -> List[dict]:
     """Convert HK cumulative revenue / net profit into single-quarter values."""
     sorted_rows = sort_fin_rows(rows)
@@ -123,6 +159,8 @@ def deaccumulate_hk_fin_rows(rows: List[dict]) -> List[dict]:
             continue
         fiscal_year, period_kind = meta
         by_fy_period[f"{fiscal_year}:{period_kind}"] = row
+
+    annual_single_quarter_ratio = _median_hk_annual_single_quarter_ratio(by_fy_period)
 
     deaccumulated: List[dict] = []
     for row in sorted_rows:
@@ -139,6 +177,18 @@ def deaccumulate_hk_fin_rows(rows: List[dict]) -> List[dict]:
 
         previous = by_fy_period.get(f"{fiscal_year}:{previous_kind}")
         if previous is None:
+            if period_kind == HK_PERIOD_ANNUAL and annual_single_quarter_ratio is not None:
+                next_row = dict(row)
+                next_row["total_operating_revenue"] = _scale_metric(
+                    row.get("total_operating_revenue"),
+                    annual_single_quarter_ratio,
+                )
+                next_row["net_profit_attr_parent"] = _scale_metric(
+                    row.get("net_profit_attr_parent"),
+                    annual_single_quarter_ratio,
+                )
+                deaccumulated.append(next_row)
+                continue
             deaccumulated.append(row)
             continue
 

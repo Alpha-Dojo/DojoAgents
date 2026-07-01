@@ -5,6 +5,7 @@ import { fetchCached, getCached, invalidateCache } from '../cache/queryCache';
 import type { MarketOverview } from '../types/market';
 import type { MeshSectorFilterState } from '../utils/marketSectorFilters';
 import { minCapKeyFromFilters, minCapThresholdsFromYi } from '../utils/marketSectorFilters';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface UseMarketOverviewResult {
   data: MarketOverview | null;
@@ -14,6 +15,7 @@ interface UseMarketOverviewResult {
 }
 
 export function useMarketOverview(filters: MeshSectorFilterState): UseMarketOverviewResult {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const capKey = useMemo(() => minCapKeyFromFilters(filters), [filters]);
   const cacheKey = cacheKeys.marketOverview(filters.sectorLimit, filters.days, capKey);
 
@@ -63,7 +65,7 @@ export function useMarketOverview(filters: MeshSectorFilterState): UseMarketOver
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, filters.days, filters.sectorLimit, capKey, tick]);
+  }, [cacheKey, filters.days, filters.sectorLimit, capKey, tick, cacheEpoch]);
 
   return { data, loading, error, reload };
 }

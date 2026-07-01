@@ -9,6 +9,7 @@ import {
   mapKlineBarsToCore,
   resolveCoreDailyChartWindow,
 } from '../utils/entityKline';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface CoreKlineCache {
   bars: EntityKlineBar[];
@@ -29,6 +30,7 @@ function buildCacheEntry(
 }
 
 export function useEntityKline(ctx: EntityTickerContext | null, interval: EntityKlineInterval) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey =
     ctx?.ticker ? cacheKeys.coreTickerKline(ctx.market, ctx.ticker, interval) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}:${interval}` : '';
@@ -106,7 +108,7 @@ export function useEntityKline(ctx: EntityTickerContext | null, interval: Entity
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, interval, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, interval, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 

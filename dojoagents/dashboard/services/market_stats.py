@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import math
 from typing import List, Optional
 
 from dojoagents.dashboard.schemas.market import MarketStats
 from dojoagents.dashboard.schemas.stock import Stock
+
+
+def display_valuation_ratio(value: float | None) -> float | None:
+    """Keep negative PE/PB for display; omit only missing, non-finite, or zero."""
+    if value is None or not math.isfinite(value) or value == 0:
+        return None
+    return float(value)
 
 
 def _valid_pe(pe: float) -> bool:

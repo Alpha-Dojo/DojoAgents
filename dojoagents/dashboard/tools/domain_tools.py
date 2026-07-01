@@ -101,8 +101,8 @@ _SECTOR_ID_PROPERTIES = {
     "sector_path_id": {
         "type": "string",
         "description": (
-            "Exact L3 path from search_sector_taxonomy as level1_id/level2_id/level3_id. "
-            "Preferred — resolves by ID lookup only."
+            "Full taxonomy path from search_sector_taxonomy as level1_id/level2_id/level3_id "
+            "(always THREE segments). scope=L2 is separate — it widens constituents, not shortens this path."
         ),
     },
     "level1_id": {
@@ -503,10 +503,11 @@ def register_dashboard_domain_tools(
         ToolSpec(
             name="filter_sector_constituents",
             description=(
-                "List quoted stocks in ONE L3 sector. Prerequisite: search_sector_taxonomy — copy "
-                "sector_path_id or level1_id/level2_id/level3_id from best_match. "
-                "Required: market (us|cn|hk) and scope L3. "
-                "FORBIDDEN: guessing ids like 1/2/3 or inventing paths."
+                "List quoted stocks for a taxonomy path. Prerequisite: search_sector_taxonomy — copy "
+                "sector_path_id (three segments) or level1_id/level2_id/level3_id from best_match. "
+                "Required: market (us|cn|hk). scope=L1|L2|L3 controls breadth (L2 = all L3 children "
+                "under the same L2 branch) but ids must still be the full path from search. "
+                "FORBIDDEN: two-segment paths like 1/2 or guessing ids."
             ),
             parameters={
                 "type": "object",

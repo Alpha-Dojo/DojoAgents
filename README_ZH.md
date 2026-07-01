@@ -1,5 +1,19 @@
 <div align="center">
-  <img src="https://github.com/Alpha-Dojo/DojoAgents/blob/main/dojoagents/dashboard/web/public/logo.png" alt="DojoAgents Logo">
+    <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="dojoagents/dashboard/web/src/assets/images/logo.svg"
+    />
+    <source
+      media="(prefers-color-scheme: light)"
+      srcset="dojoagents/dashboard/web/src/assets/images/logo-dark.svg"
+    />
+    <img
+      alt="DojoAgents Logo"
+      src="dojoagents/dashboard/web/src/assets/images/logo.svg"
+      width="320"
+    />
+  </picture>
 </div>
 
 <p align="center">
@@ -52,7 +66,16 @@ DojoAgents 是一款专为个人投资打造的全市场 AI 智能体框架。�
 大多数用户可直接安装已发布的包，无需克隆仓库或构建前端：
 
 ```bash
+# macOS / Linux
 uv venv && source .venv/bin/activate
+uv pip install dojoagents
+
+# Windows (PowerShell)
+uv venv && .venv\Scripts\Activate.ps1
+uv pip install dojoagents
+
+# Windows (CMD)
+uv venv && .venv\Scripts\activate.bat 
 uv pip install dojoagents
 ```
 

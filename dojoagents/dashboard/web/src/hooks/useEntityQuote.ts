@@ -4,6 +4,7 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntityQuoteSnapshot } from '../types/entity';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 function mapQuoteResponse(raw: CoreTickerQuoteResponse): EntityQuoteSnapshot {
   return {
@@ -15,6 +16,7 @@ function mapQuoteResponse(raw: CoreTickerQuoteResponse): EntityQuoteSnapshot {
 }
 
 export function useEntityQuote(ctx: EntityTickerContext | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = ctx?.ticker ? cacheKeys.coreTickerQuote(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
@@ -82,7 +84,7 @@ export function useEntityQuote(ctx: EntityTickerContext | null) {
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 

@@ -9,6 +9,7 @@ import httpx
 from dojoagents.agent.multimodal import openai_content_to_gemini_parts
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.provider_state import ProviderConversationState
+from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 
 _DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"

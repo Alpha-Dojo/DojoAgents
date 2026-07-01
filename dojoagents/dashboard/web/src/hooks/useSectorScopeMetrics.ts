@@ -4,8 +4,10 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
 import type { SectorScopeMetricsResponse } from '../types/sector';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = selection ? cacheKeys.sectorAnalysisBundle(selection) : null;
   const [metrics, setMetrics] = useState<SectorScopeMetricsResponse | null>(() =>
     getCached<SectorAnalysisBundle>(cacheKey ?? '')?.metrics ?? null,
@@ -54,7 +56,7 @@ export function useSectorScopeMetrics(selection: SectorPathSelection | null) {
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id]);
+  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id, cacheEpoch]);
 
   return { metrics, loading, error };
 }

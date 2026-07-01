@@ -331,6 +331,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
           call_id?: string;
           tool: string;
           ok: boolean;
+          content?: string;
           latency_ms: number;
           error?: string | null;
           data?: Record<string, unknown> | null;
@@ -345,6 +346,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
               payload.latency_ms,
               state.uiLocale,
               payload.error,
+              payload.content,
               payload.data,
               payload.viz_blocks,
               payload.call_id,

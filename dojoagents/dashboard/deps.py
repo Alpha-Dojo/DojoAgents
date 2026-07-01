@@ -122,3 +122,10 @@ def get_sector_precomputed_store(request: Request = None) -> SectorPrecomputedSt
     if registry is not None:
         return _require(registry.sector_precomputed_store, "sector_precomputed_store")
     return _require(stores.sector_precomputed_store, "sector_precomputed_store")
+
+
+def get_forex_store(request: Request = None):
+    registry = _registry_from_request(request)
+    if registry is not None:
+        return getattr(registry, "forex_store", None)
+    return getattr(stores, "forex_store", None)

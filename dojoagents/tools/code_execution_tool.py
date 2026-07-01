@@ -1,10 +1,16 @@
 import asyncio
 import json
 import os
+import sys
 import tempfile
 from dojoagents.tools.registry import ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
 
+if sys.platform == "win32":
+    import dojoagents.tools.af_unix_asyncio_compat as af_unix_asyncio_compat
+    start_unix_server = af_unix_asyncio_compat.start_unix_server
+else:
+    start_unix_server = asyncio.start_unix_server
 
 class AsyncCodeExecutionRPC:
     def __init__(self, socket_path: str, tool_registry, max_tool_calls: int = 20):
@@ -15,7 +21,8 @@ class AsyncCodeExecutionRPC:
         self.tool_call_counter = 0
 
     async def start(self):
-        self.server = await asyncio.start_unix_server(self.handle_client, path=self.socket_path)
+        print(self.socket_path)
+        self.server = await start_unix_server(self.handle_client, path=self.socket_path)
 
     async def handle_client(self, reader, writer):
         try:
@@ -64,7 +71,7 @@ class AsyncCodeExecutionRPC:
 async def handle_code_execution(args: dict, tool_registry, policy, max_tool_calls: int = 20) -> dict:
     code_content = args.get("code")
     session_id = os.urandom(6).hex()
-    socket_path = f"/tmp/dojo-rpc-{session_id}.sock"
+    socket_path = os.path.join(tempfile.gettempdir(), f"/tmp/dojo-rpc-{session_id}.sock")
 
     # 1. 启动 RPC Server 监听，传入配额限制
     rpc_server = AsyncCodeExecutionRPC(socket_path, tool_registry, max_tool_calls=max_tool_calls)

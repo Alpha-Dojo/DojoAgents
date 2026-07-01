@@ -7,6 +7,7 @@ import { DojoAgentPanel } from './components/DojoAgent/DojoAgentPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { LocaleProvider } from './i18n/LocaleContext';
 import { useAppTab } from './hooks/useAppTab';
+import { useMarketDataRevisionSync } from './hooks/useMarketDataRevisionSync';
 import type { AppTab } from './navigation/appTab';
 import { EntityView } from './views/EntityView';
 import { FolioView } from './views/FolioView';
@@ -63,6 +64,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const agentPinned = tab === 'folio';
   const agentVisible = agentPinned || userAgentOpen;
+
+  useMarketDataRevisionSync(true);
 
   const navigateTab = useCallback(
     (next: AppTab) => {

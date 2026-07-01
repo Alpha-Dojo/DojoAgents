@@ -10,7 +10,7 @@ import {
   type FolioCandidatesSortDir,
   type FolioCandidatesSortKey,
 } from '../../utils/folioCandidatesSort';
-import { formatPe, formatStockPrice } from '../../utils/marketStats';
+import { formatPe, formatStockPrice, isNegativeValuationRatio } from '../../utils/marketStats';
 import { localizedStockName } from '../../utils/stockDisplay';
 import { openEntityTicker } from '../../navigation/openEntityTicker';
 import { FolioAddHoldingSearch } from './FolioAddHoldingSearch';
@@ -212,7 +212,13 @@ export function FolioCandidatesPanel({
                                 {formatSignedPercent(row.changePercent)}
                               </td>
                               <td className="folio-table__num">{formatCompactAmount(row.marketCap)}</td>
-                              <td className="folio-table__num">{row.pe != null ? formatPe(row.pe) : '—'}</td>
+                              <td
+                                className={`folio-table__num ${
+                                  isNegativeValuationRatio(row.pe) ? 'sphere-table__ratio--negative' : ''
+                                }`}
+                              >
+                                {formatPe(row.pe, { lossLabel: t('valuation.peLoss') })}
+                              </td>
                               <td className="folio-table__num">{formatOptional(row.pb, (v) => v.toFixed(2))}</td>
                               <td className="folio-table__num">
                                 {formatOptional(row.dividendYield, (v) => `${v.toFixed(2)}%`)}

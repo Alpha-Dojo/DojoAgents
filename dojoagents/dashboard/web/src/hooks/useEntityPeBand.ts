@@ -5,6 +5,7 @@ import { fetchCached, getCached } from '../cache/queryCache';
 import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntityPeBandPoint } from '../types/entity';
 import { resolveCoreDailyChartWindow } from '../utils/entityKline';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface CorePeBandCache {
   points: EntityPeBandPoint[];
@@ -12,6 +13,7 @@ interface CorePeBandCache {
 }
 
 export function useEntityPeBand(ctx: EntityTickerContext | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = ctx?.ticker ? cacheKeys.coreTickerPeBand(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
@@ -81,7 +83,7 @@ export function useEntityPeBand(ctx: EntityTickerContext | null) {
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 
