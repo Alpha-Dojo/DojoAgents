@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://discord.gg/CCRvSvdvr"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/Alpha-Dojo/DojoAgents"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="docs/WECHAT.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
   <a href="https://huggingface.co/AlphaDojo"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
@@ -47,19 +47,28 @@ Deploying your DojoAgents environment is designed to be frictionless. We strongl
 
 ### 2. Core Installation
 
+#### Quick Install (PyPI)
+
+For most users, install the published package directly—no clone or frontend build required:
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install dojoagents
+```
+
+Then skip to [Launching the Server](#4-launching-the-server).
+
+#### Install from Source (Developers)
+
 Runtime dependencies are listed in both `pyproject.toml` and `requirements.txt`.
 
 ```bash
 # 1. Create and activate a virtual environment
 uv venv && source .venv/bin/activate
 
-# 2. OPTION - For Developers & Contributors:
-# Install in "editable mode" with dev tools. Any source code changes will take 
+# 2. Install in "editable mode" with dev tools. Any source code changes will take
 # effect immediately—perfect for building custom tools or debugging the Agent Loop.
 uv pip install -e ".[dev]"
-
-# 3. Install the core dependencies.
-uv pip install -r requirements.txt
 ```
 
 ### 3. Dashboard Build

@@ -26,6 +26,7 @@ import { pickWindowMasterSeries } from '../../utils/folioNavWindow';
 import { FolioNavCurveSection, type FolioNavCurveHeadContext } from './FolioNavCurveChart';
 import { useFolioDetailSplit } from '../../hooks/useFolioDetailSplit';
 import type { FolioPerformanceView } from '../../types/folio';
+import { DojoButton } from '../ui';
 
 interface FolioOverviewBenchmarkSelectProps {
   head: FolioNavCurveHeadContext;
@@ -261,7 +262,7 @@ export function FolioOverviewPanel({
     return entries;
   }, [benchmarkOptions, candidateIndexLabel, portfolio.performance, t, text]);
 
-  const showConfig = !loading && (hasPortfolioContent ? configExpanded : true);
+  const showConfig = hasPortfolioContent ? configExpanded : !loading;
 
   const handleApplyConfig = () => {
     onApplyConfig(draftConfig);
@@ -286,9 +287,11 @@ export function FolioOverviewPanel({
           )}
         </div>
 
-        <button
-          type="button"
-          className={`folio-config-toggle${showConfig ? ' folio-config-toggle--active' : ''}${configDirty ? ' folio-config-toggle--dirty' : ''}`}
+        <DojoButton
+          icon
+          size="sm"
+          variant="secondary"
+          className={`folio-config-toggle${showConfig ? ' folio-config-toggle--active is-active' : ''}${configDirty ? ' folio-config-toggle--dirty' : ''}`}
           aria-expanded={showConfig}
           aria-label={t('folio.openConfig')}
           title={t('folio.openConfig')}
@@ -298,18 +301,16 @@ export function FolioOverviewPanel({
             setConfigExpanded((prev) => !prev);
           }}
         >
-            <span className="folio-config-toggle__icon" aria-hidden>
-              <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                <path
-                  d="M6 1.25v1.5M6 9.25v1.5M1.25 6h1.5M9.25 6h1.5M2.9 2.9l1.06 1.06M8.04 8.04l1.06 1.06M2.9 9.1l1.06-1.06M8.04 3.96l1.06-1.06"
-                  stroke="currentColor"
-                  strokeWidth="1.1"
-                  strokeLinecap="round"
-                />
-                <circle cx="6" cy="6" r="2.1" stroke="currentColor" strokeWidth="1.1" />
-              </svg>
-            </span>
-          </button>
+          <svg viewBox="0 0 12 12" fill="none" aria-hidden>
+            <path
+              d="M6 1.25v1.5M6 9.25v1.5M1.25 6h1.5M9.25 6h1.5M2.9 2.9l1.06 1.06M8.04 8.04l1.06 1.06M2.9 9.1l1.06-1.06M8.04 3.96l1.06-1.06"
+              stroke="currentColor"
+              strokeWidth="1.1"
+              strokeLinecap="round"
+            />
+            <circle cx="6" cy="6" r="2.1" stroke="currentColor" strokeWidth="1.1" />
+          </svg>
+        </DojoButton>
       </div>
 
       <div

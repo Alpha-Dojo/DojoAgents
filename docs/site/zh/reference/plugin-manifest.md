@@ -20,7 +20,7 @@
 | 字段 | 说明 |
 | --- | --- |
 | `name` | 插件名 |
-| `version` | 版本，默认 `0.1.0` |
+| `version` | 版本，默认 `0.1.1` |
 | `description` | 描述 |
 | `provides_tools` | 工具列表 |
 | `provides_hooks` | hook 列表 |

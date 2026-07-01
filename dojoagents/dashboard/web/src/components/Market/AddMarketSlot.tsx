@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { DojoButton } from '../ui';
 
 export function AddMarketSlot() {
   const { t } = useTranslation();
@@ -53,13 +54,15 @@ export function AddMarketSlot() {
               {t('marketPage.comingSoonTitle')}
             </h3>
             <p className="mesh-add-market-dialog__body">{t('marketPage.comingSoonBody')}</p>
-            <button
-              type="button"
+            <DojoButton
+              variant="secondary"
+              size="sm"
               className="mesh-add-market-dialog__action"
+              aria-label={t("marketPage.comingSoonDismiss")}
               onClick={() => setOpen(false)}
             >
               {t('marketPage.comingSoonDismiss')}
-            </button>
+            </DojoButton>
           </div>
         </div>
       )}

@@ -3,6 +3,7 @@
   flex-shrink: 0;
   width: 0;
   min-width: 0;
+  max-width: 50%;
   height: 100%;
   display: flex;
   flex-direction: row;
@@ -75,10 +76,12 @@
   left: 0;
   z-index: 40;
   width: 100vw;
+  max-width: 100vw;
   height: calc(100dvh - var(--app-header-height));
   border-left-color: transparent;
   border-top: 1px solid var(--border-dim);
   box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.38);
+  background-color: var(--bg-deep);
 }
 
 .dojo-agent-panel--maximized .dojo-agent-panel__resize-handle {
@@ -109,87 +112,9 @@
   height: 24px;
 }
 
-.dojo-agent-panel__toolbar-btn {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-}
-
-
-.dojo-agent-panel__toolbar-btn.dojo-button--secondary,
-.dojo-agent-panel__toolbar-btn.dojo-button--error {
-  border-color: transparent;
-  background: transparent;
-}
-
-.dojo-agent-panel__toolbar-btn:hover:not(:disabled) {
-  /* color: var(--text-primary); */
-  color: #FFF!important;
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--border-dim);
-}
-
-
-.dojo-agent-panel__toolbar-btn:hover:not(:disabled)  .dojo-agent-panel__toolbar-icon {
-  color: #FFF!important;
-}
-.dojo-agent-panel__toolbar-btn--active {
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.08);
-  border-color: rgba(0, 229, 255, 0.28);
-}
-
-.dojo-agent-panel__toolbar-btn--active.dojo-button--secondary,
-.dojo-agent-panel__toolbar-btn--active.dojo-button--secondary:hover:not(:disabled) {
-  color: var(--cyan);
-  background: rgba(0, 229, 255, 0.08);
-  border-color: rgba(0, 229, 255, 0.28);
-}
-
-.dojo-agent-panel__toolbar-btn--close:hover:not(:disabled) {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.08);
-  border-color: rgba(248, 113, 113, 0.25);
-}
-
-.dojo-agent-panel__toolbar-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  background: currentColor;
-  color: var(--color-text-secondary);
-}
-
-.dojo-agent-panel__toolbar-icon--history {
-  -webkit-mask: url("../../assets/svg/history.svg") center / contain no-repeat;
-  mask: url("../../assets/svg/history.svg") center / contain no-repeat;
-}
-
-.dojo-agent-panel__toolbar-icon--message {
-  -webkit-mask: url("../../assets/svg/message.svg") center / contain no-repeat;
-  mask: url("../../assets/svg/message.svg") center / contain no-repeat;
-}
-
-.dojo-agent-panel__toolbar-icon--maximize,
-.dojo-agent-panel__toolbar-icon--minimize {
+.dojo-agent-panel__head-actions .mini-icon > svg {
   width: 14px;
   height: 14px;
-}
-
-.dojo-agent-panel__toolbar-icon--maximize {
-  -webkit-mask: url("../../assets/svg/maximization.svg") center / contain no-repeat;
-  mask: url("../../assets/svg/maximization.svg") center / contain no-repeat;
-}
-
-.dojo-agent-panel__toolbar-icon--minimize {
-  -webkit-mask: url("../../assets/svg/minimize.svg") center / contain no-repeat;
-  mask: url("../../assets/svg/minimize.svg") center / contain no-repeat;
-}
-
-.dojo-agent-panel__toolbar-icon--close {
-  -webkit-mask: url("../../assets/svg/close.svg") center / contain no-repeat;
-  mask: url("../../assets/svg/close.svg") center / contain no-repeat;
 }
 
 .dojo-agent-panel__history {
@@ -1012,6 +937,14 @@
   text-align: center;
   font-size: 10px;
   margin-top: 1px;
+}
+
+.dojo-agent-tool-activity__icon--running {
+  box-sizing: border-box;
+  border: 1.5px solid rgba(0, 229, 255, 0.25);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: dojo-agent-spin 0.8s linear infinite;
 }
 
 .dojo-agent-tool-activity__icon--done,

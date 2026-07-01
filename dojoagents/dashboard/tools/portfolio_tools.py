@@ -6,6 +6,7 @@ from typing import Any
 from dojoagents.dashboard.schemas.portfolio import (
     AddPortfolioHoldingRequest,
     AutoAllocateRequest,
+    CreatePortfolioOrderRequest,
     CreatePortfolioRequest,
     RemovePortfolioHoldingRequest,
     UpdatePortfolioRequest,
@@ -15,8 +16,20 @@ from dojoagents.agent.harnesses.portfolio_eval import (
     parse_eval_submission,
     verify_eval_submission,
 )
-from dojoagents.dashboard.services.portfolio_service import PortfolioValidationError
+from dojoagents.dashboard.services.portfolio_service import PortfolioOrderFillError, PortfolioValidationError
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
+
+_POSITION_ORDER_FIELDS = ("price", "cost", "qty", "order_time", "order_side")
+_CANDIDATE_ONLY_ERROR = (
+    "This tool adds WATCHLIST CANDIDATES (候选股) only — it does NOT buy shares or record cost. "
+    "For 建仓/买入/按成本价/创建交易/持仓, use portfolio_write_create_order or "
+    "portfolio_write_create_orders with order_side, price, qty, and optional order_time."
+)
+
+
+def _assert_candidate_only_fields(source: dict[str, Any], *, context: str) -> None:
+    if any(source.get(field) is not None for field in _POSITION_ORDER_FIELDS):
+        raise RuntimeError(f"{context}: {_CANDIDATE_ONLY_ERROR}")
 
 
 def _normalize_market(market: str | None) -> str | None:
@@ -114,19 +127,24 @@ def register_dashboard_portfolio_tools(
         )
 
     async def add_holding(args: dict[str, Any]) -> dict[str, Any]:
+        _assert_candidate_only_fields(args, context="portfolio_write_add_candidate")
         portfolio_id = str(args.get("portfolio_id") or "").strip()
         body = AddPortfolioHoldingRequest(
             ticker=str(args.get("ticker") or "").strip(),
             market=_normalize_market(args.get("market")),
-            shares=float(args["shares"]) if args.get("shares") is not None else None,
         )
         detail = await _service_or_raise(registry).add_holding(portfolio_id, body)
         if detail is None:
             raise RuntimeError("portfolio or ticker not found")
         payload = detail.model_dump()
+        payload["add_result"] = {
+            "added_to": "candidates",
+            "candidate_count": len(detail.candidates),
+            "candidate_count_by_market": eval_summary_from_detail(payload)["candidate_count_by_market"],
+        }
         return _json_content(
             payload,
-            resource_changes=[{"resource": "portfolio", "action": "add_holding", "portfolio_id": portfolio_id}],
+            resource_changes=[{"resource": "portfolio", "action": "add_candidate", "portfolio_id": portfolio_id}],
         )
 
     async def add_holdings_batch(args: dict[str, Any]) -> dict[str, Any]:
@@ -139,11 +157,11 @@ def register_dashboard_portfolio_tools(
         for row in holdings_raw:
             if not isinstance(row, dict):
                 continue
+            _assert_candidate_only_fields(row, context="portfolio_write_add_candidates")
             bodies.append(
                 AddPortfolioHoldingRequest(
                     ticker=str(row.get("ticker") or "").strip(),
                     market=_normalize_market(row.get("market")),
-                    shares=float(row["shares"]) if row.get("shares") is not None else None,
                 )
             )
         if not bodies:
@@ -181,6 +199,7 @@ def register_dashboard_portfolio_tools(
 
         payload = detail.model_dump()
         payload["add_result"] = {
+            "added_to": "candidates",
             "requested": len(requested_keys),
             "added": len(added_keys),
             "skipped_duplicates": skipped_duplicates,
@@ -190,7 +209,121 @@ def register_dashboard_portfolio_tools(
         }
         return _json_content(
             payload,
-            resource_changes=[{"resource": "portfolio", "action": "add_holding", "portfolio_id": portfolio_id}],
+            resource_changes=[{"resource": "portfolio", "action": "add_candidate", "portfolio_id": portfolio_id}],
+        )
+
+    async def create_order(args: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = str(args.get("portfolio_id") or "").strip()
+        order_side = str(args.get("order_side") or "buy").strip().lower()
+        if order_side not in {"buy", "sell"}:
+            raise RuntimeError("order_side must be buy or sell")
+        if args.get("price") is None or args.get("qty") is None:
+            raise RuntimeError("price and qty are required to create a filled position (建仓)")
+
+        body = CreatePortfolioOrderRequest(
+            ticker=str(args.get("ticker") or "").strip(),
+            market=_normalize_market(args.get("market")),
+            order_side=order_side,
+            price=float(args["price"]),
+            qty=float(args["qty"]),
+            order_time=str(args["order_time"]).strip() if args.get("order_time") else None,
+        )
+        try:
+            detail = await _service_or_raise(registry).create_order(portfolio_id, body)
+        except PortfolioOrderFillError as exc:
+            raise RuntimeError(
+                f"Order not filled ({exc.code}): {exc}. "
+                "Adjust limit price (must cover the bar), qty, order_time, or portfolio capital."
+            ) from exc
+        if detail is None:
+            raise RuntimeError("portfolio or ticker not found")
+
+        payload = detail.model_dump()
+        summary = eval_summary_from_detail(payload)
+        payload["order_result"] = {
+            "ticker": body.ticker,
+            "market": body.market,
+            "order_side": order_side,
+            "status": "filled",
+            "position_count": summary["position_count"],
+            "position_count_by_market": summary["position_count_by_market"],
+        }
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "create_order", "portfolio_id": portfolio_id}],
+        )
+
+    async def create_orders_batch(args: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = str(args.get("portfolio_id") or "").strip()
+        orders_raw = args.get("orders")
+        if not isinstance(orders_raw, list) or not orders_raw:
+            raise RuntimeError("orders must be a non-empty array")
+
+        filled: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        detail = None
+        service = _service_or_raise(registry)
+
+        for row in orders_raw:
+            if not isinstance(row, dict):
+                continue
+            ticker = str(row.get("ticker") or "").strip()
+            order_side = str(row.get("order_side") or "buy").strip().lower()
+            if not ticker:
+                failed.append({"ticker": "", "error": "ticker is required"})
+                continue
+            if order_side not in {"buy", "sell"}:
+                failed.append({"ticker": ticker, "error": "order_side must be buy or sell"})
+                continue
+            if row.get("price") is None or row.get("qty") is None:
+                failed.append({"ticker": ticker, "error": "price and qty are required"})
+                continue
+            body = CreatePortfolioOrderRequest(
+                ticker=ticker,
+                market=_normalize_market(row.get("market")),
+                order_side=order_side,
+                price=float(row["price"]),
+                qty=float(row["qty"]),
+                order_time=str(row["order_time"]).strip() if row.get("order_time") else None,
+            )
+            try:
+                detail = await service.create_order(portfolio_id, body)
+            except PortfolioOrderFillError as exc:
+                failed.append(
+                    {
+                        "ticker": ticker,
+                        "market": body.market,
+                        "code": exc.code,
+                        "error": str(exc),
+                    }
+                )
+                continue
+            if detail is None:
+                failed.append({"ticker": ticker, "error": "portfolio or ticker not found"})
+                continue
+            filled.append({"ticker": ticker, "market": body.market, "order_side": order_side, "status": "filled"})
+
+        if detail is None and not filled:
+            raise RuntimeError("No orders were filled. Check price, qty, order_time, and portfolio capital.")
+
+        if detail is None:
+            detail = await service.get_detail(portfolio_id, include_performance=False)
+        if detail is None:
+            raise RuntimeError("portfolio not found")
+
+        payload = detail.model_dump()
+        summary = eval_summary_from_detail(payload)
+        payload["order_result"] = {
+            "requested": len(orders_raw),
+            "filled": len(filled),
+            "failed": failed,
+            "filled_orders": filled,
+            "position_count": summary["position_count"],
+            "position_count_by_market": summary["position_count_by_market"],
+        }
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "create_order", "portfolio_id": portfolio_id}],
         )
 
     async def remove_holding(args: dict[str, Any]) -> dict[str, Any]:
@@ -227,6 +360,9 @@ def register_dashboard_portfolio_tools(
         min_by_market = args.get("min_candidates_by_market")
         if min_by_market is not None and not isinstance(min_by_market, dict):
             raise RuntimeError("min_candidates_by_market must be an object")
+        min_positions_by_market = args.get("min_positions_by_market")
+        if min_positions_by_market is not None and not isinstance(min_positions_by_market, dict):
+            raise RuntimeError("min_positions_by_market must be an object")
 
         service = _service_or_raise(registry)
         detail = await service.get_detail(portfolio_id, include_performance=False)
@@ -240,6 +376,8 @@ def register_dashboard_portfolio_tools(
                 "require_kind_agent": bool(args.get("require_kind_agent", False)),
                 "min_candidate_count": args.get("min_candidate_count"),
                 "min_candidates_by_market": min_by_market,
+                "min_position_count": args.get("min_position_count"),
+                "min_positions_by_market": min_positions_by_market,
             }
         )
         if submission is None:
@@ -252,12 +390,13 @@ def register_dashboard_portfolio_tools(
             raise RuntimeError(
                 "Eval criteria not met: "
                 + "; ".join(issues)
-                + f". Actual: total={summary['candidate_count']}, "
+                + f". Actual candidates: total={summary['candidate_count']}, "
                 f"by_market={summary['candidate_count_by_market']}. "
-                "Use portfolio_read_detail eval_summary for counts. "
-                "Do NOT invent stricter min_candidates_by_market than actual counts. "
-                "If short, add NEW tickers (check add_result.skipped_duplicates); "
-                "do not re-add existing symbols or unrelated names."
+                f"Actual positions: total={summary['position_count']}, "
+                f"by_market={summary['position_count_by_market']}. "
+                "Use portfolio_read_detail eval_summary. "
+                "For 建仓 tasks use portfolio_write_create_order(s) and min_position_count, "
+                "NOT portfolio_write_add_candidate(s)."
             )
 
         payload = {
@@ -266,6 +405,8 @@ def register_dashboard_portfolio_tools(
             "require_kind_agent": submission.require_kind_agent,
             "min_candidate_count": submission.min_candidate_count,
             "min_candidates_by_market": submission.min_candidates_by_market,
+            "min_position_count": submission.min_position_count,
+            "min_positions_by_market": submission.min_positions_by_market,
             "accepted": True,
             "eval_summary": summary,
         }
@@ -293,9 +434,9 @@ def register_dashboard_portfolio_tools(
         ToolSpec(
             name="portfolio_read_detail",
             description=(
-                "Fetch one portfolio detail (candidates, kind, config). "
-                "Response includes eval_summary with candidate_count_by_market — "
-                "use these ACTUAL counts for portfolio_eval_submit. "
+                "Fetch one portfolio detail. "
+                "candidates = watchlist (候选股); positions/holdings = filled buys (持仓, from orders). "
+                "eval_summary has candidate_count AND position_count — use the right metric for eval_submit. "
                 "Required verification step after any portfolio write."
             ),
             parameters={
@@ -311,10 +452,10 @@ def register_dashboard_portfolio_tools(
         ToolSpec(
             name="portfolio_eval_submit",
             description=(
-                "Submit portfolio build success criteria AFTER portfolio_read_detail. "
-                "min_candidate_count / min_candidates_by_market must NOT exceed eval_summary actual counts. "
-                "Only set per-market minimums when the user explicitly required them. "
-                "Returns accepted=true only when criteria match the portfolio; otherwise fix and retry."
+                "Submit portfolio task success criteria AFTER portfolio_read_detail. "
+                "Watchlist tasks: min_candidate_count. "
+                "建仓/买入 tasks: min_position_count (filled positions from create_order). "
+                "Never use min_candidate_count to verify 建仓 — candidates ≠ positions."
             ),
             parameters={
                 "type": "object",
@@ -331,11 +472,21 @@ def register_dashboard_portfolio_tools(
                     "min_candidate_count": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Minimum total candidates required for success.",
+                        "description": "Minimum watchlist candidates — NOT for 建仓 tasks.",
                     },
                     "min_candidates_by_market": {
                         "type": "object",
-                        "description": "Optional per-market minimums, e.g. {\"us\": 5} or {\"us\": 1, \"cn\": 1, \"hk\": 1}.",
+                        "description": "Optional per-market candidate minimums, e.g. {\"us\": 5}.",
+                        "additionalProperties": {"type": "integer", "minimum": 0},
+                    },
+                    "min_position_count": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Minimum filled positions (持仓) after create_order — use for 建仓 tasks.",
+                    },
+                    "min_positions_by_market": {
+                        "type": "object",
+                        "description": "Optional per-market position minimums for 建仓, e.g. {\"us\": 3}.",
                         "additionalProperties": {"type": "integer", "minimum": 0},
                     },
                 },
@@ -387,10 +538,57 @@ def register_dashboard_portfolio_tools(
             handler=delete_portfolio,
         ),
         ToolSpec(
+            name="portfolio_write_add_candidate",
+            description=(
+                "Add ONE ticker to the portfolio WATCHLIST (候选股). "
+                "Does NOT buy shares, spend capital, or set cost — no price/qty/order_time. "
+                "For 建仓/买入/按成本价, use portfolio_write_create_order instead."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "ticker": {"type": "string"},
+                    "market": {"type": "string", "description": "us, cn, or hk"},
+                },
+                "required": ["portfolio_id", "ticker"],
+            },
+            handler=add_holding,
+        ),
+        ToolSpec(
+            name="portfolio_write_add_candidates",
+            description=(
+                "Add multiple tickers to the portfolio WATCHLIST (候选股) in one batch. "
+                "Does NOT buy or 建仓. Response add_result.added_to is always candidates. "
+                "For 建仓 with cost/qty, use portfolio_write_create_orders."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "holdings": {
+                        "type": "array",
+                        "description": "Candidate tickers only (ticker + market). No price/qty.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "market": {"type": "string"},
+                            },
+                            "required": ["ticker"],
+                        },
+                        "minItems": 1,
+                    },
+                },
+                "required": ["portfolio_id", "holdings"],
+            },
+            handler=add_holdings_batch,
+        ),
+        ToolSpec(
             name="portfolio_write_add_holding",
             description=(
-                "Add one ticker to a portfolio candidate pool. "
-                "When adding multiple tickers, prefer portfolio_write_add_holdings in one batch."
+                "Alias for portfolio_write_add_candidate — adds WATCHLIST candidate only, NOT a filled position. "
+                "Prefer portfolio_write_add_candidate. For 建仓 use portfolio_write_create_order."
             ),
             parameters={
                 "type": "object",
@@ -398,7 +596,6 @@ def register_dashboard_portfolio_tools(
                     "portfolio_id": {"type": "string"},
                     "ticker": {"type": "string"},
                     "market": {"type": "string"},
-                    "shares": {"type": "number"},
                 },
                 "required": ["portfolio_id", "ticker"],
             },
@@ -407,9 +604,8 @@ def register_dashboard_portfolio_tools(
         ToolSpec(
             name="portfolio_write_add_holdings",
             description=(
-                "Add multiple tickers to a portfolio candidate pool in one atomic batch. "
-                "Response includes add_result: added count, skipped_duplicates, candidate_count_by_market. "
-                "Duplicates do not increase count — add NEW tickers only when topping up."
+                "Alias for portfolio_write_add_candidates — WATCHLIST batch only, NOT 建仓. "
+                "Prefer portfolio_write_add_candidates. For 建仓 use portfolio_write_create_orders."
             ),
             parameters={
                 "type": "object",
@@ -422,7 +618,6 @@ def register_dashboard_portfolio_tools(
                             "properties": {
                                 "ticker": {"type": "string"},
                                 "market": {"type": "string"},
-                                "shares": {"type": "number"},
                             },
                             "required": ["ticker"],
                         },
@@ -434,8 +629,66 @@ def register_dashboard_portfolio_tools(
             handler=add_holdings_batch,
         ),
         ToolSpec(
+            name="portfolio_write_create_order",
+            description=(
+                "Buy or sell to create/update a REAL position (持仓/建仓). "
+                "Requires price (limit/cost), qty (shares), order_side (buy|sell). "
+                "Optional order_time (YYYY-MM-DD) for execution date. "
+                "Uses portfolio capital; order must fill or it is rejected. "
+                "Do NOT use add_candidate for 建仓 — that only updates the watchlist."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "ticker": {"type": "string"},
+                    "market": {"type": "string", "description": "us, cn, or hk"},
+                    "order_side": {"type": "string", "enum": ["buy", "sell"]},
+                    "price": {"type": "number", "description": "Limit price / cost per share"},
+                    "qty": {"type": "number", "description": "Share quantity to buy or sell"},
+                    "order_time": {
+                        "type": "string",
+                        "description": "Optional execution date YYYY-MM-DD (defaults to next trading day)",
+                    },
+                },
+                "required": ["portfolio_id", "ticker", "order_side", "price", "qty"],
+            },
+            handler=create_order,
+        ),
+        ToolSpec(
+            name="portfolio_write_create_orders",
+            description=(
+                "Batch 建仓: place multiple buy/sell orders with price and qty. "
+                "Each order must fill independently. Partial success returns order_result.filled and .failed."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "orders": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "market": {"type": "string"},
+                                "order_side": {"type": "string", "enum": ["buy", "sell"]},
+                                "price": {"type": "number"},
+                                "qty": {"type": "number"},
+                                "order_time": {"type": "string"},
+                            },
+                            "required": ["ticker", "order_side", "price", "qty"],
+                        },
+                        "minItems": 1,
+                    },
+                },
+                "required": ["portfolio_id", "orders"],
+            },
+            handler=create_orders_batch,
+        ),
+        ToolSpec(
             name="portfolio_write_remove_holding",
-            description="Remove one holding from a portfolio.",
+            description="Remove one ticker from the portfolio WATCHLIST (候选股). Does not close a filled position — use create_order with order_side=sell for that.",
             parameters={
                 "type": "object",
                 "properties": {

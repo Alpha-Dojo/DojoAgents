@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { DojoButton } from '../ui';
 
 interface FolioConfirmDialogProps {
   open: boolean;
@@ -7,7 +8,7 @@ interface FolioConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
   onCancel: () => void;
 }
 
@@ -22,19 +23,32 @@ export function FolioConfirmDialog({
 }: FolioConfirmDialogProps) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCancel();
+      if (event.key === 'Escape' && !submitting) onCancel();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, onCancel]);
+  }, [onCancel, open, submitting]);
 
   useEffect(() => {
     if (open) dialogRef.current?.focus();
   }, [open]);
+
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onConfirm();
+    } catch {
+      // The mutation owner exposes the request error; keep this dialog open for retry.
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -44,6 +58,7 @@ export function FolioConfirmDialog({
         type="button"
         className="folio-dialog__backdrop"
         aria-label={cancelLabel ?? t('folio.cancel')}
+        disabled={submitting}
         onClick={onCancel}
       />
       <div
@@ -59,16 +74,17 @@ export function FolioConfirmDialog({
         </h3>
         <p className="folio-dialog__message">{message}</p>
         <div className="folio-dialog__actions">
-          <button type="button" className="folio-dialog__button folio-dialog__button--ghost" onClick={onCancel}>
+          <DojoButton size="sm" variant="secondary" disabled={submitting} onClick={onCancel}>
             {cancelLabel ?? t('folio.cancel')}
-          </button>
-          <button
-            type="button"
-            className="folio-dialog__button folio-dialog__button--danger"
-            onClick={onConfirm}
+          </DojoButton>
+          <DojoButton
+            size="sm"
+            variant="error"
+            disabled={submitting}
+            onClick={() => void handleConfirm()}
           >
             {confirmLabel ?? t('folio.confirmDelete')}
-          </button>
+          </DojoButton>
         </div>
       </div>
     </div>

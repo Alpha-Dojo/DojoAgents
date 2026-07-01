@@ -9,6 +9,7 @@ import { todayIsoDate } from '../../utils/folioStartDate';
 import { fetchTickerOpenOnDate, formatOrderLimitPrice } from '../../utils/folioOrderPrice';
 import { formatFolioOrderError } from '../../utils/folioOrderError';
 import { localizedStockName } from '../../utils/stockDisplay';
+import { DojoButton } from '../ui/DojoButton';
 import { FolioStartDatePicker } from './FolioStartDatePicker';
 
 const SEARCH_LIMIT = 20;
@@ -195,6 +196,7 @@ export function FolioCreateOrderModal({
         qty: parsedQty,
         orderTime,
       });
+      onClose();
     } catch (err: unknown) {
       setError(formatFolioOrderError(err, t, t('folio.orderSubmitFailed')));
     }
@@ -340,17 +342,18 @@ export function FolioCreateOrderModal({
         </div>
 
         <div className="folio-dialog__actions">
-          <button type="button" className="folio-dialog__button folio-dialog__button--ghost" onClick={onClose}>
+          <DojoButton type="button" size="sm" variant="secondary" onClick={onClose}>
             {t('folio.cancel')}
-          </button>
-          <button
+          </DojoButton>
+          <DojoButton
             type="button"
-            className="folio-dialog__button folio-dialog__button--primary"
+            size="sm"
+            variant="primary"
             disabled={placing}
             onClick={() => void handleSubmit()}
           >
             {placing ? t('folio.orderSubmitting') : t('folio.orderSubmit')}
-          </button>
+          </DojoButton>
         </div>
       </div>
     </div>,

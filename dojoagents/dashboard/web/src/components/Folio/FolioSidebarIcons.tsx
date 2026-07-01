@@ -44,3 +44,22 @@ export function ChevronIcon({ expanded }: { expanded: boolean }) {
     </svg>
   );
 }
+
+export function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className="folio-sidebar__sidebar-toggle-icon"
+      viewBox="0 0 16 16"
+      aria-hidden
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2" />
+      <path d="M5.5 2.5v11" />
+      {collapsed ? <path d="m8.5 5.5 2.5 2.5-2.5 2.5" /> : <path d="m11 5.5-2.5 2.5 2.5 2.5" />}
+    </svg>
+  );
+}

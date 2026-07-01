@@ -327,6 +327,8 @@ class ContextCompressor:
             "You are a context compression assistant. Analyze the dialogue sequence below and extract two things:\n"
             "1. A compact dialogue summary of the middle turns for immediate context continuation.\n"
             "2. Key long-term facts, preferences, user habits, and general workflows that should be saved in the agent's long-term memory.\n\n"
+            "Mark each prior user task as COMPLETED unless the latest user message explicitly continues it.\n"
+            "The latest user message defines the ONLY active task — do not carry forward unfinished work from older turns.\n\n"
             "Format your output exactly like this:\n"
             "[CONSOLIDATION SUMMARY]\n"
             "<compact summary of dialogue sequence>\n"

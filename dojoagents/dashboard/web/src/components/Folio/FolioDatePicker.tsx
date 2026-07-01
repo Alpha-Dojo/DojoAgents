@@ -2,6 +2,7 @@ import { ConfigProvider, DatePicker, theme } from 'antd';
 import enUS from 'antd/es/date-picker/locale/en_US';
 import zhCN from 'antd/es/date-picker/locale/zh_CN';
 import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
 import { useTranslation } from '../../hooks/useTranslation';
 
 const ISO_DATE_FORMAT = 'YYYY-MM-DD';

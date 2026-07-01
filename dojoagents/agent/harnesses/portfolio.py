@@ -6,6 +6,7 @@ from dojoagents.agent.harness import HarnessDecision, HarnessLoopState, TaskHarn
 from dojoagents.agent.harnesses.portfolio_eval import (
     candidate_count_from_detail,
     parse_eval_submission,
+    position_count_from_detail,
     verify_eval_submission,
 )
 from dojoagents.agent.models import ChatRequest, ToolCall
@@ -14,23 +15,48 @@ _PORTFOLIO_WRITE_TOOLS = {
     "portfolio_write_create",
     "portfolio_write_rename",
     "portfolio_write_delete",
+    "portfolio_write_add_candidate",
+    "portfolio_write_add_candidates",
     "portfolio_write_add_holding",
     "portfolio_write_add_holdings",
+    "portfolio_write_create_order",
+    "portfolio_write_create_orders",
     "portfolio_write_remove_holding",
     "portfolio_write_auto_allocate",
 }
 
 _PORTFOLIO_ID_TOOLS = _PORTFOLIO_WRITE_TOOLS | {"portfolio_read_detail", "portfolio_eval_submit"}
 
-_ADD_HOLDING_TOOLS = {
+_ADD_CANDIDATE_TOOLS = {
+    "portfolio_write_add_candidate",
+    "portfolio_write_add_candidates",
     "portfolio_write_add_holding",
     "portfolio_write_add_holdings",
 }
 
+_CREATE_ORDER_TOOLS = {
+    "portfolio_write_create_order",
+    "portfolio_write_create_orders",
+}
+
+_ANALYSIS_BROWSE_TOOLS = {
+    "portfolio_read_list",
+    "portfolio_read_search",
+    "portfolio_read_detail",
+    "get_ticker_financials",
+    "get_ticker_realtime_quote",
+    "get_ticker_price_trends",
+    "get_sector_analysis",
+    "filter_sector_constituents",
+    "search_sector_taxonomy",
+    "screen_market_stocks",
+    "search_company_ticker",
+}
+
 _MUTATING_BUILD_TOOLS = {
     "portfolio_write_create",
-    "portfolio_write_add_holding",
-    "portfolio_write_add_holdings",
+    *_ADD_CANDIDATE_TOOLS,
+    *_CREATE_ORDER_TOOLS,
     "portfolio_write_remove_holding",
     "portfolio_write_auto_allocate",
 }
@@ -42,14 +68,37 @@ class PortfolioTaskHarness(TaskHarness):
     def matches(self, request: ChatRequest, state: HarnessLoopState) -> bool:
         if request.channel != "dashboard":
             return False
-        if str(request.metadata.get("dashboard_tab") or "") == "folio":
+        if state.any_ok_tool(*_PORTFOLIO_WRITE_TOOLS, "portfolio_eval_submit"):
             return True
-        return any(result.name.startswith("portfolio_") for result in state.tool_results)
+        pending = {
+            call.name
+            for call in state.tool_calls
+            if call.name in _PORTFOLIO_WRITE_TOOLS or call.name == "portfolio_eval_submit"
+        }
+        return bool(pending)
 
     def _portfolio_build_in_progress(self, state: HarnessLoopState) -> bool:
-        return state.any_ok_tool("portfolio_write_create", *_ADD_HOLDING_TOOLS)
+        return state.any_ok_tool("portfolio_write_create", *_ADD_CANDIDATE_TOOLS, *_CREATE_ORDER_TOOLS)
+
+    def _run_is_analysis_browse(self, state: HarnessLoopState) -> bool:
+        if state.any_ok_tool(*_PORTFOLIO_WRITE_TOOLS, "portfolio_eval_submit"):
+            return False
+        return state.any_ok_tool(*_ANALYSIS_BROWSE_TOOLS)
 
     def block_tool_call(self, call: ToolCall, state: HarnessLoopState) -> str | None:
+        if call.name == "portfolio_write_create" and self._run_is_analysis_browse(state):
+            return (
+                "Blocked portfolio_write_create: this run is analyzing/querying an existing portfolio. "
+                "Prior portfolio-creation tasks from earlier turns are closed. "
+                "Answer the current analysis request only."
+            )
+        if call.name in _MUTATING_BUILD_TOOLS and call.name != "portfolio_write_delete":
+            if self._run_is_analysis_browse(state):
+                return (
+                    f"Blocked {call.name}: this run is read/analysis only. "
+                    "Do not modify portfolios unless the current user message explicitly asks to create, "
+                    "add candidates, or open positions."
+                )
         if call.name != "portfolio_write_delete":
             return None
         if not self._portfolio_build_in_progress(state):
@@ -219,8 +268,13 @@ class PortfolioTaskHarness(TaskHarness):
             and not eval_submission.require_kind_agent
         ):
             issues.append("portfolio_eval_submit must set require_kind_agent=true when portfolio_write_create was used.")
-        if state.any_ok_tool(*_ADD_HOLDING_TOOLS) and candidate_count_from_detail(detail_data) <= 0:
-            issues.append("Holdings were added but portfolio_read_detail shows zero candidates.")
+        if state.any_ok_tool(*_ADD_CANDIDATE_TOOLS) and candidate_count_from_detail(detail_data) <= 0:
+            issues.append("Candidates were added but portfolio_read_detail shows zero candidates.")
+        if state.any_ok_tool(*_CREATE_ORDER_TOOLS) and position_count_from_detail(detail_data) <= 0:
+            issues.append(
+                "Orders were placed but portfolio_read_detail shows zero filled positions — "
+                "check order fill errors (price, qty, capital)."
+            )
         return issues
 
     def build_recovery_prompt(self, decision: HarnessDecision, locale: str) -> str:

@@ -119,6 +119,10 @@
   border-top: 1px solid var(--border-dim);
 }
 
+.settings-credential-form {
+  display: contents;
+}
+
 .settings-field {
   display: flex;
   flex-direction: column;

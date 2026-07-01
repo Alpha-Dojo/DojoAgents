@@ -72,9 +72,7 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
               : undefined
           }
           aria-hidden
-        >
-          {item.status === 'running' ? '◌' : null}
-        </span>
+        />
         <div className="dojo-agent-tool-activity__main">
           <button
             type="button"

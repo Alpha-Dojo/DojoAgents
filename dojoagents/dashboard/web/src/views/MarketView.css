@@ -6,7 +6,8 @@
   display: flex;
   flex-direction: column;
   padding: 16px 20px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .market-view--loading,
@@ -75,7 +76,7 @@
 
 .market-view__sector-row {
   flex: 1;
-  min-height: 0;
+  min-height: 360px;
 }
 
 .mesh-market-column-wrap--sectors {
@@ -120,7 +121,7 @@
   top: 16px;
   bottom: 16px;
   width: 3px;
-  background: rgba(0, 229, 255, 0.95);
+  background: var(--green);
   opacity: 0;
   transform: scaleY(0.6);
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -194,9 +195,9 @@
   position: relative;
   width: min(420px, 100%);
   padding: 20px 22px 18px;
-  border: 1px solid var(--border-accent);
+  border: 1px solid var(--border-dim);
   border-radius: 10px;
-  background: linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
+  background: var(--bg-panel);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
 
@@ -217,22 +218,6 @@
 
 .mesh-add-market-dialog__action {
   margin-top: 16px;
-  padding: 7px 14px;
-  border: 1px solid var(--border-accent);
-  border-radius: 6px;
-  background: rgba(0, 229, 255, 0.08);
-  color: var(--cyan);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-
-.mesh-add-market-dialog__action:hover {
-  background: rgba(0, 229, 255, 0.14);
-  border-color: rgba(0, 229, 255, 0.45);
 }
 
 .mesh-market-column {

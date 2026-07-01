@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://discord.gg/CCRvSvdvr"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/Alpha-Dojo/DojoAgents"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="docs/WECHAT.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
   <a href="https://huggingface.co/AlphaDojo"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
@@ -47,19 +47,28 @@ DojoAgents 是一款专为个人投资打造的全市场 AI 智能体框架。�
 
 ### 2. 核心安装
 
+#### 快捷安装（PyPI）
+
+大多数用户可直接安装已发布的包，无需克隆仓库或构建前端：
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install dojoagents
+```
+
+然后跳至 [启动服务](#4-启动服务)。
+
+#### 从源码安装（开发者）
+
 运行时依赖已记录在 `pyproject.toml` 和 `requirements.txt` 中。
 
 ```bash
 # 1. 创建并激活虚拟环境
 uv venv && source .venv/bin/activate
 
-# 2. 选项 - 针对开发者与贡献者：
-# 开启“可编辑模式”并安装开发工具。任何源码级别的修改都将立即生效——
+# 2. 开启“可编辑模式”并安装开发工具。任何源码级别的修改都将立即生效——
 # 非常适合用于构建自定义工具或调试 Agent Loop。
 uv pip install -e ".[dev]"
-
-# 3. 安装核心依赖
-uv pip install -r requirements.txt
 ```
 
 ### 3. 构建 Dashboard
