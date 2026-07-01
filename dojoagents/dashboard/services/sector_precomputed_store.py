@@ -18,6 +18,29 @@ from dojoagents.dashboard.services.precompute_sector_daily import (
 from dojoagents.logging import LOGGER
 
 
+def dedupe_constituent_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one row per (market, ticker), matching sector index precompute."""
+    if not rows:
+        return []
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("market") or ""),
+            str(row.get("ticker") or ""),
+            str(row.get("role") or ""),
+        ),
+    )
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for row in sorted_rows:
+        key = (str(row.get("market") or ""), str(row.get("ticker") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
 class SectorPrecomputedStore:
     def __init__(self, data_root: Path | None = None) -> None:
         self.data_root = Path(data_root or FinancialDashboardConfig.dashboard_data_root).expanduser().resolve()
@@ -124,7 +147,10 @@ class SectorPrecomputedStore:
         if market:
             mask &= df["market"] == (normalize_market_code(market) or market)
 
-        return sanitize_records(df[mask])
+        rows = sanitize_records(df[mask])
+        if not level3_id:
+            rows = dedupe_constituent_rows(rows)
+        return rows
 
     def get_sector_constituents_exact(
         self,

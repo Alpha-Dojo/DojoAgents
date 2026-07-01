@@ -12,8 +12,8 @@ MARKET_CURRENCY: Dict[str, str] = {
 }
 
 FOREX_PAIR_SYMBOL: Dict[Tuple[str, str], str] = {
-    ("USD", "CNY"): "USDCNYC",
-    ("HKD", "CNY"): "HKDCNYC",
+    ("USD", "CNY"): "USDCNY",
+    ("HKD", "CNY"): "HKDCNY",
     ("HKD", "USD"): "HKDUSD",
 }
 
@@ -91,8 +91,8 @@ def chained_conversion_factor(
     Return multiplier: amount_in_source * factor = amount_in_target.
 
     Pair close conventions:
-    - USDCNYC: 1 USD = close CNY
-    - HKDCNYC: 1 HKD = close CNY
+    - USDCNY: 1 USD = close CNY
+    - HKDCNY: 1 HKD = close CNY
     - HKDUSD: 1 HKD = close USD
     """
     source = normalize_currency(source)
@@ -115,17 +115,17 @@ def chained_conversion_factor(
         return 1.0 / close
 
     if source == "CNY" and target == "HKD":
-        usd_cny = pair_closes.get("USDCNYC")
+        usd_cny = pair_closes.get("USDCNY")
         hkd_usd = pair_closes.get("HKDUSD")
         if not usd_cny or not hkd_usd:
             raise ValueError("missing forex closes for CNY->HKD")
         return (1.0 / usd_cny) / hkd_usd
 
     if source == "HKD" and target == "CNY":
-        hkdcny = pair_closes.get("HKDCNYC")
+        hkdcny = pair_closes.get("HKDCNY")
         if hkdcny and hkdcny > 0:
             return hkdcny
-        usd_cny = pair_closes.get("USDCNYC")
+        usd_cny = pair_closes.get("USDCNY")
         hkd_usd = pair_closes.get("HKDUSD")
         if not usd_cny or not hkd_usd:
             raise ValueError("missing forex closes for HKD->CNY")
@@ -190,5 +190,5 @@ def required_forex_symbols(rows: Iterable[dict], market: str) -> List[str]:
                 symbols.add(symbol)
             continue
         if {source, target} == {"CNY", "HKD"}:
-            symbols.update({"USDCNYC", "HKDUSD", "HKDCNYC"})
+            symbols.update({"USDCNY", "HKDUSD", "HKDCNY"})
     return sorted(symbols)

@@ -13,7 +13,7 @@ from dojoagents.dashboard.services.fin_currency_conversion import (
     rows_need_currency_conversion,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import extract_report_date
-from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time
+from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, merge_rows
 
 MAX_FOREX_FETCH_LIMIT = 600
 
@@ -60,9 +60,21 @@ class ForexStore:
         estimated_bars = int(span_days * 5 / 7) + 30
         return min(max(estimated_bars, 90), MAX_FOREX_FETCH_LIMIT)
 
-    async def _fetch_remote(self, symbol: str, limit: int) -> List[dict]:
+    async def _fetch_remote(
+        self,
+        symbol: str,
+        limit: int,
+        *,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> List[dict]:
         try:
-            payload = await self.gateway.forex(symbol, limit=limit)
+            kwargs: dict[str, object] = {"limit": limit}
+            if start_time:
+                kwargs["start_time"] = start_time
+            if end_time:
+                kwargs["end_time"] = end_time
+            payload = await self.gateway.forex(symbol, **kwargs)
         except Exception as e:
             LOGGER.info(f"[ForexStore] fetch error for {symbol}: {e}")
             payload = []
@@ -92,17 +104,21 @@ class ForexStore:
             return
 
         earliest_start = min(start for start, _ in windows)
+        latest_end = max(end for _, end in windows)
         limit = self._fetch_limit_for_start(earliest_start)
 
         async def _ensure(symbol: str):
             if self._has_bars_for_windows(symbol, windows):
                 return
-            # async with self._lock_for(symbol):
-            if self._has_bars_for_windows(symbol, windows):
-                return
-            remote = await self._fetch_remote(symbol, limit)
+            remote = await self._fetch_remote(
+                symbol,
+                limit,
+                start_time=earliest_start,
+                end_time=latest_end,
+            )
             if remote:
-                self._cache[symbol] = remote
+                existing = self._cache.get(symbol, [])
+                self._cache[symbol] = merge_rows(existing, remote)
 
         await asyncio.gather(*(_ensure(symbol) for symbol in symbols))
 

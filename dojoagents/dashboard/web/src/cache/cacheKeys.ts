@@ -32,7 +32,7 @@ export const cacheKeys = {
   coreTickerPeBand: (market: string | undefined, ticker: string) =>
     `core-ticker-pe-band:${tickerKey(market, ticker)}`,
   coreTickerFinIndicators: (market: string | undefined, ticker: string) =>
-    `core-ticker-fin-indicators:v5:${tickerKey(market, ticker)}`,
+    `core-ticker-fin-indicators:v6:${tickerKey(market, ticker)}`,
   coreTickerSector: (market: string | undefined, ticker: string) =>
     `core-ticker-sector:${tickerKey(market, ticker)}`,
   coreTickerEvents: (market: string | undefined, ticker: string, pageSize: number) =>

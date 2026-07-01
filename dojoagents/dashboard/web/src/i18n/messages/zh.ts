@@ -650,7 +650,7 @@ export const zhMessages = {
     sortHoldingsByWeight: '按权重排序',
     sortHoldingsByDayPnl: '按今日涨跌排序',
     sortHoldingsByTotalPnl: '按总盈亏排序',
-    kindAgent: 'DojoAgent 生成',
+    kindAgent: '智能体生成',
     kindManual: '用户自建',
     promoteToManual: '转为用户自建',
     promoteToManualConfirmTitle: '转为用户自建',
