@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { resolveFolioStatsByMarket } from '../../utils/folioNavSeries';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioPerformanceStats, FolioPerformanceView } from '../../types/folio';
 import type { MarketCode } from '../../types/market';
@@ -92,7 +93,11 @@ export function FolioRiskMetrics({
   benchmarkLabel = null,
 }: FolioRiskMetricsProps) {
   const { t } = useTranslation();
-  const hasStats = MARKETS.some((market) => performance?.statsByMarket?.[market] != null);
+  const statsByMarket = useMemo(
+    () => resolveFolioStatsByMarket(performance),
+    [performance],
+  );
+  const hasStats = MARKETS.some((market) => statsByMarket[market] != null);
   const benchmarkStats = useMemo(
     () => resolveBenchmarkStats(performance, benchmarkSymbol),
     [benchmarkSymbol, performance],
@@ -126,7 +131,7 @@ export function FolioRiskMetrics({
           </thead>
           <tbody>
             {MARKETS.map((market) => {
-              const stats = performance?.statsByMarket?.[market];
+              const stats = statsByMarket[market];
               if (!stats) return null;
               return (
                 <tr key={market}>

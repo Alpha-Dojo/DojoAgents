@@ -1,5 +1,13 @@
 """DojoAgents quantitative finance agent runtime."""
 
-__all__ = ["__version__"]
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = "0.0.1"
+try:
+    __version__ = version("dojoagents")
+except PackageNotFoundError:
+    from pathlib import Path
+
+    _version_file = Path(__file__).resolve().parents[1] / "VERSION"
+    __version__ = _version_file.read_text(encoding="utf-8").strip() if _version_file.is_file() else "0.0.0+unknown"
+
+__all__ = ["__version__"]

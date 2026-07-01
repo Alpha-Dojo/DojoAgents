@@ -35,6 +35,20 @@ def _block_char_count(part: Any) -> int:
     if "reasoningContent" in part:
         rc = part["reasoningContent"]
         return len(str(rc.get("reasoningText", {}).get("text", "")))
+    if "image" in part:
+        image = part.get("image")
+        if isinstance(image, dict):
+            source = image.get("source")
+            if isinstance(source, dict):
+                raw_bytes = source.get("bytes")
+                if isinstance(raw_bytes, (bytes, bytearray)):
+                    return len(raw_bytes)
+                if isinstance(raw_bytes, str):
+                    return len(raw_bytes)
+                location = source.get("location")
+                if isinstance(location, dict) and str(location.get("type") or "").strip():
+                    return len(str(location["type"]))
+        return 4096
     return len(json.dumps(part, ensure_ascii=False))
 
 

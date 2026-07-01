@@ -21,6 +21,20 @@ def test_rough_tokens_estimation():
     assert tokens == 13
 
 
+def test_rough_tokens_estimation_with_image_bytes():
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "describe"},
+                {"image": {"format": "png", "source": {"bytes": b"x" * 120}}},
+            ],
+        }
+    ]
+    # text 8 chars + image 120 bytes -> 128 // 4 = 32
+    assert _estimate_tokens_rough(messages) == 32
+
+
 def test_args_truncation():
     # Long string value inside JSON
     args_json = '{"path": "config.py", "content": "' + ("A" * 500) + '"}'

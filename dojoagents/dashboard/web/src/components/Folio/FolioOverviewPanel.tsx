@@ -4,27 +4,112 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { AppTab } from '../../navigation/appTab';
 import type { FolioPortfolioDetail } from '../../api/folio';
 import type { MarketCode } from '../../types/market';
-import type { FolioAllocationStrategy, FolioPortfolioConfig } from '../../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig } from '../../types/folio';
 import { DEFAULT_FOLIO_CONFIG } from '../../types/folio';
-import { flattenFolioBenchmarkOptions } from '../../utils/folioBenchmarkSeries';
-import { FolioBenchmarkMultiSelect } from './FolioBenchmarkMultiSelect';
+import { portfolioDefaultConfig } from '../../utils/folioStartDate';
+import { buildFolioCandidateIndexOptions, resolveFolioBenchmarkLabel } from '../../utils/folioCandidateIndex';
+import {
+  findFolioBenchmarkOption,
+  flattenFolioBenchmarkOptions,
+  buildRebasedBenchmarkSeriesBySymbol,
+  buildFolioBenchmarkHeadChips,
+} from '../../utils/folioBenchmarkSeries';
+import { MARKET_CODE } from '../../utils/marketDisplay';
+import {
+  FolioBenchmarkMultiSelect,
+  type FolioBenchmarkMultiSelectEntry,
+} from './FolioBenchmarkMultiSelect';
 import { FolioDetailTabs } from './FolioDetailTabs';
 import { FolioHeadlineMetrics } from './FolioHeadlineMetrics';
 import { FolioInlineConfig } from './FolioInlineConfig';
-import { FolioNavCurveSection } from './FolioNavCurveChart';
-import { FolioRiskMetrics } from './FolioRiskMetrics';
+import { pickWindowMasterSeries } from '../../utils/folioNavWindow';
+import { FolioNavCurveSection, type FolioNavCurveHeadContext } from './FolioNavCurveChart';
 import { useFolioDetailSplit } from '../../hooks/useFolioDetailSplit';
+import type { FolioPerformanceView } from '../../types/folio';
+
+interface FolioOverviewBenchmarkSelectProps {
+  head: FolioNavCurveHeadContext;
+  performance: FolioPerformanceView | null | undefined;
+  primaryBenchmarkSymbol: string;
+  benchmarkSymbols: string[];
+  benchmarkCatalog: BenchmarkCatalogResponse | null;
+  options: FolioBenchmarkMultiSelectEntry[];
+  candidateIndexLabel: (market: MarketCode) => string;
+  locale: 'zh' | 'en';
+  ariaLabel: string;
+  onSelect: (symbol: string) => void;
+}
+
+function FolioOverviewBenchmarkSelect({
+  head,
+  performance,
+  primaryBenchmarkSymbol,
+  benchmarkSymbols,
+  benchmarkCatalog,
+  options,
+  candidateIndexLabel,
+  locale,
+  ariaLabel,
+  onSelect,
+}: FolioOverviewBenchmarkSelectProps) {
+  const anchorDate = head.hoverDate ?? head.anchorDate;
+
+  const returnValue = useMemo(() => {
+    const masterDates =
+      pickWindowMasterSeries(head.windowRebasedByMarket)?.series.map((point) => point.date) ?? [];
+    if (!primaryBenchmarkSymbol || masterDates.length === 0) return null;
+    const rebasedBySymbol = buildRebasedBenchmarkSeriesBySymbol(
+      [primaryBenchmarkSymbol],
+      benchmarkCatalog,
+      masterDates,
+      performance,
+    );
+    const chips = buildFolioBenchmarkHeadChips(
+      [primaryBenchmarkSymbol],
+      benchmarkCatalog,
+      rebasedBySymbol,
+      anchorDate,
+      candidateIndexLabel,
+      locale,
+    );
+    return chips[0]?.value ?? null;
+  }, [
+    anchorDate,
+    benchmarkCatalog,
+    candidateIndexLabel,
+    head.windowRebasedByMarket,
+    locale,
+    performance,
+    primaryBenchmarkSymbol,
+  ]);
+
+  return (
+    <FolioBenchmarkMultiSelect
+      singleSelect
+      variant="inline"
+      aria-label={ariaLabel}
+      className="folio-performance__benchmark-select"
+      options={options}
+      selected={benchmarkSymbols}
+      returnValue={returnValue}
+      onSelect={onSelect}
+      onToggle={onSelect}
+    />
+  );
+}
 
 interface FolioOverviewPanelProps {
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
   addingTicker?: boolean;
   removingTicker?: string | null;
+  placingOrder?: boolean;
   allocating?: boolean;
   benchmarkSymbols: string[];
-  onToggleBenchmark: (symbol: string) => void;
+  onSelectBenchmark: (symbol: string) => void;
   onSetBenchmarkSymbols: (symbols: string[]) => void;
   onApplyConfig: (config: FolioPortfolioConfig) => void;
+  onCreateOrder: (payload: FolioCreateOrderPayload) => Promise<void>;
   onNavigateTab?: (tab: AppTab) => void;
   onApplyShares: (sharesByTicker: Record<string, number>) => void;
   onToggleSharesLock: (ticker: string, locked: boolean) => void;
@@ -42,11 +127,13 @@ export function FolioOverviewPanel({
   loading = false,
   addingTicker = false,
   removingTicker = null,
+  placingOrder = false,
   allocating = false,
   benchmarkSymbols,
-  onToggleBenchmark,
+  onSelectBenchmark,
   onSetBenchmarkSymbols,
   onApplyConfig,
+  onCreateOrder,
   onNavigateTab,
   onApplyShares,
   onToggleSharesLock,
@@ -58,29 +145,34 @@ export function FolioOverviewPanel({
   onRemoveHolding,
   onAutoAllocate,
 }: FolioOverviewPanelProps) {
-  const { t, text } = useTranslation();
+  const { t, text, locale } = useTranslation();
   const { splitRef, ratio, resizing, onResizeStart } = useFolioDetailSplit();
-  const config = portfolio.config ?? DEFAULT_FOLIO_CONFIG;
+  const config = portfolio.config ?? portfolioDefaultConfig(portfolio, DEFAULT_FOLIO_CONFIG);
   const [draftConfig, setDraftConfig] = useState(config);
-  const [configExpanded, setConfigExpanded] = useState(() => portfolio.holdings.length === 0);
+  const hasPortfolioContent = portfolio.candidates.length > 0 || portfolio.positions.length > 0;
+  const [configExpanded, setConfigExpanded] = useState(false);
   const [benchmarkCatalog, setBenchmarkCatalog] = useState<BenchmarkCatalogResponse | null>(null);
-  const prevHoldingsCountRef = useRef(portfolio.holdings.length);
+  const prevContentCountRef = useRef(portfolio.candidates.length + portfolio.positions.length);
 
   useEffect(() => {
-    setDraftConfig(portfolio.config ?? DEFAULT_FOLIO_CONFIG);
-  }, [portfolio.config, portfolio.id]);
+    setDraftConfig(portfolio.config ?? portfolioDefaultConfig(portfolio, DEFAULT_FOLIO_CONFIG));
+  }, [portfolio.config, portfolio.id, portfolio.positions, portfolio.orders]);
 
   useEffect(() => {
-    setConfigExpanded(portfolio.holdings.length === 0);
-    prevHoldingsCountRef.current = portfolio.holdings.length;
+    setConfigExpanded(false);
+    prevContentCountRef.current = portfolio.candidates.length + portfolio.positions.length;
   }, [portfolio.id]);
 
   useEffect(() => {
-    if (prevHoldingsCountRef.current === 0 && portfolio.holdings.length > 0) {
+    if (loading) return;
+    const contentCount = portfolio.candidates.length + portfolio.positions.length;
+    if (contentCount === 0) {
+      setConfigExpanded(true);
+    } else if (prevContentCountRef.current === 0 && contentCount > 0) {
       setConfigExpanded(false);
     }
-    prevHoldingsCountRef.current = portfolio.holdings.length;
-  }, [portfolio.holdings.length]);
+    prevContentCountRef.current = contentCount;
+  }, [loading, portfolio.candidates.length, portfolio.positions.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,13 +189,18 @@ export function FolioOverviewPanel({
   }, []);
 
   const configDirty = useMemo(
-    () => JSON.stringify(draftConfig) !== JSON.stringify(portfolio.config ?? DEFAULT_FOLIO_CONFIG),
-    [draftConfig, portfolio.config],
+    () => JSON.stringify(draftConfig) !== JSON.stringify(portfolio.config ?? portfolioDefaultConfig(portfolio, DEFAULT_FOLIO_CONFIG)),
+    [draftConfig, portfolio.config, portfolio.positions, portfolio.orders],
   );
 
   const benchmarkOptions = useMemo(
     () => flattenFolioBenchmarkOptions(benchmarkCatalog),
     [benchmarkCatalog],
+  );
+
+  const candidateIndexLabel = useMemo(
+    () => (market: MarketCode) => t('folio.candidateIndexLabel', { market: MARKET_CODE[market] }),
+    [t],
   );
 
   const defaultBenchmarkSymbol =
@@ -116,26 +213,59 @@ export function FolioOverviewPanel({
 
   const primaryBenchmarkSymbol = benchmarkSymbols[0] ?? defaultBenchmarkSymbol ?? '';
 
-  const selectedBenchmarkLabel =
-    benchmarkOptions.find((option) => option.symbol === primaryBenchmarkSymbol)?.label ??
-    primaryBenchmarkSymbol;
+  const selectedBenchmarkLabel = useMemo(() => {
+    const option = findFolioBenchmarkOption(benchmarkCatalog, primaryBenchmarkSymbol);
+    return resolveFolioBenchmarkLabel(
+      primaryBenchmarkSymbol,
+      option,
+      candidateIndexLabel,
+      locale,
+    );
+  }, [benchmarkCatalog, candidateIndexLabel, locale, primaryBenchmarkSymbol]);
 
-  const benchmarkMultiSelectOptions = useMemo(
-    () =>
-      benchmarkOptions.map((option) => ({
-        symbol: option.symbol,
-        label: text({ zh: option.label, en: option.label }),
-        market: option.market,
-      })),
-    [benchmarkOptions, text],
-  );
+  const benchmarkMultiSelectOptions = useMemo((): FolioBenchmarkMultiSelectEntry[] => {
+    const entries: FolioBenchmarkMultiSelectEntry[] = [];
+    const candidateOptions = buildFolioCandidateIndexOptions(
+      portfolio.performance,
+      candidateIndexLabel,
+    ).map((option) => ({
+      kind: 'option' as const,
+      symbol: option.symbol,
+      label: option.label,
+      market: option.market,
+    }));
 
-  const hasHoldings = portfolio.holdings.length > 0;
-  const showConfig = configExpanded || !hasHoldings;
+    const benchmarkEntries = benchmarkOptions.map((option) => ({
+      kind: 'option' as const,
+      symbol: option.symbol,
+      label: text({ zh: option.labelZh, en: option.labelEn }),
+      market: option.market,
+    }));
+
+    if (candidateOptions.length > 0) {
+      entries.push({
+        kind: 'header',
+        id: 'candidate-index',
+        label: t('folio.benchmarkGroupCandidate'),
+      });
+      entries.push(...candidateOptions);
+    }
+    if (benchmarkEntries.length > 0) {
+      entries.push({
+        kind: 'header',
+        id: 'benchmark-index',
+        label: t('folio.benchmarkGroupBenchmark'),
+      });
+      entries.push(...benchmarkEntries);
+    }
+    return entries;
+  }, [benchmarkOptions, candidateIndexLabel, portfolio.performance, t, text]);
+
+  const showConfig = !loading && (hasPortfolioContent ? configExpanded : true);
 
   const handleApplyConfig = () => {
     onApplyConfig(draftConfig);
-    if (hasHoldings) {
+    if (hasPortfolioContent) {
       setConfigExpanded(false);
     }
   };
@@ -152,24 +282,22 @@ export function FolioOverviewPanel({
               onApply={handleApplyConfig}
             />
           ) : (
-            <FolioHeadlineMetrics
-              portfolio={portfolio}
-              benchmarkSymbol={primaryBenchmarkSymbol}
-              benchmarkLabel={selectedBenchmarkLabel}
-              loading={loading}
-            />
+            <FolioHeadlineMetrics portfolio={portfolio} loading={loading} />
           )}
         </div>
 
-        {hasHoldings ? (
-          <button
-            type="button"
-            className={`folio-config-toggle${configExpanded ? ' folio-config-toggle--active' : ''}${configDirty ? ' folio-config-toggle--dirty' : ''}`}
-            aria-expanded={configExpanded}
-            aria-label={t('folio.openConfig')}
-            title={t('folio.openConfig')}
-            onClick={() => setConfigExpanded((prev) => !prev)}
-          >
+        <button
+          type="button"
+          className={`folio-config-toggle${showConfig ? ' folio-config-toggle--active' : ''}${configDirty ? ' folio-config-toggle--dirty' : ''}`}
+          aria-expanded={showConfig}
+          aria-label={t('folio.openConfig')}
+          title={t('folio.openConfig')}
+          disabled={!hasPortfolioContent && !loading}
+          onClick={() => {
+            if (!hasPortfolioContent) return;
+            setConfigExpanded((prev) => !prev);
+          }}
+        >
             <span className="folio-config-toggle__icon" aria-hidden>
               <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
                 <path
@@ -182,7 +310,6 @@ export function FolioOverviewPanel({
               </svg>
             </span>
           </button>
-        ) : null}
       </div>
 
       <div
@@ -196,31 +323,24 @@ export function FolioOverviewPanel({
           <div className="folio-performance__chart-block">
             <FolioNavCurveSection
               performance={portfolio.performance}
+              orders={portfolio.orders}
               loading={loading}
               benchmarkSymbols={benchmarkSymbols}
               benchmarkCatalog={benchmarkCatalog}
-              benchmarkControl={
-                <div className="folio-performance__controls">
-                  <label className="folio-performance__benchmark">
-                    <span className="folio-performance__benchmark-label">{t('sectorPage.benchmarkLabel')}</span>
-                    <FolioBenchmarkMultiSelect
-                      aria-label={t('sectorPage.benchmarkLabel')}
-                      className="folio-performance__benchmark-select"
-                      options={benchmarkMultiSelectOptions}
-                      selected={benchmarkSymbols}
-                      onToggle={onToggleBenchmark}
-                    />
-                  </label>
-                </div>
-              }
-            />
-          </div>
-          <div className="folio-performance__metrics-block">
-            <FolioRiskMetrics
-              performance={portfolio.performance}
-              loading={loading}
-              benchmarkSymbol={primaryBenchmarkSymbol}
-              benchmarkLabel={selectedBenchmarkLabel}
+              benchmarkControl={(head) => (
+                <FolioOverviewBenchmarkSelect
+                  head={head}
+                  performance={portfolio.performance}
+                  primaryBenchmarkSymbol={primaryBenchmarkSymbol}
+                  benchmarkSymbols={benchmarkSymbols}
+                  benchmarkCatalog={benchmarkCatalog}
+                  options={benchmarkMultiSelectOptions}
+                  candidateIndexLabel={candidateIndexLabel}
+                  locale={locale}
+                  ariaLabel={t('sectorPage.benchmarkLabel')}
+                  onSelect={onSelectBenchmark}
+                />
+              )}
             />
           </div>
         </article>
@@ -240,6 +360,7 @@ export function FolioOverviewPanel({
             loading={loading}
             addingTicker={addingTicker}
             removingTicker={removingTicker}
+            placingOrder={placingOrder}
             allocating={allocating}
             benchmarkSymbol={primaryBenchmarkSymbol}
             benchmarkLabel={selectedBenchmarkLabel}
@@ -252,6 +373,7 @@ export function FolioOverviewPanel({
             onApplyOpenDate={onApplyOpenDate}
             onAddHolding={onAddHolding}
             onRemoveHolding={onRemoveHolding}
+            onCreateOrder={onCreateOrder}
             onAutoAllocate={onAutoAllocate}
           />
         </div>

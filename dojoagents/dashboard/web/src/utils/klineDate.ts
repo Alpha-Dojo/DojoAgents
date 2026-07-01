@@ -85,6 +85,9 @@ export function findKlineIndexForDate(
 
 export const DATA_START_DATE = '2025-01-01';
 
+/** First trading day of January 2025 (portfolio default inception). */
+export const FOLIO_DEFAULT_START_DATE = '2025-01-02';
+
 /** @deprecated Rolling 1Y window; charts now anchor at {@link DATA_START_DATE}. */
 export const KLINE_WINDOW_DAYS = 365;
 

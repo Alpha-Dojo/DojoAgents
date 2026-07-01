@@ -72,6 +72,13 @@ export function formatToolArguments(
 
   switch (tool) {
     case 'get_ticker_financials':
+      if (tickers.length > 0) {
+        const preview = previewTickers(tickers);
+        return market ? `${preview} · ${market}` : preview;
+      }
+      if (ticker && market) return `${ticker} · ${market}`;
+      if (ticker) return ticker;
+      return null;
     case 'get_ticker_price_trends':
     case 'get_ticker_news_and_events':
       if (ticker && market) return `${ticker} · ${market}`;
@@ -167,6 +174,8 @@ export function formatToolArguments(
       return action ?? name;
     case 'add_portfolio_holdings':
     case 'add_portfolio_holding':
+    case 'portfolio_write_add_holdings':
+    case 'portfolio_write_add_holding':
       if (holdings?.length) {
         const tickers = holdings
           .map((row) => (typeof row === 'object' && row && 'ticker' in row ? String(row.ticker) : ''))

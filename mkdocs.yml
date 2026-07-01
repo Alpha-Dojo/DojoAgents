@@ -43,8 +43,6 @@ plugins:
             第一次 Agent 运行: First Agent Run
             用户指南: User Guide
             金融工作流: Financial Workflows
-            预计算行业数据: Precompute Sector Data
-            回测: Backtesting
             架构: Architecture
             总览: Overview
             配置: Configuration
@@ -58,15 +56,6 @@ plugins:
             前端样式规范: Frontend Style Guide
             构建发布: Release Build
             Docker 打包: Docker Packaging
-            运维: Operations
-            Dashboard 部署: Dashboard Deployment
-            性能剖析: Performance Profiling
-            排错: Troubleshooting
-            安全: Security
-            设计记录: Design Notes
-            当前设计: Current Designs
-            历史设计: Historical Designs
-            迁移记录: Migration Notes
 extra:
   alternate:
     - name: 中文
@@ -90,11 +79,8 @@ nav:
       - Gateway: user-guide/gateway.md
       - Skills: user-guide/skills.md
       - Tools: user-guide/tools.md
-      - Memory: user-guide/memory.md
       - Scheduled Jobs: user-guide/scheduled-jobs.md
       - 金融工作流: user-guide/financial-workflows.md
-      - 预计算行业数据: user-guide/precompute-sector-daily.md
-      - 回测: user-guide/backtesting.md
   - 架构:
       - architecture/index.md
       - 总览: architecture/overview.md
@@ -130,14 +116,3 @@ nav:
       - 前端样式规范: development/frontend-style-guide.md
       - 构建发布: development/release-build.md
       - Docker 打包: development/docker-packaging.md
-  - 运维:
-      - operations/index.md
-      - Dashboard 部署: operations/dashboard-deployment.md
-      - 性能剖析: operations/performance-profiler.md
-      - 排错: operations/troubleshooting.md
-      - 安全: operations/security.md
-  - 设计记录:
-      - design-notes/index.md
-      - 当前设计: design-notes/current-designs.md
-      - 历史设计: design-notes/historical-designs.md
-      - 迁移记录: design-notes/migration-notes.md

@@ -1,4 +1,4 @@
-import { DATA_START_DATE } from './klineDate';
+import { DATA_START_DATE, FOLIO_DEFAULT_START_DATE } from './klineDate';
 
 function formatIsoDate(date: Date): string {
   const year = date.getFullYear();
@@ -15,6 +15,33 @@ export function oneYearAgoDate(from: Date = new Date()): string {
 
 export function todayIsoDate(from: Date = new Date()): string {
   return formatIsoDate(from);
+}
+
+/** Default 建仓日：持仓最早建仓日，否则 2025 年 1 月首个交易日。 */
+export function resolvePortfolioStartDate(detail: {
+  positions?: Array<{ openDate?: string }>;
+}): string {
+  const openDates = (detail.positions ?? [])
+    .map((row) => row.openDate?.slice(0, 10))
+    .filter((value): value is string => Boolean(value));
+  if (openDates.length > 0) {
+    return openDates.sort()[0];
+  }
+  return FOLIO_DEFAULT_START_DATE;
+}
+
+export function portfolioDefaultConfig(
+  detail: {
+    positions?: Array<{ openDate?: string }>;
+  },
+  base: { startDate: string; costDate: string; capitalByMarket: Record<string, number> },
+): { startDate: string; costDate: string; capitalByMarket: Record<string, number> } {
+  const startDate = resolvePortfolioStartDate(detail);
+  return {
+    ...base,
+    startDate,
+    costDate: startDate,
+  };
 }
 
 /** Earliest selectable date: global dataset inception (2025-01-01) through today. */

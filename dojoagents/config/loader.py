@@ -35,6 +35,20 @@ from dojoagents.config.models import (
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "gemini": "google",
+    "deepseek": "deepseek",
+    "qwen": "qwen",
+    "zhipu": "z-ai",
+    "glm": "z-ai",
+    "moonshot": "moonshotai",
+    "kimi": "moonshotai",
+    "ollama": "ollama",
+    "minimax": "minimax",
+    "openrouter": "",
+}
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -57,15 +71,41 @@ def _expand_env(value: Any) -> Any:
     return value
 
 
-def _provider_config(raw: dict[str, Any]) -> LLMProviderConfig:
+def _as_non_empty_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def _split_author_and_model(model: str | None) -> tuple[str | None, str | None]:
+    if not isinstance(model, str):
+        return None, None
+    trimmed = model.strip()
+    if not trimmed:
+        return None, None
+    if "/" not in trimmed:
+        return None, trimmed
+    author, slug = trimmed.split("/", 1)
+    author = author.strip()
+    slug = slug.strip()
+    if not author or not slug:
+        return None, trimmed
+    return author, slug
+
+
+def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     api_key_env = raw.get("api_key_env")
     api_key = raw.get("api_key")
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
-    model = raw.get("model")
+    raw_model = _as_non_empty_string(raw.get("model"))
+    parsed_author, parsed_model = _split_author_and_model(raw_model)
+    author = _as_non_empty_string(raw.get("author")) or parsed_author or _DEFAULT_PROVIDER_AUTHORS.get(name, "")
     return LLMProviderConfig(
-        model=str(model) if isinstance(model, str) and model.strip() else None,
+        model=parsed_model,
+        author=author or None,
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
@@ -83,7 +123,7 @@ def resolve_provider_config(llm: LLMConfig) -> tuple[str | None, LLMProviderConf
 
 
 def _to_config(raw: dict[str, Any]) -> AgentsConfig:
-    providers = {name: _provider_config(value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
+    providers = {name: _provider_config(name, value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
     llm = LLMConfig(
         default=raw.get("llm_provider", {}).get("default"),
         providers=providers,

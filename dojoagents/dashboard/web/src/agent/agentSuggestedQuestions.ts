@@ -1,6 +1,7 @@
 import { readPersistedSectorSelection } from '../cache/sectorViewState';
 import type { AppLocale } from '../i18n/locale';
 import { readEntityTickerContext, resolveEntityTickerContext } from '../navigation/entityContext';
+import { resolveActiveFolioPortfolioName } from '../navigation/folioContext';
 import type { AppTab } from '../navigation/appTab';
 import type { BilingualLabel, SectorTaxonomyDocument } from '../types/sectorTaxonomy';
 import { findSectorPathByIds, getSectorDefaultSelection } from '../utils/sectorTaxonomy';
@@ -9,6 +10,7 @@ export interface SuggestedQuestionContext {
   sphereL2: string;
   sphereL3: string;
   coreCompanyName: string;
+  portfolioName: string;
 }
 
 const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> = {
@@ -62,18 +64,18 @@ const SUGGESTED_QUESTION_TEMPLATES: Record<AppTab, Record<AppLocale, string[]>> 
   },
   folio: {
     zh: [
-      '帮我诊断下所有投资组合，最近是谁在拖后腿？',
-      '帮我挑 5 只低估值的美股高息股，直接一键建仓。',
-      '帮我检查组合里哪些个股仓位过重，并自动配平权重。',
-      '对比我手里的所有组合，接下来往哪一个加仓性价比最高？',
-      '半导体行业近期偏利多还是利空？我的组合需要调整相关仓位吗？',
+      '当前 {portfolio} 最大的风险是什么？',
+      '如果美联储降息，对 {portfolio} 影响如何？',
+      '帮我挑 5 只低估值的美股高息股，并创建投资组合',
+      '有哪些低相关性资产可以分散 {portfolio} 的投资风险？',
+      '半导体行业近期是利多还是利空，{portfolio} 还需要调整仓位吗？',
     ],
     en: [
-      'Diagnose all my portfolios—what has been dragging performance lately?',
-      'Pick 5 undervalued US high-yield stocks and build a portfolio in one shot.',
-      'Find overweight names in my portfolios and auto-rebalance weights.',
-      'Among my portfolios, which one offers the best value to add to next?',
-      'Are semiconductors bullish or bearish lately—should I adjust my holdings?',
+      'What is the biggest risk in {portfolio} right now?',
+      'If the Fed cuts rates, how would that affect {portfolio}?',
+      'Pick 5 undervalued US high-dividend stocks and create a portfolio.',
+      'What low-correlation assets could diversify risk in {portfolio}?',
+      'Are semiconductors bullish or bearish lately—does {portfolio} need position adjustments?',
     ],
   },
 };
@@ -86,7 +88,8 @@ function applySuggestedQuestionTemplate(template: string, context: SuggestedQues
   return template
     .replaceAll('{L3}', context.sphereL3)
     .replaceAll('{L2}', context.sphereL2)
-    .replaceAll('{ticker}', context.coreCompanyName);
+    .replaceAll('{ticker}', context.coreCompanyName)
+    .replaceAll('{portfolio}', context.portfolioName);
 }
 
 export function resolveSuggestedQuestionContext(
@@ -102,20 +105,23 @@ export function resolveSuggestedQuestionContext(
   const fallbackL2 = locale === 'zh' ? '当前产业链' : 'this industry chain';
   const fallbackL3 = locale === 'zh' ? '当前板块' : 'this sector';
 
+  const portfolioName = resolveActiveFolioPortfolioName(locale);
+
   if (!taxonomy) {
-    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };
+    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName, portfolioName };
   }
 
   const selection = readPersistedSectorSelection() ?? getSectorDefaultSelection(taxonomy);
   const path = findSectorPathByIds(taxonomy, selection);
   if (!path) {
-    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName };
+    return { sphereL2: fallbackL2, sphereL3: fallbackL3, coreCompanyName, portfolioName };
   }
 
   return {
     sphereL2: localizedLabel(path.level2.name, locale),
     sphereL3: localizedLabel(path.level3.name, locale),
     coreCompanyName,
+    portfolioName,
   };
 }
 

@@ -1116,6 +1116,113 @@
   margin-top: 8px;
 }
 
+.dojo-agent-panel__composer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dojo-agent-panel__attach-btn {
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__attach-btn--active {
+  background: rgba(0, 229, 255, 0.12);
+}
+
+.dojo-agent-panel__send-btn {
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__composer-bar .dojo-agent-panel__send-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.dojo-agent-panel__composer-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-panel__attachment {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+
+.dojo-agent-panel__attachment-preview,
+.dojo-agent-panel__user-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dojo-agent-panel__user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-panel__user-images .dojo-agent-panel__user-image-btn {
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__user-image {
+  width: 120px;
+  height: 120px;
+}
+
+.dojo-agent-panel__attachment--loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-style: dashed;
+  background: rgba(0, 229, 255, 0.04);
+}
+
+.dojo-agent-panel__attachment-loading-label {
+  max-width: 64px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .dojo-agent-panel__send {
   flex-shrink: 0;
   min-width: 72px;

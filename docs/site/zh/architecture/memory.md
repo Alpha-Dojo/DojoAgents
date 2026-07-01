@@ -21,4 +21,4 @@ Memory 模块为 Agent 提供可插拔的会话记忆、摘要和长期上下文
 
 ## 深入阅读
 
-Session context 和 memory 设计后续应以本页为主继续补齐。
+- [Session 设计与集成](../development/session-history-design.md)

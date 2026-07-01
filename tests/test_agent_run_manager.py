@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from unittest.mock import MagicMock
 
@@ -181,3 +182,51 @@ def test_cancel_background_run_returns_cancelled_status():
     assert status_response.status_code == 200
     assert status_response.json()["status"] == "cancelled"
     assert agent.cancelled is True
+
+
+def test_create_background_run_rejects_unsupported_image_input():
+    from dojoagents.agent.model_context import ModelContextInfo
+    from dojoagents.config.models import LLMProviderConfig
+
+    class FakeModelContextRegistry:
+        async def resolve_info(self, provider_name, provider_cfg, *, client=None):
+            assert provider_name == "zhipu"
+            assert provider_cfg.author == "z-ai"
+            assert provider_cfg.model == "glm-5.2"
+            return ModelContextInfo(
+                context_window=1048576,
+                input_modalities=("text",),
+                output_modalities=("text",),
+                canonical_slug="z-ai/glm-5.2-20260616",
+                provider_model_id="z-ai/glm-5.2",
+                author="z-ai",
+                slug="glm-5.2",
+            )
+
+    agent = FakeBackgroundAgent()
+    agent.provider_config = LLMProviderConfig(model="glm-5.2", author="z-ai")
+    agent.model_context_registry = FakeModelContextRegistry()
+    agent.llm_provider = type("FakeProvider", (), {"name": "zhipu"})()
+
+    client = TestClient(_make_app(agent))
+    data_url = "data:image/png;base64," + base64.b64encode(b"abc").decode("ascii")
+
+    response = client.post(
+        "/api/chat/runs",
+        json={
+            "model": "zhipu",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "look at this"},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                }
+            ],
+            "metadata": {"session_id": "sess-image"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert "does not support input modalities: image" in response.json()["error"]

@@ -311,7 +311,11 @@ def _build_index_rows(
         if not available:
             continue
         effective_weight_sum = float(sum(weight for _, weight in available))
-        daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
+        if effective_weight_sum == 0:
+            print(f"Warning: effective_weight_sum is zero for {trade_date}, {scope}, {market}, {path.level1_id}, {path.level2_id}, {path.level3_id}")
+            daily_return_pct = 0
+        else:
+            daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
         index_level *= 1 + daily_return_pct / 100.0
         rows.append(
             {

@@ -61,8 +61,9 @@ export function compactMessagesForStorage(
       const { data: _data, ...compacted } = item;
       return compacted;
     });
+    const { images: _images, ...rest } = message;
     return {
-      ...message,
+      ...rest,
       ...(activitySteps ? { activitySteps } : {}),
       ...(toolActivity ? { toolActivity } : {}),
     };

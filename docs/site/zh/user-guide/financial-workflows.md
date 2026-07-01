@@ -12,9 +12,16 @@ DojoAgents 面向量化金融分析，常见工作流包括行情查询、行业
 - `viz_blocks`，用于展示表格、K 线、趋势和组合分析结果。
 - Harness，用于让 Agent 在金融任务中完成必要步骤后再总结。
 
+## 推荐路径
+
+1. 先通过 [模型配置](../getting-started/model-configuration.md) 配好 provider。
+2. 启动 [Dashboard](dashboard.md)，确认金融数据 store 能正常加载。
+3. 用自然语言提出任务，例如市场概览、行业对比、ticker 分析或组合诊断。
+4. 让 Agent 通过工具读取数据；前端根据 `viz_blocks` 展示结构化结果。
+5. 如果工具改变了组合或 session 数据，前端根据 `resource_changes` 刷新对应资源。
+
 ## 相关页面
 
 - [DojoSDK Reference](../reference/dojo-sdk.md)
 - [Tool Contracts](../reference/tool-contracts.md)
 - [Agent Loop 架构](../architecture/agent-loop.md)
-- 后续补充：将金融 harness 的细节继续收敛到本页和 Agent Loop 架构页

@@ -27,7 +27,7 @@ from dojoagents.dashboard.routers import (
     utility,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
-from dojoagents.dashboard.agent_runs import AgentRunManager
+from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
@@ -157,22 +157,16 @@ def _chat_request(payload: dict[str, Any]) -> ChatRequest:
 
 
 def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from dojoagents.agent.multimodal import normalize_openai_message_content, openai_content_has_payload
+
     normalized: list[dict[str, Any]] = []
     for message in messages:
         role = str(message.get("role") or "").strip()
         if not role:
             continue
-        content = message.get("content")
-        if isinstance(content, list):
-            text_parts: list[str] = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    text_parts.append(str(part.get("text") or ""))
-            content = "".join(text_parts)
-        elif content is None:
-            content = ""
-        else:
-            content = str(content)
+        content = normalize_openai_message_content(message.get("content"))
+        if role in {"user", "assistant"} and not openai_content_has_payload(content):
+            continue
         normalized.append(
             {
                 "role": role,
@@ -208,16 +202,20 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         if not messages:
             raise ValueError("messages must contain at least one valid message")
 
+        from dojoagents.agent.multimodal import openai_content_has_payload, openai_content_text
+
         last_user_index = -1
         last_user_msg = ""
+        last_user_content: str | list[dict[str, Any]] = ""
         for idx in range(len(messages) - 1, -1, -1):
             msg = messages[idx]
             if msg.get("role") == "user":
-                content = str(msg.get("content") or "").strip()
-                if not content:
+                content = msg.get("content")
+                if not openai_content_has_payload(content):
                     continue
                 last_user_index = idx
-                last_user_msg = content
+                last_user_content = content if isinstance(content, list) else str(content or "")
+                last_user_msg = openai_content_text(content)
                 break
         if last_user_index < 0:
             raise ValueError("messages must include at least one non-empty user message")
@@ -233,6 +231,7 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         quant_data = metadata.get("quant")
         quant = QuantContext(**quant_data) if isinstance(quant_data, dict) else None
         metadata["history"] = messages[:last_user_index]
+        metadata["user_content"] = last_user_content
         metadata["locale"] = locale
         metadata["event_format"] = event_format
 
@@ -451,6 +450,10 @@ def create_app(
         event_format = info.get("event_format", "openai.v1")
         _sync_runtime_agent_from_config(runtime, model)
         sessions = getattr(runtime, "sessions", None)
+        try:
+            await validate_request_modalities(req, runtime.agent)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
 
         if is_stream:
             # SSE streaming mode
@@ -564,15 +567,18 @@ def create_app(
             if handle is not None:
                 await sessions.cancel_run(handle)
 
-        record = await manager.create_run(
-            request=req,
-            model=info.get("model", "default"),
-            agent=runtime.agent,
-            on_started=_on_started,
-            on_completed=_on_completed,
-            on_failed=_on_failed,
-            on_cancelled=_on_cancelled,
-        )
+        try:
+            record = await manager.create_run(
+                request=req,
+                model=info.get("model", "default"),
+                agent=runtime.agent,
+                on_started=_on_started,
+                on_completed=_on_completed,
+                on_failed=_on_failed,
+                on_cancelled=_on_cancelled,
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         return {
             "run_id": record.id,
             "session_id": record.session_id,

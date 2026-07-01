@@ -23,6 +23,10 @@ DojoAgents is a quantitative finance agent runtime. It combines an LLM-driven ag
 | Plugins | [Plugins](architecture/plugins.md) |
 | Multi-agent and planning | [Multi-Agent and Planning](architecture/multi-agent-planning.md) |
 
+## Documentation Status
+
+This MkDocs site contains only the current formal documentation. Guides, architecture, reference pages, and development pages should track the current repository implementation; historical plans and migration notes stay in `docs/plans/` and are not part of the formal reader flow.
+
 ## Quick Commands
 
 ```bash
@@ -40,4 +44,3 @@ npm run build
 ```bash
 dojoagents dashboard --host 127.0.0.1 --port 8765
 ```
-

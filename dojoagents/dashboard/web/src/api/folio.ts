@@ -2,8 +2,13 @@ import { fetchJson, ApiError } from './http';
 import type { MarketCode } from '../types/market';
 import type {
   FolioAllocationStrategy,
+  FolioCandidate,
+  FolioCreateOrderPayload,
   FolioHolding,
   FolioKpiMetric,
+  FolioOrder,
+  FolioOrderSide,
+  FolioOrderStatus,
   FolioPortfolioConfig,
   FolioPortfolioKind,
 } from '../types/folio';
@@ -29,6 +34,24 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
     cost_date?: string;
     capital_by_market?: Partial<Record<MarketCode, number>>;
   } | null;
+  candidates?: Array<{
+    ticker: string;
+    name: string;
+    name_zh?: string;
+    name_en?: string;
+    market: MarketCode;
+    price: number;
+    change_percent: number;
+    market_cap: number;
+    pe?: number | null;
+    pb?: number | null;
+    dividend_yield?: number | null;
+    eps?: number | null;
+    turn_rate?: number | null;
+    sector_l1?: string;
+    sector_l2?: string;
+    sector_l3?: string;
+  }>;
   holdings?: Array<{
     ticker: string;
     name: string;
@@ -94,9 +117,44 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
         }
       >
     >;
+    candidate_series_by_market?: Partial<
+      Record<
+        MarketCode,
+        Array<{ date: string; value: number }>
+      >
+    >;
+    candidate_stats_by_market?: Partial<
+      Record<
+        MarketCode,
+        {
+          cumulative_return_pct?: number | null;
+          volatility_pct?: number | null;
+          sharpe_ratio?: number | null;
+          calmar_ratio?: number | null;
+          max_drawdown_pct?: number | null;
+          trading_days?: number;
+        }
+      >
+    >;
   } | null;
   net_value_by_market?: Partial<Record<MarketCode, number>> | null;
   cost_basis_by_market?: Partial<Record<MarketCode, number>> | null;
+  orders?: Array<{
+    id: string;
+    ticker: string;
+    name?: string;
+    name_zh?: string;
+    name_en?: string;
+    market: MarketCode;
+    order_side: FolioOrderSide;
+    order_status: FolioOrderStatus;
+    price: number;
+    qty: number;
+    order_time?: string | null;
+    fill_time?: string | null;
+    fill_price?: number | null;
+    created_at: string;
+  }>;
 }
 
 interface PortfolioAnalysisResponse {
@@ -106,6 +164,24 @@ interface PortfolioAnalysisResponse {
   benchmark?: string | null;
   start_date?: string | null;
   capital_by_market?: Partial<Record<MarketCode, number>>;
+  candidates?: Array<{
+    ticker: string;
+    name: string;
+    name_zh?: string;
+    name_en?: string;
+    market: MarketCode;
+    price: number;
+    change_percent: number;
+    market_cap: number;
+    pe?: number | null;
+    pb?: number | null;
+    dividend_yield?: number | null;
+    eps?: number | null;
+    turn_rate?: number | null;
+    sector_l1?: string;
+    sector_l2?: string;
+    sector_l3?: string;
+  }>;
   holdings: Array<{
     ticker: string;
     name: string;
@@ -141,6 +217,9 @@ interface PortfolioAnalysisResponse {
   nav_by_market: Partial<
     Record<MarketCode, Array<{ date: string; value: number }>>
   >;
+  candidate_nav_by_market?: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
   benchmark_by_market: Partial<
     Record<MarketCode, Array<{ date: string; value: number }>>
   >;
@@ -158,8 +237,37 @@ interface PortfolioAnalysisResponse {
       }
     >
   >;
+  candidate_stats_by_market?: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct?: number | null;
+        volatility_pct?: number | null;
+        sharpe_ratio?: number | null;
+        calmar_ratio?: number | null;
+        max_drawdown_pct?: number | null;
+        trading_days?: number;
+      }
+    >
+  >;
   net_value_by_market: Partial<Record<MarketCode, number>>;
   cost_basis_by_market?: Partial<Record<MarketCode, number>>;
+  orders?: Array<{
+    id: string;
+    ticker: string;
+    name?: string;
+    name_zh?: string;
+    name_en?: string;
+    market: MarketCode;
+    order_side: FolioOrderSide;
+    order_status: FolioOrderStatus;
+    price: number;
+    qty: number;
+    order_time?: string | null;
+    fill_time?: string | null;
+    fill_price?: number | null;
+    created_at: string;
+  }>;
 }
 
 interface PortfolioListResponse {
@@ -167,12 +275,55 @@ interface PortfolioListResponse {
   items: FolioPortfolioSummaryResponse[];
 }
 
+function mapOrder(raw: NonNullable<FolioPortfolioDetailResponse['orders']>[number]): FolioOrder {
+  return {
+    id: raw.id,
+    ticker: raw.ticker,
+    name: raw.name ?? raw.ticker,
+    nameZh: raw.name_zh,
+    nameEn: raw.name_en,
+    market: raw.market,
+    orderSide: raw.order_side,
+    orderStatus: raw.order_status,
+    price: raw.price,
+    qty: raw.qty,
+    orderTime: raw.order_time ?? undefined,
+    fillTime: raw.fill_time ?? undefined,
+    fillPrice: raw.fill_price ?? null,
+    createdAt: raw.created_at,
+  };
+}
+
+function mapCandidate(
+  raw: NonNullable<FolioPortfolioDetailResponse['candidates']>[number],
+): FolioCandidate {
+  return {
+    ticker: raw.ticker,
+    name: raw.name,
+    nameZh: raw.name_zh,
+    nameEn: raw.name_en,
+    market: raw.market,
+    price: raw.price,
+    changePercent: raw.change_percent,
+    marketCap: raw.market_cap,
+    pe: raw.pe ?? null,
+    pb: raw.pb ?? null,
+    dividendYield: raw.dividend_yield ?? null,
+    eps: raw.eps ?? null,
+    turnRate: raw.turn_rate ?? null,
+    sector: raw.sector_l1 ?? '',
+    sectorL1: raw.sector_l1,
+    sectorL2: raw.sector_l2,
+    sectorL3: raw.sector_l3,
+  };
+}
+
 function mapHolding(raw: NonNullable<FolioPortfolioDetailResponse['holdings']>[number]): FolioHolding {
   return {
     ticker: raw.ticker,
     name: raw.name,
-    nameZh: raw.name_zh ?? raw.name,
-    nameEn: raw.name_en ?? raw.name,
+    nameZh: raw.name_zh,
+    nameEn: raw.name_en,
     market: raw.market,
     shares: raw.shares,
     weight: raw.weight,
@@ -233,25 +384,21 @@ function mapConfig(raw: FolioPortfolioDetailResponse['config']): FolioPortfolioC
   };
 }
 
-function mapPerformance(raw: FolioPortfolioDetailResponse['performance']) {
-  if (!raw) return null;
-  const seriesByMarket: Partial<Record<MarketCode, { date: string; value: number }[]>> = {};
-  const benchmarkByMarket: Partial<Record<MarketCode, { date: string; value: number }[]>> = {};
-  for (const market of ['us', 'cn', 'hk'] as MarketCode[]) {
-    if (raw.series_by_market?.[market]?.length) {
-      seriesByMarket[market] = raw.series_by_market[market]!.map((point) => ({
-        date: point.date,
-        value: Number(point.value),
-      }));
-    }
-    if (raw.benchmark_by_market?.[market]?.length) {
-      benchmarkByMarket[market] = raw.benchmark_by_market[market]!.map((point) => ({
-        date: point.date,
-        value: Number(point.value),
-      }));
-    }
-  }
-
+function mapPerformanceStats(
+  raw?: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct?: number | null;
+        volatility_pct?: number | null;
+        sharpe_ratio?: number | null;
+        calmar_ratio?: number | null;
+        max_drawdown_pct?: number | null;
+        trading_days?: number;
+      }
+    >
+  >,
+) {
   const statsByMarket: Partial<
     Record<
       MarketCode,
@@ -265,8 +412,9 @@ function mapPerformance(raw: FolioPortfolioDetailResponse['performance']) {
       }
     >
   > = {};
+  if (!raw) return statsByMarket;
   for (const market of ['us', 'cn', 'hk'] as MarketCode[]) {
-    const row = raw.stats_by_market?.[market];
+    const row = raw[market];
     if (!row) continue;
     statsByMarket[market] = {
       cumulative_return_pct: row.cumulative_return_pct ?? null,
@@ -277,21 +425,45 @@ function mapPerformance(raw: FolioPortfolioDetailResponse['performance']) {
       trading_days: row.trading_days ?? 0,
     };
   }
+  return statsByMarket;
+}
+
+function mapPerformanceSeries(
+  raw?: Partial<Record<MarketCode, Array<{ date: string; value: number }>>>,
+) {
+  const seriesByMarket: Partial<Record<MarketCode, { date: string; value: number }[]>> = {};
+  if (!raw) return seriesByMarket;
+  for (const market of ['us', 'cn', 'hk'] as MarketCode[]) {
+    if (raw[market]?.length) {
+      seriesByMarket[market] = raw[market]!.map((point) => ({
+        date: point.date,
+        value: Number(point.value),
+      }));
+    }
+  }
+  return seriesByMarket;
+}
+
+function mapPerformance(raw: FolioPortfolioDetailResponse['performance']) {
+  if (!raw) return null;
 
   return {
     windowStart: raw.window_start ?? null,
     windowEnd: raw.window_end ?? null,
-    seriesByMarket,
-    benchmarkByMarket,
+    seriesByMarket: mapPerformanceSeries(raw.series_by_market),
+    candidateSeriesByMarket: mapPerformanceSeries(raw.candidate_series_by_market),
+    benchmarkByMarket: mapPerformanceSeries(raw.benchmark_by_market),
     benchmarkSymbolByMarket: raw.benchmark_symbol_by_market ?? {},
-    statsByMarket,
+    statsByMarket: mapPerformanceStats(raw.stats_by_market),
+    candidateStatsByMarket: mapPerformanceStats(raw.candidate_stats_by_market),
   };
 }
 
 export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
-  const holdings = (raw.holdings ?? []).map(mapHolding);
+  const positions = (raw.holdings ?? []).map(mapHolding);
+  const candidates = (raw.candidates ?? []).map(mapCandidate);
   const sharesByTicker = Object.fromEntries(
-    holdings.map((row) => [row.ticker, row.shares]),
+    positions.map((row) => [row.ticker, row.shares]),
   ) as Record<string, number>;
 
   return {
@@ -301,7 +473,9 @@ export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
     kind: raw.kind,
     pinned: raw.pinned ?? false,
     config: mapConfig(raw.config),
-    holdings,
+    candidates,
+    positions,
+    holdings: positions,
     sharesByTicker,
     todayChange: raw.today_change ?? null,
     netValueUsd: raw.net_value_usd ?? null,
@@ -323,6 +497,7 @@ export function mapFolioPortfolioDetail(raw: FolioPortfolioDetailResponse) {
       hint: item.hint ?? undefined,
     })) ?? null,
     performance: mapPerformance(raw.performance),
+    orders: (raw.orders ?? []).map(mapOrder),
   };
 }
 
@@ -351,6 +526,24 @@ function mapAnalysisToDetail(
       cost_date: config.costDate,
       capital_by_market: config.capitalByMarket,
     },
+    candidates: (analysis.candidates ?? []).map((row) => ({
+      ticker: row.ticker,
+      name: row.name,
+      name_zh: row.name_zh,
+      name_en: row.name_en,
+      market: row.market,
+      price: row.price,
+      change_percent: row.change_percent,
+      market_cap: row.market_cap,
+      pe: row.pe ?? null,
+      pb: row.pb ?? null,
+      dividend_yield: row.dividend_yield ?? null,
+      eps: row.eps ?? null,
+      turn_rate: row.turn_rate ?? null,
+      sector_l1: row.sector_l1,
+      sector_l2: row.sector_l2,
+      sector_l3: row.sector_l3,
+    })),
     holdings: analysis.holdings.map((row) => ({
       ticker: row.ticker,
       name: row.name,
@@ -382,13 +575,31 @@ function mapAnalysisToDetail(
           window_start: analysis.performance_window_start ?? null,
           window_end: analysis.performance_window_end ?? null,
           series_by_market: analysis.nav_by_market,
+          candidate_series_by_market: analysis.candidate_nav_by_market,
           benchmark_by_market: analysis.benchmark_by_market,
           benchmark_symbol_by_market: analysis.benchmark_symbol_by_market,
           stats_by_market: analysis.stats_by_market,
+          candidate_stats_by_market: analysis.candidate_stats_by_market,
         }
       : null,
     net_value_by_market: analysis.net_value_by_market,
     cost_basis_by_market: analysis.cost_basis_by_market,
+    orders: (analysis.orders ?? []).map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      name: row.name,
+      name_zh: row.name_zh,
+      name_en: row.name_en,
+      market: row.market,
+      order_side: row.order_side,
+      order_status: row.order_status,
+      price: row.price,
+      qty: row.qty,
+      order_time: row.order_time ?? null,
+      fill_time: row.fill_time ?? null,
+      fill_price: row.fill_price ?? null,
+      created_at: row.created_at,
+    })),
   };
 }
 
@@ -452,6 +663,7 @@ export async function updateFolioPortfolio(
   portfolioId: string,
   payload: {
     name?: string;
+    kind?: 'manual' | 'agent';
     pinned?: boolean;
     config?: FolioPortfolioConfig;
     shares_by_ticker?: Record<string, number>;
@@ -463,7 +675,12 @@ export async function updateFolioPortfolio(
     cost_locked_by_ticker?: Record<string, boolean>;
   },
 ): Promise<FolioPortfolioDetail> {
-  if (payload.name !== undefined || payload.pinned !== undefined || payload.config !== undefined) {
+  if (
+    payload.name !== undefined ||
+    payload.pinned !== undefined ||
+    payload.config !== undefined ||
+    payload.kind !== undefined
+  ) {
     await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/manage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -471,6 +688,7 @@ export async function updateFolioPortfolio(
         action: 'update',
         portfolio_id: portfolioId,
         name: payload.name,
+        kind: payload.kind,
         pinned: payload.pinned,
         start_date: payload.config?.startDate,
         capital_by_market: payload.config?.capitalByMarket,
@@ -546,6 +764,27 @@ export async function removeFolioHolding(
       portfolio_id: portfolioId,
       ticker: payload.ticker,
       market: payload.market === 'cn' ? 'sh' : payload.market,
+    }),
+  });
+  const summary = await fetchPortfolioSummary(portfolioId);
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+}
+
+export async function createFolioOrder(
+  portfolioId: string,
+  payload: FolioCreateOrderPayload,
+): Promise<FolioPortfolioDetail> {
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio_id: portfolioId,
+      ticker: payload.ticker,
+      market: payload.market === 'cn' ? 'sh' : payload.market,
+      order_side: payload.orderSide,
+      price: payload.price,
+      qty: payload.qty,
+      order_time: payload.orderTime ?? undefined,
     }),
   });
   const summary = await fetchPortfolioSummary(portfolioId);

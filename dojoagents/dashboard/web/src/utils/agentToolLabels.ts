@@ -1,6 +1,7 @@
 const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   search_company_ticker: { zh: '搜索股票代码', en: 'Search ticker' },
   get_taxonomy_tree: { zh: '加载行业分类', en: 'Load sector taxonomy' },
+  search_sector_taxonomy: { zh: '搜索行业板块', en: 'Search sectors' },
   get_market_overview: { zh: '获取市场概览', en: 'Market overview' },
   get_sector_movers: { zh: '获取板块涨跌', en: 'Sector movers' },
   screen_market_stocks: { zh: '全市场选股', en: 'Market screen' },
@@ -27,6 +28,9 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   manage_portfolio: { zh: '管理投资组合', en: 'Manage portfolio' },
   add_portfolio_holding: { zh: '添加持仓', en: 'Add holding' },
   add_portfolio_holdings: { zh: '批量添加持仓', en: 'Add holdings' },
+  portfolio_write_add_holding: { zh: '添加候选股', en: 'Add candidate' },
+  portfolio_write_add_holdings: { zh: '批量添加候选股', en: 'Add candidates' },
+  portfolio_eval_submit: { zh: '提交任务验收', en: 'Submit eval' },
   auto_allocate_portfolio: { zh: '自动分配权重', en: 'Auto allocate' },
 };
 

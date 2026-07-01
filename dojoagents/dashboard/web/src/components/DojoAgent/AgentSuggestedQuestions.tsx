@@ -6,6 +6,8 @@ import {
 import { useSectorTaxonomy } from '../../hooks/useSectorTaxonomy';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AppTab } from '../../navigation/appTab';
+import { FOLIO_ACTIVE_CHANGED_EVENT } from '../../navigation/folioContext';
+import { FOLIO_UPDATED_EVENT } from '../../navigation/folio_sync';
 
 interface AgentSuggestedQuestionsProps {
   sourceTab: AppTab;
@@ -28,9 +30,13 @@ export function AgentSuggestedQuestions({ sourceTab, onSelect }: AgentSuggestedQ
     const bump = () => setContextTick((tick) => tick + 1);
     window.addEventListener('alphadojo-entity-ticker', bump);
     window.addEventListener('alphadojo-sector-selection', bump);
+    window.addEventListener(FOLIO_ACTIVE_CHANGED_EVENT, bump);
+    window.addEventListener(FOLIO_UPDATED_EVENT, bump);
     return () => {
       window.removeEventListener('alphadojo-entity-ticker', bump);
       window.removeEventListener('alphadojo-sector-selection', bump);
+      window.removeEventListener(FOLIO_ACTIVE_CHANGED_EVENT, bump);
+      window.removeEventListener(FOLIO_UPDATED_EVENT, bump);
     };
   }, []);
 

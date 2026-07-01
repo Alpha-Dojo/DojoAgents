@@ -2,7 +2,7 @@
 
 ## 适用场景
 
-`dojoagents` 是项目的控制台入口，用于本地聊天、启动 Dashboard、启动 Gateway、配置模型、运行调度器和预计算数据。
+`dojoagents` 是项目的控制台入口，用于本地聊天、启动 Dashboard、启动 Gateway、配置模型和运行调度器。
 
 ## 常用命令
 
@@ -13,7 +13,6 @@ dojoagents gateway --host 127.0.0.1 --port 8766
 dojoagents gateway setup all
 dojoagents scheduler
 dojoagents model
-dojoagents precompute-sector
 ```
 
 开发环境中可以通过 `uv run` 调用：
@@ -34,8 +33,9 @@ uv run --extra dev dojoagents --help
 | `scheduler` | 加载并检查计划任务 |
 | `model` | 交互式配置 LLM provider |
 | `mcp serve` | 启动 MCP server |
-| `precompute-sector` | 预计算行业日频数据 |
 
 ## 深入阅读
 
-后续如发现旧版使用说明中仍有价值的命令示例，应继续收敛到本页。
+- [CLI Reference](../reference/cli.md)
+- [模型配置](../getting-started/model-configuration.md)
+- [Gateway](gateway.md)

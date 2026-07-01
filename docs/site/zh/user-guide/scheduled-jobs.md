@@ -2,7 +2,7 @@
 
 ## 适用场景
 
-DojoAgents 使用 cron/scheduler 模块管理后台计划任务，例如定时预计算数据、维护缓存或触发分析工作流。
+DojoAgents 使用 cron/scheduler 模块管理后台计划任务，例如维护缓存或触发分析工作流。
 
 ## CLI 检查
 
@@ -22,5 +22,4 @@ dojoagents scheduler
 
 ## 下一步
 
-金融数据预计算见 [预计算行业数据](precompute-sector-daily.md)。
-
+金融数据缓存和计划任务应通过具体 dashboard service 的配置与日志确认。

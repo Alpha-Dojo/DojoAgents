@@ -1,6 +1,6 @@
 # CLI
 
-`dojoagents` is the console entry point for local chat, dashboard startup, gateway startup, model setup, scheduling, and data precomputation.
+`dojoagents` is the console entry point for local chat, dashboard startup, gateway startup, model setup, and scheduling.
 
 ## Common Commands
 
@@ -11,7 +11,6 @@ dojoagents gateway --host 127.0.0.1 --port 8766
 dojoagents gateway setup all
 dojoagents scheduler
 dojoagents model
-dojoagents precompute-sector
 ```
 
 ## Command Summary
@@ -26,5 +25,3 @@ dojoagents precompute-sector
 | `scheduler` | Load scheduled jobs |
 | `model` | Configure an LLM provider |
 | `mcp serve` | Start the MCP server |
-| `precompute-sector` | Precompute sector daily data |
-

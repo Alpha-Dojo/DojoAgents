@@ -1,5 +1,6 @@
 export interface ProviderForm {
   model: string;
+  author: string;
   base_url: string;
   api_key_env: string;
   api_key: string;

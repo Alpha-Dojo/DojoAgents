@@ -95,6 +95,59 @@ class TestConfigLoader:
         )
         assert cfg.agent.model == "test-model"
 
+    def test_parses_provider_author(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "default": "openrouter",
+                    "providers": {
+                        "openrouter": {
+                            "model": "glm-5.2",
+                            "author": "z-ai",
+                            "base_url": "https://openrouter.ai/api/v1",
+                        }
+                    },
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["openrouter"]
+        assert provider.model == "glm-5.2"
+        assert provider.author == "z-ai"
+
+    def test_fills_default_provider_author_when_missing(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "gemini": {
+                            "model": "gemini-3.5-flash",
+                            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                        }
+                    }
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["gemini"]
+        assert provider.model == "gemini-3.5-flash"
+        assert provider.author == "google"
+
+    def test_normalizes_provider_model_id_into_author_and_slug(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openrouter": {
+                            "model": "z-ai/glm-5.2",
+                            "base_url": "https://openrouter.ai/api/v1",
+                        }
+                    }
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["openrouter"]
+        assert provider.model == "glm-5.2"
+        assert provider.author == "z-ai"
+
     def test_resolve_provider_config_without_default(self):
         llm = LLMConfig(
             default=None,

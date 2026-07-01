@@ -20,6 +20,7 @@ interface FolioPortfolioSidebarProps {
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
+  onPromoteToManual?: (id: string) => void;
   onCreate?: () => void;
   onSearchQueryChange: (query: string) => void;
 }
@@ -127,17 +128,20 @@ export function FolioPortfolioSidebar({
   onRename,
   onDelete,
   onTogglePin,
+  onPromoteToManual,
   onCreate,
   onSearchQueryChange,
 }: FolioPortfolioSidebarProps) {
   const { t } = useTranslation();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingPromoteId, setPendingPromoteId] = useState<string | null>(null);
   const [collapsedPortfolioIds, setCollapsedPortfolioIds] = useState<Set<string>>(
     () => new Set(),
   );
 
   const pendingDelete = allPortfolios.find((item) => item.id === pendingDeleteId) ?? null;
+  const pendingPromote = allPortfolios.find((item) => item.id === pendingPromoteId) ?? null;
   const allVisibleCollapsed =
     portfolios.length > 0 &&
     portfolios.every((portfolio) => collapsedPortfolioIds.has(portfolio.id));
@@ -250,9 +254,18 @@ export function FolioPortfolioSidebar({
                               onCancel={() => setEditingId(null)}
                             />
                             {portfolio.kind === 'agent' ? (
-                              <span className="folio-sidebar__badge folio-sidebar__badge--agent">
+                              <button
+                                type="button"
+                                className="folio-sidebar__badge folio-sidebar__badge--agent folio-sidebar__badge--promote"
+                                title={t('folio.promoteToManual')}
+                                aria-label={`${t('folio.kindAgent')} — ${t('folio.promoteToManual')}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPendingPromoteId(portfolio.id);
+                                }}
+                              >
                                 {t('folio.kindAgent')}
-                              </span>
+                              </button>
                             ) : (
                               <span className="folio-sidebar__badge folio-sidebar__badge--manual">
                                 {t('folio.kindManual')}
@@ -320,7 +333,7 @@ export function FolioPortfolioSidebar({
                       </div>
 
                       {!collapsed ? (
-                        <FolioPortfolioMarketStats snapshots={portfolio.marketSnapshots ?? {}} />
+                        <FolioPortfolioMarketStats snapshots={portfolio.marketSnapshots} />
                       ) : null}
                     </div>
                   </div>
@@ -361,6 +374,18 @@ export function FolioPortfolioSidebar({
           setPendingDeleteId(null);
         }}
         onCancel={() => setPendingDeleteId(null)}
+      />
+
+      <FolioConfirmDialog
+        open={pendingPromote != null}
+        title={t('folio.promoteToManualConfirmTitle')}
+        message={t('folio.promoteToManualConfirmMessage', { name: pendingPromote?.name ?? '' })}
+        confirmLabel={t('folio.confirmPromote')}
+        onConfirm={() => {
+          if (pendingPromoteId && onPromoteToManual) onPromoteToManual(pendingPromoteId);
+          setPendingPromoteId(null);
+        }}
+        onCancel={() => setPendingPromoteId(null)}
       />
     </aside>
   );

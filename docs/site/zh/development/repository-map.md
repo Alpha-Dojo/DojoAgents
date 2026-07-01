@@ -20,7 +20,7 @@
 | `dojoagents/planning/` | Plan store、engine、tools、triggers |
 | `dojoagents/quant/` | Quant context、risk、workflow |
 | `tests/` | Pytest suite |
-| `docs/` | MkDocs 文档和历史设计记录 |
+| `docs/` | MkDocs 正式文档和 `docs/plans/` 历史规划材料 |
 
 ## 必须复用的基础设施
 
@@ -29,4 +29,3 @@
 - 工具：`ToolRegistry`、`ToolSpec`、`ToolExecutor`
 - Dashboard 存储：`AtomicJsonStore`、`AtomicJsonlStore`
 - Dashboard services：通过 `dojoagents/dashboard/deps.py` 获取
-

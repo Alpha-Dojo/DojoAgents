@@ -209,6 +209,57 @@
   width: min(220px, 22vw);
 }
 
+.core-snapshot__folio-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.core-add-folio__create-btn--order {
+  border-color: rgba(0, 212, 170, 0.32);
+  background: rgba(0, 212, 170, 0.12);
+  color: var(--accent);
+}
+
+.core-add-folio__create-btn--order:hover:not(:disabled) {
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(0, 212, 170, 0.18);
+}
+
+.core-add-folio__trigger--order {
+  border-color: rgba(0, 212, 170, 0.32);
+  background: rgba(0, 212, 170, 0.08);
+  color: var(--accent);
+}
+
+.core-add-folio__trigger--order:hover {
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(0, 212, 170, 0.14);
+  color: var(--accent);
+}
+
+.core-add-folio__row--radio {
+  cursor: pointer;
+}
+
+.core-add-folio__radio {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.core-add-folio__confirm--order {
+  width: 100%;
+  border-color: rgba(0, 212, 170, 0.32);
+  background: rgba(0, 212, 170, 0.12);
+  color: var(--accent);
+}
+
+.core-add-folio__confirm--order:hover:not(:disabled) {
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(0, 212, 170, 0.18);
+}
+
 .core-add-folio {
   position: relative;
   flex: 0 0 auto;
@@ -938,7 +989,7 @@
 .entity-card--pe-band .entity-card__body {
   flex: 1;
   min-height: 0;
-  padding: 0 6px 6px;
+  padding: 0;
   display: flex;
   flex-direction: column;
 }
@@ -951,9 +1002,6 @@
   display: grid;
   grid-template-rows: var(--entity-chart-topbar-h) auto;
   align-content: start;
-  border: 1px solid var(--border-dim);
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.12);
   overflow: hidden;
 }
 
@@ -1030,8 +1078,8 @@
   pointer-events: auto;
 }
 
-.entity-card--kline .entity-chart-shell--hover,
-.entity-card--pe-band .entity-chart-shell--hover {
+.entity-card--kline:has(.entity-chart-shell--hover),
+.entity-card--pe-band:has(.entity-chart-shell--hover) {
   border-color: rgba(0, 229, 255, 0.14);
 }
 
@@ -2874,7 +2922,7 @@
 
   .entity-card--kline .entity-card__body,
   .entity-card--pe-band .entity-card__body {
-    padding: 0 5px 5px;
+    padding: 0;
   }
 
   .core-snapshot {

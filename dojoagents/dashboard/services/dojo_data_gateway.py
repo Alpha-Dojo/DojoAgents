@@ -160,8 +160,8 @@ class DojoDataGateway:
                 "stock_klines",
                 self.client.stocks.get_all_klines_with_df(),
             )
-            canonical_symbols = [_canonical_symbol(s) for s in symbols]
-            df = payload_df[payload_df["symbol"].isin(canonical_symbols)]
+            canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
+            df = payload_df.loc[canonical_symbols]
             return _df_result(df)
         except Exception:
             pass
@@ -194,8 +194,8 @@ class DojoDataGateway:
                 self.client.stocks.get_all_klines_with_df(),
             )
             if symbols is not None:
-                canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
-                payload_df = payload_df[payload_df["symbol"].isin(canonical_symbols)]
+                canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
+                payload_df = payload_df.loc[canonical_symbols]
             return _df_result(payload_df)
         except Exception:
             pass
