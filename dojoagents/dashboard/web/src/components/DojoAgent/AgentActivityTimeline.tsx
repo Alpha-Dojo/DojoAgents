@@ -5,6 +5,7 @@ import { AgentEvalHints } from './AgentEvalHints';
 import { AgentThinkStep } from './AgentThinking';
 import { AgentToolStep } from './AgentToolActivity';
 import { agentToolLabel } from '../../utils/agentToolLabels';
+import { getExecuteCodeSource } from '../../utils/agentToolDetail';
 
 const REPEATED_TOOL_THRESHOLD = 3;
 
@@ -18,7 +19,8 @@ function isCompactableToolStep(step: AgentActivityStep): step is Extract<AgentAc
     step.item.status === 'done' &&
     !step.item.error &&
     !step.item.resultSummary &&
-    (step.item.vizBlocks?.length ?? 0) === 0
+    (step.item.vizBlocks?.length ?? 0) === 0 &&
+    !getExecuteCodeSource(step.item.tool, step.item.arguments)
   );
 }
 

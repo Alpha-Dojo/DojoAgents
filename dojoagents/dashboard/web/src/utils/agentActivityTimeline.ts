@@ -154,6 +154,7 @@ export function resolveToolResult(
   latencyMs: number,
   locale: 'zh' | 'en',
   error?: string | null,
+  content?: string | null,
   data?: Record<string, unknown> | null,
   vizBlocks?: AgentVizBlock[],
   callId?: string,
@@ -168,6 +169,7 @@ export function resolveToolResult(
     error: ok ? null : error ?? null,
     data: ok ? data ?? null : null,
     resultSummary,
+    resultContent: ok ? content ?? null : null,
     vizBlocks: ok && vizBlocks?.length ? vizBlocks : undefined,
     arguments: runningIndex >= 0 && steps[runningIndex]?.kind === 'tool'
       ? steps[runningIndex].item.arguments
