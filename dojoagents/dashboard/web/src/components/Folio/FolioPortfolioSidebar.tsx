@@ -21,9 +21,9 @@ interface FolioPortfolioSidebarProps {
   collapsed?: boolean;
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
   onTogglePin: (id: string, pinned: boolean) => void;
-  onPromoteToManual?: (id: string) => void;
+  onPromoteToManual?: (id: string) => Promise<void>;
   onCreate?: () => void;
   onSearchQueryChange: (query: string) => void;
   onToggleCollapsed: () => void;
@@ -439,8 +439,9 @@ export function FolioPortfolioSidebar({
         title={t('folio.deleteConfirmTitle')}
         message={t('folio.deleteConfirmMessage', { name: pendingDelete?.name ?? '' })}
         confirmLabel={t('folio.confirmDelete')}
-        onConfirm={() => {
-          if (pendingDeleteId) onDelete(pendingDeleteId);
+        onConfirm={async () => {
+          if (!pendingDeleteId) return;
+          await onDelete(pendingDeleteId);
           setPendingDeleteId(null);
         }}
         onCancel={() => setPendingDeleteId(null)}
@@ -451,8 +452,9 @@ export function FolioPortfolioSidebar({
         title={t('folio.promoteToManualConfirmTitle')}
         message={t('folio.promoteToManualConfirmMessage', { name: pendingPromote?.name ?? '' })}
         confirmLabel={t('folio.confirmPromote')}
-        onConfirm={() => {
-          if (pendingPromoteId && onPromoteToManual) onPromoteToManual(pendingPromoteId);
+        onConfirm={async () => {
+          if (!pendingPromoteId || !onPromoteToManual) return;
+          await onPromoteToManual(pendingPromoteId);
           setPendingPromoteId(null);
         }}
         onCancel={() => setPendingPromoteId(null)}

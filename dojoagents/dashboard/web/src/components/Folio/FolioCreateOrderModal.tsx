@@ -196,6 +196,7 @@ export function FolioCreateOrderModal({
         qty: parsedQty,
         orderTime,
       });
+      onClose();
     } catch (err: unknown) {
       setError(formatFolioOrderError(err, t, t('folio.orderSubmitFailed')));
     }
