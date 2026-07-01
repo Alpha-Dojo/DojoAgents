@@ -3,10 +3,12 @@ import { fetchSectorTaxonomy } from '../api/sector';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { SectorTaxonomyDocument } from '../types/sectorTaxonomy';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 const CACHE_KEY = cacheKeys.sectorTaxonomy();
 
 export function useSectorTaxonomy() {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const [taxonomy, setTaxonomy] = useState<SectorTaxonomyDocument | null>(
     () => getCached<SectorTaxonomyDocument>(CACHE_KEY),
   );
@@ -43,7 +45,7 @@ export function useSectorTaxonomy() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [cacheEpoch]);
 
   return { taxonomy, loading, error };
 }

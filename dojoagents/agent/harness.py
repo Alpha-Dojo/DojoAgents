@@ -45,21 +45,33 @@ class HarnessLoopState:
                     return parsed
         return None
 
-    def created_portfolio_id(self) -> str | None:
-        for result in reversed(self.tool_results):
+    def created_portfolio_ids(self) -> list[str]:
+        ids: list[str] = []
+        seen: set[str] = set()
+        for result in self.tool_results:
             if not result.ok or result.name != "portfolio_write_create":
                 continue
+            portfolio_id: str | None = None
             data = result.data
             if isinstance(data, dict):
-                portfolio_id = data.get("id") or data.get("portfolio_id")
-                if portfolio_id:
-                    return str(portfolio_id)
-            for change in result.resource_changes:
-                if change.get("resource") == "portfolio" and change.get("action") == "create":
-                    portfolio_id = change.get("portfolio_id")
-                    if portfolio_id:
-                        return str(portfolio_id)
-        return None
+                raw_id = data.get("id") or data.get("portfolio_id")
+                if raw_id:
+                    portfolio_id = str(raw_id)
+            if portfolio_id is None:
+                for change in result.resource_changes:
+                    if change.get("resource") == "portfolio" and change.get("action") == "create":
+                        raw_id = change.get("portfolio_id")
+                        if raw_id:
+                            portfolio_id = str(raw_id)
+                            break
+            if portfolio_id and portfolio_id not in seen:
+                seen.add(portfolio_id)
+                ids.append(portfolio_id)
+        return ids
+
+    def created_portfolio_id(self) -> str | None:
+        ids = self.created_portfolio_ids()
+        return ids[-1] if ids else None
 
     def deleted_portfolio_ids(self) -> set[str]:
         deleted: set[str] = set()

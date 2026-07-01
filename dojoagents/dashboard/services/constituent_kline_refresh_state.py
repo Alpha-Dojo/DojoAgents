@@ -54,3 +54,25 @@ class RefreshStateStore:
 
     async def set_last_refresh_date_async(self, market_group: str, date: datetime.date) -> None:
         await asyncio.to_thread(self.set_last_refresh_date, market_group, date)
+
+    def get_market_data_revision(self, market_group: str = "preload_offline_data") -> dict[str, str | None]:
+        data = self._read()
+        preload_date = data.get(market_group)
+        updated_at = data.get(f"{market_group}_updated_at")
+        if isinstance(updated_at, str) and updated_at.strip():
+            revision = updated_at.strip()
+        elif isinstance(preload_date, str) and preload_date.strip():
+            revision = f"{preload_date.strip()}T00:00:00+00:00"
+        else:
+            revision = ""
+        return {
+            "revision": revision,
+            "preload_date": str(preload_date) if preload_date else None,
+            "updated_at": str(updated_at) if updated_at else None,
+        }
+
+    async def get_market_data_revision_async(
+        self,
+        market_group: str = "preload_offline_data",
+    ) -> dict[str, str | None]:
+        return await asyncio.to_thread(self.get_market_data_revision, market_group)

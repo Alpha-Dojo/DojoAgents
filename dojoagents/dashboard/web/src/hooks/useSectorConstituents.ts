@@ -5,6 +5,7 @@ import { fetchCached, getCached } from '../cache/queryCache';
 import type { MarketCode } from '../types/market';
 import type { SectorLevelKey } from '../types/sector';
 import type { SectorPathSelection } from '../types/sectorTaxonomy';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 const MARKETS: MarketCode[] = ['us', 'cn', 'hk'];
 
@@ -18,6 +19,7 @@ export function useSectorConstituents(
   selection: SectorPathSelection | null,
   scope: SectorLevelKey,
 ) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = selection ? cacheKeys.sectorConstituents(selection, scope) : null;
   const [byMarket, setByMarket] = useState<ConstituentsByMarket>(() =>
     cacheKey ? getCached<ConstituentsByMarket>(cacheKey) ?? EMPTY_BY_MARKET : EMPTY_BY_MARKET,
@@ -82,7 +84,7 @@ export function useSectorConstituents(
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id, scope]);
+  }, [cacheKey, selection?.level1Id, selection?.level2Id, selection?.level3Id, scope, cacheEpoch]);
 
   return { byMarket, loading, error };
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import inspect
 import json
 import os
@@ -29,6 +30,7 @@ from dojoagents.dashboard.routers import (
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
+from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
 
@@ -330,13 +332,18 @@ def create_app(
                 preload=True,
             )
             LOGGER.info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
+            refresh_store = RefreshStateStore(resolved_data_root / "runtime")
+            await refresh_store.set_last_refresh_date_async("preload_offline_data", datetime.date.today())
+            app.state.market_data_revision = refresh_store.get_market_data_revision()
             app.state.dojo_client = client
             app.state.config_store = getattr(runtime, "config_store", None)
             app.state.financial_registry = registry
             app.state.agent_run_manager = AgentRunManager()
 
             # Start background refresh loop
-            refresh_task = asyncio.create_task(start_refresh_loop(runtime_dir=resolved_data_root / "runtime", store_registry=registry))
+            refresh_task = asyncio.create_task(
+                start_refresh_loop(runtime_dir=resolved_data_root / "runtime", registry=registry),
+            )
 
             yield
         finally:

@@ -4,6 +4,7 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntityTickerEventsResponse } from '../types/entity';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -13,6 +14,7 @@ interface CoreStockEventsCache {
 }
 
 export function useEntityStockEvents(ctx: EntityTickerContext | null, pageSize = DEFAULT_PAGE_SIZE) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey =
     ctx?.ticker ? cacheKeys.coreTickerEvents(ctx.market, ctx.ticker, pageSize) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
@@ -80,7 +82,7 @@ export function useEntityStockEvents(ctx: EntityTickerContext | null, pageSize =
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, pageSize, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, pageSize, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 
