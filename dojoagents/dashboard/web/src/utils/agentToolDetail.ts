@@ -6,6 +6,21 @@ export interface AgentToolResultData {
   tickers?: string[];
 }
 
+function countCodeLines(code: string): number {
+  if (!code) return 0;
+  return code.replace(/\n+$/, '').split('\n').length;
+}
+
+export function getExecuteCodeSource(
+  tool: string,
+  args: Record<string, unknown> | undefined,
+): string | null {
+  if (tool !== 'execute_code' || !args) return null;
+  const code = typeof args.code === 'string' ? args.code : null;
+  if (!code || !code.trim()) return null;
+  return code;
+}
+
 function previewValues(values: string[], limit = 4): string {
   const items = values.map((value) => value.trim()).filter(Boolean);
   if (items.length === 0) return '';
@@ -71,6 +86,16 @@ export function formatToolArguments(
   const holdings = Array.isArray(args.holdings) ? args.holdings : null;
 
   switch (tool) {
+    case 'execute_code': {
+      const code = getExecuteCodeSource(tool, args);
+      if (!code) {
+        return locale === 'zh' ? 'Python 脚本' : 'Python script';
+      }
+      const lineCount = countCodeLines(code);
+      return locale === 'zh'
+        ? `Python 脚本 · ${lineCount} 行`
+        : `Python script · ${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`;
+    }
     case 'get_ticker_financials':
       if (tickers.length > 0) {
         const preview = previewTickers(tickers);
