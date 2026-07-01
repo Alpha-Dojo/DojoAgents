@@ -12,10 +12,13 @@ MARKET_CURRENCY: Dict[str, str] = {
 }
 
 FOREX_PAIR_SYMBOL: Dict[Tuple[str, str], str] = {
-    ("USD", "CNY"): "USDCNYC",
-    ("HKD", "CNY"): "HKDCNYC",
+    ("USD", "CNY"): "USDCNY",
+    ("HKD", "CNY"): "HKDCNY",
     ("HKD", "USD"): "HKDUSD",
 }
+
+CROSS_FX_CURRENCIES = frozenset({"CNY", "HKD", "USD"})
+CROSS_FX_SYMBOLS = frozenset(FOREX_PAIR_SYMBOL.values())
 
 FIN_MONETARY_FIELDS: Tuple[str, ...] = (
     "total_operating_revenue",
@@ -82,6 +85,22 @@ def resolve_forex_pair_symbol(source: str, target: str) -> Optional[str]:
     return FOREX_PAIR_SYMBOL.get((source, target))
 
 
+def forex_symbols_for_currencies(source: str, target: str) -> List[str]:
+    source = normalize_currency(source)
+    target = normalize_currency(target)
+    if source == target:
+        return []
+    if source in CROSS_FX_CURRENCIES and target in CROSS_FX_CURRENCIES:
+        return sorted(CROSS_FX_SYMBOLS)
+    direct = resolve_forex_pair_symbol(source, target)
+    if direct:
+        return [direct]
+    inverse = resolve_forex_pair_symbol(target, source)
+    if inverse:
+        return [inverse]
+    return []
+
+
 def chained_conversion_factor(
     source: str,
     target: str,
@@ -91,8 +110,8 @@ def chained_conversion_factor(
     Return multiplier: amount_in_source * factor = amount_in_target.
 
     Pair close conventions:
-    - USDCNYC: 1 USD = close CNY
-    - HKDCNYC: 1 HKD = close CNY
+    - USDCNY: 1 USD = close CNY
+    - HKDCNY: 1 HKD = close CNY
     - HKDUSD: 1 HKD = close USD
     """
     source = normalize_currency(source)
@@ -103,33 +122,55 @@ def chained_conversion_factor(
     direct_symbol = resolve_forex_pair_symbol(source, target)
     if direct_symbol:
         close = pair_closes.get(direct_symbol)
-        if close is None or close <= 0:
-            raise ValueError(f"missing forex close for {direct_symbol}")
-        return close
+        if close is not None and close > 0:
+            return close
 
     inverse_symbol = resolve_forex_pair_symbol(target, source)
     if inverse_symbol:
         close = pair_closes.get(inverse_symbol)
-        if close is None or close <= 0:
-            raise ValueError(f"missing forex close for {inverse_symbol}")
-        return 1.0 / close
+        if close is not None and close > 0:
+            return 1.0 / close
 
     if source == "CNY" and target == "HKD":
-        usd_cny = pair_closes.get("USDCNYC")
+        usd_cny = pair_closes.get("USDCNY")
         hkd_usd = pair_closes.get("HKDUSD")
-        if not usd_cny or not hkd_usd:
-            raise ValueError("missing forex closes for CNY->HKD")
-        return (1.0 / usd_cny) / hkd_usd
+        if usd_cny and usd_cny > 0 and hkd_usd and hkd_usd > 0:
+            return (1.0 / usd_cny) / hkd_usd
+        raise ValueError("missing forex closes for CNY->HKD")
 
     if source == "HKD" and target == "CNY":
-        hkdcny = pair_closes.get("HKDCNYC")
+        hkdcny = pair_closes.get("HKDCNY")
         if hkdcny and hkdcny > 0:
             return hkdcny
-        usd_cny = pair_closes.get("USDCNYC")
+        usd_cny = pair_closes.get("USDCNY")
         hkd_usd = pair_closes.get("HKDUSD")
-        if not usd_cny or not hkd_usd:
-            raise ValueError("missing forex closes for HKD->CNY")
-        return hkd_usd * usd_cny
+        if usd_cny and usd_cny > 0 and hkd_usd and hkd_usd > 0:
+            return hkd_usd * usd_cny
+        raise ValueError("missing forex closes for HKD->CNY")
+
+    if source == "CNY" and target == "USD":
+        usd_cny = pair_closes.get("USDCNY")
+        if usd_cny and usd_cny > 0:
+            return 1.0 / usd_cny
+        raise ValueError("missing forex close for CNY->USD")
+
+    if source == "USD" and target == "CNY":
+        usd_cny = pair_closes.get("USDCNY")
+        if usd_cny and usd_cny > 0:
+            return usd_cny
+        raise ValueError("missing forex close for USD->CNY")
+
+    if source == "USD" and target == "HKD":
+        hkd_usd = pair_closes.get("HKDUSD")
+        if hkd_usd and hkd_usd > 0:
+            return 1.0 / hkd_usd
+        raise ValueError("missing forex close for USD->HKD")
+
+    if source == "HKD" and target == "USD":
+        hkd_usd = pair_closes.get("HKDUSD")
+        if hkd_usd and hkd_usd > 0:
+            return hkd_usd
+        raise ValueError("missing forex close for HKD->USD")
 
     raise ValueError(f"unsupported currency pair: {source}->{target}")
 
@@ -179,16 +220,5 @@ def required_forex_symbols(rows: Iterable[dict], market: str) -> List[str]:
         source = normalize_currency(row.get("currency"))
         if not source or source == target:
             continue
-        if resolve_forex_pair_symbol(source, target):
-            symbol = resolve_forex_pair_symbol(source, target)
-            if symbol:
-                symbols.add(symbol)
-            continue
-        if resolve_forex_pair_symbol(target, source):
-            symbol = resolve_forex_pair_symbol(target, source)
-            if symbol:
-                symbols.add(symbol)
-            continue
-        if {source, target} == {"CNY", "HKD"}:
-            symbols.update({"USDCNYC", "HKDUSD", "HKDCNYC"})
+        symbols.update(forex_symbols_for_currencies(source, target))
     return sorted(symbols)

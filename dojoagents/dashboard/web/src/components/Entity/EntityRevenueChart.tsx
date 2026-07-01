@@ -7,7 +7,7 @@ import {
   formatFinancialAmount,
   formatSignedPercent,
 } from '../../utils/entityCharts';
-import { MARKET_LEGAL_CURRENCY_KEY } from '../../utils/marketDisplay';
+import { marketLegalCurrencyLabel } from '../../utils/marketDisplay';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import { EntityCard } from './EntityCard';
 
@@ -45,7 +45,7 @@ export function EntityRevenueChart({
 
   const currencyLabel = useMemo(() => {
     if (!market) return null;
-    return t(`core.${MARKET_LEGAL_CURRENCY_KEY[market]}`);
+    return marketLegalCurrencyLabel(t, market);
   }, [market, t]);
 
   const chart = useMemo(() => {

@@ -26,3 +26,10 @@ export const MARKET_LEGAL_CURRENCY_KEY: Record<MarketCode, MarketLegalCurrencyKe
   cn: 'currencySh',
   hk: 'currencyHk',
 };
+
+export function marketLegalCurrencyLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  market: MarketCode,
+): string {
+  return t(`entityPage.${MARKET_LEGAL_CURRENCY_KEY[market]}`);
+}

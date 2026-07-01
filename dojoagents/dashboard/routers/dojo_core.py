@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from dojoagents.dashboard.deps import (
+    get_forex_store,
     get_kline_store,
     get_sector_store,
     get_stock_event_store,
@@ -15,6 +16,10 @@ from dojoagents.dashboard.deps import (
     get_stock_store,
 )
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.dojo_core_fin import (
+    resolve_fin_indicators_for_market,
+    resolve_income_for_market,
+)
 from dojoagents.dashboard.services.dojo_core_search import search_core_tickers
 from dojoagents.dashboard.services.dojo_core_pe import resolve_core_ticker_pe_band
 from dojoagents.dashboard.services.dojo_core_quote import resolve_core_ticker_quote
@@ -124,10 +129,12 @@ async def get_ticker_fin_indicators(
     ),
     limit: int = Query(20, ge=1, le=50),
     fin_indicators_store: StockFinIndicatorsStore = Depends(get_stock_fin_indicators_store),
+    forex_store=Depends(get_forex_store),
 ) -> CoreTickerFinIndicatorsResponse:
     """Financial indicator history for a DojoCore ticker (local jsonl cache with background verify)."""
     try:
-        return await fin_indicators_store.get_for_ticker(ticker, market=market, limit=limit)
+        response = await fin_indicators_store.get_for_ticker(ticker, market=market, limit=limit)
+        return await resolve_fin_indicators_for_market(response, forex_store=forex_store)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -203,10 +210,20 @@ async def get_ticker_income(
     ),
     page_size: int = Query(100, ge=1, le=200),
     income_store: StockIncomeStore = Depends(get_stock_income_store),
+    fin_indicators_store: StockFinIndicatorsStore = Depends(get_stock_fin_indicators_store),
+    forex_store=Depends(get_forex_store),
 ) -> CoreTickerIncomeResponse:
     """Main business income breakdown by industry, product, and region."""
     try:
-        return await income_store.get_for_ticker(ticker, market=market, page_size=page_size)
+        market_code = (market or "us").strip().lower()
+        income = await income_store.get_for_ticker(ticker, market=market, page_size=page_size)
+        fin = await fin_indicators_store.get_for_ticker(ticker, market=market, limit=20)
+        return await resolve_income_for_market(
+            income,
+            forex_store=forex_store,
+            fin_rows=fin.items,
+            market=market_code,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

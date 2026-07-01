@@ -50,7 +50,8 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
    (e.g. 具身智能 → also try 机器人, 自动化, robotics, industrial automation).
 2. From matches, pick the best L3 sector (`best_match` or highest `match_score`).
 3. For each target market (`us`, `cn`, `hk`), call `filter_sector_constituents`
-   with `sector_path_id` or the three ids from step 2 — do NOT pass sector names.
+   with the full `sector_path_id` (three segments) or all three ids from step 2.
+   Use `scope: "L2"` to list the whole L2 branch — never shorten the path to two segments (e.g. `1/2`).
 4. Apply numeric filters on the result set:
    - market cap: use `min_market_cap` in `screen_market_stocks` only if you pivoted to market-wide screen;
      otherwise filter constituent rows by `market_cap` field.
@@ -89,7 +90,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 1. `search_sector_taxonomy` with the user's concept (synonyms auto-expanded: 具身智能 → 机器人, robotics…).
 2. Copy `sector_path_id` OR `level1_id` + `level2_id` + `level3_id` verbatim from `best_match` — exact ID lookup, no guessing.
-3. `filter_sector_constituents` with those ids + `market` + `scope: "L3"`.
+3. `filter_sector_constituents` with those ids + `market` + `scope` (`L3` for one L3 leaf, `L2` for the whole L2 branch).
 4. `get_sector_analysis` with the same ids when sector-level stats are needed.
 
 ### search_company_ticker — ONLY for single-name resolution

@@ -53,12 +53,16 @@ async def list_sector_constituents(
             items=[],
         )
 
+    query_l1 = path.level1_id
+    query_l2 = path.level2_id if scope in ("L2", "L3") else ""
+    query_l3 = path.level3_id if scope == "L3" else ""
+
     constituents = []
     for market_candidate in _market_candidates(market):
         constituents = sector_precomputed_store.get_sector_constituents(
-            level1_id=path.level1_id,
-            level2_id=path.level2_id,
-            level3_id=path.level3_id,
+            level1_id=query_l1,
+            level2_id=query_l2,
+            level3_id=query_l3,
             market=market_candidate,
         )
         if constituents:
