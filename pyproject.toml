@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -34,9 +34,6 @@ dependencies = [
 
 [project.scripts]
 dojoagents = "dojoagents.cli.main:main"
-
-[tool.uv.sources]
-dojosdk = { path = "../DojoSDK" }
 
 [tool.setuptools.packages.find]
 include = ["dojoagents*"]
