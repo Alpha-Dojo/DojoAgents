@@ -328,8 +328,84 @@ def test_portfolio_harness_rejects_delete_during_create_task():
 
     decision = harness.validate_progress(state)
 
+    # Eval criteria are satisfied — stop the run even if a delete slipped into the trace.
+    assert decision.complete is True
+
+
+def test_portfolio_harness_blocks_second_create_during_build():
+    from dojoagents.agent.harness import HarnessLoopState
+    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
+    state.tool_results.append(
+        ToolResult(
+            call_id="call-create",
+            name="portfolio_write_create",
+            ok=True,
+            data={"id": "p-1", "kind": "agent"},
+            resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": "p-1"}],
+        )
+    )
+    blocked = harness.block_tool_call(
+        ToolCall(id="call-create-2", name="portfolio_write_create", arguments={"name": "Duplicate"}),
+        state,
+    )
+    assert blocked is not None
+    assert "p-1" in blocked
+    assert "Do NOT create another portfolio" in blocked
+
+
+def test_portfolio_harness_flags_multiple_creates_in_one_run():
+    from dojoagents.agent.harness import HarnessLoopState
+    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
+    state.tool_results.extend(
+        [
+            ToolResult(
+                call_id="call-create-1",
+                name="portfolio_write_create",
+                ok=True,
+                data={"id": "p-1", "kind": "agent"},
+                resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": "p-1"}],
+            ),
+            ToolResult(
+                call_id="call-create-2",
+                name="portfolio_write_create",
+                ok=True,
+                data={"id": "p-2", "kind": "agent"},
+                resource_changes=[{"resource": "portfolio", "action": "create", "portfolio_id": "p-2"}],
+            ),
+            ToolResult(
+                call_id="call-detail",
+                name="portfolio_read_detail",
+                ok=True,
+                data={
+                    "id": "p-2",
+                    "kind": "agent",
+                    "candidates": [{"ticker": "WFC", "market": "us"}],
+                },
+            ),
+            ToolResult(
+                call_id="call-eval",
+                name="portfolio_eval_submit",
+                ok=True,
+                data={
+                    "portfolio_id": "p-2",
+                    "task_summary": "Create portfolio",
+                    "require_kind_agent": True,
+                    "min_candidate_count": 1,
+                },
+            ),
+        ]
+    )
+
+    decision = harness.validate_progress(state)
+
     assert decision.complete is False
-    assert any("delete" in issue.lower() for issue in decision.issues)
+    assert any("2 portfolios" in issue for issue in decision.issues)
 
 
 def test_portfolio_harness_requires_agent_kind_on_create():

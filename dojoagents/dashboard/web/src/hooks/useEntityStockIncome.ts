@@ -4,6 +4,7 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached } from '../cache/queryCache';
 import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntityTickerIncomeResponse } from '../types/entity';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface CoreStockIncomeCache {
   data: EntityTickerIncomeResponse;
@@ -11,6 +12,7 @@ interface CoreStockIncomeCache {
 }
 
 export function useEntityStockIncome(ctx: EntityTickerContext | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = ctx?.ticker ? cacheKeys.coreTickerIncome(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
@@ -76,7 +78,7 @@ export function useEntityStockIncome(ctx: EntityTickerContext | null) {
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, cacheKey]);
+  }, [ctx?.ticker, ctx?.market, cacheKey, cacheEpoch]);
 
   const ready = !loading && loadedKey === requestKey && requestKey !== '';
 

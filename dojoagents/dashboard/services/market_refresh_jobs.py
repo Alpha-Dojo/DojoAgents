@@ -8,7 +8,7 @@ from dojoagents.dashboard.services.constituent_kline_refresh_state import Refres
 from dojoagents.logging import LOGGER
 
 
-async def start_refresh_loop(runtime_dir: Path, store_registry: Any, poll_interval: int = 600):  # 10 mins
+async def start_refresh_loop(runtime_dir: Path, registry: Any, poll_interval: int = 600):  # 10 mins
     refresh_store = RefreshStateStore(runtime_dir)
 
     LOGGER.info("Starting background market refresh loop (DojoSDK preload_offline_data at 8:00 AM daily).")
@@ -23,7 +23,7 @@ async def start_refresh_loop(runtime_dir: Path, store_registry: Any, poll_interv
 
             last_refresh = await refresh_store.get_last_refresh_date_async("preload_offline_data")
             if last_refresh is None or last_refresh < target_date:
-                client = getattr(store_registry, "client", None)
+                client = getattr(registry, "client", None)
                 if client is not None and hasattr(client, "preload_offline_data"):
                     LOGGER.info("Starting daily offline data preload via client.preload_offline_data()")
                     if asyncio.iscoroutinefunction(client.preload_offline_data):
@@ -31,9 +31,11 @@ async def start_refresh_loop(runtime_dir: Path, store_registry: Any, poll_interv
                     else:
                         await asyncio.to_thread(client.preload_offline_data)
                     await refresh_store.set_last_refresh_date_async("preload_offline_data", target_date)
+                    if hasattr(registry, "refresh_after_offline_data_update"):
+                        await registry.refresh_after_offline_data_update()
                     LOGGER.info(f"Daily offline data preload for {target_date} completed successfully.")
                 else:
-                    LOGGER.warning("store_registry client does not have preload_offline_data method or is None.")
+                    LOGGER.warning("registry client does not have preload_offline_data method or is None.")
 
             await asyncio.sleep(poll_interval)
         except asyncio.CancelledError:

@@ -4,6 +4,7 @@ import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached, invalidateCache } from '../cache/queryCache';
 import type { EntityTickerContext } from '../navigation/entityContext';
 import type { EntitySectorOption } from '../types/entity';
+import { useMarketDataCacheEpoch } from './useMarketDataCacheEpoch';
 
 interface EntitySectorOptionsCache {
   sectorOptions: EntitySectorOption[];
@@ -11,6 +12,7 @@ interface EntitySectorOptionsCache {
 }
 
 export function useEntitySectorOptions(ctx: EntityTickerContext | null) {
+  const cacheEpoch = useMarketDataCacheEpoch();
   const cacheKey = ctx?.ticker ? cacheKeys.coreTickerSector(ctx.market, ctx.ticker) : null;
   const requestKey = ctx?.ticker ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
@@ -29,7 +31,7 @@ export function useEntitySectorOptions(ctx: EntityTickerContext | null) {
   const reload = useCallback(() => {
     if (cacheKey) invalidateCache(cacheKey);
     setReloadTick((n) => n + 1);
-  }, [cacheKey]);
+  }, [cacheKey, cacheEpoch]);
 
   useEffect(() => {
     if (!ctx?.ticker || !cacheKey) {
@@ -79,7 +81,7 @@ export function useEntitySectorOptions(ctx: EntityTickerContext | null) {
     return () => {
       cancelled = true;
     };
-  }, [ctx?.ticker, ctx?.market, cacheKey, reloadTick]);
+  }, [ctx?.ticker, ctx?.market, cacheKey, reloadTick, cacheEpoch]);
 
   const optionsReady = !loading && loadedKey === requestKey && requestKey !== '';
 

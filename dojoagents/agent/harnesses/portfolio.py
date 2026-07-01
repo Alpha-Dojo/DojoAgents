@@ -86,12 +86,20 @@ class PortfolioTaskHarness(TaskHarness):
         return state.any_ok_tool(*_ANALYSIS_BROWSE_TOOLS)
 
     def block_tool_call(self, call: ToolCall, state: HarnessLoopState) -> str | None:
-        if call.name == "portfolio_write_create" and self._run_is_analysis_browse(state):
-            return (
-                "Blocked portfolio_write_create: this run is analyzing/querying an existing portfolio. "
-                "Prior portfolio-creation tasks from earlier turns are closed. "
-                "Answer the current analysis request only."
-            )
+        if call.name == "portfolio_write_create":
+            if self._run_is_analysis_browse(state):
+                return (
+                    "Blocked portfolio_write_create: this run is analyzing/querying an existing portfolio. "
+                    "Prior portfolio-creation tasks from earlier turns are closed. "
+                    "Answer the current analysis request only."
+                )
+            active_id = state.target_portfolio_id()
+            if state.any_ok_tool("portfolio_write_create") and active_id:
+                return (
+                    f"Blocked portfolio_write_create: this run already created portfolio {active_id}. "
+                    "Reuse that portfolio_id — add candidates, portfolio_read_detail, "
+                    "portfolio_eval_submit. Do NOT create another portfolio."
+                )
         if call.name in _MUTATING_BUILD_TOOLS and call.name != "portfolio_write_delete":
             if self._run_is_analysis_browse(state):
                 return (
@@ -128,18 +136,6 @@ class PortfolioTaskHarness(TaskHarness):
         return repaired
 
     def validate_progress(self, state: HarnessLoopState) -> HarnessDecision:
-        trace_issues = self._trace_integrity_issues(state)
-        if trace_issues:
-            return HarnessDecision(
-                complete=False,
-                issues=trace_issues,
-                next_steps=[
-                    "Fix portfolio state: recreate if needed, re-add candidates with portfolio_write_add_holdings, "
-                    "then portfolio_read_detail and portfolio_eval_submit.",
-                ],
-                allow_extra_steps=True,
-            )
-
         if self._is_delete_only_task(state):
             return self._validate_delete_progress(state)
 
@@ -193,12 +189,13 @@ class PortfolioTaskHarness(TaskHarness):
                 complete=False,
                 issues=objective_issues,
                 next_steps=[
-                    "Use portfolio_write_create for new agent-owned portfolios (kind=agent), "
-                    "add candidates, portfolio_read_detail, portfolio_eval_submit.",
+                    "Fix the existing portfolio from this run (do NOT portfolio_write_create again). "
+                    "Add candidates, portfolio_read_detail, portfolio_eval_submit with require_kind_agent=true.",
                 ],
                 allow_extra_steps=True,
             )
 
+        # Eval verified — stop immediately; do not re-enter recovery for historical trace noise.
         return HarnessDecision(complete=True)
 
     def _is_delete_only_task(self, state: HarnessLoopState) -> bool:
@@ -259,6 +256,12 @@ class PortfolioTaskHarness(TaskHarness):
     def _objective_create_issues(self, state: HarnessLoopState, detail_data: dict[str, Any]) -> list[str]:
         """Facts from tool trace — not parsed from user text."""
         issues: list[str] = []
+        create_ids = state.created_portfolio_ids()
+        if len(create_ids) > 1:
+            issues.append(
+                f"This run created {len(create_ids)} portfolios ({', '.join(create_ids)}); "
+                "only one portfolio_write_create is allowed per task."
+            )
         if state.any_ok_tool("portfolio_write_create") and str(detail_data.get("kind") or "") != "agent":
             issues.append("portfolio_write_create was used but verified portfolio kind is not agent.")
         eval_submission = state.last_eval_submission()
@@ -282,6 +285,7 @@ class PortfolioTaskHarness(TaskHarness):
             prefix = (
                 "【Eval 未通过】任务尚未完成，禁止向用户宣称已成功。"
                 "不要重复输出完整组合报告/表格/投资亮点。"
+                "不要调用 portfolio_write_create 新建组合；只修复当前组合。"
                 "只说明缺口并调用工具修复（补 NEW 候选、修正 eval 门槛、read_detail 后再 eval_submit）。"
             )
             if decision.issues:
@@ -292,6 +296,7 @@ class PortfolioTaskHarness(TaskHarness):
         prefix = (
             "[Eval failed] Task NOT complete. Do NOT tell the user it succeeded. "
             "Do NOT repeat the full portfolio report, tables, or marketing summary. "
+            "Do NOT call portfolio_write_create again — fix the existing portfolio from this run. "
             "State only the gap and fix via tools (add NEW candidates, adjust eval thresholds, "
             "portfolio_read_detail then portfolio_eval_submit)."
         )

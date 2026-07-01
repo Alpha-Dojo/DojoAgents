@@ -2,13 +2,30 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from dojoagents.dashboard.deps import get_financial_registry
 from dojoagents.dashboard.schemas.domain_api import CompanyTickerSearchResponse, TaxonomyTreeResponse
+from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
 from dojoagents.dashboard.services.domain_api import build_taxonomy_tree, search_company_ticker
 
 router = APIRouter(prefix="/utility", tags=["utility-search"])
+
+
+@router.get(
+    "/market-data-revision",
+    operation_id="get_market_data_revision",
+    summary="Revision token for dashboard market/kline cache invalidation",
+)
+async def get_market_data_revision(
+    request: Request,
+) -> dict[str, str | None]:
+    registry = getattr(request.app.state, "financial_registry", None)
+    data_root = getattr(registry, "data_root", None) if registry is not None else None
+    if data_root is None:
+        return {"revision": "", "preload_date": None, "updated_at": None}
+    store = RefreshStateStore(data_root / "runtime")
+    return store.get_market_data_revision()
 
 
 @router.get(

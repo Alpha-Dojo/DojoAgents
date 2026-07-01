@@ -1044,7 +1044,7 @@ class AgentLoop:
         active_harness = _resolve_active_harness()
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")
-            max_harness_recovery_turns = max(3, self.config.max_iterations - 1)
+            max_harness_recovery_turns = min(3, max(1, self.config.max_iterations - 1))
             harness_recovery_turns = 0
             while True:
                 decision = active_harness.validate_progress(harness_state)

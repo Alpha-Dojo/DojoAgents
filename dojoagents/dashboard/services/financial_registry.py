@@ -166,6 +166,38 @@ class FinancialDomainRegistry:
         LOGGER.debug("Registry preload complete.")
         return errors
 
+    async def refresh_after_offline_data_update(self) -> None:
+        """Drop in-memory market caches so the next request reads refreshed disk/SDK data."""
+        LOGGER.info("Refreshing in-memory market caches after offline data update")
+        if self.kline_store is not None:
+            self.kline_store._cache.clear()
+            self.kline_store.initial_load_complete = False
+        if self.benchmark_store is not None:
+            self.benchmark_store._response_cache.clear()
+            self.benchmark_store._kline_cache.clear()
+        for store_name in (
+            "stock_fin_indicators_store",
+            "stock_event_store",
+            "stock_income_store",
+            "stock_news_store",
+        ):
+            store = getattr(self, store_name, None)
+            cache = getattr(store, "cache", None)
+            if isinstance(cache, dict):
+                cache.clear()
+        if self.sector_movers_service is not None:
+            self.sector_movers_service.invalidate()
+        if self.sector_precomputed_store is not None:
+            self.sector_precomputed_store.clear_cache()
+            self.sector_precomputed_store.reload()
+        for store_name in ("stock_store", "benchmark_store"):
+            store = getattr(self, store_name, None)
+            if store is not None and hasattr(store, "load"):
+                try:
+                    await store.load()
+                except Exception:
+                    LOGGER.exception("Failed to reload %s after market data refresh", store_name)
+
     def reset(self) -> None:
         for name in (
             "client",
