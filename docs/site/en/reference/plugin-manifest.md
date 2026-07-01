@@ -20,7 +20,7 @@ User plugins are discovered from `~/.dojo/plugins`. Built-in plugins live under 
 | Field | Purpose |
 | --- | --- |
 | `name` | Plugin name |
-| `version` | Version, default `0.1.2` |
+| `version` | Version, default `0.1.3` |
 | `description` | Human-readable description |
 | `provides_tools` | Tool names exposed by the plugin |
 | `provides_hooks` | Hook names exposed by the plugin |
