@@ -152,7 +152,7 @@ export function FolioHoldingsPanel({
   const renderSortHeader = (
     key: FolioHoldingsSortKey,
     label: string,
-    align: 'left' | 'right',
+    align: 'left' | 'right' | 'center',
     className = '',
   ) => (
     <th className={className}>
@@ -266,22 +266,32 @@ export function FolioHoldingsPanel({
                           <tr>
                             <th>{t('folio.colTicker')}</th>
                             <th>{t('folio.colName')}</th>
-                            {renderSortHeader('openDate', t('folio.colOpenDate'), 'left')}
-                            <th className="folio-table__num">{t('folio.colShares')}</th>
-                            {renderSortHeader('weight', t('folio.colWeight'), 'right', 'folio-table__num')}
-                            <th className="folio-table__num">{t('folio.colCost')}</th>
-                            <th className="folio-table__num">{t('folio.colPrice')}</th>
+                            {renderSortHeader(
+                              'openDate',
+                              t('folio.colOpenDate'),
+                              'center',
+                              'folio-table__date-head folio-table__num--center',
+                            )}
+                            <th className="folio-table__num folio-table__num--center">{t('folio.colShares')}</th>
+                            {renderSortHeader(
+                              'weight',
+                              t('folio.colWeight'),
+                              'center',
+                              'folio-table__num folio-table__num--center',
+                            )}
+                            <th className="folio-table__num folio-table__num--center">{t('folio.colCost')}</th>
+                            <th className="folio-table__num folio-table__num--center">{t('folio.colPrice')}</th>
                             {renderSortHeader(
                               'changePercent',
-                              t('folio.colChange'),
-                              'right',
-                              'folio-table__num',
+                              t('folio.colTodayPnl'),
+                              'center',
+                              'folio-table__num folio-table__num--center',
                             )}
                             {renderSortHeader(
                               'totalReturnPct',
                               t('folio.colTotalPnl'),
-                              'right',
-                              'folio-table__num',
+                              'center',
+                              'folio-table__num folio-table__num--center',
                             )}
                             <th className="folio-table__action-head" aria-label={t('folio.colActions')} />
                           </tr>
@@ -317,7 +327,7 @@ export function FolioHoldingsPanel({
                                     </button>
                                   </td>
                                   <FolioHoldingNameCell name={localizedName} />
-                                  <td className="folio-table__date-cell">
+                                  <td className="folio-table__date-cell folio-table__num--center">
                                     <FolioLockableField
                                       locked={openDateLocked}
                                       lockHint={lockHint}
@@ -335,7 +345,7 @@ export function FolioHoldingsPanel({
                                       />
                                     </FolioLockableField>
                                   </td>
-                                  <td className="folio-table__num folio-table__input-cell">
+                                  <td className="folio-table__num folio-table__num--center folio-table__input-cell">
                                     <FolioLockableField
                                       locked={sharesLocked}
                                       lockHint={lockHint}
@@ -361,8 +371,8 @@ export function FolioHoldingsPanel({
                                       />
                                     </FolioLockableField>
                                   </td>
-                                  <td className="folio-table__num">{row.weight.toFixed(1)}%</td>
-                                  <td className="folio-table__num folio-table__input-cell">
+                                  <td className="folio-table__num folio-table__num--center">{row.weight.toFixed(1)}%</td>
+                                  <td className="folio-table__num folio-table__num--center folio-table__input-cell">
                                     <FolioLockableField
                                       locked={costLocked}
                                       lockHint={lockHint}
@@ -395,18 +405,18 @@ export function FolioHoldingsPanel({
                                       />
                                     </FolioLockableField>
                                   </td>
-                                  <td className="folio-table__num folio-table__price">
+                                  <td className="folio-table__num folio-table__num--center folio-table__price">
                                     {formatStockPrice(row.price)}
                                   </td>
                                   <td
-                                    className={`folio-table__num folio-table__change ${
+                                    className={`folio-table__num folio-table__num--center folio-table__change ${
                                       positive ? 'sphere-table__up' : 'sphere-table__down'
                                     }`}
                                   >
                                     {formatSignedPercent(row.changePercent)}
                                   </td>
                                   <td
-                                    className={`folio-table__num folio-table__change ${
+                                    className={`folio-table__num folio-table__num--center folio-table__change ${
                                       totalPositive ? 'sphere-table__up' : 'sphere-table__down'
                                     }`}
                                   >

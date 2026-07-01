@@ -260,6 +260,38 @@
   background: rgba(0, 212, 170, 0.18);
 }
 
+.core-add-folio__foot--order {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.core-add-folio__candidate-only {
+  align-self: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.core-add-folio__candidate-only:hover:not(:disabled) {
+  color: var(--text-muted);
+}
+
+.core-add-folio__candidate-only:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.core-add-folio__create .core-add-folio__candidate-only {
+  margin-top: 6px;
+}
+
 .core-add-folio {
   position: relative;
   flex: 0 0 auto;

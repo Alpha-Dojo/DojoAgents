@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import math
-from typing import Any
-
+from dojoagents.dashboard.services.market_stats import display_valuation_ratio
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
@@ -11,13 +9,6 @@ from dojoagents.dashboard.schemas.dojo_sphere import SectorConstituentItem, Sect
 
 CURRENCY_BY_MARKET = {"us": "USD", "sh": "CNY", "hk": "HKD"}
 VALID_QUERY_MARKETS = {"cn", *MARKETS}
-
-
-def _display_ratio(value: float | None) -> float | None:
-    """Keep negative PE/PB for display; omit only missing, non-finite, or zero."""
-    if value is None or not math.isfinite(value) or value == 0:
-        return None
-    return float(value)
 
 
 def _market_candidates(market: str | None) -> list[str | None]:
@@ -109,8 +100,8 @@ async def list_sector_constituents(
                 window_change_percent=window_change_percent,
                 turn_rate=quote.turn_rate,
                 market_cap=quote.market_cap,
-                pe=_display_ratio(quote.pe),
-                pb=_display_ratio(quote.pb),
+                pe=display_valuation_ratio(quote.pe),
+                pb=display_valuation_ratio(quote.pb),
                 amount=quote.amount,
             )
         )

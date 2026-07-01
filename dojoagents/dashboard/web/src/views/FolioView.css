@@ -3128,7 +3128,21 @@
 
 .folio-table--holdings thead th {
   font-size: 9px;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.15;
+  vertical-align: bottom;
+}
+
+.folio-table--holdings thead th.folio-table__num--center,
+.folio-table--holdings thead th.folio-table__date-head {
+  text-align: center;
+  padding-inline: 1px;
+}
+
+.folio-table--holdings thead th .folio-table-sort span {
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .folio-table--holdings tbody td {
@@ -3145,31 +3159,31 @@
 }
 
 .folio-table__col-date {
-  width: 100px;
+  width: 92px;
 }
 
 .folio-table__col-shares {
-  width: 56px;
+  width: 52px;
 }
 
 .folio-table__col-weight {
-  width: 44px;
-}
-
-.folio-table__col-cost {
-  width: 56px;
-}
-
-.folio-table__col-price {
-  width: 46px;
-}
-
-.folio-table__col-change {
   width: 48px;
 }
 
+.folio-table__col-cost {
+  width: 52px;
+}
+
+.folio-table__col-price {
+  width: 48px;
+}
+
+.folio-table__col-change {
+  width: 54px;
+}
+
 .folio-table__col-total-pnl {
-  width: 56px;
+  width: 54px;
 }
 
 .folio-lockable {
@@ -3495,6 +3509,11 @@
   color: var(--red);
 }
 
+.folio-table .sphere-table__ratio--negative {
+  color: #ffb74d;
+  font-style: italic;
+}
+
 .folio-table--candidates thead th.folio-table__num {
   padding-inline: 2px;
 }
@@ -3502,6 +3521,10 @@
 .folio-table-sort--center {
   justify-content: center;
   width: 100%;
+}
+
+.folio-table-sort--center span {
+  text-align: center;
 }
 
 .folio-benchmark-multi__group {
@@ -3933,6 +3956,29 @@
   text-align: right;
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+.folio-table__num--center {
+  text-align: center;
+}
+
+.folio-table--holdings .folio-table__num--center {
+  padding-inline: 1px;
+}
+
+.folio-table--holdings .folio-table__date-cell {
+  text-align: center;
+}
+
+.folio-table--holdings .folio-table__date-cell .folio-lockable,
+.folio-table--holdings .folio-table__input-cell .folio-lockable {
+  display: flex;
+  justify-content: center;
+}
+
+.folio-table--holdings .folio-table__shares-input,
+.folio-table--holdings .folio-table__cost-input {
+  text-align: center;
 }
 
 .folio-table__ticker {

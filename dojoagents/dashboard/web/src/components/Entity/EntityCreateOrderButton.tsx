@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createFolioOrder, createFolioPortfolio, fetchFolioPortfolios } from '../../api/folio';
+import { createFolioOrder, addFolioHolding, createFolioPortfolio, fetchFolioPortfolios } from '../../api/folio';
 import { publishFolioPortfolioUpdate } from '../../navigation/folio_sync';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { FolioOrderDraftContext } from '../../types/folio';
@@ -37,6 +37,7 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [addingCandidate, setAddingCandidate] = useState(false);
   const [portfolios, setPortfolios] = useState<PortfolioRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createName, setCreateName] = useState('');
@@ -104,10 +105,29 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
     return () => document.removeEventListener('mousedown', onPointerDown);
   }, [open]);
 
-  const openOrderModal = (portfolioId: string) => {
-    setSelectedId(portfolioId);
-    setOrderOpen(true);
-    setOpen(false);
+  const portfolioNameFor = (portfolioId: string) =>
+    portfolios.find((row) => row.id === portfolioId)?.name ?? createName.trim();
+
+  const ensureCandidate = async (portfolioId: string) => {
+    try {
+      const updated = await addFolioHolding(portfolioId, { ticker, market });
+      publishFolioPortfolioUpdate(updated);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const openOrderModal = async (portfolioId: string) => {
+    setPlacing(true);
+    try {
+      await ensureCandidate(portfolioId);
+      setSelectedId(portfolioId);
+      setOrderOpen(true);
+      setOpen(false);
+    } finally {
+      setPlacing(false);
+    }
   };
 
   const handleCreatePortfolioAndTrade = async () => {
@@ -116,18 +136,54 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
     setStatus(null);
     try {
       const created = await createFolioPortfolio(portfolioName);
-      openOrderModal(created.id);
+      await openOrderModal(created.id);
     } catch {
       setStatus({ tone: 'err', text: t('folio.entityCreateOrderFailed') });
-    } finally {
       setPlacing(false);
     }
   };
 
   const handleOpenOrderModal = () => {
-    if (!selectedId) return;
-    openOrderModal(selectedId);
+    if (!selectedId || placing || addingCandidate) return;
+    void openOrderModal(selectedId);
   };
+
+  const handleAddCandidateOnly = async (portfolioId: string) => {
+    setAddingCandidate(true);
+    setStatus(null);
+    try {
+      const updated = await addFolioHolding(portfolioId, { ticker, market });
+      publishFolioPortfolioUpdate(updated);
+      setStatus({
+        tone: 'ok',
+        text: t('folio.addToPortfolioSuccess', { name: portfolioNameFor(portfolioId) }),
+      });
+      setOpen(false);
+    } catch {
+      setStatus({ tone: 'err', text: t('folio.addToPortfolioFailed') });
+    } finally {
+      setAddingCandidate(false);
+    }
+  };
+
+  const handleCreatePortfolioAndAddCandidate = async () => {
+    const portfolioName = createName.trim() || suggestPortfolioName(portfolios.map((row) => row.name));
+    setAddingCandidate(true);
+    setStatus(null);
+    try {
+      const created = await createFolioPortfolio(portfolioName);
+      const updated = await addFolioHolding(created.id, { ticker, market });
+      publishFolioPortfolioUpdate(updated);
+      setStatus({ tone: 'ok', text: t('folio.addToPortfolioSuccess', { name: created.name }) });
+      setOpen(false);
+    } catch {
+      setStatus({ tone: 'err', text: t('folio.addToPortfolioFailed') });
+    } finally {
+      setAddingCandidate(false);
+    }
+  };
+
+  const busy = placing || addingCandidate;
 
   const handleSubmitOrder = async (payload: Parameters<typeof createFolioOrder>[1]) => {
     if (!selectedId) return;
@@ -166,12 +222,20 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
                 <button
                   type="button"
                   className="core-add-folio__create-btn core-add-folio__create-btn--order"
-                  disabled={placing}
+                  disabled={busy}
                   onClick={() => void handleCreatePortfolioAndTrade()}
                 >
-                  {t('folio.entityCreateOrderContinue')}
+                  {t('folio.entityCreateOrderCreateAndOrder')}
                 </button>
               </div>
+              <button
+                type="button"
+                className="core-add-folio__candidate-only"
+                disabled={busy}
+                onClick={() => void handleCreatePortfolioAndAddCandidate()}
+              >
+                {t('folio.entityAddCandidateOnly')}
+              </button>
             </section>
 
             {loading ? (
@@ -194,7 +258,7 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
                           className="core-add-folio__radio"
                           name={`entity-create-order-${listId}`}
                           checked={selectedId === portfolio.id}
-                          disabled={placing}
+                          disabled={busy}
                           onChange={() => setSelectedId(portfolio.id)}
                         />
                         <span className="core-add-folio__row-name">{portfolio.name}</span>
@@ -202,14 +266,22 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
                     </li>
                   ))}
                 </ul>
-                <footer className="core-add-folio__foot">
+                <footer className="core-add-folio__foot core-add-folio__foot--order">
                   <button
                     type="button"
                     className="core-add-folio__confirm core-add-folio__confirm--order"
-                    disabled={placing || !selectedId}
+                    disabled={busy || !selectedId}
                     onClick={handleOpenOrderModal}
                   >
-                    {t('folio.entityCreateOrderContinue')}
+                    {t('folio.entityCreateOrderEnterOrder')}
+                  </button>
+                  <button
+                    type="button"
+                    className="core-add-folio__candidate-only"
+                    disabled={busy || !selectedId}
+                    onClick={() => selectedId && void handleAddCandidateOnly(selectedId)}
+                  >
+                    {t('folio.entityAddCandidateOnly')}
                   </button>
                 </footer>
               </>
