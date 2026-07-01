@@ -1,5 +1,18 @@
 <div align="center">
-  <img src="https://github.com/Alpha-Dojo/DojoAgents/blob/main/dojoagents/dashboard/web/public/logo.png" alt="DojoAgents Logo">
+    <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="dojoagents/dashboard/web/src/assets/images/logo-dark.svg"
+    />
+    <source
+      media="(prefers-color-scheme: light)"
+      srcset="dojoagents/dashboard/web//src/assets/images/logo.svg"
+    />
+    <img
+      alt="DojoAgents Logo"
+      src="dojoagents/dashboard/web/assets/images/logo.svg"
+    />
+  </picture>
 </div>
 
 <p align="center">
