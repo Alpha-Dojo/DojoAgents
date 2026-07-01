@@ -66,7 +66,16 @@ Deploying your DojoAgents environment is designed to be frictionless. We strongl
 For most users, install the published package directly—no clone or frontend build required:
 
 ```bash
+# macOS / Linux
 uv venv && source .venv/bin/activate
+uv pip install dojoagents
+
+# Windows (PowerShell)
+uv venv && .venv\Scripts\Activate.ps1
+uv pip install dojoagents
+
+# Windows (CMD)
+uv venv && .venv\Scripts\activate.bat 
 uv pip install dojoagents
 ```
 
