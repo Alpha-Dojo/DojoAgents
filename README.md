@@ -11,6 +11,7 @@
     <img
       alt="DojoAgents Logo"
       src="dojoagents/dashboard/web/src/assets/images/logo.svg"
+      width="320"
     />
   </picture>
 </div>
