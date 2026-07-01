@@ -37,6 +37,7 @@ export interface AgentToolActivityItem {
   arguments?: Record<string, unknown>;
   data?: Record<string, unknown> | null;
   resultSummary?: string | null;
+  resultContent?: string | null;
   vizBlocks?: import('./agentViz').AgentVizBlock[];
 }
 
@@ -140,6 +141,7 @@ export type AgentStreamEvent =
       call_id?: string;
       tool: string;
       ok: boolean;
+      content?: string;
       latency_ms: number;
       truncated: boolean;
       error?: string | null;

@@ -3,7 +3,11 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentToolActivityItem } from '../../types/agent';
 import type { AgentVizBlock } from '../../types/agentViz';
 import { agentToolLabel } from '../../utils/agentToolLabels';
-import { formatToolArguments, getExecuteCodeSource } from '../../utils/agentToolDetail';
+import {
+  formatToolArguments,
+  getExecuteCodeResultContent,
+  getExecuteCodeSource,
+} from '../../utils/agentToolDetail';
 import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
 import doneIcon from '../../assets/svg/done.svg';
 import errorIcon from '../../assets/svg/error.svg';
@@ -14,11 +18,13 @@ function ToolStepDetails({
   code,
   blocks,
   expanded,
+  resultContent,
   summary,
 }: {
   code?: string | null;
   blocks: AgentVizBlock[];
   expanded: boolean;
+  resultContent?: string | null;
   summary?: string | null;
 }) {
   const { t, locale } = useTranslation();
@@ -45,6 +51,16 @@ function ToolStepDetails({
             {summary}
           </p>
         ) : null}
+        {resultContent ? (
+          <div className="dojo-agent-tool-activity__output-panel">
+            <p className="dojo-agent-tool-activity__output-head">
+              {locale === 'zh' ? '脚本执行结果' : 'Execution output'}
+            </p>
+            <pre className="dojo-agent-tool-activity__output-block">
+              <code>{resultContent}</code>
+            </pre>
+          </div>
+        ) : null}
         {localizedBlocks.map((block) => (
           <AgentVizBlockView key={block.id} block={block} />
         ))}
@@ -64,11 +80,13 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
   const argDetail =
     item.arguments != null ? formatToolArguments(item.tool, item.arguments, uiLocale) : null;
   const codeSource = getExecuteCodeSource(item.tool, item.arguments);
+  const resultContent = getExecuteCodeResultContent(item.tool, item.resultContent);
   const resultDetail = item.resultSummary ?? null;
   const vizBlocks = item.vizBlocks ?? [];
   const showInlineResult = Boolean(resultDetail) && vizBlocks.length === 0 && !codeSource;
   const canExpandDetails =
     Boolean(codeSource) ||
+    Boolean(resultContent) ||
     (item.status !== 'running' && (vizBlocks.length > 0 || Boolean(resultDetail)));
   const statusIcon =
     item.status === 'done' ? doneIcon : item.status === 'error' ? errorIcon : null;
@@ -141,6 +159,7 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
         code={codeSource}
         blocks={vizBlocks}
         expanded={expanded}
+        resultContent={item.status === 'done' ? resultContent : null}
         summary={item.status === 'done' ? resultDetail : null}
       />
     </div>

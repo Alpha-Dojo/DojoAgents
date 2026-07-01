@@ -21,6 +21,15 @@ export function getExecuteCodeSource(
   return code;
 }
 
+export function getExecuteCodeResultContent(
+  tool: string,
+  content: string | null | undefined,
+): string | null {
+  if (tool !== 'execute_code') return null;
+  if (typeof content !== 'string' || !content.trim()) return null;
+  return content;
+}
+
 function previewValues(values: string[], limit = 4): string {
   const items = values.map((value) => value.trim()).filter(Boolean);
   if (items.length === 0) return '';

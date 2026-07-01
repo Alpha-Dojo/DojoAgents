@@ -807,7 +807,20 @@
   gap: 6px;
 }
 
+.dojo-agent-tool-activity__output-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .dojo-agent-tool-activity__code-head {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.dojo-agent-tool-activity__output-head {
   margin: 0;
   font-size: 10px;
   line-height: 1.45;
@@ -832,6 +845,26 @@
 .dojo-agent-tool-activity__code-block code {
   display: block;
   min-width: max-content;
+}
+
+.dojo-agent-tool-activity__output-block {
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  max-height: 220px;
+  border: 1px solid rgba(134, 239, 172, 0.18);
+  border-radius: 8px;
+  background: rgba(4, 24, 18, 0.52);
+  color: #d8ffe8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.dojo-agent-tool-activity__output-block code {
+  display: block;
 }
 
 .dojo-agent-tool-activity__results-body .agent-viz-panel {

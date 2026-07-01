@@ -100,6 +100,7 @@ export type AgentStreamHandlers = {
     call_id?: string;
     tool: string;
     ok: boolean;
+    content?: string;
     latency_ms: number;
     truncated: boolean;
     error?: string | null;
@@ -186,6 +187,7 @@ function dispatchStreamEvent(event: AgentStreamEvent, handlers: AgentStreamHandl
       call_id: event.call_id,
       tool: event.tool,
       ok: event.ok,
+      content: event.content,
       latency_ms: event.latency_ms,
       truncated: event.truncated,
       error: event.error,
