@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -51,7 +51,6 @@ sdist = "dojoagents.packaging_hooks.SdistCommand"
     "web/dist/**/*",
     "static/**/*",
 ]
-
 
 [project.optional-dependencies]
 dev = [
