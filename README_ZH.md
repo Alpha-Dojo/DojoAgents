@@ -2,15 +2,15 @@
     <picture>
     <source
       media="(prefers-color-scheme: dark)"
-      srcset="dojoagents/dashboard/web/src/assets/images/logo-dark.svg"
+      srcset="dojoagents/dashboard/web/src/assets/images/logo.svg"
     />
     <source
       media="(prefers-color-scheme: light)"
-      srcset="dojoagents/dashboard/web//src/assets/images/logo.svg"
+      srcset="dojoagents/dashboard/web/src/assets/images/logo-dark.svg"
     />
     <img
       alt="DojoAgents Logo"
-      src="dojoagents/dashboard/web/assets/images/logo.svg"
+      src="dojoagents/dashboard/web/src/assets/images/logo.svg"
     />
   </picture>
 </div>
