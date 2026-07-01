@@ -8,6 +8,7 @@ from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
 
 from dojoagents.dashboard.services.fin_currency_conversion import (
     convert_fin_row_amounts,
+    market_currency,
     quarter_rate_window,
     required_forex_symbols,
     rows_need_currency_conversion,
@@ -78,22 +79,48 @@ class ForexStore:
         except Exception as e:
             LOGGER.info(f"[ForexStore] fetch error for {symbol}: {e}")
             payload = []
-        data = payload.data if hasattr(payload, "data") else []
+        if isinstance(payload, dict):
+            data = payload.get("data")
+        elif hasattr(payload, "data"):
+            data = payload.data
+        else:
+            data = payload
         if not isinstance(data, list):
             return []
         return [row for row in data if isinstance(row, dict)]
 
-    def _has_bars_for_windows(self, symbol: str, windows: List[Tuple[str, str]]) -> bool:
+    def _has_bars_for_window(self, symbol: str, window: Tuple[str, str]) -> bool:
+        start, end = window
         bars = self._cache.get(symbol, [])
         if not bars:
             return False
-        dates = {extract_bar_time(b) for b in bars if extract_bar_time(b)}
-        if not dates:
-            return False
-        for start, end in windows:
-            if not any(start <= d <= end for d in dates):
-                return False
-        return True
+        for bar in bars:
+            bar_time = extract_bar_time(bar)
+            if bar_time and start <= bar_time <= end:
+                return True
+        return False
+
+    def _has_bars_for_windows(self, symbol: str, windows: List[Tuple[str, str]]) -> bool:
+        return all(self._has_bars_for_window(symbol, window) for window in windows)
+
+    async def _merge_remote(
+        self,
+        symbol: str,
+        *,
+        limit: int,
+        start_time: str,
+        end_time: str,
+    ) -> None:
+        remote = await self._fetch_remote(
+            symbol,
+            limit,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        if not remote:
+            return
+        existing = self._cache.get(symbol, [])
+        self._cache[symbol] = merge_rows(existing, remote)
 
     async def ensure_symbols_for_windows(
         self,
@@ -103,22 +130,32 @@ class ForexStore:
         if not symbols or not windows:
             return
 
-        earliest_start = min(start for start, _ in windows)
-        latest_end = max(end for _, end in windows)
-        limit = self._fetch_limit_for_start(earliest_start)
+        unique_windows = sorted({window for window in windows})
 
-        async def _ensure(symbol: str):
-            if self._has_bars_for_windows(symbol, windows):
+        async def _ensure(symbol: str) -> None:
+            missing = [window for window in unique_windows if not self._has_bars_for_window(symbol, window)]
+            if not missing:
                 return
-            remote = await self._fetch_remote(
+
+            earliest_start = min(start for start, _ in missing)
+            latest_end = max(end for _, end in missing)
+            await self._merge_remote(
                 symbol,
-                limit,
+                limit=self._fetch_limit_for_start(earliest_start),
                 start_time=earliest_start,
                 end_time=latest_end,
             )
-            if remote:
-                existing = self._cache.get(symbol, [])
-                self._cache[symbol] = merge_rows(existing, remote)
+
+            # Upstream may cap bulk history; fetch each quarter window explicitly.
+            for start, end in missing:
+                if self._has_bars_for_window(symbol, (start, end)):
+                    continue
+                await self._merge_remote(
+                    symbol,
+                    limit=90,
+                    start_time=start,
+                    end_time=end,
+                )
 
         await asyncio.gather(*(_ensure(symbol) for symbol in symbols))
 
@@ -126,6 +163,15 @@ class ForexStore:
         bars = self._cache.get(symbol, [])
         in_range = [b for b in bars if start <= extract_bar_time(b) <= end]
         return self._average_close(in_range)
+
+    def _fallback_pair_closes(self, symbols: List[str]) -> Dict[str, float]:
+        """Use the latest available FX snapshot when upstream omits historical windows."""
+        pair_closes: Dict[str, float] = {}
+        for symbol in symbols:
+            avg = self._average_close(self._cache.get(symbol, []))
+            if avg is not None and avg > 0:
+                pair_closes[symbol] = avg
+        return pair_closes
 
     async def convert_fin_rows_to_market(self, rows: List[dict], market: str) -> List[dict]:
         if not rows or not rows_need_currency_conversion(rows, market):
@@ -145,6 +191,7 @@ class ForexStore:
 
         symbols = required_forex_symbols(rows, market)
         await self.ensure_symbols_for_windows(symbols, windows)
+        fallback_pair_closes = self._fallback_pair_closes(symbols)
 
         rate_cache: Dict[Tuple[str, str, str], float] = {}
         converted_by_date: Dict[str, dict] = {}
@@ -155,7 +202,7 @@ class ForexStore:
                 continue
             start, end = window
             row_symbols = required_forex_symbols([row], market)
-            pair_closes: Dict[str, float] = {}
+            pair_closes: Dict[str, float] = dict(fallback_pair_closes)
             for symbol in row_symbols:
                 cache_key = (symbol, start, end)
                 if cache_key not in rate_cache:
@@ -166,12 +213,15 @@ class ForexStore:
                 if close is not None:
                     pair_closes[symbol] = close
             report_date = extract_report_date(row)
-            if report_date:
-                converted_by_date[report_date] = convert_fin_row_amounts(
-                    row,
-                    market=market,
-                    pair_closes=pair_closes,
-                )
+            if not report_date:
+                continue
+            converted = convert_fin_row_amounts(
+                row,
+                market=market,
+                pair_closes=pair_closes,
+            )
+            if converted.get("currency") == market_currency(market):
+                converted_by_date[report_date] = converted
 
         converted: List[dict] = []
         for row in rows:

@@ -21,6 +21,7 @@ from dojoagents.dashboard.services.portfolio_order_execution import (
 )
 from dojoagents.dashboard.services.portfolio_store import MARKETS, PortfolioStore
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.market_stats import display_valuation_ratio
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.portfolio import (
@@ -844,8 +845,8 @@ class PortfolioService:
             price = float(quote.last_price) if quote else 0.0
             change_percent = float(quote.change_percent) if quote else 0.0
             market_cap = float(quote.market_cap) if quote else 0.0
-            pe = float(quote.pe) if quote and quote.pe > 0 else None
-            pb = float(quote.pb) if quote and quote.pb > 0 else None
+            pe = display_valuation_ratio(float(quote.pe) if quote else None)
+            pb = display_valuation_ratio(float(quote.pb) if quote else None)
             dividend_yield = float(quote.dividend_yield) if quote else None
             turn_rate = float(quote.turn_rate) if quote else None
             eps = (price / pe) if pe and pe > 0 else None
