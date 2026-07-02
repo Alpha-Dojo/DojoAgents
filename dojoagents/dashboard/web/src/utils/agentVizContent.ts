@@ -205,3 +205,15 @@ export function stripRenderedChartBlocks(content: string, enabled: boolean): str
 
   return next.replace(/\n{3,}/g, '\n\n').trim();
 }
+
+export function stripRenderedChartBlocksFromSteps(
+  steps: AgentActivityStep[],
+  enabled: boolean,
+): AgentActivityStep[] {
+  if (!enabled) return steps;
+  return steps.map((step) => {
+    if (step.kind !== 'text') return step;
+    const text = stripRenderedChartBlocks(step.text, true);
+    return text === step.text ? step : { ...step, text };
+  });
+}
