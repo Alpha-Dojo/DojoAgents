@@ -113,14 +113,14 @@ data-tool results. Use explicit `kind` when the target chart type is known.
 When Python computation is required:
 
 1. NEVER hardcode OHLC prices, financial statement rows, or quote values in `execute_code`.
-2. Fetch live data inside the script via `import hermes_tools` — e.g.
-   `hermes_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
-3. For large prior tool outputs, use `hermes_tools.load_tool_result(call_id)` instead of
+2. Fetch live data inside the script via `import dojo_tools` — e.g.
+   `dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
+3. For large prior tool outputs, use `dojo_tools.load_tool_result(call_id)` instead of
    copying JSON from memory. The artifact pointer includes `schema_hint` and `parse_hint`.
-4. Parse tool payloads with `hermes_tools.tool_json(res)`; build DataFrames from
-   `hermes_tools.tool_rows(res)` (NOT `data['data']`).
+4. Parse tool payloads with `dojo_tools.tool_json(res)`; build DataFrames from
+   `dojo_tools.tool_rows(res)` (NOT `data['data']`).
    Example for price trends:
-   `rows = hermes_tools.tool_rows(hermes_tools.load_tool_result(call_id)); df = pd.DataFrame(rows)`
+   `rows = dojo_tools.tool_rows(dojo_tools.load_tool_result(call_id)); df = pd.DataFrame(rows)`
    Kline rows use field `datetime` for the trade date (fields: datetime, open, high, low, close, volume).
 
 ### execute_code misuse (FORBIDDEN)
@@ -132,7 +132,7 @@ Do NOT call `execute_code` to:
 - substitute for normal assistant markdown when no computation is needed
 
 For analysis, design, and interpretation turns, write deliverables directly in the assistant
-message. Use `agent_viz_build` for charts/tables. `execute_code` is only for hermes_tools batch
+message. Use `agent_viz_build` for charts/tables. `execute_code` is only for dojo_tools batch
 orchestration and pandas/numpy computation on fetched data.
 """.strip()
 

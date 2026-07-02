@@ -12,7 +12,7 @@ from dojoagents.agent.tool_result_artifacts import (
 )
 from dojoagents.tools.code_execution_tool import get_code_execution_spec, handle_code_execution
 from dojoagents.tools.executor import ToolExecutor
-from dojoagents.tools.hermes_tools_stub import build_hermes_tools_stub_code, hermes_function_name
+from dojoagents.tools.dojo_tools_stub import build_dojo_tools_stub_code, hermes_function_name
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.terminal_tool import get_terminal_spec
@@ -26,11 +26,7 @@ async def test_code_execution_calls_terminal_via_rpc():
     registry.register(get_code_execution_spec(registry, policy))
     executor = ToolExecutor(registry, policy)
 
-    code = (
-        "import hermes_tools\n"
-        "res = hermes_tools.terminal('echo rpc-ok')\n"
-        "print('ScriptOut:', res.get('content', '').strip())\n"
-    )
+    code = "import dojo_tools\n" "res = dojo_tools.terminal('echo rpc-ok')\n" "print('ScriptOut:', res.get('content', '').strip())\n"
 
     tool_call = ToolCall(id="tc-code", name="execute_code", arguments={"code": code})
     result = await executor.execute_one(tool_call)
@@ -45,9 +41,9 @@ async def test_code_execution_limit_reached():
     registry.register(get_terminal_spec(policy))
 
     code = (
-        "import hermes_tools\n"
-        "res1 = hermes_tools.terminal('echo ok-1')\n"
-        "res2 = hermes_tools.terminal('echo ok-2')\n"
+        "import dojo_tools\n"
+        "res1 = dojo_tools.terminal('echo ok-1')\n"
+        "res2 = dojo_tools.terminal('echo ok-2')\n"
         "print('R1:', res1.get('ok'))\n"
         "print('R2:', res2.get('ok'))\n"
         "print('Err:', res2.get('error'))\n"
@@ -84,9 +80,9 @@ async def test_code_execution_calls_registered_dashboard_tool_via_rpc(tmp_path):
     registry.register(get_code_execution_spec(registry, policy))
 
     code = (
-        "import hermes_tools\n"
-        "res = hermes_tools.get_ticker_price_trends({'ticker': '0700', 'market': 'hk'})\n"
-        "data = hermes_tools.tool_json(res)\n"
+        "import dojo_tools\n"
+        "res = dojo_tools.get_ticker_price_trends({'ticker': '0700', 'market': 'hk'})\n"
+        "data = dojo_tools.tool_json(res)\n"
         "print('Close:', data['klines'][0]['close'])\n"
     )
     result = await handle_code_execution({"code": code}, registry, policy)
@@ -108,12 +104,7 @@ async def test_code_execution_load_tool_result_artifact(tmp_path):
     )
     registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
 
-    code = (
-        "import hermes_tools\n"
-        "res = hermes_tools.load_tool_result('call-kline')\n"
-        "data = hermes_tools.tool_json(res)\n"
-        "print('Loaded:', data['klines'][0]['close'])\n"
-    )
+    code = "import dojo_tools\n" "res = dojo_tools.load_tool_result('call-kline')\n" "data = dojo_tools.tool_json(res)\n" "print('Loaded:', data['klines'][0]['close'])\n"
     result = await handle_code_execution(
         {"code": code},
         registry,
@@ -162,7 +153,7 @@ async def test_code_execution_tool_rows_from_artifact(tmp_path):
 def test_hermes_stub_maps_dotted_tool_names():
     assert hermes_function_name("get_ticker_price_trends") == "get_ticker_price_trends"
     assert hermes_function_name("dojo.sdk.stock.kline") == "dojo_sdk_stock_kline"
-    stub = build_hermes_tools_stub_code(
+    stub = build_dojo_tools_stub_code(
         socket_path="/tmp/test.sock",
         tool_names=["get_ticker_price_trends", "dojo.sdk.stock.kline"],
     )

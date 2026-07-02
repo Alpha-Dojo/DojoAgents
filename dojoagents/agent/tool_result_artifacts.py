@@ -173,7 +173,7 @@ def _validate_session_id(session_id: str) -> str:
 
 
 class ToolResultArtifactStore:
-    """Persist large tool outputs for execute_code via hermes_tools.load_tool_result."""
+    """Persist large tool outputs for execute_code via dojo_tools.load_tool_result."""
 
     def __init__(self, sessions_root: str | Path) -> None:
         self.sessions_root = Path(sessions_root).expanduser().resolve()
@@ -262,8 +262,8 @@ def build_artifact_pointer_message(
         "artifact": True,
         "tool": tool_name,
         "call_id": call_id,
-        "load_hint": f'hermes_tools.load_tool_result("{call_id}")',
-        "rpc_hint": f"Re-fetch live data with hermes_tools.{tool_name}(...) inside execute_code when needed.",
+        "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
+        "rpc_hint": f"Re-fetch live data with dojo_tools.{tool_name}(...) inside execute_code when needed.",
     }
     if isinstance(data, dict):
         if data.get("ticker") or data.get("symbol"):

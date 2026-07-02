@@ -23,11 +23,11 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "Rules:\n"
     "- allow_execution=false, block_reason=hardcoded_market_data when the script embeds OHLC rows, "
     "quote values, or financial statement rows as Python literals instead of fetching live data via "
-    "hermes_tools (get_ticker_price_trends, load_tool_result, etc.).\n"
+    "dojo_tools (get_ticker_price_trends, load_tool_result, etc.).\n"
     "- allow_execution=false, block_reason=presentation_only when the script mainly prints formatted "
     "text, ASCII diagrams, knowledge-graph schema docs, taxonomy tables, or design proposals without "
-    "hermes_tools batch orchestration or pandas/numpy computation on fetched data.\n"
-    "- allow_execution=true, block_reason=none when the script legitimately batch-calls hermes_tools, "
+    "dojo_tools batch orchestration or pandas/numpy computation on fetched data.\n"
+    "- allow_execution=true, block_reason=none when the script legitimately batch-calls dojo_tools, "
     "loads prior tool results, or runs numerical transforms on fetched data."
 )
 
@@ -35,15 +35,15 @@ _BLOCK_MESSAGES = {
     "hardcoded_market_data": (
         "Blocked {tool_name}: {explanation} "
         "Do NOT inline OHLC/price rows in Python. Fetch real data inside the script via "
-        "`import hermes_tools` — e.g. "
-        "`hermes_tools.get_ticker_price_trends({{'ticker': '0700', 'market': 'hk'}})` or "
-        "`hermes_tools.load_tool_result('<call_id>')`, then parse with `hermes_tools.tool_json(res)`."
+        "`import dojo_tools` — e.g. "
+        "`dojo_tools.get_ticker_price_trends({{'ticker': '0700', 'market': 'hk'}})` or "
+        "`dojo_tools.load_tool_result('<call_id>')`, then parse with `dojo_tools.tool_json(res)`."
     ),
     "presentation_only": (
         "Blocked {tool_name}: {explanation} "
         "Do NOT use execute_code for ASCII diagrams, schema design docs, or formatted text. "
         "Write those directly in the assistant reply (markdown/tables). "
-        "Use execute_code only for hermes_tools batch orchestration or pandas/numpy computation "
+        "Use execute_code only for dojo_tools batch orchestration or pandas/numpy computation "
         "on fetched tool data."
     ),
 }

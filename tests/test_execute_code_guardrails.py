@@ -62,10 +62,45 @@ df = __import__("pandas").DataFrame(klines_data)
 
 
 @pytest.mark.asyncio
-async def test_classifier_allows_hermes_fetch_script() -> None:
+async def test_classifier_blocks_inline_rows_even_with_dojo_tools_import() -> None:
     code = """
-import hermes_tools
-payload = hermes_tools.tool_json(hermes_tools.load_tool_result("abc"))
+import dojo_tools
+
+klines_data = [
+    {"datetime": "2026-06-26", "close": 356.36313339782514},
+    {"datetime": "2026-06-29", "close": 363.78277122838953},
+]
+res = dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk"})
+df = __import__("pandas").DataFrame(klines_data)
+"""
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content=_classification_json(
+                    allow_execution=False,
+                    block_reason="hardcoded_market_data",
+                    explanation="Inline OHLC rows detected despite dojo_tools import.",
+                )
+            )
+        ]
+    )
+    classification = await classify_execute_code(
+        code,
+        "plot 0700",
+        provider,
+        model="test-model",
+    )
+    blocked, message, code_name = execute_code_guardrail_from_classification("execute_code", classification)
+    assert blocked is True
+    assert code_name == "execute_code_inline_market_data"
+    assert "hardcoded" in message.lower() or "OHLC" in message
+
+
+@pytest.mark.asyncio
+async def test_classifier_allows_dojo_tools_fetch_script() -> None:
+    code = """
+import dojo_tools
+payload = dojo_tools.tool_json(dojo_tools.load_tool_result("abc"))
 df = payload["klines"]
 df["ma20"] = df["close"].rolling(20).mean()
 """
