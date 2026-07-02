@@ -201,7 +201,7 @@ async def handle_code_execution(
     env["PYTHONPATH"] = temp_dir
 
     proc = await asyncio.create_subprocess_exec(
-        "python3",
+        "python",
         script_file,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
