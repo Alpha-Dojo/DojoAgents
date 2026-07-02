@@ -75,6 +75,7 @@ def build_hermes_tools_stub_code(*, socket_path: str, tool_names: Iterable[str])
     return f'''"""Auto-generated RPC bridge to DojoAgents tools for execute_code."""
 import json
 import socket
+import sys
 
 _SOCKET_PATH = {socket_path!r}
 
@@ -93,10 +94,16 @@ def _read_response(sock):
 
 def _rpc_call(tool_name, args):
     payload = {{"tool": tool_name, "args": args or {{}}}}
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.connect(_SOCKET_PATH)
-        sock.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\\n")
-        raw = _read_response(sock)
+    if sys.platform == "win32":
+        import dojoagents.tools.af_unix_asyncio_compat as sync_unix
+        with sync_unix.create_connection(_SOCKET_PATH) as sock:
+            sock.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\\n")
+            raw = _read_response(sock)
+    else:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.connect(_SOCKET_PATH)
+            sock.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\\n")
+            raw = _read_response(sock)
     if not raw.strip():
         return {{"ok": False, "content": "", "error": "empty RPC response"}}
     return json.loads(raw)
