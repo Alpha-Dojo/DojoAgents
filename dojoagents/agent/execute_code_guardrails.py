@@ -11,11 +11,7 @@ _OHLC_FIELD_LITERAL = re.compile(
     re.IGNORECASE,
 )
 _DATETIME_OHLC_ROW = re.compile(
-    r"\{[^{}]*"
-    r'["\'](?:datetime|date|bar_time|time)["\']\s*:\s*["\'][^"\']+["\']'
-    r"[^{}]*"
-    r'["\'](?:close|open|high|low)["\']\s*:\s*-?\d+(?:\.\d+)?'
-    r"[^{}]*\}",
+    r"\{[^{}]*" r'["\'](?:datetime|date|bar_time|time)["\']\s*:\s*["\'][^"\']+["\']' r"[^{}]*" r'["\'](?:close|open|high|low)["\']\s*:\s*-?\d+(?:\.\d+)?' r"[^{}]*\}",
     re.IGNORECASE | re.DOTALL,
 )
 _INLINE_SERIES_ASSIGN = re.compile(
@@ -24,8 +20,7 @@ _INLINE_SERIES_ASSIGN = re.compile(
 )
 _SUSPICIOUS_PRICE_DECIMAL = re.compile(r":\s*-?\d+\.\d{6,}\s*[,}\]]")
 _HERMES_FETCH = re.compile(
-    r"hermes_tools\.(?:get_ticker_price_trends|get_ticker_financials|get_ticker_realtime_quote|"
-    r"load_tool_result|call_tool|tool_json|dojo_sdk\w*|list_tool_results)\s*\(",
+    r"dojo_tools\.(?:get_ticker_price_trends|get_ticker_financials|get_ticker_realtime_quote|" r"load_tool_result|call_tool|tool_json|dojo_sdk\w*|list_tool_results)\s*\(",
     re.IGNORECASE,
 )
 
@@ -117,8 +112,8 @@ def check_execute_code_inline_data(
     message = (
         f"Blocked {tool_name}: hardcoded market data detected ({finding.reason}). "
         "Do NOT inline OHLC/price rows in Python. Fetch real data inside the script via "
-        "`import hermes_tools` — e.g. "
-        "`hermes_tools.get_ticker_price_trends({'ticker': '0700', 'market': 'hk'})` or "
-        "`hermes_tools.load_tool_result('<call_id>')`, then parse with `hermes_tools.tool_json(res)`."
+        "`import dojo_tools` — e.g. "
+        "`dojo_tools.get_ticker_price_trends({'ticker': '0700', 'market': 'hk'})` or "
+        "`dojo_tools.load_tool_result('<call_id>')`, then parse with `dojo_tools.tool_json(res)`."
     )
     return True, message

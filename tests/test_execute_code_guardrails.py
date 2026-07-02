@@ -25,13 +25,13 @@ df = pd.DataFrame(klines_data)
     assert finding.datetime_ohlc_rows >= 2
 
 
-def test_allows_hermes_tools_fetch_without_inline_rows():
+def test_allows_dojo_tools_fetch_without_inline_rows():
     code = """
 import pandas as pd
-import hermes_tools
+import dojo_tools
 
-res = hermes_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk"})
-payload = hermes_tools.tool_json(res)
+res = dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk"})
+payload = dojo_tools.tool_json(res)
 df = pd.DataFrame(payload["klines"])
 print(df["close"].iloc[-1])
 """
@@ -40,20 +40,20 @@ print(df["close"].iloc[-1])
 
 def test_allows_load_tool_result_path():
     code = """
-import hermes_tools
-payload = hermes_tools.tool_json(hermes_tools.load_tool_result("call-123"))
+import dojo_tools
+payload = dojo_tools.tool_json(dojo_tools.load_tool_result("call-123"))
 """
     assert detect_hardcoded_market_data(code) is None
 
 
 def test_blocks_even_with_hermes_import_when_inline_rows_present():
     code = """
-import hermes_tools
+import dojo_tools
 klines_data = [
     {"datetime": "2026-06-26", "close": 356.36313339782514},
     {"datetime": "2026-06-29", "close": 363.78277122838953},
 ]
-res = hermes_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk"})
+res = dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk"})
 """
     blocked, message = check_execute_code_inline_data("execute_code", {"code": code})
     assert blocked is True
@@ -79,8 +79,8 @@ prices = [
 
 def test_guardrail_allows_computation_on_fetched_columns():
     code = """
-import hermes_tools
-payload = hermes_tools.tool_json(hermes_tools.load_tool_result("abc"))
+import dojo_tools
+payload = dojo_tools.tool_json(dojo_tools.load_tool_result("abc"))
 df = payload["klines"]
 df["ma20"] = df["close"].rolling(20).mean()
 """

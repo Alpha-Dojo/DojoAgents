@@ -7,10 +7,10 @@ from typing import Any
 
 from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
 from dojoagents.logging import get_logger
-from dojoagents.tools.hermes_tools_stub import (
+from dojoagents.tools.dojo_tools_stub import (
     HERMES_INTERNAL_LIST_TOOLS,
     HERMES_INTERNAL_LOAD_TOOL,
-    build_hermes_tools_stub_code,
+    build_dojo_tools_stub_code,
 )
 from dojoagents.tools.process_registry import active_session_id
 from dojoagents.tools.registry import ToolSpec
@@ -174,9 +174,9 @@ async def handle_code_execution(
     await rpc_server.start()
 
     temp_dir = tempfile.mkdtemp()
-    stub_file = os.path.join(temp_dir, "hermes_tools.py")
+    stub_file = os.path.join(temp_dir, "dojo_tools.py")
     tool_names = [spec.name for spec in tool_registry.all()]
-    stub_code = build_hermes_tools_stub_code(socket_path=socket_path, tool_names=tool_names)
+    stub_code = build_dojo_tools_stub_code(socket_path=socket_path, tool_names=tool_names)
     with open(stub_file, "w", encoding="utf-8") as handle:
         handle.write(stub_code)
 
@@ -200,7 +200,7 @@ async def handle_code_execution(
         output = stdout.decode("utf-8", errors="replace")
     finally:
         await rpc_server.stop()
-        for filename in ["hermes_tools.py", "script.py"]:
+        for filename in ["dojo_tools.py", "script.py"]:
             try:
                 os.unlink(os.path.join(temp_dir, filename))
             except OSError:
@@ -239,10 +239,10 @@ def get_code_execution_spec(
     return ToolSpec(
         name="execute_code",
         description=(
-            "Execute Python scripts with access to registered DojoAgents tools via `import hermes_tools`. "
-            "NEVER hardcode market prices or financial rows — fetch data with hermes_tools RPC helpers "
-            f"(e.g. {sample_tools}) or `hermes_tools.load_tool_result(call_id)` for persisted large tool outputs. "
-            "Use `hermes_tools.tool_json(res)` to parse JSON tool payloads."
+            "Execute Python scripts with access to registered DojoAgents tools via `import dojo_tools`. "
+            "NEVER hardcode market prices or financial rows — fetch data with dojo_tools RPC helpers "
+            f"(e.g. {sample_tools}) or `dojo_tools.load_tool_result(call_id)` for persisted large tool outputs. "
+            "Use `dojo_tools.tool_json(res)` to parse JSON tool payloads."
         ),
         parameters={
             "type": "object",

@@ -46,11 +46,11 @@ existing visualization pipeline over free-form chart code.
 When Python computation is required:
 
 1. NEVER hardcode OHLC prices, financial statement rows, or quote values in `execute_code`.
-2. Fetch live data inside the script via `import hermes_tools` — e.g.
-   `hermes_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
-3. For large prior tool outputs, use `hermes_tools.load_tool_result(call_id)` instead of
+2. Fetch live data inside the script via `import dojo_tools` — e.g.
+   `dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
+3. For large prior tool outputs, use `dojo_tools.load_tool_result(call_id)` instead of
    copying JSON from memory.
-4. Parse tool payloads with `hermes_tools.tool_json(res)` before building pandas DataFrames.
+4. Parse tool payloads with `dojo_tools.tool_json(res)` before building pandas DataFrames.
 """.strip()
 
 # Backward-compatible alias for existing imports/tests. The content intentionally
