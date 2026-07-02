@@ -11,7 +11,7 @@ from dojoagents.dashboard.services.fin_indicators_utils import (
     prepare_single_quarter_rows,
     ttm_net_profit_for_anchor,
 )
-from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, extract_bar_time
 from dojoagents.dashboard.services.stock_fin_indicators_store import StockFinIndicatorsStore
 from dojoagents.dashboard.services.stock_store import MARKETS, StockStore
 from dojoagents.dashboard.schemas.dojo_core import CorePeBandPoint, CoreTickerPeBandResponse
@@ -85,15 +85,36 @@ def build_pe_band_points(
     ]
 
 
+def _bar_rows_from_bars(bars: List) -> List[dict]:
+    rows: List[dict] = []
+    for bar in bars:
+        if hasattr(bar, "bar_time"):
+            trade_date = bar.bar_time
+            close = bar.close
+        else:
+            row = bar if isinstance(bar, dict) else {}
+            trade_date = row.get("bar_time") or row.get("datetime") or row.get("date")
+            close = row.get("close")
+        if not trade_date or close is None:
+            continue
+        rows.append({"bar_time": trade_date, "close": close})
+    return rows
+
+
 async def resolve_core_ticker_pe_band(
     ticker: str,
     *,
     market: Optional[str] = None,
     limit: int = 252,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    kline_t: str = "1D",
     stock_store: StockStore,
     kline_store: KlineStore,
     fin_indicators_store: StockFinIndicatorsStore,
     fin_rows: Optional[List[dict]] = None,
+    bars: Optional[List] = None,
+    as_of: Optional[str] = None,
 ) -> Optional[CoreTickerPeBandResponse]:
     symbol = ticker.strip()
     if not symbol:
@@ -107,9 +128,27 @@ async def resolve_core_ticker_pe_band(
     if total_shares is None or total_shares <= 0:
         return None
 
-    kline_response = await kline_store.get_or_fetch_kline(symbol, kline_t="1D", limit=limit)
-    if kline_response is None or not kline_response.bars:
-        return None
+    if bars is not None:
+        bar_rows = _bar_rows_from_bars(bars)
+        resolved_as_of = as_of
+        if not bar_rows:
+            return None
+    else:
+        kline_response = await kline_store.get_or_fetch_kline(
+            symbol,
+            market=market_code,
+            kline_t=kline_t,
+            start_time=start_time,
+            end_time=end_time,
+            min_bar_time=None if start_time else DATA_START_DATE,
+            limit=limit if not start_time else None,
+        )
+        if kline_response is None or not kline_response.bars:
+            return None
+        bar_rows = _bar_rows_from_bars(kline_response.bars)
+        resolved_as_of = kline_response.as_of
+        if not bar_rows:
+            return None
 
     fin_limit = max(24, min(50, limit // 10 + 8))
     if fin_rows is None:
@@ -126,13 +165,6 @@ async def resolve_core_ticker_pe_band(
     if not fin_rows:
         return None
 
-    bar_rows = [
-        {
-            "bar_time": bar.bar_time,
-            "close": bar.close,
-        }
-        for bar in kline_response.bars
-    ]
     points = build_pe_band_points(
         bars=bar_rows,
         fin_rows=fin_rows,
@@ -143,7 +175,7 @@ async def resolve_core_ticker_pe_band(
     return CoreTickerPeBandResponse(
         ticker=symbol,
         market=market_code,
-        as_of=kline_response.as_of,
+        as_of=resolved_as_of or "",
         total_shares=total_shares,
         points=points,
     )

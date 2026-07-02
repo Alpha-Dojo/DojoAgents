@@ -33,13 +33,7 @@ def hermes_function_name(tool_name: str) -> str:
 
 
 def iter_hermes_exposed_tools(tool_names: Iterable[str]) -> list[str]:
-    names = sorted(
-        {
-            name
-            for name in tool_names
-            if name and name not in HERMES_RPC_BLOCKED_TOOLS and name not in HERMES_CONVENIENCE_TOOLS
-        }
-    )
+    names = sorted({name for name in tool_names if name and name not in HERMES_RPC_BLOCKED_TOOLS and name not in HERMES_CONVENIENCE_TOOLS})
     used: set[str] = set()
     exposed: list[str] = []
     for name in names:
@@ -51,7 +45,7 @@ def iter_hermes_exposed_tools(tool_names: Iterable[str]) -> list[str]:
     return exposed
 
 
-def build_hermes_tools_stub_code(*, socket_path: str, tool_names: Iterable[str]) -> str:
+def build_dojo_tools_stub_code(*, socket_path: str, tool_names: Iterable[str]) -> str:
     exposed = iter_hermes_exposed_tools(tool_names)
     fn_by_tool = {}
     used_names: set[str] = set()
@@ -66,10 +60,7 @@ def build_hermes_tools_stub_code(*, socket_path: str, tool_names: Iterable[str])
     for name in exposed:
         fn = fn_by_tool[name]
         function_blocks.append(
-            f"def {fn}(args=None, **kwargs):\n"
-            f"    payload = dict(args or {{}})\n"
-            f"    payload.update(kwargs)\n"
-            f"    return _rpc_call({name!r}, payload)\n"
+            f"def {fn}(args=None, **kwargs):\n" f"    payload = dict(args or {{}})\n" f"    payload.update(kwargs)\n" f"    return _rpc_call({name!r}, payload)\n"
         )
 
     return f'''"""Auto-generated RPC bridge to DojoAgents tools for execute_code."""

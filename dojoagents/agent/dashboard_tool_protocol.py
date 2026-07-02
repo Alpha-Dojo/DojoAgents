@@ -79,10 +79,22 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 2. If price/date is specified (e.g. 2026-06-18 开盘价): call `get_ticker_price_trends` with
    `start_date` AND `end_date` both set to that day (YYYY-MM-DD), then read `open` from klines.
    Do NOT call kline tools with only ticker/kline_t — that returns the full history.
-3. For each row: `portfolio_write_create_order` (or batch `portfolio_write_create_orders`)
-   with `order_side=buy`, `price`=cost/limit, `qty`=shares, optional `order_time`=open date
-3. `portfolio_read_detail` → verify `eval_summary.position_count` (NOT candidate_count)
-4. `portfolio_eval_submit` with **min_position_count** matching filled positions
+3. Call `portfolio_write_create_order` (or batch) with `ticker` + `order_side=buy`.
+   Optional fields — server resolves defaults:
+   - no `order_time` + no `price` → latest daily **close**
+   - `order_time` only → that day's **open**
+   - `price` only → nearest day where price is within daily low/high
+   - no `qty` on buy → **10%** of available market cash (lot-normalized)
+   - US qty: integer shares; HK/A-share qty: multiples of 100
+   - limit price must be within the trade day's high/low (preflight rejects otherwise)
+4. `portfolio_read_detail` → verify `eval_summary.position_count` (NOT candidate_count)
+5. `portfolio_eval_submit` with **min_position_count** matching filled positions
+
+**Capital preflight (batch 建仓):**
+- Before large batch buys, ensure `Σ(price × qty)` per market fits `capital_by_market`.
+- If the tool returns `capital_budget_exceeded`, **stop** and ask the user whether to raise
+  Folio initial capital or reduce symbols/share counts. Do NOT silently lower qty.
+- A-share min lot is 100 shares; do not auto-reduce below user-requested sizing.
 
 **FORBIDDEN for 建仓:** `portfolio_write_add_candidate`, `portfolio_write_add_holding`, `portfolio_write_add_holdings`
 (these only add 候选股; they never buy or set cost).

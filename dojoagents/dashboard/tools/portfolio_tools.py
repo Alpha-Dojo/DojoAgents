@@ -11,11 +11,14 @@ from dojoagents.dashboard.schemas.portfolio import (
     RemovePortfolioHoldingRequest,
     UpdatePortfolioRequest,
 )
+from dojoagents.agent.escalation import AgentEscalationError
 from dojoagents.agent.harnesses.portfolio_eval import (
     eval_summary_from_detail,
     parse_eval_submission,
     verify_eval_submission,
 )
+from dojoagents.dashboard.services.portfolio_order_preflight import preflight_buy_orders_from_detail
+from dojoagents.dashboard.services.portfolio_order_resolution import resolve_portfolio_order_request
 from dojoagents.dashboard.services.portfolio_service import PortfolioOrderFillError, PortfolioValidationError
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 
@@ -59,6 +62,49 @@ def _json_content(
         "resource_changes": list(resource_changes or []),
         "metadata": {"ok": True},
     }
+
+
+def _resolve_buy_orders_for_preflight(
+    registry,
+    orders: list[CreatePortfolioOrderRequest],
+) -> list[CreatePortfolioOrderRequest]:
+    resolved: list[CreatePortfolioOrderRequest] = []
+    for body in orders:
+        if body.order_side != "buy":
+            continue
+        market = body.market
+        if not market and registry.stock_store is not None:
+            market = registry.stock_store.find_market(body.ticker)
+        if not market:
+            continue
+        if market == body.market:
+            resolved.append(body)
+        else:
+            resolved.append(body.model_copy(update={"market": market}))
+    return resolved
+
+
+async def _preflight_portfolio_buy_orders(
+    registry,
+    service,
+    portfolio_id: str,
+    orders: list[CreatePortfolioOrderRequest],
+) -> None:
+    buy_orders = _resolve_buy_orders_for_preflight(registry, orders)
+    if not buy_orders:
+        return
+    detail = await service.get_detail(portfolio_id, include_performance=False)
+    if detail is None:
+        raise RuntimeError("portfolio not found")
+    result = preflight_buy_orders_from_detail(detail.model_dump(), buy_orders)
+    if result.ok:
+        return
+    raise AgentEscalationError(
+        "capital_budget_exceeded",
+        result.escalation_message(),
+        context=result.escalation_context(),
+        recoverable_by_agent=False,
+    )
 
 
 def register_dashboard_portfolio_tools(
@@ -214,26 +260,16 @@ def register_dashboard_portfolio_tools(
 
     async def create_order(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
-        order_side = str(args.get("order_side") or "buy").strip().lower()
-        if order_side not in {"buy", "sell"}:
-            raise RuntimeError("order_side must be buy or sell")
-        if args.get("price") is None or args.get("qty") is None:
-            raise RuntimeError("price and qty are required to create a filled position (建仓)")
-
-        body = CreatePortfolioOrderRequest(
-            ticker=str(args.get("ticker") or "").strip(),
-            market=_normalize_market(args.get("market")),
-            order_side=order_side,
-            price=float(args["price"]),
-            qty=float(args["qty"]),
-            order_time=str(args["order_time"]).strip() if args.get("order_time") else None,
-        )
+        service = _service_or_raise(registry)
+        body, resolution = await resolve_portfolio_order_request(registry, service, portfolio_id, args)
+        if body.order_side == "buy":
+            await _preflight_portfolio_buy_orders(registry, service, portfolio_id, [body])
         try:
-            detail = await _service_or_raise(registry).create_order(portfolio_id, body)
+            detail = await service.create_order(portfolio_id, body)
         except PortfolioOrderFillError as exc:
             raise RuntimeError(
                 f"Order not filled ({exc.code}): {exc}. "
-                "Adjust limit price (must cover the bar), qty, order_time, or portfolio capital."
+                "Adjust limit price (must be within the day's high/low), qty, order_time, or portfolio capital."
             ) from exc
         if detail is None:
             raise RuntimeError("portfolio or ticker not found")
@@ -243,8 +279,12 @@ def register_dashboard_portfolio_tools(
         payload["order_result"] = {
             "ticker": body.ticker,
             "market": body.market,
-            "order_side": order_side,
+            "order_side": body.order_side,
             "status": "filled",
+            "price": body.price,
+            "qty": body.qty,
+            "order_time": body.order_time,
+            "resolution": resolution.as_dict(),
             "position_count": summary["position_count"],
             "position_count_by_market": summary["position_count_by_market"],
         }
@@ -264,28 +304,44 @@ def register_dashboard_portfolio_tools(
         detail = None
         service = _service_or_raise(registry)
 
+        bodies: list[CreatePortfolioOrderRequest] = []
+        resolutions: list[dict[str, Any]] = []
         for row in orders_raw:
             if not isinstance(row, dict):
                 continue
             ticker = str(row.get("ticker") or "").strip()
-            order_side = str(row.get("order_side") or "buy").strip().lower()
             if not ticker:
                 failed.append({"ticker": "", "error": "ticker is required"})
                 continue
+            order_side = str(row.get("order_side") or "buy").strip().lower()
             if order_side not in {"buy", "sell"}:
                 failed.append({"ticker": ticker, "error": "order_side must be buy or sell"})
                 continue
-            if row.get("price") is None or row.get("qty") is None:
-                failed.append({"ticker": ticker, "error": "price and qty are required"})
+            try:
+                body, resolution = await resolve_portfolio_order_request(
+                    registry,
+                    service,
+                    portfolio_id,
+                    row,
+                )
+            except AgentEscalationError:
+                raise
+            except RuntimeError as exc:
+                failed.append({"ticker": ticker, "error": str(exc)})
                 continue
-            body = CreatePortfolioOrderRequest(
-                ticker=ticker,
-                market=_normalize_market(row.get("market")),
-                order_side=order_side,
-                price=float(row["price"]),
-                qty=float(row["qty"]),
-                order_time=str(row["order_time"]).strip() if row.get("order_time") else None,
-            )
+            bodies.append(body)
+            resolutions.append(resolution.as_dict())
+
+        if not bodies:
+            if failed:
+                raise RuntimeError(f"No valid orders to place. Failures: {failed[:3]}")
+            raise RuntimeError("orders must include at least one valid ticker")
+
+        await _preflight_portfolio_buy_orders(registry, service, portfolio_id, bodies)
+
+        for body, resolution in zip(bodies, resolutions):
+            ticker = body.ticker
+            order_side = body.order_side
             try:
                 detail = await service.create_order(portfolio_id, body)
             except PortfolioOrderFillError as exc:
@@ -295,13 +351,25 @@ def register_dashboard_portfolio_tools(
                         "market": body.market,
                         "code": exc.code,
                         "error": str(exc),
+                        "resolution": resolution,
                     }
                 )
                 continue
             if detail is None:
                 failed.append({"ticker": ticker, "error": "portfolio or ticker not found"})
                 continue
-            filled.append({"ticker": ticker, "market": body.market, "order_side": order_side, "status": "filled"})
+            filled.append(
+                {
+                    "ticker": ticker,
+                    "market": body.market,
+                    "order_side": order_side,
+                    "status": "filled",
+                    "price": body.price,
+                    "qty": body.qty,
+                    "order_time": body.order_time,
+                    "resolution": resolution,
+                }
+            )
 
         if detail is None and not filled:
             raise RuntimeError("No orders were filled. Check price, qty, order_time, and portfolio capital.")
@@ -632,10 +700,11 @@ def register_dashboard_portfolio_tools(
             name="portfolio_write_create_order",
             description=(
                 "Buy or sell to create/update a REAL position (持仓/建仓). "
-                "Requires price (limit/cost), qty (shares), order_side (buy|sell). "
-                "Optional order_time (YYYY-MM-DD) for execution date. "
-                "Uses portfolio capital; order must fill or it is rejected. "
-                "Do NOT use add_candidate for 建仓 — that only updates the watchlist."
+                "Provide ticker + order_side; price/qty/order_time are optional — the server resolves defaults: "
+                "no date -> latest close; date only -> that day's open; price only -> nearest day where price is "
+                "within daily low/high; no qty on buy -> 10% of available market cash (lot-normalized). "
+                "US qty must be whole shares; HK/A-share qty must be multiples of 100. "
+                "Limit price must fall within the trade day's high/low range."
             ),
             parameters={
                 "type": "object",
@@ -644,22 +713,29 @@ def register_dashboard_portfolio_tools(
                     "ticker": {"type": "string"},
                     "market": {"type": "string", "description": "us, cn, or hk"},
                     "order_side": {"type": "string", "enum": ["buy", "sell"]},
-                    "price": {"type": "number", "description": "Limit price / cost per share"},
-                    "qty": {"type": "number", "description": "Share quantity to buy or sell"},
+                    "price": {
+                        "type": "number",
+                        "description": "Optional limit price; must be within the trade day's low/high",
+                    },
+                    "qty": {
+                        "type": "number",
+                        "description": "Optional shares; US integer, HK/A-share multiple of 100",
+                    },
                     "order_time": {
                         "type": "string",
-                        "description": "Optional execution date YYYY-MM-DD (defaults to next trading day)",
+                        "description": "Optional execution date YYYY-MM-DD",
                     },
                 },
-                "required": ["portfolio_id", "ticker", "order_side", "price", "qty"],
+                "required": ["portfolio_id", "ticker", "order_side"],
             },
             handler=create_order,
         ),
         ToolSpec(
             name="portfolio_write_create_orders",
             description=(
-                "Batch 建仓: place multiple buy/sell orders with price and qty. "
-                "Each order must fill independently. Partial success returns order_result.filled and .failed."
+                "Batch 建仓: place multiple buy/sell orders. Each row needs ticker + order_side; "
+                "price/qty/order_time optional with the same server-side resolution rules as create_order. "
+                "Preflight checks capital budget and order validity before any fill."
             ),
             parameters={
                 "type": "object",
@@ -677,7 +753,7 @@ def register_dashboard_portfolio_tools(
                                 "qty": {"type": "number"},
                                 "order_time": {"type": "string"},
                             },
-                            "required": ["ticker", "order_side", "price", "qty"],
+                            "required": ["ticker", "order_side"],
                         },
                         "minItems": 1,
                     },

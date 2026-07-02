@@ -5,6 +5,7 @@ import time
 from typing import Any
 from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
+from dojoagents.agent.escalation import AgentEscalationError, escalation_metadata
 from dojoagents.agent.tool_result_artifacts import (
     ARTIFACT_PERSIST_THRESHOLD_CHARS,
     ARTIFACT_KEEP_FULL_CONTENT_TOOLS,
@@ -59,15 +60,30 @@ class ToolExecutor:
         from dojoagents.tools.process_registry import active_session_id
 
         token = active_session_id.set(session_id)
+        started_at = time.perf_counter()
         try:
             self.sandbox.check_tool(call.name)
-            started_at = time.perf_counter()
             raw = await asyncio.wait_for(
                 spec.handler(dict(call.arguments)),
                 timeout=self.sandbox.timeout_seconds,
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             return self._coerce_result(call, raw, session_id=session_id, latency_ms=latency_ms)
+        except AgentEscalationError as exc:
+            LOGGER.info(
+                "Tool '%s' escalated to user input (call_id: %s, code: %s)",
+                call.name,
+                call.id,
+                exc.code,
+            )
+            return ToolResult(
+                call_id=call.id,
+                name=call.name,
+                ok=False,
+                error=exc.message,
+                latency_ms=int((time.perf_counter() - started_at) * 1000),
+                metadata=escalation_metadata(exc, source_tool=call.name),
+            )
         except Exception as exc:
             LOGGER.exception(f"Error executing tool '{call.name}' (call_id: {call.id})")
             return ToolResult(

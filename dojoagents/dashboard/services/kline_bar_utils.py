@@ -144,3 +144,28 @@ def resolve_tail_limit(
     if limit is not None:
         return max(0, int(limit))
     return KLINE_LIMIT
+
+
+_SHANGHAI_PREFIXES = frozenset({"600", "601", "603", "605", "688", "689"})
+_SHENZHEN_PREFIXES = frozenset({"000", "001", "002", "003", "300", "301"})
+
+
+def infer_ashare_kline_suffix(ticker: str) -> str | None:
+    """Return Yahoo-style exchange suffix for bare 6-digit A-share codes."""
+    code = ticker.strip().upper()
+    if "." in code or not code.isdigit() or len(code) != 6:
+        return None
+    prefix = code[:3]
+    if prefix in _SHANGHAI_PREFIXES:
+        return ".SS"
+    if prefix in _SHENZHEN_PREFIXES:
+        return ".SZ"
+    return None
+
+
+def ashare_kline_symbol_candidates(ticker: str) -> list[str]:
+    suffix = infer_ashare_kline_suffix(ticker)
+    if suffix is None:
+        return []
+    raw = ticker.strip().upper()
+    return [f"{raw}{suffix}"]

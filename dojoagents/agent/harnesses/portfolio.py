@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from dojoagents.agent.escalation import STOP_CODE_NEEDS_USER_INPUT, find_user_input_escalation
 from dojoagents.agent.harness import HarnessDecision, HarnessLoopState, TaskHarness
 from dojoagents.agent.harnesses.portfolio_eval import (
     candidate_count_from_detail,
@@ -68,6 +69,8 @@ class PortfolioTaskHarness(TaskHarness):
     def matches(self, request: ChatRequest, state: HarnessLoopState) -> bool:
         if request.channel != "dashboard":
             return False
+        if find_user_input_escalation(state.tool_results):
+            return True
         if state.any_ok_tool(*_PORTFOLIO_WRITE_TOOLS, "portfolio_eval_submit"):
             return True
         pending = {
@@ -86,6 +89,13 @@ class PortfolioTaskHarness(TaskHarness):
         return state.any_ok_tool(*_ANALYSIS_BROWSE_TOOLS)
 
     def block_tool_call(self, call: ToolCall, state: HarnessLoopState) -> str | None:
+        escalation = find_user_input_escalation(state.tool_results)
+        if escalation is not None and call.name in _CREATE_ORDER_TOOLS:
+            return (
+                f"Blocked {call.name}: {escalation.message} "
+                "Explain the budget gap to the user and wait for confirmation. "
+                "Do NOT retry with lower quantities unless the user explicitly requests it."
+            )
         if call.name == "portfolio_write_create":
             if self._run_is_analysis_browse(state):
                 return (
@@ -136,6 +146,10 @@ class PortfolioTaskHarness(TaskHarness):
         return repaired
 
     def validate_progress(self, state: HarnessLoopState) -> HarnessDecision:
+        escalation = self._user_input_escalation_decision(state)
+        if escalation is not None:
+            return escalation
+
         if self._is_delete_only_task(state):
             return self._validate_delete_progress(state)
 
@@ -280,7 +294,50 @@ class PortfolioTaskHarness(TaskHarness):
             )
         return issues
 
+    def _user_input_escalation_decision(self, state: HarnessLoopState) -> HarnessDecision | None:
+        signal = find_user_input_escalation(state.tool_results)
+        if signal is None:
+            return None
+        return HarnessDecision(
+            complete=False,
+            stop_code=STOP_CODE_NEEDS_USER_INPUT,
+            allow_extra_steps=False,
+            issues=[signal.message],
+            next_steps=list(signal.context.get("user_options") or []),
+            escalation_code=signal.code,
+            escalation_context=dict(signal.context),
+        )
+
     def build_recovery_prompt(self, decision: HarnessDecision, locale: str) -> str:
+        if decision.stop_code == STOP_CODE_NEEDS_USER_INPUT:
+            return self._build_user_input_prompt(decision, locale)
+        return self._build_eval_recovery_prompt(decision, locale)
+
+    def _build_user_input_prompt(self, decision: HarnessDecision, locale: str) -> str:
+        options = decision.next_steps or list(decision.escalation_context.get("user_options") or [])
+        options_text = " ".join(options)
+        if locale == "zh":
+            prefix = (
+                "【需用户确认】当前任务遇到无法由 Agent 单方面解决的约束，已停止自动重试。"
+                "禁止擅自降低仓位或修改股数。向用户说明预算缺口与可选方案，等待用户确认后再继续。"
+            )
+            if decision.issues:
+                prefix += " 原因：" + "；".join(decision.issues)
+            if options_text:
+                return prefix + " 可选方案：" + options_text
+            return prefix
+        prefix = (
+            "[Needs user input] The task hit a constraint the agent cannot fix alone. "
+            "Auto-retry is stopped. Do NOT silently reduce share counts. "
+            "Explain the gap and present options; wait for the user before placing more orders."
+        )
+        if decision.issues:
+            prefix += " Reason: " + " ".join(decision.issues)
+        if options_text:
+            return prefix + " Options: " + options_text
+        return prefix
+
+    def _build_eval_recovery_prompt(self, decision: HarnessDecision, locale: str) -> str:
         if locale == "zh":
             prefix = (
                 "【Eval 未通过】任务尚未完成，禁止向用户宣称已成功。"
