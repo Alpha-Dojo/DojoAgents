@@ -6,7 +6,7 @@ import pytest
 
 from dojoagents.agent.escalation import AgentEscalationError
 from dojoagents.dashboard.services.portfolio_allocation import normalize_shares
-from dojoagents.dashboard.schemas.portfolio import PortfolioCapitalConfig, PortfolioDetail
+from dojoagents.dashboard.schemas.portfolio import PortfolioCapitalConfig, PortfolioDetail, PortfolioPositionView
 from dojoagents.dashboard.services.portfolio_order_resolution import (
     validate_share_quantity,
     resolve_portfolio_order_request,
@@ -218,3 +218,93 @@ async def test_resolve_rejects_invalid_a_share_lot() -> None:
             },
         )
     assert exc_info.value.code == "invalid_order_quantity"
+
+
+@pytest.mark.asyncio
+async def test_resolve_sell_defaults_to_held_shares_on_liquidation_intent() -> None:
+    store = FakeKlineStore([Bar("2026-06-18", 357.89, 369.0, 356.61, 367.46)])
+    service = FakePortfolioService()
+    service.detail = PortfolioDetail(
+        id="p1",
+        name="Test",
+        config=PortfolioCapitalConfig(
+            start_date="2025-01-01",
+            capital_by_market={"us": 1_000_000.0, "sh": 1_000_000.0, "hk": 1_000_000.0},
+        ),
+        orders=[],
+        positions=[PortfolioPositionView(ticker="GOOG", market="us", name="Alphabet", shares=1000.0)],
+    )
+    from dojoagents.tools.process_registry import active_user_message
+
+    token = active_user_message.set("请全部清仓")
+    try:
+        body, meta = await resolve_portfolio_order_request(
+            _registry(store),
+            service,
+            "p1",
+            {"ticker": "GOOG", "market": "us", "order_side": "sell"},
+        )
+    finally:
+        active_user_message.reset(token)
+
+    assert body.qty == 1000.0
+    assert meta.qty_source == "held_shares"
+
+
+@pytest.mark.asyncio
+async def test_resolve_sell_without_qty_escalates_for_partial_sell_intent() -> None:
+    store = FakeKlineStore([Bar("2026-06-18", 357.89, 369.0, 356.61, 367.46)])
+    service = FakePortfolioService()
+    service.detail = PortfolioDetail(
+        id="p1",
+        name="Test",
+        config=PortfolioCapitalConfig(
+            start_date="2025-01-01",
+            capital_by_market={"us": 1_000_000.0, "sh": 1_000_000.0, "hk": 1_000_000.0},
+        ),
+        orders=[],
+        positions=[PortfolioPositionView(ticker="GOOG", market="us", name="Alphabet", shares=1000.0)],
+    )
+    from dojoagents.tools.process_registry import active_user_message
+
+    token = active_user_message.set("卖出 GOOG")
+    try:
+        with pytest.raises(AgentEscalationError) as exc_info:
+            await resolve_portfolio_order_request(
+                _registry(store),
+                service,
+                "p1",
+                {"ticker": "GOOG", "market": "us", "order_side": "sell"},
+            )
+    finally:
+        active_user_message.reset(token)
+
+    assert exc_info.value.code == "sell_qty_unspecified"
+    assert exc_info.value.context.get("held_shares") == 1000.0
+    assert exc_info.value.context.get("user_options")
+
+
+@pytest.mark.asyncio
+async def test_resolve_sell_uses_qty_pct_when_provided() -> None:
+    store = FakeKlineStore([Bar("2026-06-18", 357.89, 369.0, 356.61, 367.46)])
+    service = FakePortfolioService()
+    service.detail = PortfolioDetail(
+        id="p1",
+        name="Test",
+        config=PortfolioCapitalConfig(
+            start_date="2025-01-01",
+            capital_by_market={"us": 1_000_000.0, "sh": 1_000_000.0, "hk": 1_000_000.0},
+        ),
+        orders=[],
+        positions=[PortfolioPositionView(ticker="GOOG", market="us", name="Alphabet", shares=1000.0)],
+    )
+    body, meta = await resolve_portfolio_order_request(
+        _registry(store),
+        service,
+        "p1",
+        {"ticker": "GOOG", "market": "us", "order_side": "sell", "qty_pct": 0.5},
+    )
+
+    assert body.qty == 500.0
+    assert meta.qty_source == "qty_pct"
+

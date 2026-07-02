@@ -15,6 +15,7 @@ class PortfolioEvalSubmission:
     min_candidates_by_market: dict[str, int] | None = None
     min_position_count: int | None = None
     min_positions_by_market: dict[str, int] | None = None
+    max_position_count: int | None = None
 
 
 def parse_eval_submission(data: Any) -> PortfolioEvalSubmission | None:
@@ -63,6 +64,15 @@ def parse_eval_submission(data: Any) -> PortfolioEvalSubmission | None:
         except (TypeError, ValueError):
             min_position_count = None
 
+    max_position_count: int | None = None
+    if data.get("max_position_count") is not None:
+        try:
+            parsed_max = int(data["max_position_count"])
+            if parsed_max >= 0:
+                max_position_count = parsed_max
+        except (TypeError, ValueError):
+            max_position_count = None
+
     return PortfolioEvalSubmission(
         portfolio_id=portfolio_id,
         task_summary=str(data.get("task_summary") or "").strip(),
@@ -71,6 +81,7 @@ def parse_eval_submission(data: Any) -> PortfolioEvalSubmission | None:
         min_candidates_by_market=min_by_market,
         min_position_count=min_position_count,
         min_positions_by_market=min_positions_by_market,
+        max_position_count=max_position_count,
     )
 
 
@@ -150,6 +161,7 @@ def eval_summary_from_detail(data: object) -> dict[str, Any]:
             "Set min_candidate_count only for watchlist tasks. "
             "POSITIONS (持仓/建仓/buy at cost): use portfolio_write_create_order(s). "
             "Set min_position_count for 建仓 tasks. "
+            "Set max_position_count=0 for 清仓/liquidation tasks. "
             "Use ACTUAL counts from this summary — never pre-add estimates."
         ),
     }
@@ -199,5 +211,11 @@ def verify_eval_submission(
                 issues.append(
                     f"Market {market.upper()} has {actual} filled position(s) but eval requires at least {required}."
                 )
+
+    if submission.max_position_count is not None and actual_positions > submission.max_position_count:
+        issues.append(
+            f"Portfolio has {actual_positions} filled position(s) but eval requires at most "
+            f"{submission.max_position_count} (清仓/liquidation not complete)."
+        )
 
     return issues

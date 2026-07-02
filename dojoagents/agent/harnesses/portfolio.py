@@ -10,6 +10,10 @@ from dojoagents.agent.harnesses.portfolio_eval import (
     position_count_from_detail,
     verify_eval_submission,
 )
+from dojoagents.agent.harnesses.portfolio_task_intent import (
+    classify_portfolio_task,
+    order_side_trace,
+)
 from dojoagents.agent.models import ChatRequest, ToolCall
 
 _PORTFOLIO_WRITE_TOOLS = {
@@ -93,8 +97,7 @@ class PortfolioTaskHarness(TaskHarness):
         if escalation is not None and call.name in _CREATE_ORDER_TOOLS:
             return (
                 f"Blocked {call.name}: {escalation.message} "
-                "Explain the budget gap to the user and wait for confirmation. "
-                "Do NOT retry with lower quantities unless the user explicitly requests it."
+                "Explain the issue to the user and wait for confirmation before retrying."
             )
         if call.name == "portfolio_write_create":
             if self._run_is_analysis_browse(state):
@@ -173,39 +176,31 @@ class PortfolioTaskHarness(TaskHarness):
             )
 
         if eval_submission is None:
+            task_kind = classify_portfolio_task(state)
             return HarnessDecision(
                 complete=False,
                 issues=["Agent must submit eval criteria before claiming the portfolio task is done."],
-                next_steps=[
-                    "Call portfolio_eval_submit after portfolio_read_detail. "
-                    "You decide min_candidate_count, require_kind_agent, and per-market minimums "
-                    "based on what the user asked for.",
-                ],
+                next_steps=self._eval_submit_next_steps(task_kind, state),
                 allow_extra_steps=True,
             )
 
         eval_issues = verify_eval_submission(eval_submission, detail_data)
         if eval_issues:
+            task_kind = classify_portfolio_task(state)
             return HarnessDecision(
                 complete=False,
                 issues=eval_issues,
-                next_steps=[
-                    "Update the portfolio to satisfy your portfolio_eval_submit criteria, "
-                    "call portfolio_read_detail again, then portfolio_eval_submit with corrected expectations "
-                    "or fix the portfolio and re-verify.",
-                ],
+                next_steps=self._eval_recovery_next_steps(eval_issues, task_kind, state),
                 allow_extra_steps=True,
             )
 
         objective_issues = self._objective_create_issues(state, detail_data)
         if objective_issues:
+            task_kind = classify_portfolio_task(state)
             return HarnessDecision(
                 complete=False,
                 issues=objective_issues,
-                next_steps=[
-                    "Fix the existing portfolio from this run (do NOT portfolio_write_create again). "
-                    "Add candidates, portfolio_read_detail, portfolio_eval_submit with require_kind_agent=true.",
-                ],
+                next_steps=self._objective_recovery_next_steps(objective_issues, task_kind, state, detail_data),
                 allow_extra_steps=True,
             )
 
@@ -270,6 +265,10 @@ class PortfolioTaskHarness(TaskHarness):
     def _objective_create_issues(self, state: HarnessLoopState, detail_data: dict[str, Any]) -> list[str]:
         """Facts from tool trace — not parsed from user text."""
         issues: list[str] = []
+        task_kind = classify_portfolio_task(state)
+        has_ok_buy, has_ok_sell = order_side_trace(state)
+        position_count = position_count_from_detail(detail_data)
+
         create_ids = state.created_portfolio_ids()
         if len(create_ids) > 1:
             issues.append(
@@ -287,12 +286,115 @@ class PortfolioTaskHarness(TaskHarness):
             issues.append("portfolio_eval_submit must set require_kind_agent=true when portfolio_write_create was used.")
         if state.any_ok_tool(*_ADD_CANDIDATE_TOOLS) and candidate_count_from_detail(detail_data) <= 0:
             issues.append("Candidates were added but portfolio_read_detail shows zero candidates.")
-        if state.any_ok_tool(*_CREATE_ORDER_TOOLS) and position_count_from_detail(detail_data) <= 0:
+        if has_ok_buy and position_count <= 0:
             issues.append(
-                "Orders were placed but portfolio_read_detail shows zero filled positions — "
+                "Buy orders were placed but portfolio_read_detail shows zero filled positions — "
                 "check order fill errors (price, qty, capital)."
             )
+        if task_kind == "liquidate" and has_ok_sell and position_count > 0:
+            issues.append(
+                f"Liquidation incomplete: portfolio_read_detail still shows {position_count} open position(s)."
+            )
+        if (
+            eval_submission is not None
+            and eval_submission.require_kind_agent
+            and str(detail_data.get("kind") or "") != "agent"
+            and not state.any_ok_tool("portfolio_write_create")
+        ):
+            issues.append(
+                "require_kind_agent=true is only for agent-created portfolios; "
+                "set require_kind_agent=false for manual portfolios."
+            )
         return issues
+
+    def _eval_submit_next_steps(self, task_kind: str, state: HarnessLoopState) -> list[str]:
+        if task_kind == "liquidate":
+            return [
+                "Call portfolio_eval_submit after portfolio_read_detail confirms position_count=0. "
+                "Use max_position_count=0 and require_kind_agent=false. "
+                "Do NOT add candidates or portfolio_write_create.",
+            ]
+        if task_kind == "trade" and not state.any_ok_tool("portfolio_write_create"):
+            return [
+                "Call portfolio_eval_submit after portfolio_read_detail with task-appropriate criteria. "
+                "For manual portfolios use require_kind_agent=false.",
+            ]
+        return [
+            "Call portfolio_eval_submit after portfolio_read_detail. "
+            "Use min_candidate_count for watchlist tasks, min_position_count for 建仓, "
+            "and require_kind_agent=true only when portfolio_write_create was used in this run.",
+        ]
+
+    def _eval_recovery_next_steps(
+        self,
+        issues: list[str],
+        task_kind: str,
+        state: HarnessLoopState,
+    ) -> list[str]:
+        joined = " ".join(issues).lower()
+        if "not agent-owned" in joined or "require_kind_agent=true is only" in joined:
+            return [
+                "Set require_kind_agent=false for manual portfolios.",
+                "Call portfolio_read_detail, then portfolio_eval_submit with corrected criteria.",
+            ]
+        if task_kind == "liquidate" or "at most 0" in joined:
+            return [
+                "Complete remaining sell orders until position_count=0.",
+                "portfolio_eval_submit with max_position_count=0 and require_kind_agent=false.",
+            ]
+        return [
+            "Update the portfolio to satisfy your portfolio_eval_submit criteria, "
+            "call portfolio_read_detail again, then portfolio_eval_submit with corrected expectations "
+            "or fix the portfolio and re-verify.",
+        ]
+
+    def _objective_recovery_next_steps(
+        self,
+        issues: list[str],
+        task_kind: str,
+        state: HarnessLoopState,
+        detail_data: dict[str, Any],
+    ) -> list[str]:
+        joined = " ".join(issues).lower()
+        if "require_kind_agent=true is only for agent-created" in joined or "not agent-owned" in joined:
+            return [
+                "Set require_kind_agent=false for this manual portfolio.",
+                "Call portfolio_read_detail, then portfolio_eval_submit with corrected criteria.",
+            ]
+        if "zero filled positions" in joined or "buy orders were placed" in joined:
+            return [
+                "Fix buy order fill errors (price, qty, capital).",
+                "Call portfolio_read_detail, then portfolio_eval_submit with min_position_count matching filled positions.",
+            ]
+        if "liquidation incomplete" in joined:
+            return [
+                "Place remaining sell orders for open positions.",
+                "Call portfolio_read_detail, then portfolio_eval_submit with max_position_count=0 and require_kind_agent=false.",
+            ]
+        if "zero candidates" in joined:
+            return [
+                "Add missing candidates with portfolio_write_add_candidates.",
+                "Call portfolio_read_detail, then portfolio_eval_submit with min_candidate_count.",
+            ]
+        if "require_kind_agent=true when portfolio_write_create" in joined:
+            return [
+                "Call portfolio_eval_submit with require_kind_agent=true after portfolio_read_detail.",
+            ]
+        if task_kind == "liquidate":
+            return [
+                "Confirm liquidation via portfolio_read_detail (position_count=0).",
+                "portfolio_eval_submit with max_position_count=0 and require_kind_agent=false. "
+                "Do NOT add candidates or portfolio_write_create.",
+            ]
+        if task_kind == "trade":
+            return [
+                "Fix the existing portfolio from this run (do NOT portfolio_write_create again).",
+                "Call portfolio_read_detail, then portfolio_eval_submit with require_kind_agent=false for manual portfolios.",
+            ]
+        return [
+            "Fix the existing portfolio from this run (do NOT portfolio_write_create again).",
+            "Call portfolio_read_detail, then portfolio_eval_submit with criteria matching the user task.",
+        ]
 
     def _user_input_escalation_decision(self, state: HarnessLoopState) -> HarnessDecision | None:
         signal = find_user_input_escalation(state.tool_results)
@@ -343,7 +445,7 @@ class PortfolioTaskHarness(TaskHarness):
                 "【Eval 未通过】任务尚未完成，禁止向用户宣称已成功。"
                 "不要重复输出完整组合报告/表格/投资亮点。"
                 "不要调用 portfolio_write_create 新建组合；只修复当前组合。"
-                "只说明缺口并调用工具修复（补 NEW 候选、修正 eval 门槛、read_detail 后再 eval_submit）。"
+                "只说明缺口并调用工具修复（修正 eval 门槛、read_detail 后再 eval_submit）。"
             )
             if decision.issues:
                 prefix += " 问题：" + "；".join(decision.issues)
@@ -354,7 +456,7 @@ class PortfolioTaskHarness(TaskHarness):
             "[Eval failed] Task NOT complete. Do NOT tell the user it succeeded. "
             "Do NOT repeat the full portfolio report, tables, or marketing summary. "
             "Do NOT call portfolio_write_create again — fix the existing portfolio from this run. "
-            "State only the gap and fix via tools (add NEW candidates, adjust eval thresholds, "
+            "State only the gap and fix via tools (adjust eval thresholds, "
             "portfolio_read_detail then portfolio_eval_submit)."
         )
         if decision.issues:

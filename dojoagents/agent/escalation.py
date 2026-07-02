@@ -11,6 +11,7 @@ USER_INPUT_ESCALATION_CODES = frozenset(
         "capital_budget_exceeded",
         "invalid_order_quantity",
         "price_not_fillable",
+        "sell_qty_unspecified",
     }
 )
 
