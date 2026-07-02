@@ -3,26 +3,106 @@ import json
 import os
 import sys
 import tempfile
+from typing import Any
+
+from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
+from dojoagents.logging import get_logger
+from dojoagents.tools.hermes_tools_stub import (
+    HERMES_INTERNAL_LIST_TOOLS,
+    HERMES_INTERNAL_LOAD_TOOL,
+    build_hermes_tools_stub_code,
+)
+from dojoagents.tools.process_registry import active_session_id
 from dojoagents.tools.registry import ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
 
+LOGGER = get_logger(__name__)
+
 if sys.platform == "win32":
     import dojoagents.tools.af_unix_asyncio_compat as af_unix_asyncio_compat
+
     start_unix_server = af_unix_asyncio_compat.start_unix_server
 else:
     start_unix_server = asyncio.start_unix_server
 
+
 class AsyncCodeExecutionRPC:
-    def __init__(self, socket_path: str, tool_registry, max_tool_calls: int = 20):
+    def __init__(
+        self,
+        socket_path: str,
+        tool_registry,
+        *,
+        max_tool_calls: int = 20,
+        artifact_store: ToolResultArtifactStore | None = None,
+        agent_session_id: str = "",
+    ):
         self.socket_path = socket_path
         self.tool_registry = tool_registry
         self.max_tool_calls = max_tool_calls
+        self.artifact_store = artifact_store
+        self.agent_session_id = agent_session_id
         self.server = None
         self.tool_call_counter = 0
 
     async def start(self):
-        print(self.socket_path)
         self.server = await start_unix_server(self.handle_client, path=self.socket_path)
+
+    async def _dispatch_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if tool_name == HERMES_INTERNAL_LOAD_TOOL:
+            return self._load_tool_result(args)
+        if tool_name == HERMES_INTERNAL_LIST_TOOLS:
+            return self._list_tool_results()
+
+        spec = self.tool_registry.get(tool_name)
+        if spec is None:
+            return {"ok": False, "content": "", "data": None, "error": f"Tool '{tool_name}' not registered"}
+        raw_res = await spec.handler(dict(args or {}))
+        if isinstance(raw_res, str):
+            raw_res = {"content": raw_res}
+        return {
+            "ok": True,
+            "content": raw_res.get("content", ""),
+            "data": raw_res.get("data"),
+            "error": None,
+        }
+
+    def _load_tool_result(self, args: dict[str, Any]) -> dict[str, Any]:
+        if self.artifact_store is None or not self.agent_session_id:
+            return {
+                "ok": False,
+                "content": "",
+                "data": None,
+                "error": "Tool result artifacts are unavailable for this execute_code run.",
+            }
+        call_id = str(args.get("call_id") or "").strip()
+        if not call_id:
+            return {"ok": False, "content": "", "data": None, "error": "call_id is required"}
+        payload = self.artifact_store.load(self.agent_session_id, call_id)
+        if payload is None:
+            return {
+                "ok": False,
+                "content": "",
+                "data": None,
+                "error": f"Tool result artifact not found for call_id={call_id}",
+            }
+        return {
+            "ok": True,
+            "content": payload.get("content", ""),
+            "data": payload.get("data"),
+            "error": None,
+        }
+
+    def _list_tool_results(self) -> dict[str, Any]:
+        if self.artifact_store is None or not self.agent_session_id:
+            return {
+                "ok": False,
+                "content": "",
+                "data": None,
+                "error": "Tool result artifacts are unavailable for this execute_code run.",
+            }
+        rows = self.artifact_store.list_summaries(self.agent_session_id)
+        content = json.dumps({"items": rows}, ensure_ascii=False, indent=2)
+        return {"ok": True, "content": content, "data": {"items": rows}, "error": None}
 
     async def handle_client(self, reader, writer):
         try:
@@ -34,22 +114,25 @@ class AsyncCodeExecutionRPC:
                 tool_name = request.get("tool")
                 args = request.get("args", {})
 
-                # 超限拦截
                 if self.tool_call_counter >= self.max_tool_calls:
-                    response = {"ok": False, "content": "", "error": f"Tool call limit reached ({self.max_tool_calls}). No more tool calls allowed."}
+                    response = {
+                        "ok": False,
+                        "content": "",
+                        "data": None,
+                        "error": f"Tool call limit reached ({self.max_tool_calls}). No more tool calls allowed.",
+                    }
                 else:
-                    spec = self.tool_registry.get(tool_name)
-                    if spec:
-                        self.tool_call_counter += 1
-                        raw_res = await spec.handler(args)
-                        response = {"ok": True, "content": raw_res.get("content", ""), "error": None}
-                    else:
-                        response = {"ok": False, "content": "", "error": f"Tool '{tool_name}' not registered"}
+                    self.tool_call_counter += 1
+                    try:
+                        response = await self._dispatch_tool(str(tool_name or ""), dict(args or {}))
+                    except Exception as exc:
+                        LOGGER.exception("execute_code RPC tool failed: %s", tool_name)
+                        response = {"ok": False, "content": "", "data": None, "error": str(exc)}
 
-                writer.write((json.dumps(response) + "\n").encode("utf-8"))
+                writer.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
                 await writer.drain()
         except Exception:
-            pass
+            LOGGER.exception("execute_code RPC client handler failed")
         finally:
             try:
                 writer.close()
@@ -68,46 +151,49 @@ class AsyncCodeExecutionRPC:
                     pass
 
 
-async def handle_code_execution(args: dict, tool_registry, policy, max_tool_calls: int = 20) -> dict:
+async def handle_code_execution(
+    args: dict,
+    tool_registry,
+    policy,
+    *,
+    max_tool_calls: int = 20,
+    artifact_store: ToolResultArtifactStore | None = None,
+    agent_session_id: str = "",
+) -> dict:
     code_content = args.get("code")
-    session_id = os.urandom(6).hex()
-    socket_path = os.path.join(tempfile.gettempdir(), f"/tmp/dojo-rpc-{session_id}.sock")
+    rpc_session_id = os.urandom(6).hex()
+    socket_path = os.path.join(tempfile.gettempdir(), f"dojo-rpc-{rpc_session_id}.sock")
 
-    # 1. 启动 RPC Server 监听，传入配额限制
-    rpc_server = AsyncCodeExecutionRPC(socket_path, tool_registry, max_tool_calls=max_tool_calls)
+    rpc_server = AsyncCodeExecutionRPC(
+        socket_path,
+        tool_registry,
+        max_tool_calls=max_tool_calls,
+        artifact_store=artifact_store,
+        agent_session_id=agent_session_id,
+    )
     await rpc_server.start()
 
-    # 2. 动态生成 hermes_tools 桩模块文件
     temp_dir = tempfile.mkdtemp()
     stub_file = os.path.join(temp_dir, "hermes_tools.py")
-    stub_code = f"""
-import socket, json, os
-def _rpc_call(tool_name, args):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect({repr(socket_path)})
-    s.sendall(json.dumps({{"tool": tool_name, "args": args}}).encode('utf-8') + b'\\n')
-    res = json.loads(s.recv(65536).decode('utf-8'))
-    s.close()
-    return res
+    tool_names = [spec.name for spec in tool_registry.all()]
+    stub_code = build_hermes_tools_stub_code(socket_path=socket_path, tool_names=tool_names)
+    with open(stub_file, "w", encoding="utf-8") as handle:
+        handle.write(stub_code)
 
-def terminal(command):
-    return _rpc_call("terminal", {{"command": command}})
-
-def read_file(path, offset=1, limit=500):
-    return _rpc_call("read_file", {{"path": path, "offset": offset, "limit": limit}})
-"""
-    with open(stub_file, "w", encoding="utf-8") as f:
-        f.write(stub_code)
-
-    # 3. 将 LLM 脚本写到文件并异步执行
     script_file = os.path.join(temp_dir, "script.py")
-    with open(script_file, "w", encoding="utf-8") as f:
-        f.write(code_content)
+    with open(script_file, "w", encoding="utf-8") as handle:
+        handle.write(code_content)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = temp_dir
 
-    proc = await asyncio.create_subprocess_exec("python3", script_file, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env)
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        script_file,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+    )
 
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300.0)
@@ -127,10 +213,41 @@ def read_file(path, offset=1, limit=500):
     return {"content": output, "metadata": {"exit_code": proc.returncode}}
 
 
-def get_code_execution_spec(tool_registry, policy: SandboxPolicy) -> ToolSpec:
+def get_code_execution_spec(
+    tool_registry,
+    policy: SandboxPolicy,
+    *,
+    artifact_store: ToolResultArtifactStore | None = None,
+    max_tool_calls: int = 20,
+) -> ToolSpec:
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        session_id = active_session_id.get() or str(args.get("session_id") or "")
+        return await handle_code_execution(
+            args,
+            tool_registry,
+            policy,
+            max_tool_calls=max_tool_calls,
+            artifact_store=artifact_store,
+            agent_session_id=session_id,
+        )
+
+    exposed = [spec.name for spec in tool_registry.all() if spec.name not in {"execute_code", "code_execution"}]
+    sample_tools = ", ".join(exposed[:8])
+    if len(exposed) > 8:
+        sample_tools += ", ..."
+
     return ToolSpec(
         name="execute_code",
-        description="Execute Python scripts and interact with quantitative tools.",
-        parameters={"type": "object", "properties": {"code": {"type": "string", "description": "Python code to execute"}}, "required": ["code"]},
-        handler=lambda args: handle_code_execution(args, tool_registry, policy, max_tool_calls=policy.timeout_seconds or 20),
+        description=(
+            "Execute Python scripts with access to registered DojoAgents tools via `import hermes_tools`. "
+            "NEVER hardcode market prices or financial rows — fetch data with hermes_tools RPC helpers "
+            f"(e.g. {sample_tools}) or `hermes_tools.load_tool_result(call_id)` for persisted large tool outputs. "
+            "Use `hermes_tools.tool_json(res)` to parse JSON tool payloads."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"code": {"type": "string", "description": "Python code to execute"}},
+            "required": ["code"],
+        },
+        handler=_handler,
     )

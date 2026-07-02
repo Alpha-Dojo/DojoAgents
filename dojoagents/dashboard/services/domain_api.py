@@ -20,6 +20,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     PeBandPoint,
     PortfolioAnalysisResponseV1,
     PortfolioListResponseV1,
+    PortfolioPerformanceResponseV1,
     PortfolioSummaryItem,
     SectorAnalysisResponse,
     SectorAnalysisScope,
@@ -65,6 +66,7 @@ from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_income_for_market,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import report_type_for_market
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, resolve_tail_limit
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _stock_bilingual_name,
@@ -389,10 +391,18 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
     if not nav_by_market and dates:
         nav_by_market["all"] = _market_performance_points(dates, list(performance.get("portfolio") or []))
         benchmark_by_market["all"] = _market_performance_points(dates, list(performance.get("benchmark") or []))
+    net_value_by_market = data.get("net_value_by_market") or {}
+    net_value_usd = data.get("net_value_usd")
+    if net_value_usd is None and net_value_by_market:
+        net_value_usd = finite_float(sum(float(value or 0) for value in net_value_by_market.values()))
     return PortfolioAnalysisResponseV1(
         id=str(data.get("id") or ""),
         name=str(data.get("name") or ""),
         subtitle=data.get("subtitle"),
+        kind=data.get("kind") or "manual",
+        pinned=bool(data.get("pinned", False)),
+        today_change=finite_optional_float(data.get("today_change")),
+        net_value_usd=finite_optional_float(net_value_usd),
         benchmark=data.get("benchmark"),
         start_date=config.get("start_date"),
         capital_by_market={to_native_market_code(market) or market: finite_float(value) for market, value in (config.get("capital_by_market") or {}).items()},
@@ -415,6 +425,73 @@ def _portfolio_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
 
 def portfolio_detail_to_analysis(detail: Any) -> PortfolioAnalysisResponseV1:
     return _portfolio_analysis(detail)
+
+
+def _portfolio_performance_response(
+    *,
+    portfolio_id: str,
+    performance: Any,
+    benchmark: Optional[str] = None,
+    start_date: Optional[str] = None,
+) -> PortfolioPerformanceResponseV1:
+    data = _model_dict(performance or {})
+    dates = list(data.get("dates") or [])
+    nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
+    benchmark_by_market: dict[str, list[SectorPerformancePoint]] = {}
+    stats_by_market: dict[str, SectorPerformanceStats] = {}
+    candidate_nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
+    candidate_stats_by_market: dict[str, SectorPerformanceStats] = {}
+    benchmark_symbol_by_market = {
+        to_native_market_code(market) or market: str(symbol)
+        for market, symbol in (data.get("benchmark_symbol_by_market") or {}).items()
+    }
+    for market, series in (data.get("series_by_market") or {}).items():
+        series_data = _model_dict(series)
+        market_key = to_native_market_code(market) or market
+        market_dates = list(series_data.get("dates") or dates)
+        nav_by_market[market_key] = _market_performance_points(market_dates, list(series_data.get("portfolio") or []))
+        benchmark_by_market[market_key] = _market_performance_points(market_dates, list(series_data.get("benchmark") or []))
+        stats_by_market[market_key] = _risk_stats(series_data.get("stats") or {})
+        if series_data.get("benchmark_symbol"):
+            benchmark_symbol_by_market[market_key] = str(series_data["benchmark_symbol"])
+    for market, points in (data.get("candidate_series_by_market") or {}).items():
+        market_key = to_native_market_code(market) or market
+        candidate_nav_by_market[market_key] = _performance_points(points)
+    for market, stats in (data.get("candidate_stats_by_market") or {}).items():
+        market_key = to_native_market_code(market) or market
+        candidate_stats_by_market[market_key] = _risk_stats(stats)
+    raw_benchmark_by_market = data.get("benchmark_by_market") or {}
+    raw_benchmark_symbols = data.get("benchmark_symbol_by_market") or {}
+    for market, points in candidate_nav_by_market.items():
+        if not nav_by_market.get(market):
+            nav_by_market[market] = points
+        if market not in stats_by_market and market in candidate_stats_by_market:
+            stats_by_market[market] = candidate_stats_by_market[market]
+        if market not in benchmark_by_market:
+            internal_market = normalize_market_code(market) or market
+            bench_values = raw_benchmark_by_market.get(internal_market) or raw_benchmark_by_market.get(market)
+            if bench_values and points:
+                point_dates = [point.date for point in points]
+                benchmark_by_market[market] = _market_performance_points(point_dates, list(bench_values))
+            symbol = raw_benchmark_symbols.get(internal_market) or raw_benchmark_symbols.get(market)
+            if symbol:
+                benchmark_symbol_by_market[market] = str(symbol)
+    if not nav_by_market and dates:
+        nav_by_market["all"] = _market_performance_points(dates, list(data.get("portfolio") or []))
+        benchmark_by_market["all"] = _market_performance_points(dates, list(data.get("benchmark") or []))
+    return PortfolioPerformanceResponseV1(
+        id=portfolio_id,
+        benchmark=benchmark,
+        start_date=start_date,
+        performance_window_start=data.get("window_start"),
+        performance_window_end=data.get("window_end"),
+        nav_by_market=nav_by_market,
+        candidate_nav_by_market=candidate_nav_by_market,
+        benchmark_by_market=benchmark_by_market,
+        benchmark_symbol_by_market=benchmark_symbol_by_market,
+        stats_by_market=stats_by_market,
+        candidate_stats_by_market=candidate_stats_by_market,
+    )
 
 
 def _precomputed_market_candidates(market: Optional[str]) -> list[Optional[str]]:
@@ -1593,6 +1670,50 @@ async def build_ticker_news_events_v1(
     )
 
 
+def _resolve_kline_symbol(
+    stock_store,
+    ticker: str,
+    market: Optional[str],
+) -> tuple[str, Optional[str]]:
+    """Map user ticker input to canonical SDK/stock_store symbol (e.g. 0700 + hk -> 0700.HK)."""
+    raw = ticker.strip().upper()
+    internal_market = normalize_market_code(market)
+    if not raw:
+        return raw, internal_market
+
+    if stock_store is not None:
+        stock = stock_store.resolve(raw, market=internal_market)
+        if stock is not None:
+            resolved_market = normalize_market_code(stock.market) or internal_market
+            return stock.ticker.strip().upper(), resolved_market
+
+        candidates: list[str] = []
+        if internal_market == "hk" and "." not in raw:
+            candidates.append(f"{raw}.HK")
+        for candidate in candidates:
+            stock = stock_store.resolve(candidate, market=internal_market)
+            if stock is not None:
+                resolved_market = normalize_market_code(stock.market) or internal_market
+                return stock.ticker.strip().upper(), resolved_market
+            if internal_market is not None:
+                stock = stock_store.get(internal_market, candidate)
+                if stock is not None:
+                    return stock.ticker.strip().upper(), internal_market
+
+        if internal_market is None:
+            for candidate in (raw, *candidates):
+                found_market = stock_store.find_market(candidate)
+                if not found_market:
+                    continue
+                stock = stock_store.get(found_market, candidate)
+                if stock is not None:
+                    return stock.ticker.strip().upper(), normalize_market_code(found_market)
+
+    if internal_market == "hk" and "." not in raw:
+        return f"{raw}.HK", internal_market
+    return raw, internal_market
+
+
 async def build_ticker_price_trends_v1(
     registry,
     *,
@@ -1604,15 +1725,21 @@ async def build_ticker_price_trends_v1(
     kline_t: str = "1D",
 ) -> Optional[TickerPriceTrendsResponseV1]:
     internal_market = normalize_market_code(market)
-    symbol = ticker.strip().upper()
-    resolved_limit = limit or 252
+    symbol, resolved_market = _resolve_kline_symbol(registry.stock_store, ticker, market)
+    internal_market = resolved_market or internal_market
+    resolved_limit = resolve_tail_limit(
+        start_time=start_date,
+        end_time=end_date,
+        limit=limit,
+    )
     kline = await registry.kline_store.get_or_fetch_kline(
         symbol,
         market=internal_market,
         kline_t=kline_t,
         start_time=start_date,
         end_time=end_date,
-        limit=resolved_limit,
+        min_bar_time=None if start_date else DATA_START_DATE,
+        limit=limit,
     )
     if kline is None:
         return None
@@ -1698,6 +1825,57 @@ async def build_portfolio_analysis_v1(
             }
         )
     return _portfolio_analysis(detail)
+
+
+async def build_portfolio_summary_v1(
+    registry,
+    *,
+    portfolio_id: str,
+    start_date: Optional[str],
+) -> Optional[PortfolioAnalysisResponseV1]:
+    return await build_portfolio_analysis_v1(
+        registry,
+        portfolio_id=portfolio_id,
+        benchmark=None,
+        start_date=start_date,
+        include_performance=False,
+    )
+
+
+async def build_portfolio_performance_v1(
+    registry,
+    *,
+    portfolio_id: str,
+    benchmark: Optional[str],
+    start_date: Optional[str],
+) -> Optional[PortfolioPerformanceResponseV1]:
+    benchmark_by_market = dict(DEFAULT_BENCHMARKS)
+    if benchmark:
+        normalized = benchmark.strip()
+        from dojoagents.dashboard.services.portfolio_candidate_index import parse_candidate_index_symbol
+
+        if not parse_candidate_index_symbol(normalized):
+            for key in benchmark_by_market:
+                benchmark_by_market[key] = normalized
+    performance = await registry.portfolio_service.get_performance(
+        portfolio_id,
+        benchmark_by_market=benchmark_by_market,
+        start_date=start_date,
+    )
+    if performance is None:
+        detail = await registry.portfolio_service.get_detail(
+            portfolio_id,
+            include_performance=False,
+        )
+        if detail is None:
+            return None
+        return PortfolioPerformanceResponseV1(id=portfolio_id)
+    return _portfolio_performance_response(
+        portfolio_id=portfolio_id,
+        performance=performance,
+        benchmark=benchmark,
+        start_date=start_date,
+    )
 
 
 def build_update_request_from_manage(body) -> UpdatePortfolioRequest:

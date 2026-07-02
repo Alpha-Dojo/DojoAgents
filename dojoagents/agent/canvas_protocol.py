@@ -37,8 +37,20 @@ existing visualization pipeline over free-form chart code.
 - For cross-market valuation comparison, prefer a single `get_market_overview`
   call without `market` so the result covers US, CN, and HK together.
 - For sector ranking, prefer `get_sector_movers` and render ranked bars or tables.
-- For price trends, prefer `get_ticker_price_trends` or benchmark/ticker kline tools
-  and render `price_kline` or `line` blocks.
+- For price trends, prefer `get_ticker_price_trends`. For one trading day, set both
+  `start_date` and `end_date` to that date (e.g. `2026-06-18`). Omit dates only for full
+  history since 2025-01-01.
+
+### execute_code data fidelity (MANDATORY)
+
+When Python computation is required:
+
+1. NEVER hardcode OHLC prices, financial statement rows, or quote values in `execute_code`.
+2. Fetch live data inside the script via `import hermes_tools` — e.g.
+   `hermes_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
+3. For large prior tool outputs, use `hermes_tools.load_tool_result(call_id)` instead of
+   copying JSON from memory.
+4. Parse tool payloads with `hermes_tools.tool_json(res)` before building pandas DataFrames.
 """.strip()
 
 # Backward-compatible alias for existing imports/tests. The content intentionally

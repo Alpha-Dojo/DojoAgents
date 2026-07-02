@@ -19,3 +19,10 @@ class SectorMetricsStore:
 
     async def put(self, key: str, value: dict[str, Any]) -> None:
         await self.store.write(key, value)
+
+    async def clear_all(self) -> None:
+        root = self.store.root
+        if not root.exists():
+            return
+        for path in root.glob(f"*{self.store.suffix}"):
+            path.unlink(missing_ok=True)
