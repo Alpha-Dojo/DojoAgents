@@ -5,9 +5,12 @@ import {
   createFolioPortfolio,
   createFolioOrder,
   deleteFolioPortfolio,
-  fetchFolioPortfolioDetail,
+  fetchFolioPortfolioPerformance,
+  fetchFolioPortfolioSummary,
   fetchFolioPortfolios,
+  mergeFolioPerformanceIntoDetail,
   type FolioPortfolioDetail,
+  type FolioPortfolioPerformance,
   removeFolioHolding,
   updateFolioPortfolio,
 } from '../api/folio';
@@ -147,6 +150,7 @@ export function useFolioPortfolios() {
   const [activeId, setActiveIdState] = useState<string>(() => loadStoredActiveId() ?? '');
   const [detail, setDetail] = useState<FolioPortfolioDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [performanceLoading, setPerformanceLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [addingTicker, setAddingTicker] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
@@ -160,6 +164,13 @@ export function useFolioPortfolios() {
   >({});
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const summaryLoadIdRef = useRef(0);
+  const performanceLoadIdRef = useRef(0);
+  const pendingPerformanceRef = useRef<{
+    portfolioId: string;
+    benchmark: string | null;
+    performance: FolioPortfolioPerformance | null;
+  } | null>(null);
 
   const setActiveId = useCallback((value: string | ((prev: string) => string)) => {
     setActiveIdState((prev) => {
@@ -231,7 +242,7 @@ export function useFolioPortfolios() {
     let cancelled = false;
     for (const item of listItems) {
       const detailCacheKey = cacheKeys.folioPortfolioLite(item.id);
-      void fetchFolioPortfolioDetail(item.id, { includePerformance: true })
+      void fetchFolioPortfolioSummary(item.id)
         .then((response) => {
           if (cancelled || response.id !== item.id) return;
           setCached(detailCacheKey, response);
@@ -268,11 +279,15 @@ export function useFolioPortfolios() {
     if (!activeId) {
       setDetail(null);
       setDetailLoading(false);
+      setPerformanceLoading(false);
       setDetailError(null);
+      pendingPerformanceRef.current = null;
       return;
     }
 
     let cancelled = false;
+    const loadId = ++summaryLoadIdRef.current;
+    pendingPerformanceRef.current = null;
     const detailCacheKey = cacheKeys.folioPortfolio(activeId, apiBenchmarkSymbol);
     const cached = getCached<FolioPortfolioDetail>(detailCacheKey);
     const cachedUsable =
@@ -285,46 +300,121 @@ export function useFolioPortfolios() {
 
     if (cachedUsable) {
       setDetail(cached);
-    } else if (cached?.id === activeId) {
+      setDetailLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (cached?.id === activeId) {
       invalidateCache(detailCacheKey);
     }
 
-    void fetchFolioPortfolioDetail(activeId, {
-      benchmark: apiBenchmarkSymbol ?? undefined,
-      includePerformance: true,
-      startDate: cached?.id === activeId ? cached.config?.startDate : undefined,
-    })
-      .then((response) => {
-        if (cancelled || response.id !== activeId) return;
-        setCached(detailCacheKey, response);
-        setDetail(response);
+    const startDate = cached?.id === activeId ? cached.config?.startDate : undefined;
+
+    void fetchFolioPortfolioSummary(activeId, { startDate })
+      .then((summary) => {
+        if (cancelled || loadId !== summaryLoadIdRef.current || summary.id !== activeId) return;
+        setCached(cacheKeys.folioPortfolioLite(activeId), summary);
+        const pending = pendingPerformanceRef.current;
+        const merged =
+          pending?.portfolioId === activeId &&
+          pending.benchmark === apiBenchmarkSymbol &&
+          pending.performance
+            ? mergeFolioPerformanceIntoDetail(summary, pending.performance)
+            : summary;
+        if (merged !== summary) {
+          setCached(detailCacheKey, merged);
+        }
+        setDetail(merged);
         setSnapshotByPortfolioId((prev) => ({
           ...prev,
-          [response.id]: computeMarketSnapshotsFromDetail(response),
+          [summary.id]: computeMarketSnapshotsFromDetail(merged),
         }));
         setHoldingsByPortfolioId((prev) => ({
           ...prev,
-          [response.id]: response.holdings.map((holding) => ({
+          [summary.id]: summary.holdings.map((holding) => ({
             ticker: holding.ticker,
             name: holding.name,
           })),
         }));
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
-        if (!cachedUsable) setDetail(null);
+        if (cancelled || loadId !== summaryLoadIdRef.current) return;
+        setDetail(null);
         if (!(err instanceof ApiError && (err.status === 404 || err.status === 501))) {
           setDetailError(err instanceof Error ? err.message : 'Failed to load portfolio');
         }
       })
       .finally(() => {
-        if (!cancelled) setDetailLoading(false);
+        if (!cancelled && loadId === summaryLoadIdRef.current) {
+          setDetailLoading(false);
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeId, apiBenchmarkSymbol, cacheEpoch]);
+  }, [activeId, cacheEpoch]);
+
+  useEffect(() => {
+    if (!activeId) {
+      return;
+    }
+
+    if (detail?.id !== activeId || detailLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadId = ++performanceLoadIdRef.current;
+    const detailCacheKey = cacheKeys.folioPortfolio(activeId, apiBenchmarkSymbol);
+    const cached = getCached<FolioPortfolioDetail>(detailCacheKey);
+    if (cached?.id === activeId && hasNavPerformance(cached)) {
+      setDetail((prev) => (prev?.id === activeId ? cached : prev));
+      setPerformanceLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setPerformanceLoading(true);
+    const startDate = detail.config?.startDate;
+
+    void fetchFolioPortfolioPerformance(activeId, {
+      benchmark: apiBenchmarkSymbol ?? undefined,
+      startDate,
+    })
+      .then((performance) => {
+        if (cancelled || loadId !== performanceLoadIdRef.current) return;
+        pendingPerformanceRef.current = {
+          portfolioId: activeId,
+          benchmark: apiBenchmarkSymbol,
+          performance,
+        };
+        setDetail((prev) => {
+          if (!prev || prev.id !== activeId) {
+            return prev;
+          }
+          pendingPerformanceRef.current = null;
+          const merged = mergeFolioPerformanceIntoDetail(prev, performance);
+          setCached(detailCacheKey, merged);
+          return merged;
+        });
+      })
+      .catch(() => {
+        // Summary already rendered; chart can stay empty on performance failure.
+      })
+      .finally(() => {
+        if (!cancelled && loadId === performanceLoadIdRef.current) {
+          setPerformanceLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, apiBenchmarkSymbol, cacheEpoch, detail?.id, detailLoading, detail?.config?.startDate]);
 
   const activePortfolio = useMemo(() => {
     if (!activeId) return null;
@@ -438,18 +528,18 @@ export function useFolioPortfolios() {
     setDetail(merged);
 
     if (!hasNavPerformance(merged)) {
-      void fetchFolioPortfolioDetail(merged.id, {
+      void fetchFolioPortfolioPerformance(merged.id, {
         benchmark: apiBenchmarkSymbol ?? undefined,
-        includePerformance: true,
         startDate: merged.config?.startDate,
       })
-        .then((response) => {
-          if (response.id !== activeIdRef.current) return;
-          setCached(cacheKeys.folioPortfolio(response.id, apiBenchmarkSymbol), response);
-          setDetail(response);
+        .then((performance) => {
+          if (performance === null || merged.id !== activeIdRef.current) return;
+          const withPerformance = mergeFolioPerformanceIntoDetail(merged, performance);
+          setCached(cacheKeys.folioPortfolio(withPerformance.id, apiBenchmarkSymbol), withPerformance);
+          setDetail(withPerformance);
           setSnapshotByPortfolioId((prev) => ({
             ...prev,
-            [response.id]: computeMarketSnapshotsFromDetail(response),
+            [withPerformance.id]: computeMarketSnapshotsFromDetail(withPerformance),
           }));
         })
         .catch(() => {
@@ -503,7 +593,7 @@ export function useFolioPortfolios() {
         commitDetail(payload.detail);
       } else if (payload.portfolioId && payload.portfolioId === activeIdRef.current) {
         invalidateCachePrefix(`folio-portfolio:${payload.portfolioId}:`);
-        void fetchFolioPortfolioDetail(payload.portfolioId, { includePerformance: true })
+        void fetchFolioPortfolioSummary(payload.portfolioId)
           .then((response) => commitDetail(response))
           .catch(() => {
             // Best-effort refresh after agent/list sync.
@@ -836,6 +926,7 @@ export function useFolioPortfolios() {
     creatingPortfolio,
     createError,
     detailLoading,
+    performanceLoading,
     detailError,
     addingTicker,
     placingOrder,

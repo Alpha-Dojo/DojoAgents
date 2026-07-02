@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
 from dojoagents.dashboard.services.sector_earnings_index import (
     append_quote_session_point,
     compute_market_index_series,
@@ -27,6 +28,7 @@ async def build_candidate_index_series_by_market(
     candidates: list[dict[str, Any]],
     stock_store,
     kline_store,
+    kline_batch: ConstituentKlineBatchResponse | None = None,
 ) -> dict[str, list[dict[str, float]]]:
     by_market: dict[str, set[str]] = {"us": set(), "sh": set(), "hk": set()}
     for row in candidates:
@@ -37,14 +39,27 @@ async def build_candidate_index_series_by_market(
         if market in by_market and ticker:
             by_market[market].add(ticker)
 
+    kline_items = kline_batch.items if kline_batch is not None else None
     result: dict[str, list[dict[str, float]]] = {}
     for market, tickers in by_market.items():
         if not tickers:
             continue
-        series = await compute_market_index_series(tickers, stock_store, kline_store)
+        series = await compute_market_index_series(
+            tickers,
+            stock_store,
+            kline_store,
+            kline_items=kline_items,
+        )
         if len(series) < 2:
             continue
-        series = await append_quote_session_point(series, market, tickers, stock_store, kline_store)
+        series = await append_quote_session_point(
+            series,
+            market,
+            tickers,
+            stock_store,
+            kline_store,
+            kline_items=kline_items,
+        )
         if len(series) < 2:
             continue
         result[market] = [{"date": day, "value": float(value)} for day, value in series]

@@ -29,6 +29,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
     creatingPortfolio,
     createError,
     detailLoading,
+    performanceLoading,
     allocating,
     placingOrder,
     renamePortfolio,
@@ -81,6 +82,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
           <FolioOverviewPanel
             portfolio={activePortfolio}
             loading={detailLoading}
+            performanceLoading={performanceLoading}
             addingTicker={addingTicker}
             removingTicker={removingTicker}
             placingOrder={placingOrder}

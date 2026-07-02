@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
 
 KLINE_LIMIT = 252
+KLINE_MAX_LIMIT = 500
+DATA_START_DATE = "2025-01-01"
 
 
 def normalize_datetime(value: object) -> str:
@@ -105,3 +107,40 @@ def compute_incremental_fetch_limit(
     if gap_days <= 0:
         return min_limit
     return min(max_limit, max(min_limit, gap_days))
+
+
+def resolve_kline_limit_for_elapsed_days(
+    start_date: str,
+    *,
+    end_date: str | None = None,
+    min_limit: int = KLINE_LIMIT,
+    max_limit: int = KLINE_MAX_LIMIT,
+) -> int:
+    """Estimate bar count from calendar span (used when no explicit date window is passed)."""
+    try:
+        start = date.fromisoformat(start_date[:10])
+        end = date.fromisoformat((end_date or date.today().isoformat())[:10])
+    except ValueError:
+        return min_limit
+    elapsed = max(0, (end - start).days)
+    return min(max_limit, max(min_limit, int(elapsed * 5 / 7) + 40))
+
+
+def resolve_tail_limit(
+    *,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    limit: int | None = None,
+) -> int:
+    """
+    Bar cap applied after date filtering.
+
+    ``0`` keeps the full filtered window (used when callers pass start/end dates).
+    An explicit start date always wins over ``limit`` so date-window queries are not
+    silently truncated to the most recent N bars.
+    """
+    if start_time:
+        return 0
+    if limit is not None:
+        return max(0, int(limit))
+    return KLINE_LIMIT

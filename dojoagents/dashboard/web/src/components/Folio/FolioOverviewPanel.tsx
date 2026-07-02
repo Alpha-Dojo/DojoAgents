@@ -102,6 +102,7 @@ function FolioOverviewBenchmarkSelect({
 interface FolioOverviewPanelProps {
   portfolio: FolioPortfolioDetail;
   loading?: boolean;
+  performanceLoading?: boolean;
   addingTicker?: boolean;
   removingTicker?: string | null;
   placingOrder?: boolean;
@@ -126,6 +127,7 @@ interface FolioOverviewPanelProps {
 export function FolioOverviewPanel({
   portfolio,
   loading = false,
+  performanceLoading = false,
   addingTicker = false,
   removingTicker = null,
   placingOrder = false,
@@ -325,7 +327,7 @@ export function FolioOverviewPanel({
             <FolioNavCurveSection
               performance={portfolio.performance}
               orders={portfolio.orders}
-              loading={loading}
+              loading={performanceLoading}
               benchmarkSymbols={benchmarkSymbols}
               benchmarkCatalog={benchmarkCatalog}
               benchmarkControl={(head) => (

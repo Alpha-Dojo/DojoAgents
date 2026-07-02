@@ -114,7 +114,7 @@ async def ticker_price_trends(
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    limit: Optional[int] = Query(252, ge=1, le=500),
+    limit: Optional[int] = Query(None, ge=0, le=500),
     kline_t: str = Query("1D", min_length=1),
     registry=Depends(get_financial_registry),
 ) -> TickerPriceTrendsResponseV1:

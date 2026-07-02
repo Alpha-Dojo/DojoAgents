@@ -177,6 +177,7 @@ async def quote_session_leads_kline(
     kline_store: KlineStoreReader,
     *,
     now: Optional[datetime] = None,
+    kline_items: dict[str, StockKlineResponse] | None = None,
 ) -> bool:
     """
     True when live quotes reflect a session after the latest stored daily kline.
@@ -197,7 +198,11 @@ async def quote_session_leads_kline(
     tickers_list = list(tickers)
     for i in range(0, len(tickers_list), chunk_size):
         chunk = tickers_list[i : i + chunk_size]
-        batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+        if kline_items is not None:
+            batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
+        else:
+            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch_items = batch.items if batch else {}
         for ticker in chunk:
             market_code = stock_store.find_market(ticker)
             if market_code != market:
@@ -206,7 +211,7 @@ async def quote_session_leads_kline(
             quote = stock.stock_quote if stock else None
             if quote is None:
                 continue
-            kline_date, kline_close = _latest_kline_close(batch.items.get(ticker) if batch else None)
+            kline_date, kline_close = _latest_kline_close(batch_items.get(ticker))
             if not kline_date or kline_close <= 0:
                 continue
             if session_date <= kline_date:
@@ -223,6 +228,8 @@ async def market_cap_weighted_quote_session_return(
     tickers: Set[str],
     stock_store: StockStore,
     kline_store: KlineStoreReader,
+    *,
+    kline_items: dict[str, StockKlineResponse] | None = None,
 ) -> Optional[float]:
     """Market-cap weighted average of quote change_percent for the live session."""
     weighted_sum = 0.0
@@ -232,7 +239,11 @@ async def market_cap_weighted_quote_session_return(
     tickers_list = list(tickers)
     for i in range(0, len(tickers_list), chunk_size):
         chunk = tickers_list[i : i + chunk_size]
-        batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+        if kline_items is not None:
+            batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
+        else:
+            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch_items = batch.items if batch else {}
         for ticker in chunk:
             if stock_store.find_market(ticker) != market:
                 continue
@@ -242,7 +253,7 @@ async def market_cap_weighted_quote_session_return(
             quote = stock.stock_quote
             if quote is None:
                 continue
-            kline_date, kline_close = _latest_kline_close(batch.items.get(ticker) if batch else None)
+            kline_date, kline_close = _latest_kline_close(batch_items.get(ticker))
             if not kline_date or not _pre_close_matches_kline(quote.pre_close, kline_close):
                 continue
             contribution = market_cap_weighted_quote_change(
@@ -268,11 +279,19 @@ async def append_quote_session_point(
     kline_store: KlineStoreReader,
     *,
     now: Optional[datetime] = None,
+    kline_items: dict[str, StockKlineResponse] | None = None,
 ) -> List[Tuple[str, float]]:
     """Extend the index with one live-quote point when quotes lead daily klines."""
     if not series or not tickers:
         return series
-    if not await quote_session_leads_kline(market, tickers, stock_store, kline_store, now=now):
+    if not await quote_session_leads_kline(
+        market,
+        tickers,
+        stock_store,
+        kline_store,
+        now=now,
+        kline_items=kline_items,
+    ):
         return series
 
     session_date = market_local_date(market, now=now)
@@ -282,7 +301,13 @@ async def append_quote_session_point(
     if not _is_plausible_live_session_date(session_date, kline_latest):
         return series
 
-    session_return = await market_cap_weighted_quote_session_return(market, tickers, stock_store, kline_store)
+    session_return = await market_cap_weighted_quote_session_return(
+        market,
+        tickers,
+        stock_store,
+        kline_store,
+        kline_items=kline_items,
+    )
     if session_return is None:
         return series
 
@@ -337,6 +362,8 @@ async def compute_market_index_series(
     tickers: Set[str],
     stock_store: StockStore,
     kline_store: KlineStoreReader,
+    *,
+    kline_items: dict[str, StockKlineResponse] | None = None,
 ) -> List[Tuple[str, float]]:
     """
     Market-cap-weighted index on this market's own trading calendar.
@@ -355,12 +382,16 @@ async def compute_market_index_series(
     tickers_list = list(tickers)
     for i in range(0, len(tickers_list), chunk_size):
         chunk = tickers_list[i : i + chunk_size]
-        batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+        if kline_items is not None:
+            batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
+        else:
+            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch_items = batch.items if batch else {}
         for ticker in chunk:
             member = _load_index_member(
                 ticker,
                 stock_store,
-                batch.items.get(ticker) if batch else None,
+                batch_items.get(ticker),
             )
             if member is not None:
                 members.append(member)

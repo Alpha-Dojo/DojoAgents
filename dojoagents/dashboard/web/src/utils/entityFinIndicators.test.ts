@@ -208,7 +208,53 @@ test('resolveFiscalToNaturalOffset detects -1 for AAPL-style pre-period disclosu
     },
   ];
   assert.equal(resolveFiscalToNaturalOffset(rows), -1);
-  assert.equal(unifiedFinPeriodAxisLabel(rows[0], 'us'), '26Q1');
+  assert.equal(unifiedFinPeriodAxisLabel(rows[0], 'us', resolveFiscalToNaturalOffset(rows)), '26Q1');
+});
+
+function usQuarterRow(
+  symbol: string,
+  reportPeriodName: string,
+  stdReportDate: string,
+  reportDate: string,
+  revenue: number,
+): StockFinIndicatorRow {
+  return {
+    symbol,
+    report_period_name: reportPeriodName,
+    std_report_date: stdReportDate,
+    report_date: reportDate,
+    report_type: 'quarter',
+    total_operating_revenue: revenue,
+    net_profit_attr_parent: revenue * 0.1,
+  };
+}
+
+test('NVDA short post-period disclosure keeps fiscal quarter on natural calendar axis', () => {
+  const row = usQuarterRow('NVDA', '2026年一季报', '2026-03-31', '2026-04-26', 81_615_000_000);
+  assert.equal(resolveFiscalToNaturalOffset([row]), 0);
+  assert.equal(unifiedFinPeriodAxisLabel(row, 'us', 0), '26Q1');
+});
+
+test('SNDK long disclosure lag maps latest fiscal Q3 to natural 26Q1', () => {
+  const rows: StockFinIndicatorRow[] = [
+    usQuarterRow('SNDK', '2024年第三季报', '2024-09-30', '2025-03-28', 1_695_000_000),
+    usQuarterRow('SNDK', '2024年第四季报', '2024-12-31', '2025-06-27', 1_901_000_000),
+    usQuarterRow('SNDK', '2025年一季报', '2025-03-31', '2025-10-03', 2_308_000_000),
+    usQuarterRow('SNDK', '2025年第二季报', '2025-06-30', '2026-01-02', 3_025_000_000),
+    usQuarterRow('SNDK', '2025年第三季报', '2025-09-30', '2026-04-03', 5_950_000_000),
+  ];
+  const offset = resolveFiscalToNaturalOffset(rows);
+  assert.equal(offset, 2);
+  const latest = rows[rows.length - 1];
+  assert.equal(unifiedFinPeriodAxisLabel(latest, 'us', offset), '26Q1');
+  const financials = mapFinIndicatorsToFinancials(rows, 'us');
+  const latestPoint = financials.at(-1);
+  assert.ok(latestPoint);
+  assert.equal(latestPoint?.year, '26Q1');
+  assert.ok(
+    latestPoint.revenueYoY != null && latestPoint.revenueYoY > 200,
+    `expected strong 26Q1 YoY, got ${latestPoint.revenueYoY}`,
+  );
 });
 
 test('mapFinIndicatorsToFinancials excludes undisclosed US ADR rows', () => {

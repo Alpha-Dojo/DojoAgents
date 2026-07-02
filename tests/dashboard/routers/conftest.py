@@ -49,6 +49,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     MarketOverviewResponse,
     PortfolioAnalysisResponseV1,
     PortfolioListResponseV1,
+    PortfolioPerformanceResponseV1,
     SectorAnalysisResponse,
     SectorAnalysisScope,
     SectorConstituentsResponseV1,
@@ -149,6 +150,9 @@ class PortfolioService:
 
     async def get_detail(self, _portfolio_id, **_kwargs):
         return self.detail
+
+    async def get_performance(self, _portfolio_id, **_kwargs):
+        return None
 
     async def create(self, body):
         return self.detail.model_copy(update={"name": body.name})
@@ -344,7 +348,13 @@ def financial_client(monkeypatch) -> TestClient:
         return PortfolioListResponseV1(items=[PortfolioSummary(id="p1", name="Primary")], source="local", stale=False)
 
     async def portfolio_analysis_v1(*_args, **_kwargs):
-        return PortfolioAnalysisResponseV1(detail=PortfolioDetail(id="p1", name="Primary"), source="local", stale=False)
+        return PortfolioAnalysisResponseV1(id="p1", name="Primary")
+
+    async def portfolio_summary_v1(*_args, **_kwargs):
+        return PortfolioAnalysisResponseV1(id="p1", name="Primary")
+
+    async def portfolio_performance_v1(*_args, **_kwargs):
+        return PortfolioPerformanceResponseV1(id="p1")
 
     monkeypatch.setattr(domain_api, "build_market_overview", market_overview)
     monkeypatch.setattr(market_router, "build_market_overview", market_overview)
@@ -356,6 +366,8 @@ def financial_client(monkeypatch) -> TestClient:
     monkeypatch.setattr(sector_router, "build_sector_constituents_v1", sector_constituents_v1)
     monkeypatch.setattr(domain_api, "build_portfolio_list_v1", portfolio_list_v1)
     monkeypatch.setattr(domain_api, "build_portfolio_analysis_v1", portfolio_analysis_v1)
+    monkeypatch.setattr(domain_api, "build_portfolio_summary_v1", portfolio_summary_v1)
+    monkeypatch.setattr(domain_api, "build_portfolio_performance_v1", portfolio_performance_v1)
     return TestClient(app)
 
 

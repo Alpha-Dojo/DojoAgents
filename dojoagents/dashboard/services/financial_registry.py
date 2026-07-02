@@ -92,12 +92,16 @@ class FinancialDomainRegistry:
 
         self.forex_store = ForexStore(self.gateway)
         self.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
+        from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
+
+        refresh_store = RefreshStateStore(self.data_root / "runtime")
         self.portfolio_service = PortfolioService(
             store=self.portfolio_store,
             stock_store=self.stock_store,
             stock_sector_store=self.stock_sector_store,
             kline_store=self.kline_store,
             benchmark_store=self.benchmark_store,
+            market_data_revision_reader=lambda: refresh_store.get_market_data_revision().get("revision") or "",
         )
         self.dojo_sphere_service = DojoSphereService(
             SectorMetricsStore(data_root, schema_version=1),
@@ -172,6 +176,8 @@ class FinancialDomainRegistry:
         if self.kline_store is not None:
             self.kline_store._cache.clear()
             self.kline_store.initial_load_complete = False
+        if self.gateway is not None and hasattr(self.gateway, "invalidate_kline_index"):
+            self.gateway.invalidate_kline_index()
         if self.benchmark_store is not None:
             self.benchmark_store._response_cache.clear()
             self.benchmark_store._kline_cache.clear()
@@ -187,6 +193,8 @@ class FinancialDomainRegistry:
                 cache.clear()
         if self.sector_movers_service is not None:
             self.sector_movers_service.invalidate()
+        if self.dojo_sphere_service is not None:
+            await self.dojo_sphere_service.metrics_store.clear_all()
         if self.sector_precomputed_store is not None:
             self.sector_precomputed_store.clear_cache()
             self.sector_precomputed_store.reload()

@@ -34,7 +34,7 @@ BENCHMARK_EN: dict[str, str] = {
     "000300.SS": "CSI 300 Index",
     "000905.SS": "CSI 500 Index",
 }
-DEFAULT_LOOKBACK_DAYS = 400
+DEFAULT_LOOKBACK_DAYS = 500
 
 
 @dataclass(frozen=True)

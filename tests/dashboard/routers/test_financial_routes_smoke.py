@@ -39,6 +39,8 @@ import pytest
         "/api/v1/sector/constituents?level1_id=1&level2_id=2&level3_id=3&market=cn",
         "/api/v1/portfolio",
         "/api/v1/portfolio/p1/analysis",
+        "/api/v1/portfolio/p1/analysis/summary",
+        "/api/v1/portfolio/p1/analysis/performance",
     ],
 )
 def test_financial_get_routes_return_schema_valid_responses(financial_client, path) -> None:

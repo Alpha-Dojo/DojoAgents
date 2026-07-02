@@ -157,6 +157,99 @@ async def test_financials_tool_returns_batch_payload(monkeypatch) -> None:
     assert [item["ticker"] for item in result["data"]["items"]] == ["VZ", "WFC"]
 
 
+@pytest.mark.asyncio
+async def test_price_trends_tool_keeps_full_window_when_start_date_set(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_build(registry, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ticker": kwargs["ticker"],
+            "market": "hk",
+            "interval": "1D",
+            "as_of": "2026-06-30",
+            "period_start": "2025-01-02",
+            "period_end": "2026-06-30",
+            "klines": [{"datetime": "2025-01-02", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 0}],
+            "pe_band": [],
+        }
+
+    monkeypatch.setattr(domain_tools, "build_ticker_price_trends_v1", fake_build)
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_price_trends")
+    assert spec is not None
+    await spec.handler(
+        {
+            "ticker": "0700.HK",
+            "market": "hk",
+            "start_date": "2025-01-01",
+            "end_date": "2026-06-30",
+        }
+    )
+
+    assert captured["start_date"] == "2025-01-01"
+    assert captured["limit"] is None
+
+
+@pytest.mark.asyncio
+async def test_price_trends_tool_defaults_start_date_to_dashboard_inception(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_build(registry, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ticker": kwargs["ticker"],
+            "market": "us",
+            "interval": "1D",
+            "as_of": "2026-06-30",
+            "period_start": "2025-01-02",
+            "period_end": "2026-06-30",
+            "klines": [],
+            "pe_band": [],
+        }
+
+    monkeypatch.setattr(domain_tools, "build_ticker_price_trends_v1", fake_build)
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_price_trends")
+    assert spec is not None
+    await spec.handler({"ticker": "AAPL", "market": "us"})
+
+    assert captured["start_date"] is None
+    assert captured["limit"] is None
+
+
+@pytest.mark.asyncio
+async def test_price_trends_tool_accepts_start_time_alias(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_build(registry, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ticker": kwargs["ticker"],
+            "market": "hk",
+            "interval": "1D",
+            "as_of": "2026-06-30",
+            "period_start": "2025-01-02",
+            "period_end": "2026-06-30",
+            "klines": [],
+            "pe_band": [],
+        }
+
+    monkeypatch.setattr(domain_tools, "build_ticker_price_trends_v1", fake_build)
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_ticker_price_trends")
+    assert spec is not None
+    await spec.handler({"ticker": "0700.HK", "market": "hk", "start_time": "2025-01-01"})
+
+    assert captured["start_date"] == "2025-01-01"
+
+
 def test_create_app_registers_dashboard_domain_tools() -> None:
     from dojoagents.dashboard.server import create_app
 

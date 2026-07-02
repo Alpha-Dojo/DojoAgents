@@ -14,6 +14,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     ManagePortfolioRequestV1,
     PortfolioAnalysisResponseV1,
     PortfolioListResponseV1,
+    PortfolioPerformanceResponseV1,
     RemovePortfolioHoldingRequestV1,
     UpdateHoldingsMetadataRequestV1,
 )
@@ -27,6 +28,8 @@ from dojoagents.dashboard.schemas.portfolio import (
 from dojoagents.dashboard.services.domain_api import (
     build_portfolio_analysis_v1,
     build_portfolio_list_v1,
+    build_portfolio_performance_v1,
+    build_portfolio_summary_v1,
     build_update_request_from_manage,
     portfolio_detail_to_analysis,
 )
@@ -46,6 +49,50 @@ async def portfolio_list(
     registry=Depends(get_financial_registry),
 ) -> PortfolioListResponseV1:
     return await build_portfolio_list_v1(registry, query=query)
+
+
+@router.get(
+    "/{portfolio_id}/analysis/summary",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="get_portfolio_analysis_summary",
+    summary="Holdings and quotes for a portfolio without NAV performance",
+)
+async def portfolio_analysis_summary(
+    portfolio_id: str,
+    start_date: Optional[str] = Query(None),
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    detail = await build_portfolio_summary_v1(
+        registry,
+        portfolio_id=portfolio_id,
+        start_date=start_date,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
+    return detail
+
+
+@router.get(
+    "/{portfolio_id}/analysis/performance",
+    response_model=PortfolioPerformanceResponseV1,
+    operation_id="get_portfolio_analysis_performance",
+    summary="NAV curve and risk metrics for a portfolio",
+)
+async def portfolio_analysis_performance(
+    portfolio_id: str,
+    benchmark: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    registry=Depends(get_financial_registry),
+) -> PortfolioPerformanceResponseV1:
+    detail = await build_portfolio_performance_v1(
+        registry,
+        portfolio_id=portfolio_id,
+        benchmark=benchmark,
+        start_date=start_date,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
+    return detail
 
 
 @router.get(

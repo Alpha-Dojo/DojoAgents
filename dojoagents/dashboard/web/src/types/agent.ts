@@ -54,6 +54,7 @@ export interface AgentThinkBlock {
 }
 
 export type AgentActivityStep =
+  | { kind: 'text'; id: string; text: string }
   | { kind: 'think'; id: string; block: AgentThinkBlock }
   | { kind: 'tool'; id: string; item: AgentToolActivityItem }
   | { kind: 'eval'; id: string; hint: AgentEvalHintItem };

@@ -771,6 +771,12 @@ class AgentLoop:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
                 decision = self.guardrails.before_call(tool_name, args)
+                if decision.code == "execute_code_inline_market_data":
+                    from dojoagents.agent.guardrails import toolguard_synthetic_result
+
+                    blocked_res = toolguard_synthetic_result(decision)
+                    event.cancel_tool = blocked_res["content"]
+                    return
                 if decision.should_halt:
                     raise GuardrailHaltException(decision.message, "guardrail_halt")
                 elif not decision.allows_execution:

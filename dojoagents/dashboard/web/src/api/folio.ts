@@ -28,6 +28,50 @@ export interface FolioPortfolioSummaryResponse {
   net_value_usd?: number | null;
 }
 
+interface PortfolioPerformanceApiResponse {
+  id: string;
+  benchmark?: string | null;
+  start_date?: string | null;
+  performance_window_start?: string | null;
+  performance_window_end?: string | null;
+  nav_by_market: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
+  candidate_nav_by_market?: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
+  benchmark_by_market: Partial<
+    Record<MarketCode, Array<{ date: string; value: number }>>
+  >;
+  benchmark_symbol_by_market?: Partial<Record<MarketCode, string>>;
+  stats_by_market: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct?: number | null;
+        volatility_pct?: number | null;
+        sharpe_ratio?: number | null;
+        calmar_ratio?: number | null;
+        max_drawdown_pct?: number | null;
+        trading_days?: number;
+      }
+    >
+  >;
+  candidate_stats_by_market?: Partial<
+    Record<
+      MarketCode,
+      {
+        cumulative_return_pct?: number | null;
+        volatility_pct?: number | null;
+        sharpe_ratio?: number | null;
+        calmar_ratio?: number | null;
+        max_drawdown_pct?: number | null;
+        trading_days?: number;
+      }
+    >
+  >;
+}
+
 export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryResponse {
   config?: {
     start_date?: string;
@@ -161,6 +205,10 @@ interface PortfolioAnalysisResponse {
   id: string;
   name: string;
   subtitle?: string | null;
+  kind?: FolioPortfolioKind;
+  pinned?: boolean;
+  today_change?: number | null;
+  net_value_usd?: number | null;
   benchmark?: string | null;
   start_date?: string | null;
   capital_by_market?: Partial<Record<MarketCode, number>>;
@@ -505,7 +553,6 @@ export type FolioPortfolioDetail = ReturnType<typeof mapFolioPortfolioDetail>;
 
 function mapAnalysisToDetail(
   analysis: PortfolioAnalysisResponse,
-  summary?: FolioPortfolioSummaryResponse,
   includePerformance = true,
 ): FolioPortfolioDetailResponse {
   const netTotal = Object.values(analysis.net_value_by_market ?? {}).reduce(
@@ -517,10 +564,10 @@ function mapAnalysisToDetail(
     id: analysis.id,
     name: analysis.name,
     subtitle: analysis.subtitle,
-    kind: summary?.kind ?? 'manual',
-    pinned: summary?.pinned ?? false,
-    today_change: summary?.today_change ?? null,
-    net_value_usd: summary?.net_value_usd ?? netTotal,
+    kind: analysis.kind ?? 'manual',
+    pinned: analysis.pinned ?? false,
+    today_change: analysis.today_change ?? null,
+    net_value_usd: analysis.net_value_usd ?? netTotal,
     config: {
       start_date: config.startDate,
       cost_date: config.costDate,
@@ -603,15 +650,35 @@ function mapAnalysisToDetail(
   };
 }
 
+function mapPerformanceApiResponse(raw: PortfolioPerformanceApiResponse) {
+  return mapPerformance({
+    window_start: raw.performance_window_start ?? null,
+    window_end: raw.performance_window_end ?? null,
+    series_by_market: raw.nav_by_market,
+    candidate_series_by_market: raw.candidate_nav_by_market,
+    benchmark_by_market: raw.benchmark_by_market,
+    benchmark_symbol_by_market: raw.benchmark_symbol_by_market,
+    stats_by_market: raw.stats_by_market,
+    candidate_stats_by_market: raw.candidate_stats_by_market,
+  });
+}
+
+export type FolioPortfolioPerformance = NonNullable<ReturnType<typeof mapPerformanceApiResponse>>;
+
+export function mergeFolioPerformanceIntoDetail(
+  detail: FolioPortfolioDetail,
+  performance: FolioPortfolioPerformance | null,
+): FolioPortfolioDetail {
+  return {
+    ...detail,
+    performance,
+  };
+}
+
 async function fetchPortfolioList(query?: string): Promise<PortfolioListResponse> {
   const params = query ? new URLSearchParams({ query }) : '';
   const suffix = params ? `?${params}` : '';
   return fetchJson<PortfolioListResponse>(`${API_PREFIX}/portfolio${suffix}`);
-}
-
-async function fetchPortfolioSummary(portfolioId: string): Promise<FolioPortfolioSummaryResponse | undefined> {
-  const list = await fetchPortfolioList();
-  return list.items.find((item) => item.id === portfolioId);
 }
 
 export async function fetchFolioPortfolios(): Promise<FolioPortfolioSummaryResponse[]> {
@@ -630,24 +697,55 @@ export async function searchFolioPortfolios(query: string): Promise<FolioPortfol
   );
 }
 
+export async function fetchFolioPortfolioSummary(
+  portfolioId: string,
+  options?: { startDate?: string | null },
+): Promise<FolioPortfolioDetail> {
+  const params = new URLSearchParams();
+  if (options?.startDate) params.set('start_date', options.startDate);
+  const query = params.toString();
+  const analysis = await fetchJson<PortfolioAnalysisResponse>(
+    `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis/summary${query ? `?${query}` : ''}`,
+  );
+  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, false));
+}
+
+export async function fetchFolioPortfolioPerformance(
+  portfolioId: string,
+  options?: { benchmark?: string | null; startDate?: string | null },
+): Promise<FolioPortfolioPerformance | null> {
+  const params = new URLSearchParams();
+  if (options?.benchmark) params.set('benchmark', options.benchmark);
+  if (options?.startDate) params.set('start_date', options.startDate);
+  const query = params.toString();
+  const raw = await fetchJson<PortfolioPerformanceApiResponse>(
+    `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis/performance${query ? `?${query}` : ''}`,
+  );
+  const performance = mapPerformanceApiResponse(raw);
+  const hasSeries = Object.values(performance?.seriesByMarket ?? {}).some(
+    (series) => (series?.length ?? 0) >= 2,
+  );
+  const hasCandidateSeries = Object.values(performance?.candidateSeriesByMarket ?? {}).some(
+    (series) => (series?.length ?? 0) >= 2,
+  );
+  return hasSeries || hasCandidateSeries ? performance : null;
+}
+
 export async function fetchFolioPortfolioDetail(
   portfolioId: string,
   options?: { benchmark?: string | null; includePerformance?: boolean; startDate?: string | null },
 ): Promise<FolioPortfolioDetail> {
-  const params = new URLSearchParams();
-  if (options?.benchmark) params.set('benchmark', options.benchmark);
-  if (options?.includePerformance === false) params.set('include_performance', 'false');
-  if (options?.startDate) params.set('start_date', options.startDate);
-  const query = params.toString();
-  const [analysis, summary] = await Promise.all([
-    fetchJson<PortfolioAnalysisResponse>(
-      `${API_PREFIX}/portfolio/${encodeURIComponent(portfolioId)}/analysis${query ? `?${query}` : ''}`,
-    ),
-    fetchPortfolioSummary(portfolioId),
+  if (options?.includePerformance === false) {
+    return fetchFolioPortfolioSummary(portfolioId, { startDate: options.startDate });
+  }
+  const [summary, performance] = await Promise.all([
+    fetchFolioPortfolioSummary(portfolioId, { startDate: options?.startDate }),
+    fetchFolioPortfolioPerformance(portfolioId, {
+      benchmark: options?.benchmark,
+      startDate: options?.startDate,
+    }),
   ]);
-  return mapFolioPortfolioDetail(
-    mapAnalysisToDetail(analysis, summary, options?.includePerformance !== false),
-  );
+  return mergeFolioPerformanceIntoDetail(summary, performance);
 }
 
 export async function createFolioPortfolio(name: string): Promise<FolioPortfolioDetail> {
@@ -703,7 +801,7 @@ export async function updateFolioPortfolio(
   void payload.cost_locked_by_ticker;
 
   if (payload.open_date_by_ticker || payload.shares_by_ticker) {
-    const analysis = await fetchJson<PortfolioAnalysisResponse>(
+    await fetchJson<PortfolioAnalysisResponse>(
       `${API_PREFIX}/portfolio/holdings/metadata`,
       {
         method: 'POST',
@@ -715,8 +813,10 @@ export async function updateFolioPortfolio(
         }),
       },
     );
-    const summary = await fetchPortfolioSummary(portfolioId);
-    return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+    return fetchFolioPortfolioDetail(portfolioId, {
+      includePerformance: true,
+      startDate: payload.config?.startDate,
+    });
   }
 
   return fetchFolioPortfolioDetail(portfolioId, {
@@ -737,7 +837,7 @@ export async function addFolioHolding(
   portfolioId: string,
   payload: { ticker: string; market?: MarketCode; shares?: number },
 ): Promise<FolioPortfolioDetail> {
-  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -749,15 +849,14 @@ export async function addFolioHolding(
       },
     }),
   });
-  const summary = await fetchPortfolioSummary(portfolioId);
-  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+  return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });
 }
 
 export async function removeFolioHolding(
   portfolioId: string,
   payload: { ticker: string; market: MarketCode },
 ): Promise<FolioPortfolioDetail> {
-  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/holdings`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -766,15 +865,14 @@ export async function removeFolioHolding(
       market: payload.market === 'cn' ? 'sh' : payload.market,
     }),
   });
-  const summary = await fetchPortfolioSummary(portfolioId);
-  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+  return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });
 }
 
 export async function createFolioOrder(
   portfolioId: string,
   payload: FolioCreateOrderPayload,
 ): Promise<FolioPortfolioDetail> {
-  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/orders`, {
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -787,8 +885,7 @@ export async function createFolioOrder(
       order_time: payload.orderTime ?? undefined,
     }),
   });
-  const summary = await fetchPortfolioSummary(portfolioId);
-  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+  return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });
 }
 
 export async function autoAllocateFolioPortfolio(
@@ -796,7 +893,7 @@ export async function autoAllocateFolioPortfolio(
   market?: MarketCode,
   allocationStrategy: FolioAllocationStrategy = 'market_cap',
 ): Promise<FolioPortfolioDetail> {
-  const analysis = await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/allocate`, {
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/allocate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -805,8 +902,7 @@ export async function autoAllocateFolioPortfolio(
       allocation_strategy: allocationStrategy,
     }),
   });
-  const summary = await fetchPortfolioSummary(portfolioId);
-  return mapFolioPortfolioDetail(mapAnalysisToDetail(analysis, summary, true));
+  return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });
 }
 
 export { ApiError };

@@ -8,6 +8,11 @@ import type {
 export const REVENUE_CHART_YOY_BASELINE_START = '2022-01-01';
 export const REVENUE_CHART_DISPLAY_FROM_YEAR = 2024;
 
+/** When disclosure follows std_report_date within this window, fiscal quarter already aligns with natural calendar. */
+const SHORT_DISCLOSURE_LAG_DAYS = 45;
+/** Typical calendar-quarter length for inferring fiscal→natural shift from disclosure lag. */
+const CALENDAR_QUARTER_DAYS = 90;
+
 type ComparableQuarter = 'q1' | 'q2' | 'q3' | 'q4';
 
 const REVENUE_CHART_DISPLAY_FROM_QUARTER: ComparableQuarter = 'q1';
@@ -94,11 +99,11 @@ export function extractDisclosureDate(row: StockFinIndicatorRow): string {
   return text.slice(0, 10);
 }
 
-/** Unified revenue-chart axis label: natural-calendar quarter from disclosure date. */
+/** Unified revenue-chart axis label: natural-calendar quarter (fiscal period + series offset). */
 export function unifiedFinPeriodAxisLabel(
   row: StockFinIndicatorRow,
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): string {
   const meta = naturalCalendarPeriod(row, market, seriesOffset);
   if (meta) {
@@ -142,7 +147,7 @@ const QUARTER_ORDER: Record<ComparableQuarter, number> = {
 function calendarPeriodFromRow(
   row: StockFinIndicatorRow,
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): CalendarPeriod | null {
   return naturalCalendarPeriod(row, market, seriesOffset);
 }
@@ -150,7 +155,7 @@ function calendarPeriodFromRow(
 function sortFinRows(
   items: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): StockFinIndicatorRow[] {
   return [...items].sort((a, b) => {
     const ma = revenueComparablePeriod(a, market, seriesOffset);
@@ -210,18 +215,52 @@ function fiscalPeriodFromReport(row: StockFinIndicatorRow): CalendarPeriod | nul
   return fiscalPeriodFromName(row);
 }
 
-/**
- * Per-row gap: natural-calendar quarter (from report_date) minus fiscal quarter (report_period_name).
- * BABA/9988.HK ≈ +1Q; AAPL ≈ -1Q.
- */
-function detectFiscalToNaturalOffset(row: StockFinIndicatorRow): number {
-  const fiscal = fiscalPeriodFromReport(row);
+function daysBetweenIsoDates(start: string, end: string): number | null {
+  if (start.length < 10 || end.length < 10) return null;
+  const startMs = Date.parse(`${start.slice(0, 10)}T00:00:00Z`);
+  const endMs = Date.parse(`${end.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return Math.round((endMs - startMs) / 86_400_000);
+}
+
+function disclosureMinusFiscalQuarterOffset(
+  row: StockFinIndicatorRow,
+  fiscal: CalendarPeriod,
+): number {
   const natural = calendarQuarterFromIsoDate(extractDisclosureDate(row));
-  if (!fiscal || !natural) return 0;
+  if (!natural) return 0;
   return (
     quarterToIndex(natural.fiscalYear, natural.quarter) -
     quarterToIndex(fiscal.fiscalYear, fiscal.quarter)
   );
+}
+
+/**
+ * Per-row gap from fiscal quarter (report_period_name) to natural calendar quarter.
+ * Short post-period disclosure (NVDA): 0. Long lag (BABA/HK/SNDK): ~ceil(lag / quarter).
+ * Pre-period disclosure (AAPL): disclosure quarter gap (typically -1).
+ */
+function detectFiscalToNaturalOffset(row: StockFinIndicatorRow): number {
+  const fiscal = fiscalPeriodFromReport(row);
+  if (!fiscal) return 0;
+
+  const disclosure = extractDisclosureDate(row);
+  const stdDate = extractStdReportDate(row);
+
+  if (disclosure && stdDate && disclosure < stdDate) {
+    return disclosureMinusFiscalQuarterOffset(row, fiscal);
+  }
+
+  const lagDays = stdDate && disclosure ? daysBetweenIsoDates(stdDate, disclosure) : null;
+  if (lagDays != null && lagDays >= 0 && lagDays <= SHORT_DISCLOSURE_LAG_DAYS) {
+    return 0;
+  }
+
+  if (lagDays != null && lagDays > SHORT_DISCLOSURE_LAG_DAYS) {
+    return Math.max(1, Math.round(lagDays / CALENDAR_QUARTER_DAYS));
+  }
+
+  return disclosureMinusFiscalQuarterOffset(row, fiscal);
 }
 
 /** Series-level fiscal→natural offset: mode of per-row gaps across fin history. */
@@ -244,23 +283,25 @@ export function resolveFiscalToNaturalOffset(rows: StockFinIndicatorRow[]): numb
 
 /**
  * Natural-calendar quarter for chart axis / YoY / filtering.
- * Primary: calendar quarter of report_date (disclosure).
- * Fallback: fiscal report_period_name + series-level offset.
+ * Primary: fiscal report_period_name shifted by series-level fiscal→natural offset.
+ * Fallback: std_report_date or disclosure date calendar quarter.
  */
 function naturalCalendarPeriod(
   row: StockFinIndicatorRow,
   _market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): CalendarPeriod | null {
-  const fromDisclosure = calendarQuarterFromIsoDate(extractDisclosureDate(row));
-  if (fromDisclosure) return fromDisclosure;
-
   const fiscal = fiscalPeriodFromReport(row);
-  if (!fiscal) return null;
+  if (fiscal) {
+    const offset =
+      seriesOffset !== undefined ? seriesOffset : detectFiscalToNaturalOffset(row);
+    return shiftCalendarPeriod(fiscal, offset);
+  }
 
-  const offset = seriesOffset !== 0 ? seriesOffset : detectFiscalToNaturalOffset(row);
-  if (offset === 0) return fiscal;
-  return shiftCalendarPeriod(fiscal, offset);
+  const fromStd = calendarQuarterFromIsoDate(extractStdReportDate(row));
+  if (fromStd) return fromStd;
+
+  return calendarQuarterFromIsoDate(extractDisclosureDate(row));
 }
 
 function fiscalPeriodFromName(row: StockFinIndicatorRow): CalendarPeriod | null {
@@ -334,7 +375,7 @@ function hkPeriodKind(row: StockFinIndicatorRow): { fiscalYear: string; kind: Hk
 function revenueComparablePeriod(
   row: StockFinIndicatorRow,
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): CalendarPeriod | null {
   return naturalCalendarPeriod(row, market, seriesOffset);
 }
@@ -357,8 +398,11 @@ export function isDisclosedFinRow(row: StockFinIndicatorRow): boolean {
 function computeSameQuarterRevenueYoY(
   rows: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): Map<string, number | null> {
+  const normalizedMarket = market?.toLowerCase?.() ?? market;
+  const filterCumulativeLike = normalizedMarket === 'hk';
+
   const peerRevenues: number[] = [];
   for (const row of rows) {
     const revenue = row.total_operating_revenue;
@@ -373,7 +417,7 @@ function computeSameQuarterRevenueYoY(
     if (!meta) continue;
     const revenue = row.total_operating_revenue;
     if (revenue == null || Number.isNaN(revenue)) continue;
-    if (looksLikeHkCumulativeQuarterRevenue(revenue, peerRevenues)) continue;
+    if (filterCumulativeLike && looksLikeHkCumulativeQuarterRevenue(revenue, peerRevenues)) continue;
     revenueByQuarter.set(`${meta.fiscalYear}:${meta.quarter}`, revenue);
   }
 
@@ -393,7 +437,8 @@ function computeSameQuarterRevenueYoY(
       prevRevenue == null ||
       prevRevenue === 0 ||
       currentRevenue == null ||
-      looksLikeHkCumulativeQuarterRevenue(currentRevenue, peerRevenues)
+      (filterCumulativeLike &&
+        looksLikeHkCumulativeQuarterRevenue(currentRevenue, peerRevenues))
     ) {
       yoyByLabel.set(label, null);
       continue;
@@ -547,7 +592,7 @@ function pseudoPercentile(value: number, max: number): number {
 function filterRowsForRevenueDisplay(
   rows: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset = 0,
+  seriesOffset?: number,
 ): StockFinIndicatorRow[] {
   const minIndex = quarterToIndex(String(REVENUE_CHART_DISPLAY_FROM_YEAR), REVENUE_CHART_DISPLAY_FROM_QUARTER);
   return rows.filter((row) => {

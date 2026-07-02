@@ -61,6 +61,26 @@ export function toolItemsFromSteps(steps: AgentActivityStep[]): AgentToolActivit
   );
 }
 
+export function appendTextDelta(
+  steps: AgentActivityStep[],
+  text: string,
+): AgentActivityStep[] {
+  if (!text) return steps;
+  const last = steps.at(-1);
+  if (last?.kind === 'text') {
+    return steps.map((step, index) =>
+      index === steps.length - 1 && step.kind === 'text'
+        ? { ...step, text: step.text + text }
+        : step,
+    );
+  }
+  return [...steps, { kind: 'text', id: createRandomId(), text }];
+}
+
+export function hasOrderedTextSteps(steps: AgentActivityStep[]): boolean {
+  return steps.some((step) => step.kind === 'text');
+}
+
 export function appendThinkStart(
   steps: AgentActivityStep[],
   currentThinkId: string | null,

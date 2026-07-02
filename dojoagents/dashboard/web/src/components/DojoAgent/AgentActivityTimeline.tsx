@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AgentActivityStep } from '../../types/agent';
 import { AgentEvalHints } from './AgentEvalHints';
+import { AgentMarkdown } from './AgentMarkdown';
 import { AgentThinkStep } from './AgentThinking';
 import { AgentToolStep } from './AgentToolActivity';
 import { agentToolLabel } from '../../utils/agentToolLabels';
@@ -152,6 +153,16 @@ export function AgentActivityTimeline({
           );
         }
         const step = entry.step;
+        if (step.kind === 'text') {
+          if (!step.text) return null;
+          return (
+            <AgentMarkdown
+              key={step.id}
+              content={step.text}
+              streaming={streaming && index === entries.length - 1}
+            />
+          );
+        }
         if (step.kind === 'think') {
           return (
             <AgentThinkStep
