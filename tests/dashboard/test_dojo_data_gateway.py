@@ -83,6 +83,58 @@ async def test_stock_all_klines_uses_sdk_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stock_klines_reuses_symbol_index_without_reloading_bulk() -> None:
+    import pandas as pd
+
+    client = FakeDojo(
+        stocks={
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+                ]
+            )
+        }
+    )
+    gateway = DojoDataGateway(client)
+
+    first = await gateway.stock_klines(["AAPL"])
+    second = await gateway.stock_klines(["MSFT"])
+
+    assert list(first.data["symbol"]) == ["AAPL"]
+    assert list(second.data["symbol"]) == ["MSFT"]
+    assert gateway.kline_index_ready is True
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+
+
+@pytest.mark.asyncio
+async def test_warm_kline_index_builds_lookup_table() -> None:
+    import pandas as pd
+
+    client = FakeDojo(
+        stocks={
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "AAPL", "bar_time": "2026-06-19", "close": 9.0},
+                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
+                ]
+            )
+        }
+    )
+    gateway = DojoDataGateway(client)
+
+    await gateway.warm_kline_index()
+
+    assert gateway.kline_index_ready is True
+    assert set(gateway._kline_symbol_index) == {"AAPL", "MSFT"}
+    result = await gateway.stock_klines(["AAPL"], limit=1)
+    assert len(result.data) == 1
+    assert float(result.data.iloc[-1]["close"]) == 10.0
+    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+
+
+@pytest.mark.asyncio
 async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
     import pandas as pd
 

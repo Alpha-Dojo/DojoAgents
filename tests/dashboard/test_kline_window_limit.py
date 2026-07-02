@@ -45,6 +45,50 @@ def test_resolve_kline_limit_for_elapsed_days_covers_2025_inception() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_or_fetch_kline_filters_single_day_with_iso_bar_time() -> None:
+    rows = [
+        {"symbol": "GOOG", "bar_time": "2026-06-17T00:00:00", "open": 170.0, "close": 171.0},
+        {"symbol": "GOOG", "bar_time": "2026-06-18T00:00:00", "open": 176.0, "close": 177.0},
+        {"symbol": "GOOG", "bar_time": "2026-06-19T00:00:00", "open": 178.0, "close": 179.0},
+    ]
+    gateway = KlineGateway(rows)
+    store = _store(gateway)
+
+    result = await store.get_or_fetch_kline(
+        "GOOG",
+        market="us",
+        start_time="2026-06-18",
+        end_time="2026-06-18",
+    )
+
+    assert result is not None
+    assert len(result.bars) == 1
+    assert result.bars[0].bar_time == "2026-06-18"
+    assert result.bars[0].open == 176.0
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_kline_uses_min_bar_time_without_sdk_start_time() -> None:
+    rows = [
+        {"symbol": "GOOG", "bar_time": "2024-12-30", "close": 90.0},
+        {"symbol": "GOOG", "bar_time": "2025-01-02", "close": 100.0},
+        {"symbol": "GOOG", "bar_time": "2026-06-18", "close": 176.0},
+    ]
+    gateway = KlineGateway(rows)
+    store = _store(gateway)
+
+    result = await store.get_or_fetch_kline(
+        "GOOG",
+        market="us",
+        min_bar_time=DATA_START_DATE,
+    )
+
+    assert result is not None
+    assert [bar.bar_time for bar in result.bars] == ["2025-01-02", "2026-06-18"]
+    assert gateway.calls == [{"limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE)}]
+
+
+@pytest.mark.asyncio
 async def test_get_or_fetch_kline_keeps_full_window_from_data_start() -> None:
     rows = [
         {"symbol": "0700.HK", "bar_time": "2025-01-02", "close": 100.0},
@@ -70,7 +114,5 @@ async def test_get_or_fetch_kline_keeps_full_window_from_data_start() -> None:
     assert gateway.calls == [
         {
             "limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE, end_date="2026-06-30"),
-            "start_time": DATA_START_DATE,
-            "end_time": "2026-06-30",
         }
     ]

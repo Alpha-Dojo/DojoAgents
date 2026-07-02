@@ -49,11 +49,11 @@ class StockStore:
 
 @pytest.mark.asyncio
 async def test_price_trends_defaults_start_date_to_dashboard_inception() -> None:
-    captured: dict[str, object] = {}
+    captured: list[dict[str, object]] = []
 
     class KlineStore:
         async def get_or_fetch_kline(self, symbol, **kwargs):
-            captured.update(kwargs)
+            captured.append(dict(kwargs))
             return SimpleNamespace(
                 symbol=symbol,
                 as_of="2026-06-30",
@@ -109,8 +109,9 @@ async def test_price_trends_defaults_start_date_to_dashboard_inception() -> None
     )
 
     assert response is not None
-    assert captured["start_time"] == "2025-01-01"
-    assert captured["limit"] == 0
+    assert captured[0].get("start_time") is None
+    assert captured[0].get("min_bar_time") == "2025-01-01"
+    assert captured[0].get("limit") is None
 
 
 @pytest.mark.asyncio

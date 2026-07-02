@@ -23,7 +23,6 @@ from dojoagents.dashboard.services.domain_api import (
     search_company_ticker,
 )
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
-from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 
 
@@ -81,11 +80,9 @@ def _optional_float_arg(args: dict[str, Any], key: str) -> float | None:
 
 def _resolve_price_window_args(
     args: dict[str, Any],
-) -> tuple[str, str | None, int | None]:
+) -> tuple[str | None, str | None, int | None]:
     start_date = _optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time")
     end_date = _optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time")
-    if not start_date:
-        start_date = DATA_START_DATE
     return start_date, end_date, _optional_int_arg(args, "limit")
 
 
@@ -598,8 +595,10 @@ def register_dashboard_domain_tools(
             name="get_ticker_price_trends",
             description=(
                 "Get ticker kline price trends and PE-band context for charting. "
-                "Always pass start_date (defaults to dashboard inception 2025-01-01). "
-                "Use start_date/end_date for the analysis window — do NOT rely on limit for history length."
+                "For a specific trading day (e.g. open price on 2026-06-18), set BOTH "
+                "start_date and end_date to that date (YYYY-MM-DD). "
+                "For full history since dashboard inception, omit dates (server filters from 2025-01-01). "
+                "Do NOT omit dates when the user names one day — never rely on default kline_t/limit alone."
             ),
             parameters={
                 "type": "object",
@@ -608,13 +607,16 @@ def register_dashboard_domain_tools(
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                     "start_date": {
                         "type": "string",
-                        "description": "Window start (YYYY-MM-DD). Defaults to 2025-01-01 when omitted.",
+                        "description": "Window start (YYYY-MM-DD). For one day, equal to end_date.",
                     },
                     "start_time": {
                         "type": "string",
                         "description": "Alias for start_date (SDK-style name).",
                     },
-                    "end_date": {"type": "string", "description": "Window end (YYYY-MM-DD)"},
+                    "end_date": {
+                        "type": "string",
+                        "description": "Window end (YYYY-MM-DD). For one day, equal to start_date.",
+                    },
                     "end_time": {"type": "string", "description": "Alias for end_date."},
                     "kline_t": {"type": "string"},
                 },

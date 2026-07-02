@@ -513,6 +513,10 @@ class PortfolioAnalysisResponseV1(BaseModel):
     id: str = ""
     name: str = ""
     subtitle: Optional[str] = None
+    kind: Literal["manual", "agent"] = "manual"
+    pinned: bool = False
+    today_change: Optional[float] = None
+    net_value_usd: Optional[float] = None
     benchmark: Optional[str] = None
     start_date: Optional[str] = None
     capital_by_market: Dict[str, float] = Field(default_factory=dict)
@@ -530,6 +534,20 @@ class PortfolioAnalysisResponseV1(BaseModel):
     net_value_by_market: Dict[str, float] = Field(default_factory=dict)
     cost_basis_by_market: Dict[str, float] = Field(default_factory=dict)
     orders: List[PortfolioOrderRow] = Field(default_factory=list)
+
+
+class PortfolioPerformanceResponseV1(BaseModel):
+    id: str = ""
+    benchmark: Optional[str] = None
+    start_date: Optional[str] = None
+    performance_window_start: Optional[str] = None
+    performance_window_end: Optional[str] = None
+    nav_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
+    candidate_nav_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
+    benchmark_by_market: Dict[str, List[SectorPerformancePoint]] = Field(default_factory=dict)
+    benchmark_symbol_by_market: Dict[str, str] = Field(default_factory=dict)
+    stats_by_market: Dict[str, SectorPerformanceStats] = Field(default_factory=dict)
+    candidate_stats_by_market: Dict[str, SectorPerformanceStats] = Field(default_factory=dict)
 
 
 class ManagePortfolioRequestV1(BaseModel):

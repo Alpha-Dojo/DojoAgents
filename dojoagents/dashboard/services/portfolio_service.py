@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import date, datetime, timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from dojoagents.dashboard.services.portfolio_allocation import (
     allocate_market_cap_weighted,
@@ -48,10 +48,16 @@ from dojoagents.dashboard.schemas.portfolio import (
     PortfolioSummary,
     UpdatePortfolioRequest,
 )
+from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.portfolio_performance import (
     build_candidate_index_performance,
     build_market_performance,
+)
+from dojoagents.dashboard.services.portfolio_performance_cache import (
+    PortfolioPerformanceCache,
+    performance_cache_key,
+    portfolio_content_fingerprint,
 )
 from dojoagents.dashboard.services.portfolio_candidate_index import (
     build_candidate_index_series_by_market,
@@ -170,6 +176,53 @@ def _portfolio_start_date(config: Optional[dict], orders: list[dict]) -> str:
     return DEFAULT_PORTFOLIO_START_DATE
 
 
+def _closes_from_kline_bars(bars: list, *, chart_start: str) -> dict[str, float]:
+    return {
+        bar.bar_time[:10]: float(bar.close)
+        for bar in bars
+        if bar.close > 0 and bar.bar_time[:10] >= chart_start
+    }
+
+
+def _collect_performance_tickers(
+    orders: list[dict],
+    candidate_rows: list[dict],
+) -> list[str]:
+    tickers: set[str] = set()
+    for market in MARKETS:
+        tickers.update(market_tickers_from_orders(orders, market=market))
+    for row in candidate_rows:
+        if not isinstance(row, dict):
+            continue
+        ticker = str(row.get("ticker") or "").strip()
+        if ticker:
+            tickers.add(ticker)
+    return sorted(tickers)
+
+
+def _ticker_closes_by_market_from_batch(
+    orders: list[dict],
+    kline_batch: ConstituentKlineBatchResponse,
+    *,
+    chart_start: str,
+) -> dict[str, dict[str, dict[str, float]]]:
+    tickers_by_market = {
+        market: market_tickers_from_orders(orders, market=market) for market in MARKETS
+    }
+    ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {
+        market: {} for market in MARKETS
+    }
+    for market in MARKETS:
+        for ticker in tickers_by_market[market]:
+            kline = kline_batch.items.get(ticker)
+            if kline is None or not kline.bars:
+                continue
+            closes = _closes_from_kline_bars(kline.bars, chart_start=chart_start)
+            if closes:
+                ticker_closes_by_market[market][ticker] = closes
+    return ticker_closes_by_market
+
+
 class PortfolioService:
     def __init__(
         self,
@@ -178,12 +231,16 @@ class PortfolioService:
         stock_sector_store: StockSectorStore,
         kline_store: KlineStore,
         benchmark_store=None,
+        *,
+        market_data_revision_reader: Callable[[], str] | None = None,
     ) -> None:
         self.store = store
         self.stock_store = stock_store
         self.stock_sector_store = stock_sector_store
         self.kline_store = kline_store
         self.benchmark_store = benchmark_store
+        self._market_data_revision_reader = market_data_revision_reader
+        self._performance_cache = PortfolioPerformanceCache()
 
     async def _store_call(self, method_name: str, *args, **kwargs):
         method = getattr(self.store, method_name)
@@ -208,8 +265,39 @@ class PortfolioService:
         detail = await self._to_detail(raw)
         if not include_performance:
             return detail.model_copy(update={"performance": None})
-        performance = await self._build_performance(raw, benchmark_by_market=benchmark_by_market)
+        performance = await self._build_performance(
+            raw,
+            portfolio_id=portfolio_id,
+            benchmark_by_market=benchmark_by_market,
+        )
         return detail.model_copy(update={"performance": performance})
+
+    async def get_performance(
+        self,
+        portfolio_id: str,
+        *,
+        benchmark_by_market: Optional[dict[str, str]] = None,
+        start_date: Optional[str] = None,
+    ) -> Optional[PortfolioPerformanceView]:
+        raw = await self._store_call("get_raw", portfolio_id)
+        if not raw:
+            return None
+        raw = await self._ensure_orders_processed(portfolio_id, raw)
+        raw = await self._ensure_position_candidates(portfolio_id, raw)
+        if start_date:
+            config = raw.get("config") if isinstance(raw.get("config"), dict) else {}
+            raw = {
+                **raw,
+                "config": {
+                    **config,
+                    "start_date": start_date,
+                },
+            }
+        return await self._build_performance(
+            raw,
+            portfolio_id=portfolio_id,
+            benchmark_by_market=benchmark_by_market,
+        )
 
     async def create(self, body: CreatePortfolioRequest) -> PortfolioDetail:
         raw = await self._store_call("create", body.name, kind=body.kind)
@@ -672,49 +760,93 @@ class PortfolioService:
             cost_basis_by_market=cost_basis_by_market,
         )
 
+    async def _load_order_ticker_closes_by_market(
+        self,
+        orders: list[dict],
+        *,
+        chart_start: str,
+        kline_limit: int,
+        kline_batch: ConstituentKlineBatchResponse | None = None,
+    ) -> dict[str, dict[str, dict[str, float]]]:
+        if kline_batch is not None:
+            return _ticker_closes_by_market_from_batch(
+                orders,
+                kline_batch,
+                chart_start=chart_start,
+            )
+
+        tickers_by_market = {
+            market: market_tickers_from_orders(orders, market=market) for market in MARKETS
+        }
+        all_tickers = sorted({ticker for tickers in tickers_by_market.values() for ticker in tickers})
+        ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {
+            market: {} for market in MARKETS
+        }
+        if not all_tickers:
+            return ticker_closes_by_market
+
+        batch = await self.kline_store.get_klines(all_tickers, limit=kline_limit)
+        return _ticker_closes_by_market_from_batch(orders, batch, chart_start=chart_start)
+
     async def _build_performance(
         self,
         raw: dict,
         *,
+        portfolio_id: str = "",
         benchmark_by_market: Optional[dict[str, str]] = None,
     ) -> Optional[PortfolioPerformanceView]:
         if self.benchmark_store is None:
             return None
-        kline_limit = _resolve_kline_limit(raw)
+        resolved_benchmarks = {
+            market: (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market]
+            for market in MARKETS
+        }
         config = raw.get("config") if isinstance(raw.get("config"), dict) else {}
         start_date = _portfolio_start_date(config, [row for row in raw.get("orders") or [] if isinstance(row, dict)])
+        revision = ""
+        if self._market_data_revision_reader is not None:
+            revision = str(self._market_data_revision_reader() or "")
+        cache_key = performance_cache_key(
+            portfolio_id=portfolio_id or str(raw.get("id") or ""),
+            fingerprint=portfolio_content_fingerprint(raw),
+            start_date=start_date,
+            benchmark_by_market=resolved_benchmarks,
+            market_data_revision=revision,
+        )
+        cached = self._performance_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        kline_limit = _resolve_kline_limit(raw)
         chart_start = start_date if start_date >= DATA_START_DATE else DATA_START_DATE
         orders = [row for row in raw.get("orders") or [] if isinstance(row, dict)]
+        candidate_rows = [row for row in raw.get("candidates") or [] if isinstance(row, dict)]
+        performance_tickers = _collect_performance_tickers(orders, candidate_rows)
+        kline_batch = (
+            await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
+            if performance_tickers
+            else ConstituentKlineBatchResponse(items={})
+        )
 
-        ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {market: {} for market in MARKETS}
+        ticker_closes_by_market = await self._load_order_ticker_closes_by_market(
+            orders,
+            chart_start=chart_start,
+            kline_limit=kline_limit,
+            kline_batch=kline_batch,
+        )
         benchmark_closes_by_market: dict[str, dict[str, float]] = {}
         calendar: set[str] = set()
 
         for market in MARKETS:
-            benchmark_symbol = (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market]
+            benchmark_symbol = resolved_benchmarks[market]
             benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
             if benchmark is None or not benchmark.bars:
                 continue
             benchmark_closes = {bar.bar_time[:10]: float(bar.close) for bar in benchmark.bars}
             benchmark_closes_by_market[market] = benchmark_closes
             calendar.update(day for day in benchmark_closes if day >= start_date)
-
-            for ticker in market_tickers_from_orders(orders, market=market):
-                kline = await self.kline_store.get_or_fetch_kline(
-                    ticker,
-                    market=market,
-                    kline_t="1D",
-                    start_time=chart_start,
-                    limit=0,
-                )
-                if kline is None or not kline.bars:
-                    continue
-                ticker_closes_by_market[market][ticker] = {
-                    bar.bar_time[:10]: float(bar.close) for bar in kline.bars if bar.close > 0
-                }
-                calendar.update(
-                    day for day in ticker_closes_by_market[market][ticker] if day >= start_date
-                )
+            for closes in ticker_closes_by_market.get(market, {}).values():
+                calendar.update(day for day in closes if day >= start_date)
 
         calendar_dates = sorted(calendar)
 
@@ -726,7 +858,7 @@ class PortfolioService:
             benchmark_closes = benchmark_closes_by_market.get(market)
             if not benchmark_closes or len(calendar_dates) < 2:
                 return None
-            benchmark_symbol = (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market]
+            benchmark_symbol = resolved_benchmarks[market]
             result = build_market_performance(
                 market=market,
                 orders=orders,
@@ -748,11 +880,11 @@ class PortfolioService:
             market, result = built
             series[market] = result
 
-        candidate_rows = [row for row in raw.get("candidates") or [] if isinstance(row, dict)]
         candidate_raw = await build_candidate_index_series_by_market(
             candidates=candidate_rows,
             stock_store=self.stock_store,
             kline_store=self.kline_store,
+            kline_batch=kline_batch,
         )
         candidate_series_by_market: dict[str, list[dict]] = {}
         candidate_stats_by_market: dict = {}
@@ -762,7 +894,7 @@ class PortfolioService:
             points = candidate_raw.get(market)
             if not points or len(points) < 2:
                 return None
-            benchmark_symbol = (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market]
+            benchmark_symbol = resolved_benchmarks[market]
             benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
             if benchmark is None or not benchmark.bars:
                 return None
@@ -813,7 +945,7 @@ class PortfolioService:
             if market not in benchmark_symbol_by_market:
                 benchmark_symbol_by_market[market] = item.benchmark_symbol
 
-        return PortfolioPerformanceView(
+        performance = PortfolioPerformanceView(
             dates=primary.dates,
             portfolio=primary.portfolio,
             benchmark=primary.benchmark,
@@ -826,6 +958,8 @@ class PortfolioService:
             stats_by_market={market: item.stats for market, item in series.items()},
             candidate_stats_by_market=candidate_stats_by_market,
         )
+        self._performance_cache.set(cache_key, performance)
+        return performance
 
     async def _build_candidates(self, rows: list) -> List[PortfolioCandidateView]:
         candidates: list[PortfolioCandidateView] = []

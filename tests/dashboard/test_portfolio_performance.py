@@ -12,7 +12,7 @@ from dojoagents.dashboard.services.portfolio_performance import (
 from dojoagents.dashboard.services.portfolio_service import PortfolioService
 from dojoagents.dashboard.services.portfolio_store import PortfolioStore
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse, ConstituentKlineBatchResponse
 from dojoagents.dashboard import deps
 from dojoagents.dashboard.routers.dojo_folio import router as folio_router
 from dojoagents.dashboard.schemas.portfolio import PortfolioDetail
@@ -118,6 +118,9 @@ async def test_lightweight_portfolio_detail_does_not_fetch_performance(tmp_path)
         async def get_or_fetch_kline(self, *_args, **_kwargs):
             raise AssertionError("lightweight detail must not fetch kline")
 
+        async def get_klines(self, *_args, **_kwargs):
+            raise AssertionError("lightweight detail must not fetch kline")
+
         def load_all(self, _ticker):
             return []
 
@@ -143,6 +146,114 @@ async def test_lightweight_portfolio_detail_does_not_fetch_performance(tmp_path)
 
     assert detail is not None
     assert detail.performance is None
+
+
+@pytest.mark.asyncio
+async def test_build_performance_batches_order_klines(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Batch")
+    for ticker, market in (("AAPL", "us"), ("MSFT", "us"), ("0700", "hk")):
+        store.add_order(
+            portfolio["id"],
+            order={
+                "id": f"order-{ticker}",
+                "ticker": ticker,
+                "market": market,
+                "order_side": "buy",
+                "order_status": "filled",
+                "price": 100.0,
+                "qty": 10.0,
+                "fill_price": 100.0,
+                "fill_time": "2026-01-02T00:00:00+00:00",
+                "created_at": "2026-01-02T00:00:00+00:00",
+            },
+        )
+
+    calls: list[list[str]] = []
+
+    class BatchKlines:
+        async def get_klines(self, symbols, limit=None):
+            del limit
+            calls.append(list(symbols))
+            items = {
+                symbol: StockKlineResponse(
+                    symbol=symbol,
+                    bars=[
+                        StockKlineBar(
+                            symbol=symbol,
+                            bar_time="2026-01-02",
+                            open=100,
+                            high=100,
+                            low=100,
+                            close=100,
+                        ),
+                        StockKlineBar(
+                            symbol=symbol,
+                            bar_time="2026-01-03",
+                            open=110,
+                            high=110,
+                            low=110,
+                            close=110,
+                        ),
+                    ],
+                )
+                for symbol in symbols
+            }
+            return ConstituentKlineBatchResponse(items=items)
+
+        async def get_or_fetch_kline(self, *_args, **_kwargs):
+            raise AssertionError("order performance must use get_klines batch")
+
+    class Stocks:
+        def get(self, *_args):
+            return None
+
+        def find_market(self, _ticker):
+            return "us"
+
+    class Sectors:
+        def get(self, *_args):
+            return None
+
+    class Benchmarks:
+        async def get_kline(self, symbol, limit=252):
+            del symbol, limit
+            return StockKlineResponse(
+                symbol="^SPX",
+                bars=[
+                    StockKlineBar(
+                        symbol="^SPX",
+                        bar_time="2026-01-02",
+                        open=100,
+                        high=100,
+                        low=100,
+                        close=100,
+                    ),
+                    StockKlineBar(
+                        symbol="^SPX",
+                        bar_time="2026-01-03",
+                        open=101,
+                        high=101,
+                        low=101,
+                        close=101,
+                    ),
+                ],
+            )
+
+    service = PortfolioService(
+        store,
+        Stocks(),
+        Sectors(),
+        BatchKlines(),
+        benchmark_store=Benchmarks(),
+    )
+
+    detail = await service.get_detail(portfolio["id"], include_performance=True)
+
+    assert len(calls) == 1
+    assert ["0700", "AAPL", "MSFT"] in calls
+    assert detail.performance is not None
+    assert "us" in detail.performance.series_by_market
 
 
 @pytest.mark.asyncio
@@ -235,6 +346,14 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
                     for index, day in enumerate(market_dates[market])
                 ],
             )
+
+        async def get_klines(self, symbols, limit=None):
+            del limit
+            items = {}
+            for symbol in symbols:
+                market = next(m for (m, s) in stocks if s == symbol)
+                items[symbol] = await self.get_or_fetch_kline(symbol, market=market)
+            return ConstituentKlineBatchResponse(items=items)
 
         def load_all(self, _ticker):
             return []
@@ -360,6 +479,10 @@ async def test_portfolio_holdings_use_bilingual_stock_names(tmp_path) -> None:
     class Klines:
         async def get_or_fetch_kline(self, *_args, **_kwargs):
             return StockKlineResponse(symbol="NVDA", bars=[])
+
+        async def get_klines(self, symbols, limit=None):
+            del limit
+            return ConstituentKlineBatchResponse(items={})
 
         def load_all(self, _ticker):
             return []

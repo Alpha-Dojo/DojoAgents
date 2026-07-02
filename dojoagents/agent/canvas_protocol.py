@@ -37,8 +37,9 @@ existing visualization pipeline over free-form chart code.
 - For cross-market valuation comparison, prefer a single `get_market_overview`
   call without `market` so the result covers US, CN, and HK together.
 - For sector ranking, prefer `get_sector_movers` and render ranked bars or tables.
-- For price trends, prefer `get_ticker_price_trends` with `start_date` (default inception
-  `2025-01-01`) and optional `end_date`. Do NOT use `limit` for historical windows.
+- For price trends, prefer `get_ticker_price_trends`. For one trading day, set both
+  `start_date` and `end_date` to that date (e.g. `2026-06-18`). Omit dates only for full
+  history since 2025-01-01.
 
 ### execute_code data fidelity (MANDATORY)
 

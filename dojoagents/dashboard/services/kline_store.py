@@ -27,6 +27,7 @@ from dojoagents.dashboard.services.kline_bar_utils import (
     DATA_START_DATE,
     KLINE_LIMIT,
     KLINE_MAX_LIMIT,
+    normalize_datetime,
     resolve_kline_limit_for_elapsed_days,
     resolve_tail_limit,
 )
@@ -38,11 +39,11 @@ def _to_float(value: object, default: float = 0.0) -> float:
     return float(value)
 
 
-def parse_kline_bar(row: dict) -> Optional[StockKlineBar]:
+def parse_kline_bar(row: dict, *, default_symbol: str = "") -> Optional[StockKlineBar]:
     if not isinstance(row, dict):
         return None
-    bar_time = str(row.get("date") or row.get("bar_time") or "").strip()
-    symbol = str(row.get("symbol") or "").strip()
+    bar_time = normalize_datetime(row.get("date") or row.get("bar_time") or row.get("datetime"))
+    symbol = str(row.get("symbol") or row.get("ticker") or default_symbol or "").strip()
     if not bar_time or not symbol:
         return None
     return StockKlineBar(
@@ -61,6 +62,25 @@ def parse_kline_bar(row: dict) -> Optional[StockKlineBar]:
         dividends=_to_float(row.get("dividends")),
         splits=_to_float(row.get("splits")),
     )
+
+
+def _prepare_kline_df(df: pd.DataFrame, *, symbol: str) -> pd.DataFrame:
+    if df.empty:
+        return df
+    prepared = df.copy()
+    time_col = "bar_time" if "bar_time" in prepared.columns else "date" if "date" in prepared.columns else None
+    if time_col is None:
+        return prepared.iloc[0:0].copy()
+    prepared["bar_time"] = prepared[time_col].map(
+        lambda value: normalize_datetime(value) or str(value).strip()[:10]
+    )
+    if "symbol" not in prepared.columns:
+        prepared["symbol"] = symbol
+    else:
+        prepared["symbol"] = prepared["symbol"].fillna(symbol).astype(str).str.strip().str.upper()
+        prepared.loc[prepared["symbol"] == "", "symbol"] = symbol
+    prepared = prepared[prepared["bar_time"].astype(str).str.len() >= 10]
+    return prepared
 
 
 class KlineStore:
@@ -93,6 +113,7 @@ class KlineStore:
         kline_t: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        min_bar_time: str | None = None,
         price_adj_type: str | None = None,
         limit: int | None = None,
         refresh: bool = False,
@@ -103,7 +124,11 @@ class KlineStore:
             end_time=end_time,
             limit=limit,
         )
-        cache_key = f"{symbol}_{kline_t}_{start_time}_{end_time}_{price_adj_type}_{resolved_limit}"
+        if min_bar_time and not start_time:
+            resolved_limit = 0
+        cache_key = (
+            f"{symbol}_{kline_t}_{start_time}_{end_time}_{min_bar_time}_{price_adj_type}_{resolved_limit}"
+        )
 
         if not refresh and cache_key in self._cache:
             return self._cache[cache_key]
@@ -111,20 +136,18 @@ class KlineStore:
         try:
             if resolved_limit > 0:
                 fetch_limit = resolved_limit
-            elif start_time:
+            elif start_time or end_time or min_bar_time:
                 fetch_limit = resolve_kline_limit_for_elapsed_days(
-                    start_time,
+                    start_time or min_bar_time or DATA_START_DATE,
                     end_date=end_time,
                 )
             else:
                 fetch_limit = KLINE_LIMIT
-            kwargs: Dict[str, Any] = {"limit": fetch_limit}
+            kwargs: Dict[str, Any] = {}
+            if fetch_limit > 0:
+                kwargs["limit"] = fetch_limit
             if kline_t is not None:
                 kwargs["kline_t"] = kline_t
-            if start_time is not None:
-                kwargs["start_time"] = start_time
-            if end_time is not None:
-                kwargs["end_time"] = end_time
             if price_adj_type is not None:
                 kwargs["price_adj_type"] = price_adj_type
 
@@ -137,21 +160,32 @@ class KlineStore:
         if df.empty:
             return None
 
-        if not df['bar_time'].is_monotonic_increasing:   # already sorted 
-            df = df.sort_values('bar_time')
+        df = _prepare_kline_df(df, symbol=symbol)
 
-        start = start_time[:10] if start_time else None
-        end = end_time[:10] if end_time else None
+        if df.empty:
+            return None
 
-        if start:
-            df = df[df["bar_time"] >= start]
-        if end:
-            df = df[df["bar_time"] <= end]
+        if not df["bar_time"].is_monotonic_increasing:   # already sorted
+            df = df.sort_values("bar_time")
+
+        filter_start = (start_time[:10] if start_time else None) or (
+            min_bar_time[:10] if min_bar_time else None
+        )
+        filter_end = end_time[:10] if end_time else None
+
+        if filter_start:
+            df = df[df["bar_time"] >= filter_start]
+        if filter_end:
+            df = df[df["bar_time"] <= filter_end]
 
         if resolved_limit > 0 and len(df) > resolved_limit:
             df = df.iloc[-resolved_limit:]
 
-        bars = [b for row in df.to_dict(orient="records") if (b := parse_kline_bar(row)) is not None]
+        bars = [
+            bar
+            for row in df.to_dict(orient="records")
+            if (bar := parse_kline_bar(row, default_symbol=symbol)) is not None
+        ]
         if not bars:
             return None
         as_of = bars[-1].bar_time
@@ -170,18 +204,26 @@ class KlineStore:
         resolved_limit = limit if limit is not None else KLINE_MAX_LIMIT
         self.initial_load_in_progress = True
         try:
-            result = await self.gateway.stock_all_klines()
-            df = result.data
-            if df.empty:
-                return
-            df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-            df = df[df["symbol"] != ""]
-            df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(subset=["symbol", "bar_time"], keep="last")
+            if hasattr(self.gateway, "warm_kline_index"):
+                await self.gateway.warm_kline_index()
+                index = getattr(self.gateway, "_kline_symbol_index", None)
+                self.member_symbols = len(index) if index else 0
+            else:
+                result = await self.gateway.stock_all_klines()
+                df = result.data
+                if df.empty:
+                    return
+                df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+                df = df[df["symbol"] != ""]
+                df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(
+                    subset=["symbol", "bar_time"], keep="last"
+                )
 
-            if resolved_limit > 0:
-                df = df.groupby("symbol").tail(resolved_limit).reset_index(drop=True)
+                if resolved_limit > 0:
+                    df = df.groupby("symbol").tail(resolved_limit).reset_index(drop=True)
 
-            self.member_symbols = df["symbol"].nunique()
+                self.member_symbols = df["symbol"].nunique()
+
             self._cache.clear()
             self.initial_load_complete = True
         finally:

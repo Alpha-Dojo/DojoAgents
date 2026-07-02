@@ -7,6 +7,7 @@ from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
 from dojoagents.agent.tool_result_artifacts import (
     ARTIFACT_PERSIST_THRESHOLD_CHARS,
+    ARTIFACT_KEEP_FULL_CONTENT_TOOLS,
     ToolResultArtifactStore,
     build_artifact_pointer_message,
 )
@@ -106,11 +107,12 @@ class ToolExecutor:
         if session_id:
             metadata.setdefault("session_id", session_id)
         artifact_path = None
-        if (
+        persist_artifact = (
             self.artifact_store is not None
             and session_id
             and len(content) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
-        ):
+        )
+        if persist_artifact:
             try:
                 artifact_path = self.artifact_store.save(
                     session_id=session_id,
@@ -124,12 +126,13 @@ class ToolExecutor:
                 )
                 metadata["artifact_path"] = str(artifact_path)
                 metadata["artifact_call_id"] = call.id
-                content = build_artifact_pointer_message(
-                    tool_name=call.name,
-                    call_id=call.id,
-                    arguments=dict(call.arguments),
-                    data=normalized.get("data"),
-                )
+                if call.name not in ARTIFACT_KEEP_FULL_CONTENT_TOOLS:
+                    content = build_artifact_pointer_message(
+                        tool_name=call.name,
+                        call_id=call.id,
+                        arguments=dict(call.arguments),
+                        data=normalized.get("data"),
+                    )
             except Exception:
                 LOGGER.exception(
                     "Failed to persist tool result artifact: session_id=%s call_id=%s tool=%s",

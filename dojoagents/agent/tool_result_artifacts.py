@@ -12,6 +12,12 @@ from dojoagents.logging import get_logger
 LOGGER = get_logger(__name__)
 
 ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
+ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
+    {
+        "execute_code",
+        "code_execution",
+    }
+)
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 

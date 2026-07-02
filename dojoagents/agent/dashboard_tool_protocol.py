@@ -29,7 +29,7 @@ When session history mentions an old portfolio task, treat it as **already done*
 | Full-market screen (市值/PE/涨跌幅 filters, no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
 | Resolve one company name → ticker | `search_company_ticker` (single q, known name) | Repeated keyword searches |
 | Analyze existing portfolio / 候选池成分分析 | `portfolio_read_search` → `portfolio_read_detail` → `get_ticker_financials` batch → answer | `portfolio_write_create`, add candidates, eval_submit |
-| Single stock deep dive | `get_ticker_realtime_quote`, `get_ticker_financials`, `get_ticker_price_trends` (always pass `start_date`, default `2025-01-01`) | — |
+| Single stock deep dive | `get_ticker_realtime_quote`, `get_ticker_financials`, `get_ticker_price_trends` (pass `start_date`/`end_date`; same day for one bar) | — |
 
 ### Analyze portfolio candidates (分析候选池 / 成分股怎么样)
 
@@ -76,7 +76,10 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 **User says 建仓 / 买入 / 按成本价 / 创建交易 / 持仓页面截图 with shares & cost:**
 1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
-2. For each row: `portfolio_write_create_order` (or batch `portfolio_write_create_orders`)
+2. If price/date is specified (e.g. 2026-06-18 开盘价): call `get_ticker_price_trends` with
+   `start_date` AND `end_date` both set to that day (YYYY-MM-DD), then read `open` from klines.
+   Do NOT call kline tools with only ticker/kline_t — that returns the full history.
+3. For each row: `portfolio_write_create_order` (or batch `portfolio_write_create_orders`)
    with `order_side=buy`, `price`=cost/limit, `qty`=shares, optional `order_time`=open date
 3. `portfolio_read_detail` → verify `eval_summary.position_count` (NOT candidate_count)
 4. `portfolio_eval_submit` with **min_position_count** matching filled positions

@@ -172,6 +172,42 @@ async def test_executor_persists_large_tool_result_and_replaces_llm_content(tmp_
     assert loaded["tool_name"] == "get_ticker_price_trends"
 
 
+@pytest.mark.asyncio
+async def test_executor_keeps_execute_code_stdout_when_large(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+
+    stdout = "GOOG summary\n" + ("analysis row\n" * 900)
+    assert len(stdout) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
+
+    async def fake_execute(_: dict) -> dict:
+        return {"content": stdout, "metadata": {"exit_code": 0}}
+
+    registry.register(
+        ToolSpec(
+            name="execute_code",
+            description="mock execute_code",
+            parameters={"type": "object", "properties": {}},
+            handler=fake_execute,
+        )
+    )
+
+    executor = ToolExecutor(registry, policy, artifact_store=store)
+    result = await executor.execute_one(
+        ToolCall(id="call-exec", name="execute_code", arguments={"code": "print('x')"}),
+        session_id="session-exec",
+    )
+
+    assert result.ok
+    assert "GOOG summary" in result.content
+    assert '"artifact": true' not in result.content
+    loaded = store.load("session-exec", "call-exec")
+    assert loaded is not None
+    assert loaded["tool_name"] == "execute_code"
+    assert "GOOG summary" in loaded["content"]
+
+
 def test_build_artifact_pointer_message_includes_call_id():
     message = build_artifact_pointer_message(
         tool_name="get_ticker_price_trends",

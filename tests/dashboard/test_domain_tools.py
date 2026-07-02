@@ -218,7 +218,7 @@ async def test_price_trends_tool_defaults_start_date_to_dashboard_inception(monk
     assert spec is not None
     await spec.handler({"ticker": "AAPL", "market": "us"})
 
-    assert captured["start_date"] == "2025-01-01"
+    assert captured["start_date"] is None
     assert captured["limit"] is None
 
 
