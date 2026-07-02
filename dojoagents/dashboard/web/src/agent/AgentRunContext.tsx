@@ -25,6 +25,7 @@ import {
 import type { AgentActivityStep, AgentApiMessage, AgentChatMessage, AgentLocale } from '../types/agent';
 import {
   appendEvalHint,
+  appendTextDelta,
   appendThinkDelta,
   appendThinkEnd,
   appendThinkStart,
@@ -318,6 +319,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         onDelta: (text: string) => {
           consumeEvent(() => {
             state.assistantText += text;
+            state.assistantSteps = appendTextDelta(state.assistantSteps, text);
             patchRunDraft(state);
           });
         },

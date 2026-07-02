@@ -28,6 +28,7 @@ import { AgentActivityTimeline } from "./AgentActivityTimeline";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
 import {
+  hasOrderedTextSteps,
   resolveActivitySteps,
   toggleThinkStep,
 } from "../../utils/agentActivityTimeline";
@@ -36,6 +37,7 @@ import {
   collectVizBlocksFromSteps,
   hasRenderedChartBlocks,
   stripRenderedChartBlocks,
+  stripRenderedChartBlocksFromSteps,
 } from "../../utils/agentVizContent";
 import {
   AGENT_MAX_IMAGE_ATTACHMENTS,
@@ -967,11 +969,20 @@ export function DojoAgentPanel({
                 message.role === "assistant"
                   ? collectVizBlocksFromSteps(activitySteps)
                   : [];
+              const hasOrderedText = hasOrderedTextSteps(activitySteps);
+              const hasRenderedCharts =
+                hasRenderedChartBlocks(messageVizBlocks);
+              const displayActivitySteps = hasOrderedText
+                ? stripRenderedChartBlocksFromSteps(
+                    activitySteps,
+                    hasRenderedCharts,
+                  )
+                : activitySteps;
               const displayContent =
                 message.role === "assistant"
                   ? stripRenderedChartBlocks(
                       message.content,
-                      hasRenderedChartBlocks(messageVizBlocks),
+                      hasRenderedCharts,
                     )
                   : message.content;
               const showAssistantBubble =
@@ -1024,7 +1035,7 @@ export function DojoAgentPanel({
                     ) : (
                       <>
                         <AgentActivityTimeline
-                          steps={activitySteps}
+                          steps={displayActivitySteps}
                           phase={isStreamingAssistant ? livePhase : null}
                           streaming={isStreamingAssistant}
                           retryNotice={
@@ -1034,7 +1045,7 @@ export function DojoAgentPanel({
                             toggleThinkBlock(index, blockId)
                           }
                         />
-                        {displayContent ? (
+                        {!hasOrderedText && displayContent ? (
                           <AgentMarkdown
                             content={displayContent}
                             streaming={isStreamingAssistant && !!displayContent}
