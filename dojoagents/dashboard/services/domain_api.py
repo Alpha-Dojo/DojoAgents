@@ -66,7 +66,12 @@ from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_income_for_market,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import report_type_for_market
-from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, resolve_tail_limit
+from dojoagents.dashboard.services.kline_bar_utils import (
+    DATA_START_DATE,
+    ashare_kline_symbol_candidates,
+    infer_ashare_kline_suffix,
+    resolve_tail_limit,
+)
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _stock_bilingual_name,
@@ -1690,15 +1695,19 @@ def _resolve_kline_symbol(
         candidates: list[str] = []
         if internal_market == "hk" and "." not in raw:
             candidates.append(f"{raw}.HK")
+        if "." not in raw:
+            candidates.extend(ashare_kline_symbol_candidates(raw))
         for candidate in candidates:
             stock = stock_store.resolve(candidate, market=internal_market)
             if stock is not None:
                 resolved_market = normalize_market_code(stock.market) or internal_market
                 return stock.ticker.strip().upper(), resolved_market
-            if internal_market is not None:
-                stock = stock_store.get(internal_market, candidate)
-                if stock is not None:
-                    return stock.ticker.strip().upper(), internal_market
+            lookup_market = internal_market or "sh"
+            if infer_ashare_kline_suffix(raw) is not None:
+                lookup_market = "sh"
+            stock = stock_store.get(lookup_market, candidate)
+            if stock is not None:
+                return stock.ticker.strip().upper(), lookup_market
 
         if internal_market is None:
             for candidate in (raw, *candidates):
@@ -1711,6 +1720,9 @@ def _resolve_kline_symbol(
 
     if internal_market == "hk" and "." not in raw:
         return f"{raw}.HK", internal_market
+    ashare_suffix = infer_ashare_kline_suffix(raw)
+    if ashare_suffix is not None and (internal_market in {None, "sh"}):
+        return f"{raw}{ashare_suffix}", internal_market or "sh"
     return raw, internal_market
 
 
@@ -1752,16 +1764,21 @@ async def build_ticker_price_trends_v1(
         fin_rows = fin_response.items
     except ValueError:
         fin_rows = None
+    bars = list(kline.bars)
     pe_band: CoreTickerPeBandResponse | None = await resolve_core_ticker_pe_band(
         symbol,
         market=internal_market,
         limit=resolved_limit,
+        start_time=start_date,
+        end_time=end_date,
+        kline_t=kline_t,
         stock_store=registry.stock_store,
         kline_store=registry.kline_store,
         fin_indicators_store=registry.stock_fin_indicators_store,
         fin_rows=fin_rows,
+        bars=bars,
+        as_of=kline.as_of,
     )
-    bars = list(kline.bars)
     period_start, period_end = _date_bounds(bars, "bar_time", "datetime", "date")
     return TickerPriceTrendsResponseV1(
         ticker=symbol,

@@ -8,6 +8,8 @@ import pytest
 from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
 from dojoagents.dashboard.services.kline_bar_utils import (
     DATA_START_DATE,
+    ashare_kline_symbol_candidates,
+    infer_ashare_kline_suffix,
     resolve_kline_limit_for_elapsed_days,
     resolve_tail_limit,
 )
@@ -116,3 +118,18 @@ async def test_get_or_fetch_kline_keeps_full_window_from_data_start() -> None:
             "limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE, end_date="2026-06-30"),
         }
     ]
+
+
+def test_infer_ashare_kline_suffix_maps_exchange_codes() -> None:
+    assert infer_ashare_kline_suffix("688008") == ".SS"
+    assert infer_ashare_kline_suffix("600519") == ".SS"
+    assert infer_ashare_kline_suffix("002230") == ".SZ"
+    assert infer_ashare_kline_suffix("300750") == ".SZ"
+    assert infer_ashare_kline_suffix("AAPL") is None
+    assert infer_ashare_kline_suffix("688008.SS") is None
+
+
+def test_ashare_kline_symbol_candidates_returns_suffixed_symbol() -> None:
+    assert ashare_kline_symbol_candidates("688008") == ["688008.SS"]
+    assert ashare_kline_symbol_candidates("002230") == ["002230.SZ"]
+
