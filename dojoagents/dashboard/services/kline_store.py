@@ -23,6 +23,13 @@ from dojoagents.dashboard.services.sector_constituents import (
     collect_sector_scope_tickers,
 )
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
+from dojoagents.dashboard.services.kline_bar_utils import (
+    DATA_START_DATE,
+    KLINE_LIMIT,
+    KLINE_MAX_LIMIT,
+    resolve_kline_limit_for_elapsed_days,
+    resolve_tail_limit,
+)
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -87,17 +94,31 @@ class KlineStore:
         start_time: str | None = None,
         end_time: str | None = None,
         price_adj_type: str | None = None,
-        limit: int = 252,
+        limit: int | None = None,
         refresh: bool = False,
     ) -> Optional[StockKlineResponse]:
         symbol = symbol.strip().upper()
-        cache_key = f"{symbol}_{kline_t}_{start_time}_{end_time}_{price_adj_type}_{limit}"
+        resolved_limit = resolve_tail_limit(
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
+        cache_key = f"{symbol}_{kline_t}_{start_time}_{end_time}_{price_adj_type}_{resolved_limit}"
 
         if not refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
         try:
-            kwargs: Dict[str, Any] = {"limit": limit}
+            if resolved_limit > 0:
+                fetch_limit = resolved_limit
+            elif start_time:
+                fetch_limit = resolve_kline_limit_for_elapsed_days(
+                    start_time,
+                    end_date=end_time,
+                )
+            else:
+                fetch_limit = KLINE_LIMIT
+            kwargs: Dict[str, Any] = {"limit": fetch_limit}
             if kline_t is not None:
                 kwargs["kline_t"] = kline_t
             if start_time is not None:
@@ -113,6 +134,9 @@ class KlineStore:
             LOGGER.exception("Failed to fetch kline for %s: %s", symbol, e)
             raise e
 
+        if df.empty:
+            return None
+
         if not df['bar_time'].is_monotonic_increasing:   # already sorted 
             df = df.sort_values('bar_time')
 
@@ -124,8 +148,8 @@ class KlineStore:
         if end:
             df = df[df["bar_time"] <= end]
 
-        if limit > 0 and len(df) > limit:
-            df = df.iloc[-limit:]
+        if resolved_limit > 0 and len(df) > resolved_limit:
+            df = df.iloc[-resolved_limit:]
 
         bars = [b for row in df.to_dict(orient="records") if (b := parse_kline_bar(row)) is not None]
         if not bars:
@@ -139,10 +163,11 @@ class KlineStore:
 
         return response
 
-    async def get_kline(self, symbol: str, limit: int = 252) -> Optional[StockKlineResponse]:
+    async def get_kline(self, symbol: str, limit: int | None = None) -> Optional[StockKlineResponse]:
         return await self.get_or_fetch_kline(symbol, limit=limit)
 
-    async def load(self, limit: int = 252) -> None:
+    async def load(self, limit: int | None = None) -> None:
+        resolved_limit = limit if limit is not None else KLINE_MAX_LIMIT
         self.initial_load_in_progress = True
         try:
             result = await self.gateway.stock_all_klines()
@@ -153,8 +178,8 @@ class KlineStore:
             df = df[df["symbol"] != ""]
             df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(subset=["symbol", "bar_time"], keep="last")
 
-            if limit > 0:
-                df = df.groupby("symbol").tail(limit).reset_index(drop=True)
+            if resolved_limit > 0:
+                df = df.groupby("symbol").tail(resolved_limit).reset_index(drop=True)
 
             self.member_symbols = df["symbol"].nunique()
             self._cache.clear()
@@ -162,14 +187,27 @@ class KlineStore:
         finally:
             self.initial_load_in_progress = False
 
-    async def get_klines(self, symbols: List[str], limit: int = 252) -> ConstituentKlineBatchResponse:
+    async def get_klines(
+        self,
+        symbols: List[str],
+        limit: int | None = None,
+    ) -> ConstituentKlineBatchResponse:
+        resolved_limit = (
+            limit
+            if limit is not None
+            else resolve_kline_limit_for_elapsed_days(DATA_START_DATE)
+        )
         items: Dict[str, StockKlineResponse] = {}
         latest: Optional[str] = None
 
         canonical_symbols = [s.strip().upper() for s in symbols]
 
-        missing_cache = [s for s in canonical_symbols if f"{s}_None_None_None_{None}_{limit}" not in self._cache]
-        results = await self.gateway.stock_klines(canonical_symbols, limit=limit)
+        missing_cache = [
+            s
+            for s in canonical_symbols
+            if f"{s}_None_None_None_{None}_{resolved_limit}" not in self._cache
+        ]
+        results = await self.gateway.stock_klines(canonical_symbols, limit=resolved_limit)
         df_all = results.data
 
         # Build each symbol's response from the single batched gateway result to avoid per-symbol fetches.
@@ -179,19 +217,19 @@ class KlineStore:
 
                 if not df_sym.empty:
                     df_sym = df_sym.sort_values(by="bar_time")
-                    if limit > 0:
-                        df_sym = df_sym.tail(limit)
+                    if resolved_limit > 0:
+                        df_sym = df_sym.tail(resolved_limit)
 
                     bars = [b for row in df_sym.to_dict(orient="records") if (b := parse_kline_bar(row)) is not None]
                     if bars:
                         response = StockKlineResponse(symbol=s, as_of=bars[-1].bar_time, bars=bars)
-                        cache_key = f"{s}_None_None_None_None_{limit}"
+                        cache_key = f"{s}_None_None_None_None_{resolved_limit}"
                         if len(self._cache) >= self._cache_limit:
                             self._cache.pop(next(iter(self._cache)))
                         self._cache[cache_key] = response
                         items[s] = response
             else:
-                response = await self.get_or_fetch_kline(s, limit=limit)
+                response = await self.get_or_fetch_kline(s, limit=resolved_limit)
                 if response is not None:
                     items[s] = response
 

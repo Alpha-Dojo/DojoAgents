@@ -29,7 +29,7 @@ When session history mentions an old portfolio task, treat it as **already done*
 | Full-market screen (市值/PE/涨跌幅 filters, no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
 | Resolve one company name → ticker | `search_company_ticker` (single q, known name) | Repeated keyword searches |
 | Analyze existing portfolio / 候选池成分分析 | `portfolio_read_search` → `portfolio_read_detail` → `get_ticker_financials` batch → answer | `portfolio_write_create`, add candidates, eval_submit |
-| Single stock deep dive | `get_ticker_realtime_quote`, `get_ticker_financials`, `get_ticker_price_trends` | — |
+| Single stock deep dive | `get_ticker_realtime_quote`, `get_ticker_financials`, `get_ticker_price_trends` (always pass `start_date`, default `2025-01-01`) | — |
 
 ### Analyze portfolio candidates (分析候选池 / 成分股怎么样)
 

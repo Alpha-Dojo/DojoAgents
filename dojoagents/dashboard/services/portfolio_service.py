@@ -21,6 +21,11 @@ from dojoagents.dashboard.services.portfolio_order_execution import (
 )
 from dojoagents.dashboard.services.portfolio_store import MARKETS, PortfolioStore
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_bar_utils import (
+    DATA_START_DATE,
+    KLINE_MAX_LIMIT,
+    resolve_kline_limit_for_elapsed_days,
+)
 from dojoagents.dashboard.services.market_stats import display_valuation_ratio
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
@@ -124,12 +129,8 @@ def _resolve_kline_limit(raw: dict) -> int:
     config = raw.get("config") if isinstance(raw.get("config"), dict) else {}
     start = str(config.get("start_date") or "")[:10]
     if not start:
-        return 252
-    try:
-        elapsed = (date.today() - date.fromisoformat(start)).days
-    except ValueError:
-        return 252
-    return min(500, max(252, int(elapsed * 5 / 7) + 40))
+        return KLINE_MAX_LIMIT
+    return resolve_kline_limit_for_elapsed_days(start)
 
 
 def _config_capital_by_market(raw: dict) -> Optional[dict]:
@@ -682,6 +683,7 @@ class PortfolioService:
         kline_limit = _resolve_kline_limit(raw)
         config = raw.get("config") if isinstance(raw.get("config"), dict) else {}
         start_date = _portfolio_start_date(config, [row for row in raw.get("orders") or [] if isinstance(row, dict)])
+        chart_start = start_date if start_date >= DATA_START_DATE else DATA_START_DATE
         orders = [row for row in raw.get("orders") or [] if isinstance(row, dict)]
 
         ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {market: {} for market in MARKETS}
@@ -702,7 +704,8 @@ class PortfolioService:
                     ticker,
                     market=market,
                     kline_t="1D",
-                    limit=kline_limit,
+                    start_time=chart_start,
+                    limit=0,
                 )
                 if kline is None or not kline.bars:
                     continue

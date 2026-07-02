@@ -100,8 +100,10 @@ class Runtime:
         tool_registry.register(get_terminal_spec(policy))
 
         from dojoagents.tools.code_execution_tool import get_code_execution_spec
+        from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
 
-        tool_registry.register(get_code_execution_spec(tool_registry, policy))
+        artifact_store = ToolResultArtifactStore(config.sessions.root)
+        tool_registry.register(get_code_execution_spec(tool_registry, policy, artifact_store=artifact_store))
 
         from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
 
@@ -224,6 +226,7 @@ class Runtime:
             tool_executor=ToolExecutor(
                 tool_registry,
                 policy,
+                artifact_store=artifact_store,
             ),
             skill_manager=skill_manager,
             memory_manager=memory,

@@ -107,6 +107,29 @@ def _df_result(df: "pd.DataFrame") -> GatewayResult["pd.DataFrame"]:
     return GatewayResult(df, None, "sdk_snapshot", False)
 
 
+def _filter_klines_df(df: "pd.DataFrame", symbols: list[str]) -> "pd.DataFrame":
+    if df.empty or not symbols:
+        return df.iloc[0:0].copy()
+    canonical = [_canonical_symbol(symbol) for symbol in symbols]
+    if "symbol" in df.columns:
+        normalized = df.copy()
+        normalized["symbol"] = normalized["symbol"].astype(str).str.strip().str.upper()
+        return normalized[normalized["symbol"].isin(canonical)].copy()
+    available = {_canonical_symbol(str(index)) for index in df.index}
+    selected = [symbol for symbol in canonical if symbol in available]
+    if not selected:
+        return df.iloc[0:0].copy()
+    return df.loc[selected].copy()
+
+
+def _symbols_in_klines_df(df: "pd.DataFrame") -> set[str]:
+    if df.empty:
+        return set()
+    if "symbol" in df.columns:
+        return set(df["symbol"].astype(str).str.strip().str.upper())
+    return {_canonical_symbol(str(index)) for index in df.index.unique()}
+
+
 class DojoDataGateway:
     def __init__(self, client: Any) -> None:
         self.client = client
@@ -155,30 +178,56 @@ class DojoDataGateway:
         **window: Any,
     ) -> GatewayResult["pd.DataFrame"]:
         kwargs = {key: value for key, value in window.items() if value is not None}
+        canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
+        if kwargs.get("start_time") or kwargs.get("end_time"):
+            return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
+
+        bulk_df = pd.DataFrame()
         try:
             payload_df = await self._call(
                 "stock_klines",
                 self.client.stocks.get_all_klines_with_df(),
             )
-            canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
-            df = payload_df.loc[canonical_symbols]
-            return _df_result(df)
+            bulk_df = _filter_klines_df(payload_df, canonical_symbols)
         except Exception:
-            pass
+            bulk_df = pd.DataFrame()
 
-        async def fetch_one(symbol: str) -> GatewayResult[list[dict[str, Any]]]:
+        found_symbols = _symbols_in_klines_df(bulk_df)
+        missing_symbols = [symbol for symbol in canonical_symbols if symbol not in found_symbols]
+        if not missing_symbols:
+            return _df_result(bulk_df)
+
+        extra_rows = await self._fetch_kline_rows(missing_symbols, kwargs)
+        if bulk_df.empty and not extra_rows:
+            return _df_result(pd.DataFrame())
+
+        frames = [frame for frame in (bulk_df, pd.DataFrame(extra_rows)) if not frame.empty]
+        merged = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
+        return _df_result(merged)
+
+    async def _fetch_kline_rows(self, symbols: list[str], kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        async def fetch_one(symbol: str) -> list[dict[str, Any]]:
             payload = await self._call(
                 "stock_klines",
-                self.client.stocks.get_kline(symbol=_canonical_symbol(symbol), **kwargs),
+                self.client.stocks.get_kline(symbol=symbol, **kwargs),
             )
-            return _list_result(payload, "stock_klines", "klines")
+            result = _list_result(payload, "stock_klines", "klines")
+            return result.data
 
-        results = await asyncio.gather(*(fetch_one(s) for s in symbols), return_exceptions=True)
+        results = await asyncio.gather(*(fetch_one(symbol) for symbol in symbols), return_exceptions=True)
         rows: list[dict[str, Any]] = []
-        for res in results:
-            if isinstance(res, Exception):
+        for result in results:
+            if isinstance(result, Exception):
                 continue
-            rows.extend(res.data)
+            rows.extend(result)
+        return rows
+
+    async def _fetch_klines_per_symbol(
+        self,
+        symbols: list[str],
+        kwargs: dict[str, Any],
+    ) -> GatewayResult["pd.DataFrame"]:
+        rows = await self._fetch_kline_rows(symbols, kwargs)
         return _df_result(pd.DataFrame(rows))
 
     async def stock_all_klines(
@@ -194,8 +243,7 @@ class DojoDataGateway:
                 self.client.stocks.get_all_klines_with_df(),
             )
             if symbols is not None:
-                canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
-                payload_df = payload_df.loc[canonical_symbols]
+                payload_df = _filter_klines_df(payload_df, symbols)
             return _df_result(payload_df)
         except Exception:
             pass

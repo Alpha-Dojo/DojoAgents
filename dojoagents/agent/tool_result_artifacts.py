@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from dojoagents.agent.session_repository import _atomic_write_json
+from dojoagents.logging import get_logger
+
+LOGGER = get_logger(__name__)
+
+ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
+_CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_call_id(call_id: str) -> str:
+    text = str(call_id or "").strip()
+    if not text or not _CALL_ID_PATTERN.fullmatch(text):
+        raise ValueError(f"invalid tool result call_id: {call_id!r}")
+    return text
+
+
+def _validate_session_id(session_id: str) -> str:
+    text = str(session_id or "").strip()
+    if not text or "/" in text or "\\" in text or text in {".", ".."}:
+        raise ValueError(f"invalid session id: {session_id!r}")
+    return text
+
+
+class ToolResultArtifactStore:
+    """Persist large tool outputs for execute_code via hermes_tools.load_tool_result."""
+
+    def __init__(self, sessions_root: str | Path) -> None:
+        self.sessions_root = Path(sessions_root).expanduser().resolve()
+
+    def _artifact_dir(self, session_id: str) -> Path:
+        safe_session = _validate_session_id(session_id)
+        return self.sessions_root / safe_session / "tool_results"
+
+    def artifact_path(self, session_id: str, call_id: str) -> Path:
+        safe_call_id = _validate_call_id(call_id)
+        return self._artifact_dir(session_id) / f"{safe_call_id}.json"
+
+    def save(
+        self,
+        *,
+        session_id: str,
+        call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        content: str,
+        data: Any = None,
+        ok: bool = True,
+        truncated: bool = False,
+    ) -> Path:
+        path = self.artifact_path(session_id, call_id)
+        payload = {
+            "schema_version": 1,
+            "session_id": _validate_session_id(session_id),
+            "call_id": _validate_call_id(call_id),
+            "tool_name": tool_name,
+            "arguments": dict(arguments or {}),
+            "ok": ok,
+            "truncated": truncated,
+            "content": content,
+            "data": data,
+            "created_at": _utc_now(),
+        }
+        _atomic_write_json(path, payload)
+        return path
+
+    def load(self, session_id: str, call_id: str) -> dict[str, Any] | None:
+        path = self.artifact_path(session_id, call_id)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            LOGGER.exception("Failed to read tool result artifact: %s", path)
+            return None
+
+    def list_summaries(self, session_id: str) -> list[dict[str, Any]]:
+        directory = self._artifact_dir(session_id)
+        if not directory.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        for path in sorted(directory.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                LOGGER.exception("Failed to read tool result artifact summary: %s", path)
+                continue
+            if not isinstance(payload, dict):
+                continue
+            rows.append(
+                {
+                    "call_id": payload.get("call_id") or path.stem,
+                    "tool_name": payload.get("tool_name"),
+                    "created_at": payload.get("created_at"),
+                    "truncated": bool(payload.get("truncated")),
+                    "content_chars": len(str(payload.get("content") or "")),
+                }
+            )
+        rows.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        return rows
+
+
+def build_artifact_pointer_message(
+    *,
+    tool_name: str,
+    call_id: str,
+    arguments: dict[str, Any] | None = None,
+    data: Any = None,
+) -> str:
+    summary: dict[str, Any] = {
+        "artifact": True,
+        "tool": tool_name,
+        "call_id": call_id,
+        "load_hint": f'hermes_tools.load_tool_result("{call_id}")',
+        "rpc_hint": f"Re-fetch live data with hermes_tools.{tool_name}(...) inside execute_code when needed.",
+    }
+    if isinstance(data, dict):
+        if data.get("ticker") or data.get("symbol"):
+            summary["ticker"] = data.get("ticker") or data.get("symbol")
+        if data.get("market"):
+            summary["market"] = data.get("market")
+        klines = data.get("klines") or data.get("bars")
+        if isinstance(klines, list):
+            summary["row_count"] = len(klines)
+        items = data.get("items")
+        if isinstance(items, list):
+            summary["row_count"] = len(items)
+    if arguments:
+        for key in ("ticker", "tickers", "market", "portfolio_id"):
+            if key in arguments and arguments[key]:
+                summary[key] = arguments[key]
+    return json.dumps(summary, ensure_ascii=False, indent=2)

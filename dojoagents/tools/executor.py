@@ -5,6 +5,11 @@ import time
 from typing import Any
 from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
+from dojoagents.agent.tool_result_artifacts import (
+    ARTIFACT_PERSIST_THRESHOLD_CHARS,
+    ToolResultArtifactStore,
+    build_artifact_pointer_message,
+)
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.terminal_tool import truncate_output
@@ -14,10 +19,17 @@ _MAX_TOOL_RESULT_CHARS = 30000
 
 
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry, sandbox: SandboxPolicy) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        sandbox: SandboxPolicy,
+        *,
+        artifact_store: ToolResultArtifactStore | None = None,
+    ) -> None:
         self.registry = registry
         self.sandbox = sandbox
         self.presenters = ToolResultPresenterRegistry()
+        self.artifact_store = artifact_store
 
     async def execute_many(self, tool_calls: list[ToolCall], *, session_id: str = "") -> ToolResultList:
         results = ToolResultList()
@@ -93,6 +105,38 @@ class ToolExecutor:
         metadata = dict(normalized.get("metadata", {}))
         if session_id:
             metadata.setdefault("session_id", session_id)
+        artifact_path = None
+        if (
+            self.artifact_store is not None
+            and session_id
+            and len(content) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
+        ):
+            try:
+                artifact_path = self.artifact_store.save(
+                    session_id=session_id,
+                    call_id=call.id,
+                    tool_name=call.name,
+                    arguments=dict(call.arguments),
+                    content=content,
+                    data=normalized.get("data"),
+                    ok=True,
+                    truncated=bool(normalized.get("truncated", False)),
+                )
+                metadata["artifact_path"] = str(artifact_path)
+                metadata["artifact_call_id"] = call.id
+                content = build_artifact_pointer_message(
+                    tool_name=call.name,
+                    call_id=call.id,
+                    arguments=dict(call.arguments),
+                    data=normalized.get("data"),
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Failed to persist tool result artifact: session_id=%s call_id=%s tool=%s",
+                    session_id,
+                    call.id,
+                    call.name,
+                )
         return ToolResult(
             call_id=call.id,
             name=call.name,

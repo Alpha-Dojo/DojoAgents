@@ -65,6 +65,7 @@ from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_income_for_market,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import report_type_for_market
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, resolve_tail_limit
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _stock_bilingual_name,
@@ -1593,6 +1594,50 @@ async def build_ticker_news_events_v1(
     )
 
 
+def _resolve_kline_symbol(
+    stock_store,
+    ticker: str,
+    market: Optional[str],
+) -> tuple[str, Optional[str]]:
+    """Map user ticker input to canonical SDK/stock_store symbol (e.g. 0700 + hk -> 0700.HK)."""
+    raw = ticker.strip().upper()
+    internal_market = normalize_market_code(market)
+    if not raw:
+        return raw, internal_market
+
+    if stock_store is not None:
+        stock = stock_store.resolve(raw, market=internal_market)
+        if stock is not None:
+            resolved_market = normalize_market_code(stock.market) or internal_market
+            return stock.ticker.strip().upper(), resolved_market
+
+        candidates: list[str] = []
+        if internal_market == "hk" and "." not in raw:
+            candidates.append(f"{raw}.HK")
+        for candidate in candidates:
+            stock = stock_store.resolve(candidate, market=internal_market)
+            if stock is not None:
+                resolved_market = normalize_market_code(stock.market) or internal_market
+                return stock.ticker.strip().upper(), resolved_market
+            if internal_market is not None:
+                stock = stock_store.get(internal_market, candidate)
+                if stock is not None:
+                    return stock.ticker.strip().upper(), internal_market
+
+        if internal_market is None:
+            for candidate in (raw, *candidates):
+                found_market = stock_store.find_market(candidate)
+                if not found_market:
+                    continue
+                stock = stock_store.get(found_market, candidate)
+                if stock is not None:
+                    return stock.ticker.strip().upper(), normalize_market_code(found_market)
+
+    if internal_market == "hk" and "." not in raw:
+        return f"{raw}.HK", internal_market
+    return raw, internal_market
+
+
 async def build_ticker_price_trends_v1(
     registry,
     *,
@@ -1603,9 +1648,16 @@ async def build_ticker_price_trends_v1(
     limit: Optional[int],
     kline_t: str = "1D",
 ) -> Optional[TickerPriceTrendsResponseV1]:
+    if not start_date:
+        start_date = DATA_START_DATE
     internal_market = normalize_market_code(market)
-    symbol = ticker.strip().upper()
-    resolved_limit = limit or 252
+    symbol, resolved_market = _resolve_kline_symbol(registry.stock_store, ticker, market)
+    internal_market = resolved_market or internal_market
+    resolved_limit = resolve_tail_limit(
+        start_time=start_date,
+        end_time=end_date,
+        limit=limit,
+    )
     kline = await registry.kline_store.get_or_fetch_kline(
         symbol,
         market=internal_market,

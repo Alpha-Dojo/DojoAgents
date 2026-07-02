@@ -98,16 +98,73 @@ async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
     )
     gateway = DojoDataGateway(client)
 
-    result = await gateway.stock_klines(
-        "sh",
-        ["600000", "000001"],
-        start_time="2026-01-01",
-        end_time="2026-06-20",
-        limit=100,
-    )
+    result = await gateway.stock_klines(["600000", "000001"])
 
     assert list(result.data["symbol"]) == ["600000", "000001"]
     assert client.stocks.calls == [("get_all_klines_with_df", {})]
+
+
+@pytest.mark.asyncio
+async def test_stock_klines_falls_back_to_per_symbol_when_missing_from_bulk() -> None:
+    import pandas as pd
+
+    client = FakeDojo(
+        stocks={
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
+                ]
+            ),
+            "get_kline": {
+                "klines": [
+                    {"symbol": "2513.HK", "bar_time": "2026-06-20", "close": 12.0},
+                ]
+            },
+        }
+    )
+    gateway = DojoDataGateway(client)
+
+    result = await gateway.stock_klines(["AAPL", "2513.HK"], limit=100)
+
+    assert set(result.data["symbol"]) == {"AAPL", "2513.HK"}
+    assert client.stocks.calls == [
+        ("get_all_klines_with_df", {}),
+        ("get_kline", {"symbol": "2513.HK", "limit": 100}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stock_klines_uses_per_symbol_fetch_for_date_window() -> None:
+    import pandas as pd
+
+    client = FakeDojo(
+        stocks={
+            "get_all_klines_with_df": pd.DataFrame(
+                [
+                    {"symbol": "0700.HK", "bar_time": "2025-06-20", "close": 10.0},
+                ]
+            ),
+            "get_kline": {
+                "klines": [
+                    {"symbol": "0700.HK", "bar_time": "2025-01-02", "close": 8.0},
+                    {"symbol": "0700.HK", "bar_time": "2026-06-30", "close": 12.0},
+                ]
+            },
+        }
+    )
+    gateway = DojoDataGateway(client)
+
+    result = await gateway.stock_klines(
+        ["0700.HK"],
+        start_time="2025-01-01",
+        end_time="2026-06-30",
+        limit=500,
+    )
+
+    assert list(result.data["bar_time"]) == ["2025-01-02", "2026-06-30"]
+    assert client.stocks.calls == [
+        ("get_kline", {"symbol": "0700.HK", "start_time": "2025-01-01", "end_time": "2026-06-30", "limit": 500}),
+    ]
 
 
 @pytest.mark.asyncio

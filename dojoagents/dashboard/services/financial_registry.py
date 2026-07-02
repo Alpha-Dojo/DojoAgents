@@ -187,6 +187,8 @@ class FinancialDomainRegistry:
                 cache.clear()
         if self.sector_movers_service is not None:
             self.sector_movers_service.invalidate()
+        if self.dojo_sphere_service is not None:
+            await self.dojo_sphere_service.metrics_store.clear_all()
         if self.sector_precomputed_store is not None:
             self.sector_precomputed_store.clear_cache()
             self.sector_precomputed_store.reload()
