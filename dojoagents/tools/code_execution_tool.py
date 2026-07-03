@@ -186,7 +186,7 @@ async def handle_code_execution(
 
     env = os.environ.copy()
     env["PYTHONPATH"] = temp_dir
-
+    env["PYTHONIOENCODING"] = "utf-8"
     proc = await asyncio.create_subprocess_exec(
         "python",
         script_file,
