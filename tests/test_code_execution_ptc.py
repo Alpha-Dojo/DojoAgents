@@ -258,3 +258,42 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
     assert "tool_rows" in payload["parse_hint"]
+
+
+def test_build_artifact_pointer_message_includes_viz_hint_for_drawdown_payload() -> None:
+    message = build_artifact_pointer_message(
+        tool_name="execute_code",
+        call_id="exec-1",
+        data={
+            "dates": ["2025-01-02", "2025-01-03"],
+            "prices": [150.0, 145.0],
+            "drawdown_pcts": [0.0, -3.3],
+            "summary": {"ticker": "SNDK", "max_drawdown_pct": 3.3},
+        },
+    )
+    payload = json.loads(message)
+    assert payload["viz_hint"]["mapping_hint"] == "drawdown_analysis"
+    assert "agent_viz_build" in payload["viz_build_hint"]
+
+
+def test_extract_viz_payload_from_execute_code_stdout() -> None:
+    from dojoagents.agent.tool_result_artifacts import (
+        enrich_execute_code_tool_result,
+        extract_viz_payload_from_content,
+        format_execute_code_viz_hint,
+    )
+
+    stdout = (
+        "=== SNDK summary ===\nMax drawdown 17.5%\n\n"
+        "=== VIZ_DATA ===\n"
+        '{"dates":["2025-01-02","2025-01-03"],"prices":[150.0,145.0],"drawdown_pcts":[0.0,-3.3],'
+        '"summary":{"ticker":"SNDK","max_drawdown_pct":17.5}}'
+    )
+    payload = extract_viz_payload_from_content(stdout)
+    assert payload is not None
+    assert payload["summary"]["ticker"] == "SNDK"
+    assert "drawdown_analysis" in format_execute_code_viz_hint(payload)
+
+    enriched = enrich_execute_code_tool_result({"content": stdout})
+    assert enriched["data"]["summary"]["max_drawdown_pct"] == 17.5
+    assert "--- viz_hint ---" in enriched["content"]

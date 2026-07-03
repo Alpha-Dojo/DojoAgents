@@ -5,7 +5,12 @@ import sys
 import tempfile
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore, get_tool_artifact_schema_hint
+from dojoagents.agent.tool_result_artifacts import (
+    ToolResultArtifactStore,
+    extract_viz_payload_from_content,
+    get_tool_artifact_schema_hint,
+    get_viz_hint_for_payload,
+)
 from dojoagents.logging import get_logger
 from dojoagents.tools.hermes_tools_stub import (
     HERMES_INTERNAL_LIST_TOOLS,
@@ -85,11 +90,18 @@ class AsyncCodeExecutionRPC:
                 "data": None,
                 "error": f"Tool result artifact not found for call_id={call_id}",
             }
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            extracted = extract_viz_payload_from_content(str(payload.get("content") or ""))
+            if extracted is not None:
+                data = extracted
+        viz_hint = get_viz_hint_for_payload(data if isinstance(data, dict) else None)
         return {
             "ok": True,
             "content": payload.get("content", ""),
-            "data": payload.get("data"),
+            "data": data,
             "schema_hint": get_tool_artifact_schema_hint(str(payload.get("tool_name") or "")),
+            "viz_hint": viz_hint,
             "error": None,
         }
 
