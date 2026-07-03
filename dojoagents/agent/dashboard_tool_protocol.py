@@ -152,9 +152,9 @@ FORBIDDEN as the primary way to discover investable tickers when sector/screen t
 
 ### execute_code (computation only — NOT for text formatting)
 
-Use `execute_code` ONLY when you must batch-call hermes_tools or run pandas/numpy transforms on
-fetched tool data inside one script. After `load_tool_result`, use `hermes_tools.tool_rows(res)`
-(not `data['data']`) — e.g. `pd.DataFrame(hermes_tools.tool_rows(res))`; price-trend rows live
+Use `execute_code` ONLY when you must batch-call dojo_tools or run pandas/numpy transforms on
+fetched tool data inside one script. After `load_tool_result`, use `dojo_tools.tool_rows(res)`
+(not `data['data']`) — e.g. `pd.DataFrame(dojo_tools.tool_rows(res))`; price-trend rows live
 in `klines` with date field `datetime`.
 
 FORBIDDEN uses of `execute_code`:

@@ -162,7 +162,7 @@ def tool_rows(res, key=None):
         return nested
     keys = ", ".join(sorted(data.keys())) if isinstance(data, dict) else "n/a"
     raise KeyError(
-        "no tabular rows in tool payload; inspect hermes_tools.tool_json(res) keys: " + keys
+        "no tabular rows in tool payload; inspect dojo_tools.tool_json(res) keys: " + keys
     )
 
 
