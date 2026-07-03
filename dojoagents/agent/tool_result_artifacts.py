@@ -27,26 +27,26 @@ TOOL_ARTIFACT_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
         "rows_key": "klines",
         "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
         "pandas_example": (
-            "df = pd.DataFrame(hermes_tools.tool_rows(res)); "
+            "df = pd.DataFrame(dojo_tools.tool_rows(res)); "
             "df['date'] = pd.to_datetime(df['datetime'])"
         ),
     },
     "dojo.sdk.stock.kline": {
         "rows_key": "klines",
         "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
-        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
     },
     "get_ticker_financials": {
         "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
     },
     "screen_market_stocks": {
         "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
     },
     "filter_sector_constituents": {
         "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
     },
 }
 
@@ -284,8 +284,8 @@ def build_artifact_pointer_message(
     if schema_hint:
         summary["schema_hint"] = schema_hint
         summary["parse_hint"] = (
-            "res = hermes_tools.load_tool_result(call_id); "
-            "rows = hermes_tools.tool_rows(res); "
+            "res = dojo_tools.load_tool_result(call_id); "
+            "rows = dojo_tools.tool_rows(res); "
             f"df = pd.DataFrame(rows)  # rows_key={schema_hint.get('rows_key')!r}"
         )
 

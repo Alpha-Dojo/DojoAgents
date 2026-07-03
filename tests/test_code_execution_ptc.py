@@ -135,9 +135,9 @@ async def test_code_execution_tool_rows_from_artifact(tmp_path):
     registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
 
     code = (
-        "import hermes_tools\n"
-        "res = hermes_tools.load_tool_result('call-sndk')\n"
-        "rows = hermes_tools.tool_rows(res)\n"
+        "import dojo_tools\n"
+        "res = dojo_tools.load_tool_result('call-sndk')\n"
+        "rows = dojo_tools.tool_rows(res)\n"
         "print('Rows:', len(rows), 'FirstClose:', rows[0]['close'])\n"
     )
     result = await handle_code_execution(
