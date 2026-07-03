@@ -333,6 +333,8 @@
 
 .dojo-agent-panel__history-empty svg {
   opacity: 0.35;
+  width: 32px;
+  height: 32px;
 }
 
 .dojo-agent-panel__history-empty p {
