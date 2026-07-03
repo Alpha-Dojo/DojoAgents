@@ -73,6 +73,24 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 |---------|----------|---------|------|------------|
 | Watchlist | 候选股 | Track symbols, no capital spent | `portfolio_write_add_candidate(s)` | `min_candidate_count` |
 | Filled buy | 持仓 / 建仓 | Spend capital at price × qty | `portfolio_write_create_order(s)` | `min_position_count` |
+| Filled sell / 清仓 | 卖出 / 清仓 | Reduce or close positions via orders | `portfolio_write_create_order(s)` sell | `max_position_count=0` |
+
+**User says 清仓 / 全部卖出 / liquidate all (existing portfolio):**
+1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
+2. `portfolio_read_detail` → read current positions (shares per ticker)
+3. `portfolio_write_create_orders` with `order_side=sell` for each held ticker.
+   - **清仓 intent:** omit `qty` — server defaults to all held shares per ticker.
+   - **Partial sell without qty:** server stops and asks the user (suggest 50%, 75%, 100% via `qty_pct`).
+   - Optional explicit sizing: `qty` (shares) or `qty_pct` (0.5 = 50%) or `liquidate_all=true`.
+4. `portfolio_read_detail` → verify `eval_summary.position_count` is **0**
+5. `portfolio_eval_submit` with **max_position_count=0** and **require_kind_agent=false**
+   (manual portfolios are never `require_kind_agent=true` unless you used `portfolio_write_create` this run).
+
+**Do NOT for 清仓:** `portfolio_write_add_candidate`, `portfolio_write_create`, or `require_kind_agent=true`.
+
+**User says 卖出 / 减仓 (partial, no qty given):**
+- Do NOT guess share count. Wait for user to pick 50%, 75%, 100%, or an exact `qty`.
+- After confirmation, call `portfolio_write_create_order(s)` with `qty` or `qty_pct`.
 
 **User says 建仓 / 买入 / 按成本价 / 创建交易 / 持仓页面截图 with shares & cost:**
 1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
@@ -125,6 +143,7 @@ FORBIDDEN as the primary way to discover investable tickers when sector/screen t
 
 **Watchlist / 候选股:** create → add_candidates → read_detail → eval_submit (min_candidate_count)
 **建仓 / 买入:** read_search → create_order(s) with price+qty → read_detail → eval_submit (min_position_count)
+**清仓 / 全部卖出:** read_search → read_detail → create_order(s) sell → read_detail → eval_submit (max_position_count=0)
 **Delete:** read_list → write_delete → done (no read_detail, no eval_submit)
 
 ### Batch calls

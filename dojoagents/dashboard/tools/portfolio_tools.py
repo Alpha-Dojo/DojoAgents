@@ -446,6 +446,7 @@ def register_dashboard_portfolio_tools(
                 "min_candidates_by_market": min_by_market,
                 "min_position_count": args.get("min_position_count"),
                 "min_positions_by_market": min_positions_by_market,
+                "max_position_count": args.get("max_position_count"),
             }
         )
         if submission is None:
@@ -463,7 +464,8 @@ def register_dashboard_portfolio_tools(
                 f"Actual positions: total={summary['position_count']}, "
                 f"by_market={summary['position_count_by_market']}. "
                 "Use portfolio_read_detail eval_summary. "
-                "For 建仓 tasks use portfolio_write_create_order(s) and min_position_count, "
+                "For 建仓 tasks use portfolio_write_create_order(s) and min_position_count. "
+                "For 清仓 tasks use max_position_count=0 and require_kind_agent=false. "
                 "NOT portfolio_write_add_candidate(s)."
             )
 
@@ -475,6 +477,7 @@ def register_dashboard_portfolio_tools(
             "min_candidates_by_market": submission.min_candidates_by_market,
             "min_position_count": submission.min_position_count,
             "min_positions_by_market": submission.min_positions_by_market,
+            "max_position_count": submission.max_position_count,
             "accepted": True,
             "eval_summary": summary,
         }
@@ -523,6 +526,8 @@ def register_dashboard_portfolio_tools(
                 "Submit portfolio task success criteria AFTER portfolio_read_detail. "
                 "Watchlist tasks: min_candidate_count. "
                 "建仓/买入 tasks: min_position_count (filled positions from create_order). "
+                "清仓/liquidation tasks: max_position_count=0, require_kind_agent=false. "
+                "Set require_kind_agent=true ONLY when portfolio_write_create was used in this run. "
                 "Never use min_candidate_count to verify 建仓 — candidates ≠ positions."
             ),
             parameters={
@@ -535,7 +540,7 @@ def register_dashboard_portfolio_tools(
                     },
                     "require_kind_agent": {
                         "type": "boolean",
-                        "description": "Set true when you used portfolio_write_create (DojoAgent-generated).",
+                        "description": "Set true ONLY when you used portfolio_write_create in this run.",
                     },
                     "min_candidate_count": {
                         "type": "integer",
@@ -556,6 +561,11 @@ def register_dashboard_portfolio_tools(
                         "type": "object",
                         "description": "Optional per-market position minimums for 建仓, e.g. {\"us\": 3}.",
                         "additionalProperties": {"type": "integer", "minimum": 0},
+                    },
+                    "max_position_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Maximum filled positions after sell — use 0 for 清仓/liquidation tasks.",
                     },
                 },
                 "required": ["portfolio_id", "task_summary"],
@@ -699,10 +709,12 @@ def register_dashboard_portfolio_tools(
         ToolSpec(
             name="portfolio_write_create_order",
             description=(
-                "Buy or sell to create/update a REAL position (持仓/建仓). "
+                "Buy or sell to create/update a REAL position (持仓/建仓/清仓). "
                 "Provide ticker + order_side; price/qty/order_time are optional — the server resolves defaults: "
                 "no date -> latest close; date only -> that day's open; price only -> nearest day where price is "
-                "within daily low/high; no qty on buy -> 10% of available market cash (lot-normalized). "
+                "within daily low/high; no qty on buy -> 10% of available market cash (lot-normalized); "
+                "no qty on sell -> if user asked 清仓/全部卖出, sell all held shares; otherwise ask the user "
+                "(suggest 50%, 75%, 100% via qty_pct). "
                 "US qty must be whole shares; HK/A-share qty must be multiples of 100. "
                 "Limit price must fall within the trade day's high/low range."
             ),
@@ -721,6 +733,14 @@ def register_dashboard_portfolio_tools(
                         "type": "number",
                         "description": "Optional shares; US integer, HK/A-share multiple of 100",
                     },
+                    "qty_pct": {
+                        "type": "number",
+                        "description": "Optional sell fraction of held shares (0-1), e.g. 0.5 for 50%",
+                    },
+                    "liquidate_all": {
+                        "type": "boolean",
+                        "description": "When true on sell, default qty to all held shares for this ticker",
+                    },
                     "order_time": {
                         "type": "string",
                         "description": "Optional execution date YYYY-MM-DD",
@@ -733,8 +753,9 @@ def register_dashboard_portfolio_tools(
         ToolSpec(
             name="portfolio_write_create_orders",
             description=(
-                "Batch 建仓: place multiple buy/sell orders. Each row needs ticker + order_side; "
+                "Batch buy/sell orders. Each row needs ticker + order_side; "
                 "price/qty/order_time optional with the same server-side resolution rules as create_order. "
+                "For 清仓, omit qty on sell rows when the user asked to liquidate all — server fills held shares. "
                 "Preflight checks capital budget and order validity before any fill."
             ),
             parameters={
@@ -751,6 +772,14 @@ def register_dashboard_portfolio_tools(
                                 "order_side": {"type": "string", "enum": ["buy", "sell"]},
                                 "price": {"type": "number"},
                                 "qty": {"type": "number"},
+                                "qty_pct": {
+                                    "type": "number",
+                                    "description": "Optional sell fraction of held shares (0-1)",
+                                },
+                                "liquidate_all": {
+                                    "type": "boolean",
+                                    "description": "Sell all held shares for this ticker",
+                                },
                                 "order_time": {"type": "string"},
                             },
                             "required": ["ticker", "order_side"],

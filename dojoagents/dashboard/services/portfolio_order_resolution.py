@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from dojoagents.agent.escalation import AgentEscalationError
+from dojoagents.agent.harnesses.portfolio_eval import _position_rows_from_detail
+from dojoagents.agent.harnesses.portfolio_task_intent import is_liquidation_intent
 from dojoagents.dashboard.schemas.portfolio import CreatePortfolioOrderRequest
 from dojoagents.dashboard.services.domain_api import _resolve_kline_symbol
 from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, extract_bar_time
@@ -126,11 +128,137 @@ def _default_buy_quantity(market: str, available_cash: float, price: float) -> i
     return normalize_shares(market, target_value / price)
 
 
+def _normalize_market_code(market: str | None) -> str:
+    normalized = str(market or "").strip().lower()
+    if normalized == "cn":
+        return "sh"
+    return normalized
+
+
+def held_shares_from_detail(detail: Any, *, ticker: str, market: str | None) -> float:
+    payload: dict[str, Any]
+    if hasattr(detail, "model_dump"):
+        payload = detail.model_dump()
+    elif isinstance(detail, dict):
+        payload = detail
+    else:
+        return 0.0
+    target_ticker = ticker.strip().upper()
+    target_market = _normalize_market_code(market)
+    for row in _position_rows_from_detail(payload):
+        row_ticker = str(row.get("ticker") or "").strip().upper()
+        row_market = _normalize_market_code(str(row.get("market") or ""))
+        if row_ticker != target_ticker:
+            continue
+        if target_market and row_market and row_market != target_market:
+            continue
+        return float(row.get("shares") or 0)
+    return 0.0
+
+
+def _sell_qty_options(*, ticker: str, market: str, held: float) -> list[str]:
+    if held <= 0:
+        return ["Specify exact share count (no shares currently held)"]
+    if market == "us":
+        half = max(1, int(round(held * 0.5)))
+        three_quarter = max(1, int(round(held * 0.75)))
+        full = int(round(held))
+    else:
+        half = normalize_shares(market, held * 0.5)
+        three_quarter = normalize_shares(market, held * 0.75)
+        full = normalize_shares(market, held)
+    return [
+        f"Sell 50% ({half:.0f} shares) of {ticker}",
+        f"Sell 75% ({three_quarter:.0f} shares) of {ticker}",
+        f"Sell 100% ({full:.0f} shares) of {ticker}",
+        "Specify exact share count",
+    ]
+
+
+def _resolve_sell_quantity(
+    *,
+    internal_market: str,
+    canonical_ticker: str,
+    held: float,
+    user_qty: float | None,
+    raw_qty_pct: Any,
+    liquidate_all: bool,
+    user_message: str,
+    meta: ResolvedOrderMeta,
+) -> float:
+    if user_qty is not None:
+        qty_error = validate_share_quantity(internal_market, user_qty)
+        if qty_error:
+            _raise_escalation(
+                "invalid_order_quantity",
+                f"{qty_error} for {canonical_ticker}",
+                context={
+                    "ticker": canonical_ticker,
+                    "market": internal_market,
+                    "qty": user_qty,
+                },
+            )
+        meta.qty_source = "user"
+        return float(int(round(user_qty)) if internal_market == "us" else int(round(user_qty)))
+
+    if raw_qty_pct is not None:
+        try:
+            pct = float(raw_qty_pct)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("qty_pct must be a number between 0 and 1") from exc
+        if not 0 < pct <= 1:
+            raise RuntimeError("qty_pct must be greater than 0 and at most 1")
+        if held <= 0:
+            raise RuntimeError(f"No held shares to sell for {canonical_ticker}")
+        resolved = float(normalize_shares(internal_market, held * pct))
+        if resolved <= 0:
+            _raise_escalation(
+                "invalid_order_quantity",
+                f"qty_pct {pct:.0%} of held shares for {canonical_ticker} is below the minimum tradable lot",
+                context={
+                    "ticker": canonical_ticker,
+                    "market": internal_market,
+                    "held_shares": held,
+                    "qty_pct": pct,
+                },
+            )
+        meta.qty_source = "qty_pct"
+        meta.notes.append(f"Defaulted quantity to {resolved:.0f} shares ({pct:.0%} of held position).")
+        return resolved
+
+    if liquidate_all or is_liquidation_intent(user_message):
+        if held <= 0:
+            raise RuntimeError(f"No held shares to sell for {canonical_ticker}")
+        resolved = float(normalize_shares(internal_market, held) if internal_market != "us" else int(round(held)))
+        meta.qty_source = "held_shares"
+        meta.notes.append(f"Defaulted quantity to all held shares ({resolved:.0f}).")
+        return resolved
+
+    _raise_escalation(
+        "sell_qty_unspecified",
+        (
+            f"Sell quantity not specified for {canonical_ticker}. "
+            "Ask the user what portion to sell before placing the order."
+        ),
+        context={
+            "ticker": canonical_ticker,
+            "market": internal_market,
+            "held_shares": held,
+            "user_options": _sell_qty_options(
+                ticker=canonical_ticker,
+                market=internal_market,
+                held=held,
+            ),
+        },
+    )
+
+
 def _raise_escalation(code: str, message: str, *, context: dict[str, Any] | None = None) -> None:
     user_input_codes = {
         "capital_budget_exceeded",
         "invalid_order_quantity",
         "price_not_fillable",
+        "sell_qty_unspecified",
     }
     raise AgentEscalationError(
         code,
@@ -393,7 +521,26 @@ async def resolve_portfolio_order_request(
             f"Defaulted quantity to {resolved_qty:.0f} shares ({DEFAULT_POSITION_PCT:.0%} of available cash)."
         )
     else:
-        raise RuntimeError("qty is required for sell orders")
+        from dojoagents.tools.process_registry import active_user_message
+
+        detail = await service.get_detail(portfolio_id, include_performance=False)
+        if detail is None:
+            raise RuntimeError("portfolio not found")
+        held = held_shares_from_detail(
+            detail,
+            ticker=canonical_ticker,
+            market=internal_market,
+        )
+        resolved_qty = _resolve_sell_quantity(
+            internal_market=internal_market,
+            canonical_ticker=canonical_ticker,
+            held=held,
+            user_qty=None,
+            raw_qty_pct=args.get("qty_pct"),
+            liquidate_all=bool(args.get("liquidate_all")),
+            user_message=str(args.get("user_message") or active_user_message.get() or ""),
+            meta=meta,
+        )
 
     body = CreatePortfolioOrderRequest(
         ticker=canonical_ticker,
