@@ -14,6 +14,8 @@ class HarnessDecision:
     allow_extra_steps: bool = False
     blocked_calls: list[dict[str, Any]] = field(default_factory=list)
     stop_code: str = "harness_incomplete"
+    escalation_code: str | None = None
+    escalation_context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -7,6 +7,8 @@ from dojoagents.logging import LOGGER
 
 # Context variable to track active session ID (typically session key) during tool execution
 active_session_id = contextvars.ContextVar("active_session_id", default="")
+# Latest user message for the active agent run (order intent resolution, etc.)
+active_user_message = contextvars.ContextVar("active_user_message", default="")
 
 
 class BackgroundProcessSession:

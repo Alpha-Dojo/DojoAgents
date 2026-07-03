@@ -66,6 +66,66 @@ function parseSymbolList(value: unknown): string[] {
   return [];
 }
 
+interface OrderResolutionMeta {
+  qty_source?: string;
+}
+
+interface OrderResultRow {
+  ticker?: string;
+  qty?: number;
+  order_side?: string;
+  resolution?: OrderResolutionMeta;
+}
+
+function formatShareQty(qty: number, locale: 'zh' | 'en'): string {
+  const formatted = Math.round(qty).toLocaleString(locale === 'zh' ? 'zh-CN' : 'en-US');
+  return locale === 'zh' ? `${formatted} 股` : `${formatted} shares`;
+}
+
+function formatDefault10PctDisclosure(row: OrderResultRow, locale: 'zh' | 'en'): string | null {
+  if (row.resolution?.qty_source !== 'default_10pct') return null;
+  const side = typeof row.order_side === 'string' ? row.order_side.toLowerCase() : 'buy';
+  if (side !== 'buy') return null;
+
+  const ticker = typeof row.ticker === 'string' ? row.ticker.trim() : '';
+  const qty = typeof row.qty === 'number' && Number.isFinite(row.qty) ? row.qty : null;
+  const qtyLabel = qty != null ? formatShareQty(qty, locale) : null;
+
+  if (locale === 'zh') {
+    const detail = [ticker || null, qtyLabel].filter(Boolean).join(' · ');
+    const suffix = detail ? `（${detail}）` : '';
+    return `未指定买入数量，已按可用现金 10% 默认建仓${suffix}`;
+  }
+
+  const detail = [ticker || null, qtyLabel].filter(Boolean).join(' · ');
+  const suffix = detail ? ` (${detail})` : '';
+  return `Buy quantity not specified; defaulted to 10% of available cash${suffix}`;
+}
+
+function collectDefault10PctDisclosures(
+  data: Record<string, unknown>,
+  locale: 'zh' | 'en',
+): string[] {
+  const orderResult = data.order_result;
+  if (!orderResult || typeof orderResult !== 'object') return [];
+
+  const rows: OrderResultRow[] = [];
+  const payload = orderResult as Record<string, unknown>;
+  if (Array.isArray(payload.filled_orders)) {
+    for (const row of payload.filled_orders) {
+      if (row && typeof row === 'object') {
+        rows.push(row as OrderResultRow);
+      }
+    }
+  } else if (payload.resolution || payload.ticker) {
+    rows.push(payload as OrderResultRow);
+  }
+
+  return rows
+    .map((row) => formatDefault10PctDisclosure(row, locale))
+    .filter((item): item is string => Boolean(item));
+}
+
 export function formatToolArguments(
   tool: string,
   args: Record<string, unknown> | undefined,
@@ -265,5 +325,6 @@ export function formatToolResultData(
   if (tickers.length > 0) {
     parts.push(previewTickers(tickers, 8));
   }
+  parts.push(...collectDefault10PctDisclosures(data, locale));
   return parts.length > 0 ? parts.join(' · ') : null;
 }

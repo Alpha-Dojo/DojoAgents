@@ -409,6 +409,9 @@ class AgentLoop:
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
         harness_state = HarnessLoopState(request=request)
+        from dojoagents.tools.process_registry import active_user_message
+
+        user_msg_token = active_user_message.set(str(request.message or ""))
 
         def _resolve_active_harness():
             return next(
@@ -507,6 +510,7 @@ class AgentLoop:
 
             plan_results = await event_bus.publish("TaskComplexityHigh", {"request": request})
             if plan_results:
+                active_user_message.reset(user_msg_token)
                 return plan_results[0]
             plan_prompt = self._plan_activation_hook.get_plan_prompt()
             system = system + "\n\n" + plan_prompt
@@ -518,6 +522,7 @@ class AgentLoop:
         if model_id is None and (hasattr(self.llm_provider, "_mock_return_value") or hasattr(self.llm_provider, "assert_called")):
             model_id = "test-model"
         if model_id is None:
+            active_user_message.reset(user_msg_token)
             return AgentResponse(
                 content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
                 session_id=request.session_id,
@@ -991,6 +996,7 @@ class AgentLoop:
                 if stopped_reason == "guardrail_halt":
                     if not response_text.startswith("Blocked"):
                         response_text = f"Blocked {response_text}"
+                active_user_message.reset(user_msg_token)
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
@@ -1108,6 +1114,7 @@ class AgentLoop:
             metadata.get("stopped"),
         )
 
+        active_user_message.reset(user_msg_token)
         return AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata)
 
     def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
