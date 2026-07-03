@@ -692,6 +692,105 @@ def _map_price_trends(data: dict[str, Any], truncated: bool) -> list[dict[str, A
     ]
 
 
+def _series_points_from_parallel(dates: list[Any], values: list[Any]) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    for date_value, raw_value in zip(dates, values):
+        numeric = _num(raw_value)
+        if numeric is None:
+            continue
+        date_text = str(date_value or "").strip()[:10]
+        if not date_text:
+            continue
+        points.append({"date": date_text, "value": numeric})
+    return points
+
+
+def _map_drawdown_analysis(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
+    dates = data.get("dates")
+    prices = data.get("prices")
+    if not isinstance(dates, list) or not isinstance(prices, list) or len(dates) < 2 or len(prices) < 2:
+        return []
+
+    price_points = _series_points_from_parallel(dates, prices)
+    if len(price_points) < 2:
+        return []
+
+    drawdown_values = data.get("drawdown_pcts")
+    if drawdown_values is None:
+        drawdown_values = data.get("drawdown_pct")
+    series: list[dict[str, Any]] = [
+        {
+            "id": "price",
+            "label": str(data.get("price_label") or "Price"),
+            "points": price_points,
+        }
+    ]
+    if isinstance(drawdown_values, list) and len(drawdown_values) >= 2:
+        drawdown_points = _series_points_from_parallel(dates, drawdown_values)
+        if len(drawdown_points) >= 2:
+            series.append(
+                {
+                    "id": "drawdown",
+                    "label": str(data.get("drawdown_label") or "Drawdown %"),
+                    "points": drawdown_points,
+                }
+            )
+
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    ticker = str(summary.get("ticker") or data.get("ticker") or data.get("symbol") or "").strip()
+    name = str(summary.get("name") or data.get("name") or "").strip()
+    title_parts = [part for part in (ticker, name) if part]
+    title = str(data.get("title") or (" · ".join(title_parts) if title_parts else "Drawdown analysis"))
+    subtitle = data.get("subtitle")
+    if subtitle is None and summary.get("max_drawdown_pct") is not None:
+        subtitle = f"Max DD {abs(_num(summary.get('max_drawdown_pct')) or 0):.2f}%"
+
+    blocks: list[dict[str, Any]] = [
+        _block(
+            "line",
+            {"series": series},
+            title=title,
+            subtitle=subtitle,
+            source_tool="drawdown_analysis",
+            truncated=truncated,
+        )
+    ]
+
+    metrics: list[dict[str, Any]] = []
+    max_dd = _num(summary.get("max_drawdown_pct"))
+    if max_dd is not None:
+        metrics.append({"label": "Max drawdown", "value": f"{abs(max_dd):.2f}%", "trend": "down"})
+    total_return = _num(summary.get("total_return_pct"))
+    if total_return is not None:
+        metrics.append(
+            {
+                "label": "Total return",
+                "value": f"{total_return:+.2f}%",
+                "trend": "up" if total_return >= 0 else "down",
+            }
+        )
+    for key, label in (
+        ("start_price", "Start price"),
+        ("end_price", "End price"),
+        ("max_dd_date", "Drawdown date"),
+        ("peak_date", "Peak date"),
+    ):
+        value = summary.get(key)
+        if value is not None and str(value).strip():
+            metrics.append({"label": label, "value": value})
+    if metrics:
+        blocks.append(
+            _block(
+                "kpi_row",
+                {"metrics": metrics[:6]},
+                title=f"{title} · KPIs" if title else "Drawdown KPIs",
+                source_tool="drawdown_analysis",
+                truncated=truncated,
+            )
+        )
+    return blocks
+
+
 def _map_news_events(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
     items = []
     for row in data.get("news") or data.get("items") or []:
@@ -1116,6 +1215,7 @@ _MAPPERS: dict[str, MapperFn] = {
     "ticker_quote": _map_ticker_quote,
     "ticker_financials": _map_ticker_financials,
     "ticker_kline": _map_price_trends,
+    "drawdown_analysis": _map_drawdown_analysis,
     "news_timeline": _map_news_events,
     "portfolio_list": _map_portfolio_list,
     "portfolio_analysis": _map_portfolio_analysis,
@@ -1150,6 +1250,8 @@ _ALIASES = {
     "portfolio_write_add_holding": "portfolio_analysis",
     "portfolio_write_add_holdings": "portfolio_analysis",
     "portfolio_write_auto_allocate": "portfolio_analysis",
+    "execute_code": "drawdown_analysis",
+    "code_execution": "drawdown_analysis",
 }
 
 _KIND_BUILDERS: dict[str, MapperFn] = {
@@ -1173,6 +1275,8 @@ def _canonical_hint(value: Any) -> str:
 
 def _auto_blocks(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
     candidates: list[str] = []
+    if isinstance(data.get("dates"), list) and isinstance(data.get("prices"), list):
+        candidates.append("drawdown_analysis")
     if any(key in data for key in ("klines", "klines_chart", "klines_tail", "bars")):
         candidates.append("ticker_kline")
     if any(key in data for key in ("holdings", "stats_by_market", "nav_by_market", "net_value_by_market")):
@@ -1252,7 +1356,14 @@ def _kinds_payload() -> dict[str, Any]:
             {"kind": "table", "use_for": "rankings, holdings, search results"},
             {"kind": "timeline", "use_for": "news and events"},
             {"kind": "quote_card", "use_for": "single ticker quote snapshot"},
-        ]
+        ],
+        "mapping_hints": [
+            {
+                "hint": "drawdown_analysis",
+                "use_for": "execute_code VIZ_DATA with dates + prices (+ drawdown_pcts)",
+                "produces": ["line", "kpi_row"],
+            },
+        ],
     }
 
 
@@ -1316,7 +1427,10 @@ def get_agent_viz_specs() -> list[ToolSpec]:
                     "data": {"type": "object", "description": "Compact structured source data to visualize."},
                     "mapping_hint": {
                         "type": "string",
-                        "description": "Hint such as portfolio_analysis, ticker_quote, ticker_kline, market_overview, sector_movers, stock_screen, news_timeline.",
+                        "description": (
+                            "Hint such as portfolio_analysis, ticker_quote, ticker_kline, drawdown_analysis, "
+                            "market_overview, sector_movers, stock_screen, news_timeline."
+                        ),
                     },
                     "max_rows": {"type": "integer"},
                     "truncated": {"type": "boolean"},

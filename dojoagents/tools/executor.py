@@ -11,6 +11,7 @@ from dojoagents.agent.tool_result_artifacts import (
     ARTIFACT_KEEP_FULL_CONTENT_TOOLS,
     ToolResultArtifactStore,
     build_artifact_pointer_message,
+    extract_viz_payload_from_content,
 )
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -130,13 +131,16 @@ class ToolExecutor:
         )
         if persist_artifact:
             try:
+                artifact_data = normalized.get("data")
+                if artifact_data is None and call.name in {"execute_code", "code_execution"}:
+                    artifact_data = extract_viz_payload_from_content(content)
                 artifact_path = self.artifact_store.save(
                     session_id=session_id,
                     call_id=call.id,
                     tool_name=call.name,
                     arguments=dict(call.arguments),
                     content=content,
-                    data=normalized.get("data"),
+                    data=artifact_data,
                     ok=True,
                     truncated=bool(normalized.get("truncated", False)),
                 )
@@ -148,6 +152,7 @@ class ToolExecutor:
                         call_id=call.id,
                         arguments=dict(call.arguments),
                         data=normalized.get("data"),
+                        content=content,
                     )
             except Exception:
                 LOGGER.exception(

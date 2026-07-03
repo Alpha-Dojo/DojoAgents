@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
+from dojoagents.agent.empty_assistant import sanitize_session_message
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage
 from strands.session.session_repository import SessionRepository
@@ -137,6 +138,8 @@ class DojoSessionRepository(SessionRepository):
         session_message: SessionMessage,
         **kwargs: Any,
     ) -> None:
+        locale = str(kwargs.get("locale") or "en")
+        session_message = sanitize_session_message(session_message, locale=locale)
         self._write_json(
             self._message_path(session_id, agent_id, session_message.message_id),
             session_message.to_dict(),
@@ -159,6 +162,8 @@ class DojoSessionRepository(SessionRepository):
         if previous is None:
             raise SessionException(f"Message {session_message.message_id} does not exist")
         session_message.created_at = previous.created_at
+        locale = str(kwargs.get("locale") or "en")
+        session_message = sanitize_session_message(session_message, locale=locale)
         self._write_json(self._message_path(session_id, agent_id, session_message.message_id), session_message.to_dict())
 
     def list_messages(

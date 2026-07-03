@@ -115,6 +115,41 @@ async def test_code_execution_load_tool_result_artifact(tmp_path):
     assert "Loaded: 520.0" in result["content"]
 
 
+@pytest.mark.asyncio
+async def test_code_execution_tool_rows_from_artifact(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    rows = [
+        {"datetime": "2025-01-06", "open": 193.98, "high": 195.0, "low": 192.0, "close": 194.5},
+        {"datetime": "2025-01-07", "open": 194.5, "high": 196.0, "low": 193.0, "close": 195.2},
+    ]
+    store.save(
+        session_id="session-1",
+        call_id="call-sndk",
+        tool_name="get_ticker_price_trends",
+        arguments={"ticker": "SNDK", "market": "us"},
+        content=json.dumps({"ticker": "SNDK", "klines": rows}),
+        data={"ticker": "SNDK", "klines": rows},
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+
+    code = (
+        "import dojo_tools\n"
+        "res = dojo_tools.load_tool_result('call-sndk')\n"
+        "rows = dojo_tools.tool_rows(res)\n"
+        "print('Rows:', len(rows), 'FirstClose:', rows[0]['close'])\n"
+    )
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+    assert "Rows: 2 FirstClose: 194.5" in result["content"]
+
+
 def test_hermes_stub_maps_dotted_tool_names():
     assert hermes_function_name("get_ticker_price_trends") == "get_ticker_price_trends"
     assert hermes_function_name("dojo.sdk.stock.kline") == "dojo_sdk_stock_kline"
@@ -125,6 +160,7 @@ def test_hermes_stub_maps_dotted_tool_names():
     assert "def get_ticker_price_trends(" in stub
     assert "def dojo_sdk_stock_kline(" in stub
     assert "def load_tool_result(" in stub
+    assert "def tool_rows(" in stub
 
 
 @pytest.mark.asyncio
@@ -210,3 +246,45 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert payload["artifact"] is True
     assert payload["call_id"] == "abc-123"
     assert "load_tool_result" in payload["load_hint"]
+    assert payload["schema_hint"]["rows_key"] == "klines"
+    assert "datetime" in payload["schema_hint"]["row_fields"]
+    assert "tool_rows" in payload["parse_hint"]
+
+
+def test_build_artifact_pointer_message_includes_viz_hint_for_drawdown_payload() -> None:
+    message = build_artifact_pointer_message(
+        tool_name="execute_code",
+        call_id="exec-1",
+        data={
+            "dates": ["2025-01-02", "2025-01-03"],
+            "prices": [150.0, 145.0],
+            "drawdown_pcts": [0.0, -3.3],
+            "summary": {"ticker": "SNDK", "max_drawdown_pct": 3.3},
+        },
+    )
+    payload = json.loads(message)
+    assert payload["viz_hint"]["mapping_hint"] == "drawdown_analysis"
+    assert "agent_viz_build" in payload["viz_build_hint"]
+
+
+def test_extract_viz_payload_from_execute_code_stdout() -> None:
+    from dojoagents.agent.tool_result_artifacts import (
+        enrich_execute_code_tool_result,
+        extract_viz_payload_from_content,
+        format_execute_code_viz_hint,
+    )
+
+    stdout = (
+        "=== SNDK summary ===\nMax drawdown 17.5%\n\n"
+        "=== VIZ_DATA ===\n"
+        '{"dates":["2025-01-02","2025-01-03"],"prices":[150.0,145.0],"drawdown_pcts":[0.0,-3.3],'
+        '"summary":{"ticker":"SNDK","max_drawdown_pct":17.5}}'
+    )
+    payload = extract_viz_payload_from_content(stdout)
+    assert payload is not None
+    assert payload["summary"]["ticker"] == "SNDK"
+    assert "drawdown_analysis" in format_execute_code_viz_hint(payload)
+
+    enriched = enrich_execute_code_tool_result({"content": stdout})
+    assert enriched["data"]["summary"]["max_drawdown_pct"] == 17.5
+    assert "--- viz_hint ---" in enriched["content"]

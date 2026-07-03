@@ -5,7 +5,12 @@ import sys
 import tempfile
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
+from dojoagents.agent.tool_result_artifacts import (
+    ToolResultArtifactStore,
+    extract_viz_payload_from_content,
+    get_tool_artifact_schema_hint,
+    get_viz_hint_for_payload,
+)
 from dojoagents.logging import get_logger
 from dojoagents.tools.dojo_tools_stub import (
     HERMES_INTERNAL_LIST_TOOLS,
@@ -85,10 +90,18 @@ class AsyncCodeExecutionRPC:
                 "data": None,
                 "error": f"Tool result artifact not found for call_id={call_id}",
             }
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            extracted = extract_viz_payload_from_content(str(payload.get("content") or ""))
+            if extracted is not None:
+                data = extracted
+        viz_hint = get_viz_hint_for_payload(data if isinstance(data, dict) else None)
         return {
             "ok": True,
             "content": payload.get("content", ""),
-            "data": payload.get("data"),
+            "data": data,
+            "schema_hint": get_tool_artifact_schema_hint(str(payload.get("tool_name") or "")),
+            "viz_hint": viz_hint,
             "error": None,
         }
 
@@ -239,10 +252,17 @@ def get_code_execution_spec(
     return ToolSpec(
         name="execute_code",
         description=(
-            "Execute Python scripts with access to registered DojoAgents tools via `import dojo_tools`. "
+            "Execute Python for dojo_tools batch orchestration or pandas/numpy computation on fetched data. "
             "NEVER hardcode market prices or financial rows — fetch data with dojo_tools RPC helpers "
             f"(e.g. {sample_tools}) or `dojo_tools.load_tool_result(call_id)` for persisted large tool outputs. "
-            "Use `dojo_tools.tool_json(res)` to parse JSON tool payloads."
+            "Use `dojo_tools.tool_json(res)` to parse JSON tool payloads. "
+            "For tabular tool data (klines/items), use `dojo_tools.tool_rows(res)` — "
+            "e.g. `df = pd.DataFrame(dojo_tools.tool_rows(res))` after load_tool_result; "
+            "get_ticker_price_trends rows are in `klines` with field `datetime` (not `data` or `bar_time`). "
+            "After computation, print structured VIZ_DATA JSON when a chart is needed; the tool result "
+            "includes a viz_hint footer for agent_viz_build. "
+            "FORBIDDEN: using this tool to print ASCII diagrams, schema docs, design proposals, or formatted "
+            "text reports — write those directly in the assistant reply instead."
         ),
         parameters={
             "type": "object",

@@ -30,6 +30,31 @@ class KlineGateway:
         return GatewayResult(pd.DataFrame(filtered), None, "sdk_snapshot", False)
 
 
+class TailOnlyKlineGateway:
+    """Bulk index returns only the most recent ``tail`` bars unless a date window is requested."""
+
+    def __init__(self, rows: list[dict], *, tail: int = 252) -> None:
+        self.rows = rows
+        self.tail = tail
+        self.calls: list[dict] = []
+
+    async def stock_klines(self, symbols, **window):
+        self.calls.append(window)
+        sym_rows = [row for row in self.rows if row["symbol"] in symbols]
+        if window.get("start_time") or window.get("end_time"):
+            start = str(window.get("start_time") or "")[:10]
+            end = str(window.get("end_time") or "9999-99-99")[:10]
+            filtered = [
+                row
+                for row in sym_rows
+                if (not start or row["bar_time"][:10] >= start)
+                and row["bar_time"][:10] <= end
+            ]
+        else:
+            filtered = sym_rows[-self.tail :]
+        return GatewayResult(pd.DataFrame(filtered), None, "sdk_snapshot", False)
+
+
 def _store(gateway) -> KlineStore:
     client = FakeDojo()
     return KlineStore(gateway, StockStore(client), StockSectorStore(client))
@@ -67,6 +92,37 @@ async def test_get_or_fetch_kline_filters_single_day_with_iso_bar_time() -> None
     assert len(result.bars) == 1
     assert result.bars[0].bar_time == "2026-06-18"
     assert result.bars[0].open == 176.0
+    assert gateway.calls == [
+        {
+            "limit": resolve_kline_limit_for_elapsed_days("2026-06-18", end_date="2026-06-18"),
+            "start_time": "2026-06-18",
+            "end_time": "2026-06-18",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_kline_historical_single_day_uses_date_window_on_gateway() -> None:
+    rows = [
+        {"symbol": "GOOGL", "bar_time": "2025-01-06", "open": 193.98, "close": 195.0},
+        {"symbol": "GOOGL", "bar_time": "2026-06-18", "open": 176.0, "close": 177.0},
+    ]
+    gateway = TailOnlyKlineGateway(rows, tail=1)
+    store = _store(gateway)
+
+    result = await store.get_or_fetch_kline(
+        "GOOGL",
+        market="us",
+        start_time="2025-01-06",
+        end_time="2025-01-06",
+    )
+
+    assert result is not None
+    assert len(result.bars) == 1
+    assert result.bars[0].bar_time == "2025-01-06"
+    assert result.bars[0].open == 193.98
+    assert gateway.calls[0]["start_time"] == "2025-01-06"
+    assert gateway.calls[0]["end_time"] == "2025-01-06"
 
 
 @pytest.mark.asyncio
@@ -116,6 +172,8 @@ async def test_get_or_fetch_kline_keeps_full_window_from_data_start() -> None:
     assert gateway.calls == [
         {
             "limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE, end_date="2026-06-30"),
+            "start_time": DATA_START_DATE,
+            "end_time": "2026-06-30",
         }
     ]
 

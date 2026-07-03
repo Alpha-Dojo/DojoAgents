@@ -146,6 +146,10 @@ class KlineStore:
             kwargs: Dict[str, Any] = {}
             if fetch_limit > 0:
                 kwargs["limit"] = fetch_limit
+            if start_time:
+                kwargs["start_time"] = start_time
+            if end_time:
+                kwargs["end_time"] = end_time
             if kline_t is not None:
                 kwargs["kline_t"] = kline_t
             if price_adj_type is not None:
