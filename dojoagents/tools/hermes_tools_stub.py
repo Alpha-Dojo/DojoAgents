@@ -140,4 +140,32 @@ def tool_json(res):
     return res
 
 
+def tool_rows(res, key=None):
+    """Return tabular rows from a tool RPC / load_tool_result response."""
+    data = tool_json(res)
+    hint_key = None
+    if isinstance(res, dict):
+        hint = res.get("schema_hint")
+        if isinstance(hint, dict):
+            hint_key = hint.get("rows_key")
+    if key:
+        rows = data.get(key)
+        if isinstance(rows, list):
+            return rows
+        raise KeyError(f"list key not found: {{key!r}}")
+    for candidate in (hint_key, "klines", "bars", "items", "rows", "holdings", "candidates"):
+        if not candidate:
+            continue
+        rows = data.get(candidate)
+        if isinstance(rows, list):
+            return rows
+    nested = data.get("data")
+    if isinstance(nested, list):
+        return nested
+    keys = ", ".join(sorted(data.keys())) if isinstance(data, dict) else "n/a"
+    raise KeyError(
+        "no tabular rows in tool payload; inspect hermes_tools.tool_json(res) keys: " + keys
+    )
+
+
 '''

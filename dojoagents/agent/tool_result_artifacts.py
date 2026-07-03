@@ -20,6 +20,40 @@ ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
 )
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
+# Hints for execute_code when large tool outputs are replaced by artifact pointers.
+TOOL_ARTIFACT_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
+    "get_ticker_price_trends": {
+        "rows_key": "klines",
+        "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
+        "pandas_example": (
+            "df = pd.DataFrame(hermes_tools.tool_rows(res)); "
+            "df['date'] = pd.to_datetime(df['datetime'])"
+        ),
+    },
+    "dojo.sdk.stock.kline": {
+        "rows_key": "klines",
+        "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
+        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+    },
+    "get_ticker_financials": {
+        "rows_key": "items",
+        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+    },
+    "screen_market_stocks": {
+        "rows_key": "items",
+        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+    },
+    "filter_sector_constituents": {
+        "rows_key": "items",
+        "pandas_example": "df = pd.DataFrame(hermes_tools.tool_rows(res))",
+    },
+}
+
+
+def get_tool_artifact_schema_hint(tool_name: str) -> dict[str, Any] | None:
+    hint = TOOL_ARTIFACT_SCHEMA_HINTS.get(str(tool_name or "").strip())
+    return dict(hint) if hint else None
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -146,4 +180,12 @@ def build_artifact_pointer_message(
         for key in ("ticker", "tickers", "market", "portfolio_id"):
             if key in arguments and arguments[key]:
                 summary[key] = arguments[key]
+    schema_hint = get_tool_artifact_schema_hint(tool_name)
+    if schema_hint:
+        summary["schema_hint"] = schema_hint
+        summary["parse_hint"] = (
+            "res = hermes_tools.load_tool_result(call_id); "
+            "rows = hermes_tools.tool_rows(res); "
+            f"df = pd.DataFrame(rows)  # rows_key={schema_hint.get('rows_key')!r}"
+        )
     return json.dumps(summary, ensure_ascii=False, indent=2)

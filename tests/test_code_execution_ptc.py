@@ -124,6 +124,41 @@ async def test_code_execution_load_tool_result_artifact(tmp_path):
     assert "Loaded: 520.0" in result["content"]
 
 
+@pytest.mark.asyncio
+async def test_code_execution_tool_rows_from_artifact(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    rows = [
+        {"datetime": "2025-01-06", "open": 193.98, "high": 195.0, "low": 192.0, "close": 194.5},
+        {"datetime": "2025-01-07", "open": 194.5, "high": 196.0, "low": 193.0, "close": 195.2},
+    ]
+    store.save(
+        session_id="session-1",
+        call_id="call-sndk",
+        tool_name="get_ticker_price_trends",
+        arguments={"ticker": "SNDK", "market": "us"},
+        content=json.dumps({"ticker": "SNDK", "klines": rows}),
+        data={"ticker": "SNDK", "klines": rows},
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+
+    code = (
+        "import hermes_tools\n"
+        "res = hermes_tools.load_tool_result('call-sndk')\n"
+        "rows = hermes_tools.tool_rows(res)\n"
+        "print('Rows:', len(rows), 'FirstClose:', rows[0]['close'])\n"
+    )
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+    assert "Rows: 2 FirstClose: 194.5" in result["content"]
+
+
 def test_hermes_stub_maps_dotted_tool_names():
     assert hermes_function_name("get_ticker_price_trends") == "get_ticker_price_trends"
     assert hermes_function_name("dojo.sdk.stock.kline") == "dojo_sdk_stock_kline"
@@ -134,6 +169,7 @@ def test_hermes_stub_maps_dotted_tool_names():
     assert "def get_ticker_price_trends(" in stub
     assert "def dojo_sdk_stock_kline(" in stub
     assert "def load_tool_result(" in stub
+    assert "def tool_rows(" in stub
 
 
 @pytest.mark.asyncio
@@ -219,3 +255,6 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert payload["artifact"] is True
     assert payload["call_id"] == "abc-123"
     assert "load_tool_result" in payload["load_hint"]
+    assert payload["schema_hint"]["rows_key"] == "klines"
+    assert "datetime" in payload["schema_hint"]["row_fields"]
+    assert "tool_rows" in payload["parse_hint"]

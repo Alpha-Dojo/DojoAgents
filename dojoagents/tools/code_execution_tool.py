@@ -5,7 +5,7 @@ import sys
 import tempfile
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
+from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore, get_tool_artifact_schema_hint
 from dojoagents.logging import get_logger
 from dojoagents.tools.hermes_tools_stub import (
     HERMES_INTERNAL_LIST_TOOLS,
@@ -89,6 +89,7 @@ class AsyncCodeExecutionRPC:
             "ok": True,
             "content": payload.get("content", ""),
             "data": payload.get("data"),
+            "schema_hint": get_tool_artifact_schema_hint(str(payload.get("tool_name") or "")),
             "error": None,
         }
 
@@ -239,10 +240,15 @@ def get_code_execution_spec(
     return ToolSpec(
         name="execute_code",
         description=(
-            "Execute Python scripts with access to registered DojoAgents tools via `import hermes_tools`. "
+            "Execute Python for hermes_tools batch orchestration or pandas/numpy computation on fetched data. "
             "NEVER hardcode market prices or financial rows — fetch data with hermes_tools RPC helpers "
             f"(e.g. {sample_tools}) or `hermes_tools.load_tool_result(call_id)` for persisted large tool outputs. "
-            "Use `hermes_tools.tool_json(res)` to parse JSON tool payloads."
+            "Use `hermes_tools.tool_json(res)` to parse JSON tool payloads. "
+            "For tabular tool data (klines/items), use `hermes_tools.tool_rows(res)` — "
+            "e.g. `df = pd.DataFrame(hermes_tools.tool_rows(res))` after load_tool_result; "
+            "get_ticker_price_trends rows are in `klines` with field `datetime` (not `data` or `bar_time`). "
+            "FORBIDDEN: using this tool to print ASCII diagrams, schema docs, design proposals, or formatted "
+            "text reports — write those directly in the assistant reply instead."
         ),
         parameters={
             "type": "object",

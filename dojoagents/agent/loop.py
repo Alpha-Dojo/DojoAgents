@@ -8,7 +8,12 @@ from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.turn_intent import build_turn_intent_anchor
+from dojoagents.agent.turn_intent import build_turn_intent_anchor_async, filter_tool_specs_for_intent
+from dojoagents.agent.empty_assistant import (
+    build_empty_assistant_recovery_prompt,
+    empty_assistant_user_message,
+    last_assistant_turn_empty,
+)
 from dojoagents.agent.models import AgentResponse, ChatRequest, ToolCall
 from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
@@ -480,6 +485,19 @@ class AgentLoop:
         user_content = request.metadata.get("user_content", request.message)
         image_turn = openai_content_has_images(user_content)
 
+        model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
+        if model_id is None and isinstance(self.provider_config, LLMProviderConfig) and self.provider_config.model:
+            model_id = self.provider_config.model
+        if model_id is None and (hasattr(self.llm_provider, "_mock_return_value") or hasattr(self.llm_provider, "assert_called")):
+            model_id = "test-model"
+        if model_id is None:
+            active_user_message.reset(user_msg_token)
+            return AgentResponse(
+                content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
+                session_id=request.session_id,
+                metadata={"error": "no_model_configured"},
+            )
+
         # 1. Build the system prompt
         blocks = [
             "You are DojoAgents, a full-market finance analysis agent.",
@@ -497,7 +515,7 @@ class AgentLoop:
 
             blocks.append(DASHBOARD_VIZ_PROTOCOL)
             blocks.append(DASHBOARD_TOOL_PROTOCOL)
-        turn_anchor = build_turn_intent_anchor(request)
+        turn_anchor, turn_intent = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
         if turn_anchor:
             blocks.append(turn_anchor)
         if image_turn:
@@ -516,18 +534,6 @@ class AgentLoop:
             system = system + "\n\n" + plan_prompt
 
         # 2. Build model bridge and session token ledger
-        model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
-        if model_id is None and isinstance(self.provider_config, LLMProviderConfig) and self.provider_config.model:
-            model_id = self.provider_config.model
-        if model_id is None and (hasattr(self.llm_provider, "_mock_return_value") or hasattr(self.llm_provider, "assert_called")):
-            model_id = "test-model"
-        if model_id is None:
-            active_user_message.reset(user_msg_token)
-            return AgentResponse(
-                content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
-                session_id=request.session_id,
-                metadata={"error": "no_model_configured"},
-            )
         raw_provider_name = getattr(self.llm_provider, "name", "openai")
         provider_name = raw_provider_name if isinstance(raw_provider_name, str) and raw_provider_name else "openai"
         provider_cfg = (
@@ -667,14 +673,19 @@ class AgentLoop:
         remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
-        tool_specs = self._collect_tool_specs()
+        tool_specs = filter_tool_specs_for_intent(self._collect_tool_specs(), turn_intent)
         for plugin_tool in plugin_registry._tools:
             self.tool_executor.registry.register(plugin_tool)
             if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
-                tool_specs.append(plugin_tool.schema())
+                if turn_intent.needs_code_execution or plugin_tool.name not in {"execute_code", "code_execution"}:
+                    tool_specs.append(plugin_tool.schema())
 
         strands_tools = []
         excluded_tools = IMAGE_TURN_EXCLUDED_TOOLS if image_turn else frozenset()
+        if not turn_intent.needs_code_execution:
+            from dojoagents.agent.execute_code_guardrails import EXECUTE_CODE_TOOL_NAMES
+
+            excluded_tools = excluded_tools | EXECUTE_CODE_TOOL_NAMES
         for spec in self.tool_executor.registry.all():
             if spec.name in excluded_tools:
                 continue
@@ -773,15 +784,39 @@ class AgentLoop:
             if self.config.enable_guardrails:
                 if not event.tool_use:
                     return
-                tool_name = event.tool_use.get("name")
+                tool_name = str(event.tool_use.get("name") or "")
                 args = event.tool_use.get("input") or {}
-                decision = self.guardrails.before_call(tool_name, args)
-                if decision.code == "execute_code_inline_market_data":
-                    from dojoagents.agent.guardrails import toolguard_synthetic_result
+                from dojoagents.agent.execute_code_guardrails import (
+                    EXECUTE_CODE_TOOL_NAMES,
+                    classify_execute_code,
+                    execute_code_guardrail_from_classification,
+                )
 
-                    blocked_res = toolguard_synthetic_result(decision)
-                    event.cancel_tool = blocked_res["content"]
-                    return
+                if tool_name in EXECUTE_CODE_TOOL_NAMES:
+                    classification = await classify_execute_code(
+                        str(args.get("code") or ""),
+                        request.message,
+                        self.llm_provider,
+                        model=model_id,
+                        request_metadata=request.metadata,
+                    )
+                    blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
+                        tool_name,
+                        classification,
+                    )
+                    if blocked:
+                        from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+
+                        decision = ToolGuardrailDecision(
+                            action="block",
+                            code=guardrail_code,
+                            message=block_message,
+                            tool_name=tool_name,
+                        )
+                        blocked_res = toolguard_synthetic_result(decision)
+                        event.cancel_tool = blocked_res["content"]
+                        return
+                decision = self.guardrails.before_call(tool_name, args)
                 if decision.should_halt:
                     raise GuardrailHaltException(decision.message, "guardrail_halt")
                 elif not decision.allows_execution:
@@ -973,13 +1008,68 @@ class AgentLoop:
                 provider_name,
                 len(openai_content_text(user_content)),
             )
+        locale = str(request.metadata.get("locale") or "en")
+
+        def _scrub_response_text(text: str) -> str:
+            cleaned = text.strip()
+            if self.config.enable_think_scrubbing:
+                cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
+                cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL)
+                cleaned = re.sub(r"<reasoning>.*?</reasoning>", "", cleaned, flags=re.DOTALL)
+                cleaned = re.sub(r"<thought>.*?</thought>", "", cleaned, flags=re.DOTALL)
+            return cleaned.strip()
+
         try:
-            result = await agent.invoke_async(prompt=user_prompt, invocation_state=invocation_state, limits=limits)
-            response_text = str(result).strip()
+            async def _invoke_agent(prompt: Any) -> Any:
+                return await agent.invoke_async(
+                    prompt=prompt,
+                    invocation_state=invocation_state,
+                    limits=limits,
+                )
+
+            result = await _invoke_agent(user_prompt)
+            response_text = _scrub_response_text(str(result).strip())
             iterations = result.metrics.cycle_count if result.metrics else 1
             stopped_reason = None
             if result.stop_reason == "limit_turns":
                 stopped_reason = "iteration_limit"
+
+            empty_recovery_attempts = 0
+            max_empty_recovery = 1
+            while (
+                not response_text
+                and stopped_reason != "iteration_limit"
+                and last_assistant_turn_empty(agent.messages)
+                and empty_recovery_attempts < max_empty_recovery
+            ):
+                empty_recovery_attempts += 1
+                recovery_prompt = build_empty_assistant_recovery_prompt(
+                    locale,
+                    tools_ran=bool(tool_trace),
+                )
+                LOGGER.warning(
+                    "Empty assistant turn detected for session_id=%s; attempting recovery (%d/%d)",
+                    request.session_id,
+                    empty_recovery_attempts,
+                    max_empty_recovery,
+                )
+                if event_sink is not None:
+                    event_sink.eval_hint(recovery_prompt, ["empty_assistant_turn"])
+                result = await _invoke_agent(recovery_prompt)
+                response_text = _scrub_response_text(str(result).strip())
+                if result.metrics:
+                    iterations = result.metrics.cycle_count
+                if result.stop_reason == "limit_turns":
+                    stopped_reason = "iteration_limit"
+                    break
+
+            if (
+                not response_text
+                and stopped_reason != "iteration_limit"
+                and last_assistant_turn_empty(agent.messages)
+            ):
+                response_text = empty_assistant_user_message(locale)
+                stopped_reason = "empty_assistant"
         except Exception as e:
             target_exc = e
             from strands.types.exceptions import EventLoopException
@@ -1019,12 +1109,6 @@ class AgentLoop:
             if tail:
                 emit_text_delta(tail)
 
-        # Clean thinking blocks from response_text
-        if self.config.enable_think_scrubbing:
-            response_text = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL)
-            response_text = re.sub(r"<thinking>.*?</thinking>", "", response_text, flags=re.DOTALL)
-            response_text = re.sub(r"<reasoning>.*?</reasoning>", "", response_text, flags=re.DOTALL)
-            response_text = re.sub(r"<thought>.*?</thought>", "", response_text, flags=re.DOTALL)
         if event_sink is not None and response_text and not saw_content_delta:
             LOGGER.warning(
                 "AgentLoop falling back to final response delta: session_id=%s response_len=%d preview=%r",

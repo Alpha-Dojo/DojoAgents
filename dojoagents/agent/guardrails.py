@@ -5,8 +5,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from dojoagents.agent.execute_code_guardrails import check_execute_code_inline_data
-
 IDEMPOTENT_TOOL_NAMES = frozenset(
     {
         "read_file",
@@ -95,16 +93,6 @@ class ToolCallGuardrailController:
 
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
         signature = ToolCallSignature.from_call(tool_name, args)
-
-        blocked, block_message = check_execute_code_inline_data(tool_name, args)
-        if blocked:
-            return ToolGuardrailDecision(
-                action="block",
-                code="execute_code_inline_market_data",
-                message=block_message,
-                tool_name=tool_name,
-                signature=signature,
-            )
 
         exact_count = self._exact_failure_counts.get(signature, 0)
         if exact_count >= self.exact_failure_block_after:

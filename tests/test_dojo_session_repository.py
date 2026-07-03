@@ -38,6 +38,30 @@ def test_dojo_session_repository_persists_strands_session_agent_and_messages(tmp
     assert repo.list_messages("sess-1", "dojo-agent", limit=1, offset=1)[0].message_id == 1
 
 
+def test_dojo_session_repository_marks_empty_assistant_as_incomplete(tmp_path):
+    repo = DojoSessionRepository(tmp_path)
+    repo.create_session(Session(session_id="sess-empty", session_type=SessionType.AGENT))
+    repo.create_agent(
+        "sess-empty",
+        SessionAgent(
+            agent_id="dojo-agent",
+            state={},
+            conversation_manager_state={"removed_message_count": 0},
+        ),
+    )
+    repo.create_message(
+        "sess-empty",
+        "dojo-agent",
+        SessionMessage.from_message({"role": "assistant", "content": []}, 0),
+        locale="zh",
+    )
+    stored = repo.read_message("sess-empty", "dojo-agent", 0)
+    assert stored is not None
+    payload = stored.to_message()
+    assert payload["metadata"]["dojo_incomplete"] is True
+    assert payload["content"][0]["text"].startswith("[未完成：")
+
+
 def test_dojo_session_repository_rejects_path_traversal(tmp_path):
     repo = DojoSessionRepository(tmp_path)
 
