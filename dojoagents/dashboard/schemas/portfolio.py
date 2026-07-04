@@ -209,6 +209,13 @@ class AddPortfolioCandidateRequest(AddPortfolioHoldingRequest):
     pass
 
 
+class ResolvedOrderBar(BaseModel):
+    date: str = Field(..., description="Trading day YYYY-MM-DD")
+    open: float = Field(..., gt=0)
+    low: float = Field(..., gt=0)
+    high: float = Field(..., gt=0)
+
+
 class CreatePortfolioOrderRequest(BaseModel):
     ticker: str = Field(..., min_length=1)
     market: Optional[str] = Field(None, description="Market code: us, sh, hk")
@@ -216,6 +223,10 @@ class CreatePortfolioOrderRequest(BaseModel):
     price: float = Field(..., gt=0)
     qty: float = Field(..., gt=0)
     order_time: Optional[str] = Field(None, description="Optional execution date (YYYY-MM-DD or ISO)")
+    resolved_bar: Optional[ResolvedOrderBar] = Field(
+        None,
+        description="Kline bar validated during order resolution; reused at fill time to avoid refetch",
+    )
 
 
 class CancelPortfolioOrderRequest(BaseModel):

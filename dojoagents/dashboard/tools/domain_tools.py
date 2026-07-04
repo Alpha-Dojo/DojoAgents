@@ -598,7 +598,8 @@ def register_dashboard_domain_tools(
                 "For a specific trading day (e.g. open price on 2026-06-18), set BOTH "
                 "start_date and end_date to that date (YYYY-MM-DD). "
                 "For full history since dashboard inception, omit dates (server filters from 2025-01-01). "
-                "Do NOT omit dates when the user names one day — never rely on default kline_t/limit alone."
+                "Call ONCE per ticker per turn when possible — artifact pointers include latest_kline/as_of. "
+                "Do NOT re-fetch with a guessed date to confirm the latest bar."
             ),
             parameters={
                 "type": "object",

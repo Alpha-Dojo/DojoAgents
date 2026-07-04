@@ -66,12 +66,8 @@ from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_income_for_market,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import report_type_for_market
-from dojoagents.dashboard.services.kline_bar_utils import (
-    DATA_START_DATE,
-    ashare_kline_symbol_candidates,
-    infer_ashare_kline_suffix,
-    resolve_tail_limit,
-)
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, resolve_tail_limit
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _stock_bilingual_name,
@@ -1680,50 +1676,55 @@ def _resolve_kline_symbol(
     ticker: str,
     market: Optional[str],
 ) -> tuple[str, Optional[str]]:
-    """Map user ticker input to canonical SDK/stock_store symbol (e.g. 0700 + hk -> 0700.HK)."""
-    raw = ticker.strip().upper()
-    internal_market = normalize_market_code(market)
-    if not raw:
-        return raw, internal_market
+    return resolve_ticker_symbol(stock_store, ticker, market)
 
-    if stock_store is not None:
-        stock = stock_store.resolve(raw, market=internal_market)
-        if stock is not None:
-            resolved_market = normalize_market_code(stock.market) or internal_market
-            return stock.ticker.strip().upper(), resolved_market
 
-        candidates: list[str] = []
-        if internal_market == "hk" and "." not in raw:
-            candidates.append(f"{raw}.HK")
-        if "." not in raw:
-            candidates.extend(ashare_kline_symbol_candidates(raw))
-        for candidate in candidates:
-            stock = stock_store.resolve(candidate, market=internal_market)
-            if stock is not None:
-                resolved_market = normalize_market_code(stock.market) or internal_market
-                return stock.ticker.strip().upper(), resolved_market
-            lookup_market = internal_market or "sh"
-            if infer_ashare_kline_suffix(raw) is not None:
-                lookup_market = "sh"
-            stock = stock_store.get(lookup_market, candidate)
-            if stock is not None:
-                return stock.ticker.strip().upper(), lookup_market
+async def _fetch_kline_for_price_trends(
+    kline_store,
+    *,
+    symbol: str,
+    market: str | None,
+    kline_t: str,
+    start_date: str | None,
+    end_date: str | None,
+    limit: int | None,
+):
+    """Fetch klines for price trends; fall back to wide-window local filter when date query is empty."""
+    kline = await kline_store.get_or_fetch_kline(
+        symbol,
+        market=market,
+        kline_t=kline_t,
+        start_time=start_date,
+        end_time=end_date,
+        min_bar_time=None if start_date else DATA_START_DATE,
+        limit=limit,
+    )
+    if kline is not None or not start_date or not end_date:
+        return kline
 
-        if internal_market is None:
-            for candidate in (raw, *candidates):
-                found_market = stock_store.find_market(candidate)
-                if not found_market:
-                    continue
-                stock = stock_store.get(found_market, candidate)
-                if stock is not None:
-                    return stock.ticker.strip().upper(), normalize_market_code(found_market)
+    from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
 
-    if internal_market == "hk" and "." not in raw:
-        return f"{raw}.HK", internal_market
-    ashare_suffix = infer_ashare_kline_suffix(raw)
-    if ashare_suffix is not None and (internal_market in {None, "sh"}):
-        return f"{raw}{ashare_suffix}", internal_market or "sh"
-    return raw, internal_market
+    wide = await kline_store.get_or_fetch_kline(
+        symbol,
+        market=market,
+        kline_t=kline_t,
+        min_bar_time=DATA_START_DATE,
+    )
+    if wide is None:
+        return None
+
+    def _bar_day(bar: Any) -> str:
+        if hasattr(bar, "bar_time"):
+            return str(bar.bar_time or "")[:10]
+        if hasattr(bar, "model_dump"):
+            payload = bar.model_dump()
+            return str(payload.get("bar_time") or payload.get("datetime") or "")[:10]
+        return ""
+
+    filtered = [bar for bar in wide.bars if start_date <= _bar_day(bar) <= end_date]
+    if not filtered:
+        return None
+    return StockKlineResponse(symbol=symbol, as_of=_bar_day(filtered[-1]), bars=filtered)
 
 
 async def build_ticker_price_trends_v1(
@@ -1744,13 +1745,13 @@ async def build_ticker_price_trends_v1(
         end_time=end_date,
         limit=limit,
     )
-    kline = await registry.kline_store.get_or_fetch_kline(
-        symbol,
+    kline = await _fetch_kline_for_price_trends(
+        registry.kline_store,
+        symbol=symbol,
         market=internal_market,
         kline_t=kline_t,
-        start_time=start_date,
-        end_time=end_date,
-        min_bar_time=None if start_date else DATA_START_DATE,
+        start_date=start_date,
+        end_date=end_date,
         limit=limit,
     )
     if kline is None:

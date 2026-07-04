@@ -56,6 +56,64 @@ def get_tool_artifact_schema_hint(tool_name: str) -> dict[str, Any] | None:
     return dict(hint) if hint else None
 
 
+def _normalize_bar_datetime(row: Any) -> str:
+    if isinstance(row, dict):
+        for key in ("datetime", "bar_time", "date"):
+            value = row.get(key)
+            if value:
+                return str(value).strip()[:10]
+        return ""
+    for key in ("bar_time", "datetime", "date"):
+        value = getattr(row, key, None)
+        if value:
+            return str(value).strip()[:10]
+    return ""
+
+
+def summarize_kline_artifact_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract head-line kline metadata for artifact pointers (avoids redundant refetch)."""
+    summary: dict[str, Any] = {}
+    for key in ("as_of", "period_start", "period_end", "interval"):
+        value = data.get(key)
+        if value:
+            summary[key] = value
+
+    klines = data.get("klines") or data.get("bars")
+    if not isinstance(klines, list) or not klines:
+        return summary
+
+    latest_row = max(klines, key=lambda row: _normalize_bar_datetime(row) or "")
+    bar_date = _normalize_bar_datetime(latest_row)
+    if not bar_date:
+        return summary
+
+    def _num(row: Any, key: str) -> float | None:
+        if isinstance(row, dict):
+            raw = row.get(key)
+        else:
+            raw = getattr(row, key, None)
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    latest: dict[str, Any] = {"datetime": bar_date}
+    for field in ("open", "high", "low", "close", "volume"):
+        value = _num(latest_row, field if field != "volume" else field)
+        if value is None and field == "volume":
+            value = _num(latest_row, "vol")
+        if value is not None:
+            latest[field] = value
+    summary["latest_kline"] = latest
+    if not summary.get("as_of"):
+        summary["as_of"] = bar_date
+    if not summary.get("period_end"):
+        summary["period_end"] = bar_date
+    return summary
+
+
 def extract_viz_payload_from_content(content: str) -> dict[str, Any] | None:
     text = str(content or "")
     match = _VIZ_DATA_MARKER.search(text)
@@ -276,6 +334,12 @@ def build_artifact_pointer_message(
         items = data.get("items")
         if isinstance(items, list):
             summary["row_count"] = len(items)
+        if tool_name == "get_ticker_price_trends":
+            summary.update(summarize_kline_artifact_data(data))
+            summary["reuse_hint"] = (
+                "Do NOT call get_ticker_price_trends again for the latest bar — "
+                "use latest_kline.datetime / as_of above, or dojo_tools.load_tool_result(call_id)."
+            )
     if arguments:
         for key in ("ticker", "tickers", "market", "portfolio_id"):
             if key in arguments and arguments[key]:

@@ -4,6 +4,7 @@ from typing import Optional
 
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_core import CoreTickerQuoteResponse
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 
 MARKETS = ("sh", "hk", "us")
 
@@ -15,11 +16,11 @@ def resolve_core_ticker_quote(
     stock_store: StockStore,
 ) -> Optional[CoreTickerQuoteResponse]:
     """Return live quote snapshot for a DojoCore ticker from the in-memory stock store."""
-    symbol = ticker.strip()
+    symbol, resolved_market = resolve_ticker_symbol(stock_store, ticker, market)
     if not symbol:
         return None
 
-    market_code = (market or stock_store.find_market(symbol) or "").lower()
+    market_code = (resolved_market or stock_store.find_market(symbol) or "").lower()
     if market_code not in MARKETS:
         return None
 
@@ -30,8 +31,9 @@ def resolve_core_ticker_quote(
     quote = stock.stock_quote
     amount = quote.amount if quote.amount and quote.amount > 0 else None
     total_shares = quote.total_shares if quote.total_shares and quote.total_shares > 0 else None
+    canonical_ticker = stock.ticker.strip().upper() if stock.ticker else symbol
     return CoreTickerQuoteResponse(
-        ticker=symbol,
+        ticker=canonical_ticker,
         market=market_code,
         currency=stock.currency,
         last_price=quote.last_price,

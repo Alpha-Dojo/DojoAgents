@@ -88,9 +88,25 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 **Do NOT for 清仓:** `portfolio_write_add_candidate`, `portfolio_write_create`, or `require_kind_agent=true`.
 
+**User says 卖出 / 减仓 / negative share notation (e.g. 买入 NVDA -100 股 = sell 100):**
+1. `portfolio_read_list` or `portfolio_read_search` → portfolio_id
+2. `portfolio_read_detail` → verify held shares ≥ requested sell qty
+3. `portfolio_write_create_order` with `order_side=sell`, explicit `qty`, optional `price` from quote.
+   - Server infers `order_time` when omitted — **do NOT** call `get_ticker_price_trends` again just to confirm latest kline date.
+   - If you already fetched price trends this turn, read `latest_kline.datetime` / `as_of` from the artifact pointer.
+4. `portfolio_read_detail` → verify position / cash after fill
+
 **User says 卖出 / 减仓 (partial, no qty given):**
 - Do NOT guess share count. Wait for user to pick 50%, 75%, 100%, or an exact `qty`.
 - After confirmation, call `portfolio_write_create_order(s)` with `qty` or `qty_pct`.
+
+**User says 按现价 / 当前价 / 现在买入 (market order at quote):**
+1. `get_ticker_realtime_quote` → `last_price`
+2. `get_ticker_price_trends` once (omit dates or set `end_date` to today) → read `latest_kline.datetime`
+   from the response or artifact pointer (`as_of` / `period_end`). **Do NOT** call again with a guessed date.
+3. `portfolio_write_create_order` with `price=last_price` and optional `order_time=<latest kline datetime>`
+   (server infers `order_time` when omitted)
+4. Limit price must fall within that day's `[low, high]` inclusive (open may equal high/low).
 
 **User says 建仓 / 买入 / 按成本价 / 创建交易 / 持仓页面截图 with shares & cost:**
 1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
@@ -101,10 +117,10 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
    Optional fields — server resolves defaults:
    - no `order_time` + no `price` → latest daily **close**
    - `order_time` only → that day's **open**
-   - `price` only → nearest day where price is within daily low/high
+   - `price` only → **latest trading day first** if price fits that bar; else nearest historical day
+   - `price` + `order_time` → validate price within that day's `[low, high]` inclusive
    - no `qty` on buy → **10%** of available market cash (lot-normalized)
    - US qty: integer shares; HK/A-share qty: multiples of 100
-   - limit price must be within the trade day's high/low (preflight rejects otherwise)
 4. `portfolio_read_detail` → verify `eval_summary.position_count` (NOT candidate_count)
 5. `portfolio_eval_submit` with **min_position_count** matching filled positions
 
