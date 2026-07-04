@@ -94,6 +94,23 @@ class ToolCallGuardrailController:
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
         signature = ToolCallSignature.from_call(tool_name, args)
 
+        if tool_name == "terminal":
+            command = str((args or {}).get("command") or "").lower()
+            if "dojo_tools" in command or "load_tool_result" in command:
+                decision = ToolGuardrailDecision(
+                    action="block",
+                    code="terminal_dojo_tools_blocked",
+                    message=(
+                        "Blocked terminal: dojo_tools.load_tool_result only works inside execute_code. "
+                        "Read positions[] from the portfolio_read_detail artifact pointer, or use "
+                        "execute_code with dojo_tools.load_tool_result(call_id)."
+                    ),
+                    tool_name=tool_name,
+                    signature=signature,
+                )
+                self._halt_decision = decision
+                return decision
+
         exact_count = self._exact_failure_counts.get(signature, 0)
         if exact_count >= self.exact_failure_block_after:
             decision = ToolGuardrailDecision(

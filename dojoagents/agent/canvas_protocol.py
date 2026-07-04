@@ -83,13 +83,16 @@ data-tool results. Use explicit `kind` when the target chart type is known.
 
 ### Default behavior
 
+Visualization policy is defined in the **Visualization policy** system section
+(scene IDs such as `portfolio_mutating_task`, `exploratory_read_analysis`). Follow that matrix.
+
 1. Use dashboard domain tools to fetch structured data.
-2. Reuse `viz_blocks` already attached to tool results whenever they are present.
-3. If a chart or table is still needed, call `agent_viz_build` with the tool data
-   and an appropriate `kind` such as `bar`, `line`, `price_kline`, `table`,
-   `hbar_rank`, `donut`, or `kpi_row`.
-4. Keep the assistant text focused on interpretation and conclusions. Let the
-   dashboard render the visualization blocks.
+2. **Prefer auto-attached `viz_blocks`** on data-tool results — no extra tool call.
+3. Call `agent_viz_build` only when the active viz-policy scene is **encouraged** or **optional**
+   AND the chart adds information auto blocks cannot express.
+4. When the scene is **forbidden** (portfolio writes, eval accepted, trade confirmations),
+   summarize in markdown only — do NOT call `agent_viz_build`.
+5. Keep assistant text focused on interpretation; do not duplicate markdown tables as kpi_row.
 
 ### Important rules
 

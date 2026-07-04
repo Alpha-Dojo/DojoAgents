@@ -508,6 +508,8 @@ def register_dashboard_portfolio_tools(
                 "Fetch one portfolio detail. "
                 "candidates = watchlist (候选股); positions/holdings = filled buys (持仓, from orders). "
                 "eval_summary has candidate_count AND position_count — use the right metric for eval_submit. "
+                "For 买入/卖出/减仓/清仓 order workflows set include_performance=false to keep the response small. "
+                "When compressed to an artifact pointer, positions[] and eval_summary remain visible. "
                 "Required verification step after any portfolio write."
             ),
             parameters={

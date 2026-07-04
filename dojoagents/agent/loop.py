@@ -259,6 +259,14 @@ class DojoStrandsModelBridge(Model):
                         }
                 break
 
+        if invocation_state is not None:
+            from dojoagents.agent.models import ChatRequest
+            from dojoagents.agent.turn_completion import apply_turn_completion_after_model
+
+            request = invocation_state.get("_dojo_request")
+            if isinstance(request, ChatRequest) and request.channel == "dashboard":
+                apply_turn_completion_after_model(llm_result, invocation_state)
+
         if not has_text_delta and llm_result.content:
             yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
 
@@ -512,9 +520,15 @@ class AgentLoop:
         if request.channel == "dashboard":
             from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
             from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
+            from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
 
             blocks.append(DASHBOARD_VIZ_PROTOCOL)
             blocks.append(DASHBOARD_TOOL_PROTOCOL)
+            locale = str(request.metadata.get("locale") or "en")
+            blocks.append(build_viz_policy_catalog(locale))
+            viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
+            if viz_turn_anchor:
+                blocks.append(viz_turn_anchor)
         turn_anchor, turn_intent = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
         if turn_anchor:
             blocks.append(turn_anchor)
@@ -744,6 +758,15 @@ class AgentLoop:
         )
         invocation_state["_dojo_handle_context_length_exceeded"] = token_compression_hook.handle_context_length_exceeded
         hooks.append(HookProviderWrapper(token_compression_hook))
+
+        from dojoagents.agent.hooks.turn_completion import TurnCompletionHook
+
+        turn_completion_hook = TurnCompletionHook()
+        hooks.append(HookProviderWrapper(turn_completion_hook))
+
+        invocation_state["_dojo_request"] = request
+        invocation_state["_dojo_harness_state"] = harness_state
+        invocation_state["_dojo_task_harnesses"] = self.task_harnesses
 
         # Bridge plugin registry to strands Plugin
         plugin_bridge = plugin_registry.as_strands_plugin()
