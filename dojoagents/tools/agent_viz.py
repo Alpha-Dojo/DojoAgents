@@ -1414,8 +1414,10 @@ def get_agent_viz_specs() -> list[ToolSpec]:
             name="agent_viz_build",
             description=(
                 "Build UI visualization blocks from compact structured data. "
-                "Call this after data tools when charts, tables, quote cards, timelines, or allocation visuals help the answer. "
-                "Use kind='auto' unless the desired block type is clear. Pass source_tool and mapping_hint when converting a previous tool result."
+                "Follow the dashboard Visualization policy scene matrix: forbidden scenes "
+                "(portfolio writes, eval accepted) must NOT call this tool. "
+                "Prefer auto viz_blocks on data tools; use this only when policy is optional/encouraged "
+                "and the chart adds insight. Pass source_tool and mapping_hint when converting a prior tool result."
             ),
             parameters={
                 "type": "object",

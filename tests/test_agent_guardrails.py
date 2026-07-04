@@ -102,3 +102,19 @@ def test_append_guidance_and_synthetic_result():
     content = json.loads(synth["content"])
     assert "error" in content
     assert "guardrail" in content
+
+
+def test_terminal_blocks_dojo_tools_load_tool_result() -> None:
+    controller = ToolCallGuardrailController()
+    decision = controller.before_call(
+        "terminal",
+        {
+            "command": (
+                'cd /home/dojo && python3 -c "import dojo_tools; '
+                "res = dojo_tools.load_tool_result('call_abc')\""
+            )
+        },
+    )
+    assert decision.action == "block"
+    assert decision.code == "terminal_dojo_tools_blocked"
+    assert decision.should_halt

@@ -6,6 +6,12 @@ from typing import Dict, List, Optional
 KLINE_LIMIT = 252
 KLINE_MAX_LIMIT = 500
 DATA_START_DATE = "2025-01-01"
+_DAILY_PRICE_RANGE_EPSILON = 1e-6
+
+
+def price_within_daily_range(price: float, low: float, high: float) -> bool:
+    """Return True when ``price`` is inside the daily bar range, inclusive of bounds."""
+    return (low - _DAILY_PRICE_RANGE_EPSILON) <= price <= (high + _DAILY_PRICE_RANGE_EPSILON)
 
 
 def normalize_datetime(value: object) -> str:

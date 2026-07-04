@@ -151,7 +151,7 @@ def tool_rows(res, key=None):
         if isinstance(rows, list):
             return rows
         raise KeyError(f"list key not found: {{key!r}}")
-    for candidate in (hint_key, "klines", "bars", "items", "rows", "holdings", "candidates"):
+    for candidate in (hint_key, "klines", "bars", "items", "rows", "positions", "holdings", "candidates"):
         if not candidate:
             continue
         rows = data.get(candidate)

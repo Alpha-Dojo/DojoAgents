@@ -251,6 +251,69 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert "tool_rows" in payload["parse_hint"]
 
 
+def test_build_artifact_pointer_message_includes_latest_kline_summary() -> None:
+    message = build_artifact_pointer_message(
+        tool_name="get_ticker_price_trends",
+        call_id="nvda-1",
+        data={
+            "ticker": "NVDA",
+            "market": "us",
+            "as_of": "2026-07-03",
+            "period_end": "2026-07-03",
+            "klines": [
+                {"datetime": "2026-07-01", "open": 190, "high": 195, "low": 188, "close": 192},
+                {"datetime": "2026-07-03", "open": 197, "high": 200, "low": 192, "close": 194.83},
+            ],
+        },
+    )
+    payload = json.loads(message)
+    assert payload["latest_kline"]["datetime"] == "2026-07-03"
+    assert payload["latest_kline"]["close"] == pytest.approx(194.83)
+    assert payload["as_of"] == "2026-07-03"
+    assert "reuse_hint" in payload
+    assert "Do NOT call get_ticker_price_trends again" in payload["reuse_hint"]
+
+
+def test_build_artifact_pointer_message_includes_portfolio_positions() -> None:
+    message = build_artifact_pointer_message(
+        tool_name="portfolio_read_detail",
+        call_id="folio-1",
+        arguments={"portfolio_id": "p-default"},
+        data={
+            "id": "p-default",
+            "name": "我的默认组合",
+            "kind": "manual",
+            "eval_summary": {
+                "candidate_count": 0,
+                "position_count": 1,
+                "position_count_by_market": {"us": 0, "cn": 0, "hk": 1},
+            },
+            "positions": [
+                {
+                    "ticker": "0700.HK",
+                    "name": "腾讯控股",
+                    "name_zh": "腾讯控股",
+                    "market": "hk",
+                    "shares": 2300.0,
+                    "weight": 1.0,
+                }
+            ],
+            "performance": {"dates": ["2026-01-01"] * 500, "portfolio": [1.0] * 500},
+        },
+    )
+    payload = json.loads(message)
+    assert payload["artifact"] is True
+    assert payload["portfolio_id"] == "p-default"
+    assert payload["eval_summary"]["position_count"] == 1
+    assert len(payload["positions"]) == 1
+    assert payload["positions"][0]["ticker"] == "0700.HK"
+    assert payload["positions"][0]["shares"] == pytest.approx(2300.0)
+    assert payload["schema_hint"]["rows_key"] == "positions"
+    assert "reuse_hint" in payload
+    assert "terminal" in payload["reuse_hint"]
+    assert "portfolio_write_create_order" in payload["reuse_hint"]
+
+
 def test_build_artifact_pointer_message_includes_viz_hint_for_drawdown_payload() -> None:
     message = build_artifact_pointer_message(
         tool_name="execute_code",

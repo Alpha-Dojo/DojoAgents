@@ -508,6 +508,8 @@ def register_dashboard_portfolio_tools(
                 "Fetch one portfolio detail. "
                 "candidates = watchlist (候选股); positions/holdings = filled buys (持仓, from orders). "
                 "eval_summary has candidate_count AND position_count — use the right metric for eval_submit. "
+                "For 买入/卖出/减仓/清仓 order workflows set include_performance=false to keep the response small. "
+                "When compressed to an artifact pointer, positions[] and eval_summary remain visible. "
                 "Required verification step after any portfolio write."
             ),
             parameters={
@@ -711,12 +713,14 @@ def register_dashboard_portfolio_tools(
             description=(
                 "Buy or sell to create/update a REAL position (持仓/建仓/清仓). "
                 "Provide ticker + order_side; price/qty/order_time are optional — the server resolves defaults: "
-                "no date -> latest close; date only -> that day's open; price only -> nearest day where price is "
-                "within daily low/high; no qty on buy -> 10% of available market cash (lot-normalized); "
+                "no date + no price -> latest daily close; order_time only -> that day's open; "
+                "price only -> latest trading day when price fits that bar, else nearest historical match; "
+                "price + order_time -> validate price within that day's [low, high] inclusive. "
+                "When using a realtime quote price, also pass order_time from the latest kline datetime. "
+                "no qty on buy -> 10% of available market cash (lot-normalized); "
                 "no qty on sell -> if user asked 清仓/全部卖出, sell all held shares; otherwise ask the user "
                 "(suggest 50%, 75%, 100% via qty_pct). "
-                "US qty must be whole shares; HK/A-share qty must be multiples of 100. "
-                "Limit price must fall within the trade day's high/low range."
+                "US qty must be whole shares; HK/A-share qty must be multiples of 100."
             ),
             parameters={
                 "type": "object",
@@ -727,7 +731,10 @@ def register_dashboard_portfolio_tools(
                     "order_side": {"type": "string", "enum": ["buy", "sell"]},
                     "price": {
                         "type": "number",
-                        "description": "Optional limit price; must be within the trade day's low/high",
+                        "description": (
+                            "Optional limit price; must be within order_time day's [low, high] inclusive. "
+                            "When sourced from realtime quote, pass order_time too."
+                        ),
                     },
                     "qty": {
                         "type": "number",
@@ -743,7 +750,9 @@ def register_dashboard_portfolio_tools(
                     },
                     "order_time": {
                         "type": "string",
-                        "description": "Optional execution date YYYY-MM-DD",
+                        "description": (
+                            "Optional execution date YYYY-MM-DD. Recommended when passing a quote-derived price."
+                        ),
                     },
                 },
                 "required": ["portfolio_id", "ticker", "order_side"],

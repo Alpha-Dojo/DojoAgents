@@ -5,8 +5,9 @@ from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from dojoagents.dashboard.services.domain_utils import normalize_market_code
-from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time
+from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, price_within_daily_range
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_with_symbol_fallback
 
 OrderSide = str  # "buy" | "sell"
 OrderStatus = str  # "pending" | "filled" | "cancelled" | "rejected"
@@ -112,6 +113,24 @@ def resolve_market_initial_capital(capital_by_market: dict[str, Any] | None, mar
     return float(capital.get(market) or 0)
 
 
+def _bar_dict_from_resolved(order: dict[str, Any]) -> Optional[dict[str, float]]:
+    raw = order.get("resolved_bar")
+    if not isinstance(raw, dict):
+        return None
+    bar_date = _parse_date(raw.get("date"))
+    if not bar_date:
+        return None
+    try:
+        open_price = float(raw.get("open") or 0)
+        low = float(raw.get("low") or 0)
+        high = float(raw.get("high") or 0)
+    except (TypeError, ValueError):
+        return None
+    if open_price <= 0 or low <= 0 or high <= 0:
+        return None
+    return {"date": bar_date, "open": open_price, "low": low, "high": high}
+
+
 async def _fetch_order_kline_bars(
     kline_store: KlineStore,
     *,
@@ -119,26 +138,40 @@ async def _fetch_order_kline_bars(
     market: str,
     scheduled_date: str | None = None,
     after_date: str | None = None,
+    user_price: float | None = None,
 ) -> list[Any]:
-    """Fetch kline bars scoped to the order date instead of the default trailing window."""
-    if scheduled_date:
-        response = await kline_store.get_or_fetch_kline(
-            ticker,
-            market=market or None,
-            start_time=scheduled_date,
-            end_time=scheduled_date,
-            limit=8,
-        )
-    elif after_date:
-        response = await kline_store.get_or_fetch_kline(
-            ticker,
-            market=market or None,
-            start_time=after_date,
-            limit=32,
-        )
-    else:
-        response = await kline_store.get_or_fetch_kline(ticker, market=market or None, limit=252)
-    return list(response.bars) if response is not None else []
+    bars, _ = await fetch_kline_bars_with_symbol_fallback(
+        kline_store,
+        symbol=ticker,
+        market=market,
+        order_time=scheduled_date,
+        user_price=user_price if scheduled_date is None else None,
+        after_date=after_date if scheduled_date is None else None,
+    )
+    return bars
+
+
+async def _resolve_scheduled_fill_bar(
+    order: dict[str, Any],
+    *,
+    kline_store: KlineStore,
+    ticker: str,
+    market: str,
+    scheduled: str,
+) -> tuple[Optional[dict[str, float]], list[Any]]:
+    resolved = _bar_dict_from_resolved(order)
+    if resolved is not None and resolved["date"] == scheduled:
+        return resolved, []
+
+    bars = await _fetch_order_kline_bars(
+        kline_store,
+        ticker=ticker,
+        market=market,
+        scheduled_date=scheduled,
+    )
+    if not bars:
+        return None, []
+    return _bar_for_date(bars, scheduled), bars
 
 
 async def evaluate_order_fill_failure(
@@ -171,29 +204,27 @@ async def evaluate_order_fill_failure(
 
     scheduled = _parse_date(order.get("order_time"))
     created = _parse_date(order.get("created_at")) or date.today().isoformat()
-    bars = await _fetch_order_kline_bars(
-        kline_store,
-        ticker=ticker,
-        market=market,
-        scheduled_date=scheduled,
-        after_date=None if scheduled else created,
-    )
-    if not bars:
-        return OrderFillFailure(
-            "no_kline_data",
-            f"no kline data available for {ticker}",
-            {"ticker": ticker},
-        )
-
     if scheduled:
-        bar = _bar_for_date(bars, scheduled)
+        bar, bars = await _resolve_scheduled_fill_bar(
+            order,
+            kline_store=kline_store,
+            ticker=ticker,
+            market=market,
+            scheduled=scheduled,
+        )
+        if not bars and bar is None:
+            return OrderFillFailure(
+                "no_kline_data",
+                f"no kline data available for {ticker}",
+                {"ticker": ticker},
+            )
         if bar is None:
             return OrderFillFailure(
                 "no_trading_bar",
                 f"no trading bar for {ticker} on {scheduled}",
                 {"ticker": ticker, "date": scheduled},
             )
-        if limit_price < bar["low"] or limit_price > bar["high"]:
+        if not price_within_daily_range(limit_price, bar["low"], bar["high"]):
             return OrderFillFailure(
                 "price_out_of_range",
                 (
@@ -221,6 +252,19 @@ async def evaluate_order_fill_failure(
             if cash_failure is not None:
                 return cash_failure
         return None
+
+    bars = await _fetch_order_kline_bars(
+        kline_store,
+        ticker=ticker,
+        market=market,
+        after_date=created,
+    )
+    if not bars:
+        return OrderFillFailure(
+            "no_kline_data",
+            f"no kline data available for {ticker}",
+            {"ticker": ticker},
+        )
 
     bar = _next_trading_day(bars, created)
     if bar is None:
@@ -289,25 +333,29 @@ async def try_fill_order(
 
     scheduled = _parse_date(order.get("order_time"))
     created = _parse_date(order.get("created_at")) or date.today().isoformat()
-    bars = await _fetch_order_kline_bars(
-        kline_store,
-        ticker=ticker,
-        market=market,
-        scheduled_date=scheduled,
-        after_date=None if scheduled else created,
-    )
-    if not bars:
-        return order
-
     if scheduled:
-        bar = _bar_for_date(bars, scheduled)
+        bar, bars = await _resolve_scheduled_fill_bar(
+            order,
+            kline_store=kline_store,
+            ticker=ticker,
+            market=market,
+            scheduled=scheduled,
+        )
         if bar is None:
             return order
-        if limit_price < bar["low"] or limit_price > bar["high"]:
+        if not price_within_daily_range(limit_price, bar["low"], bar["high"]):
             return order
         fill_price = limit_price
         fill_date = bar["date"]
     else:
+        bars = await _fetch_order_kline_bars(
+            kline_store,
+            ticker=ticker,
+            market=market,
+            after_date=created,
+        )
+        if not bars:
+            return order
         bar = _next_trading_day(bars, created)
         if bar is None:
             return order

@@ -48,12 +48,153 @@ TOOL_ARTIFACT_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
         "rows_key": "items",
         "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
     },
+    "portfolio_read_detail": {
+        "rows_key": "positions",
+        "row_fields": ["ticker", "name", "market", "shares", "weight"],
+        "pandas_example": (
+            "detail = dojo_tools.tool_json(res); "
+            "positions = detail.get('positions') or detail.get('holdings') or []"
+        ),
+    },
 }
 
 
 def get_tool_artifact_schema_hint(tool_name: str) -> dict[str, Any] | None:
     hint = TOOL_ARTIFACT_SCHEMA_HINTS.get(str(tool_name or "").strip())
     return dict(hint) if hint else None
+
+
+def _normalize_bar_datetime(row: Any) -> str:
+    if isinstance(row, dict):
+        for key in ("datetime", "bar_time", "date"):
+            value = row.get(key)
+            if value:
+                return str(value).strip()[:10]
+        return ""
+    for key in ("bar_time", "datetime", "date"):
+        value = getattr(row, key, None)
+        if value:
+            return str(value).strip()[:10]
+    return ""
+
+
+def _position_rows_from_detail(data: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("positions", "holdings"):
+        rows = data.get(key)
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def summarize_portfolio_detail_artifact_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract holdings + eval counts for artifact pointers (sell/减仓 need tickers + shares)."""
+    summary: dict[str, Any] = {}
+    portfolio_id = data.get("id") or data.get("portfolio_id")
+    if portfolio_id:
+        summary["portfolio_id"] = portfolio_id
+    for key in ("name", "kind"):
+        value = data.get(key)
+        if value:
+            summary[key] = value
+
+    eval_summary = data.get("eval_summary")
+    if isinstance(eval_summary, dict):
+        summary["eval_summary"] = {
+            field: eval_summary[field]
+            for field in (
+                "candidate_count",
+                "candidate_count_by_market",
+                "position_count",
+                "position_count_by_market",
+            )
+            if field in eval_summary
+        }
+    else:
+        from dojoagents.agent.harnesses.portfolio_eval import eval_summary_from_detail
+
+        compact_eval = eval_summary_from_detail(data)
+        summary["eval_summary"] = {
+            key: value for key, value in compact_eval.items() if key != "guidance"
+        }
+
+    positions: list[dict[str, Any]] = []
+    for row in _position_rows_from_detail(data):
+        shares_raw = row.get("shares")
+        try:
+            shares = float(shares_raw or 0)
+        except (TypeError, ValueError):
+            shares = 0.0
+        if shares <= 0:
+            continue
+        compact: dict[str, Any] = {
+            "ticker": row.get("ticker"),
+            "name": row.get("name") or row.get("name_zh") or row.get("name_en"),
+            "market": row.get("market"),
+            "shares": shares,
+        }
+        weight = row.get("weight")
+        if weight is not None:
+            compact["weight"] = weight
+        if row.get("name_zh"):
+            compact["name_zh"] = row.get("name_zh")
+        positions.append(compact)
+    if positions:
+        summary["positions"] = positions
+
+    candidates = data.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        summary["candidate_count"] = len(candidates)
+        summary["candidate_tickers"] = [
+            str(row.get("ticker"))
+            for row in candidates[:40]
+            if isinstance(row, dict) and row.get("ticker")
+        ]
+
+    return summary
+
+
+def summarize_kline_artifact_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract head-line kline metadata for artifact pointers (avoids redundant refetch)."""
+    summary: dict[str, Any] = {}
+    for key in ("as_of", "period_start", "period_end", "interval"):
+        value = data.get(key)
+        if value:
+            summary[key] = value
+
+    klines = data.get("klines") or data.get("bars")
+    if not isinstance(klines, list) or not klines:
+        return summary
+
+    latest_row = max(klines, key=lambda row: _normalize_bar_datetime(row) or "")
+    bar_date = _normalize_bar_datetime(latest_row)
+    if not bar_date:
+        return summary
+
+    def _num(row: Any, key: str) -> float | None:
+        if isinstance(row, dict):
+            raw = row.get(key)
+        else:
+            raw = getattr(row, key, None)
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    latest: dict[str, Any] = {"datetime": bar_date}
+    for field in ("open", "high", "low", "close", "volume"):
+        value = _num(latest_row, field if field != "volume" else field)
+        if value is None and field == "volume":
+            value = _num(latest_row, "vol")
+        if value is not None:
+            latest[field] = value
+    summary["latest_kline"] = latest
+    if not summary.get("as_of"):
+        summary["as_of"] = bar_date
+    if not summary.get("period_end"):
+        summary["period_end"] = bar_date
+    return summary
 
 
 def extract_viz_payload_from_content(content: str) -> dict[str, Any] | None:
@@ -276,6 +417,20 @@ def build_artifact_pointer_message(
         items = data.get("items")
         if isinstance(items, list):
             summary["row_count"] = len(items)
+        if tool_name == "get_ticker_price_trends":
+            summary.update(summarize_kline_artifact_data(data))
+            summary["reuse_hint"] = (
+                "Do NOT call get_ticker_price_trends again for the latest bar — "
+                "use latest_kline.datetime / as_of above, or dojo_tools.load_tool_result(call_id)."
+            )
+        if tool_name == "portfolio_read_detail":
+            summary.update(summarize_portfolio_detail_artifact_data(data))
+            summary["reuse_hint"] = (
+                "Holdings are in positions[] above (ticker, shares, weight). "
+                "For 卖出/减仓/清仓 call portfolio_write_create_order(s) using those tickers — "
+                "do NOT use terminal or re-call portfolio_read_detail. "
+                "Full payload: dojo_tools.load_tool_result(call_id) inside execute_code only."
+            )
     if arguments:
         for key in ("ticker", "tickers", "market", "portfolio_id"):
             if key in arguments and arguments[key]:

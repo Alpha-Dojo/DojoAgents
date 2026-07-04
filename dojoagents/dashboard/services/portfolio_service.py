@@ -496,6 +496,8 @@ class PortfolioService:
             "created_at": _utc_now_iso(),
             "updated_at": None,
         }
+        if body.resolved_bar is not None:
+            order["resolved_bar"] = body.resolved_bar.model_dump()
         raw = await self._store_call("add_order", portfolio_id, order=order)
         if not raw:
             return None
