@@ -16,6 +16,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     PortfolioListResponseV1,
     PortfolioPerformanceResponseV1,
     RemovePortfolioHoldingRequestV1,
+    RemovePortfolioHoldingsRequestV1,
     UpdateHoldingsMetadataRequestV1,
 )
 from dojoagents.dashboard.schemas.portfolio import (
@@ -23,6 +24,7 @@ from dojoagents.dashboard.schemas.portfolio import (
     CancelPortfolioOrderRequest,
     CreatePortfolioOrderRequest,
     CreatePortfolioRequest,
+    RemovePortfolioHoldingRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.services.domain_api import (
@@ -209,6 +211,32 @@ async def remove_holding(
     detail = await registry.portfolio_service.remove_holding(
         body.portfolio_id,
         body,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio or holding not found")
+    return portfolio_detail_to_analysis(detail)
+
+
+@router.delete(
+    "/holdings/batch",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="remove_portfolio_holdings",
+    summary="Remove multiple tickers from a portfolio watchlist",
+)
+async def remove_holdings_batch(
+    body: RemovePortfolioHoldingsRequestV1,
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    bodies = [
+        RemovePortfolioHoldingRequest(
+            ticker=holding.ticker,
+            market=holding.market,
+        )
+        for holding in body.holdings
+    ]
+    detail, _blocked = await registry.portfolio_service.remove_holdings_batch(
+        body.portfolio_id,
+        bodies,
     )
     if detail is None:
         raise HTTPException(status_code=404, detail="portfolio or holding not found")

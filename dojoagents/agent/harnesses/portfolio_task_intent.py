@@ -31,6 +31,7 @@ _PORTFOLIO_WRITE_TOOL_NAMES = frozenset(
         *_ADD_CANDIDATE_TOOL_NAMES,
         *_CREATE_ORDER_TOOL_NAMES,
         "portfolio_write_remove_holding",
+        "portfolio_write_remove_candidates",
         "portfolio_write_auto_allocate",
     }
 )
@@ -103,6 +104,7 @@ def _is_delete_only_task(state: HarnessLoopState) -> bool:
         *_ADD_CANDIDATE_TOOL_NAMES,
         *_CREATE_ORDER_TOOL_NAMES,
         "portfolio_write_remove_holding",
+        "portfolio_write_remove_candidates",
         "portfolio_write_auto_allocate",
     }
     if state.any_ok_tool(*mutating):

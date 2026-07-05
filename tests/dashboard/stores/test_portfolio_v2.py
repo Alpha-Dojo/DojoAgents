@@ -87,6 +87,39 @@ def test_store_add_candidates_batch_persists_all_tickers(tmp_path) -> None:
     assert tickers == {"VZ", "TTE", "SHEL", "TM", "WFC"}
 
 
+def test_store_remove_candidates_batch_removes_all_tickers(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Batch")
+    portfolio_id = portfolio["id"]
+    store.add_candidates_batch(
+        portfolio_id,
+        entries=[("AAPL", "us"), ("MSFT", "us"), ("NVDA", "us")],
+    )
+
+    updated = store.remove_candidates_batch(
+        portfolio_id,
+        entries=[("AAPL", "us"), ("MSFT", "us")],
+    )
+
+    assert updated is not None
+    tickers = {row["ticker"] for row in updated["candidates"]}
+    assert tickers == {"NVDA"}
+
+
+def test_store_remove_candidate_uses_lock_and_returns_none_when_missing(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Batch")
+    portfolio_id = portfolio["id"]
+    store.add_candidate(portfolio_id, ticker="AAPL", market="us")
+
+    missing = store.remove_candidate(portfolio_id, ticker="MSFT", market="us")
+    assert missing is None
+
+    removed = store.remove_candidate(portfolio_id, ticker="AAPL", market="us")
+    assert removed is not None
+    assert removed["candidates"] == []
+
+
 def test_expected_portfolio_candidate_count_parses_chinese_request() -> None:
     from dojoagents.agent.harnesses.portfolio_eval import (
         PortfolioEvalSubmission,

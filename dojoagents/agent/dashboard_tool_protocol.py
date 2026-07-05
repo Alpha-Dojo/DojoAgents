@@ -71,7 +71,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 | Concept | UI label | Meaning | Tool | Eval field |
 |---------|----------|---------|------|------------|
-| Watchlist | 候选股 | Track symbols, no capital spent | `portfolio_write_add_candidate(s)` | `min_candidate_count` |
+| Watchlist | 候选股 | Track symbols, no capital spent | `portfolio_write_add_candidate(s)` / `portfolio_write_remove_candidate(s)` | `min_candidate_count` |
 | Filled buy | 持仓 / 建仓 | Spend capital at price × qty | `portfolio_write_create_order(s)` | `min_position_count` |
 | Filled sell / 清仓 | 卖出 / 清仓 | Reduce or close positions via orders | `portfolio_write_create_order(s)` sell | `max_position_count=0` |
 
@@ -135,6 +135,17 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 **Theme basket without 建仓:** use add_candidates only — positions stay 0 until user asks to buy.
 
+**Remove watchlist / 剔除候选股 (2+ tickers):**
+1. `portfolio_read_detail` → read `candidates[]` or artifact pointer candidate rows
+2. **One call:** `portfolio_write_remove_candidates` with `holdings: [{ticker, market?}, ...]`
+3. `portfolio_read_detail` → verify `eval_summary.candidate_count` if eval follows
+
+**Remove watchlist rules (avoid concurrent single removes):**
+- **≥2 tickers:** MUST use `portfolio_write_remove_candidates` once — never parallel/repeated `portfolio_write_remove_holding`
+- **1 ticker:** `portfolio_write_remove_holding` is OK
+- Tickers with open positions are skipped (`remove_result.blocked_open_position`); sell first via `portfolio_write_create_order(s)`
+- If `remove_result.skipped_not_in_watchlist` is non-empty, those tickers were not on the watchlist
+
 ### Sector taxonomy ids
 
 1. `search_sector_taxonomy` with the user's concept (synonyms auto-expanded: 具身智能 → 机器人, robotics…).
@@ -171,6 +182,7 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 ### Portfolio tools
 
 **Watchlist / 候选股:** create → add_candidates → read_detail → eval_submit (min_candidate_count)
+**剔除候选股:** read_detail → remove_candidates (batch) → read_detail → eval_submit if needed
 **建仓 / 买入:** read_search → create_order(s) with price+qty → read_detail → eval_submit (min_position_count)
 **清仓 / 全部卖出:** read_search → read_detail → create_order(s) sell → read_detail → eval_submit (max_position_count=0)
 **Delete:** read_list → write_delete → done (no read_detail, no eval_submit)
@@ -178,6 +190,7 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 ### Batch calls
 
 - `get_ticker_realtime_quote` / `get_ticker_financials`: pass all tickers in one `tickers` array (≤50).
+- `portfolio_write_add_candidates` / `portfolio_write_remove_candidates`: pass all watchlist tickers in one `holdings` array.
 
 ### execute_code (computation only — NOT for text formatting)
 
