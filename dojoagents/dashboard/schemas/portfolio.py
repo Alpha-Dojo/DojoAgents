@@ -239,6 +239,12 @@ class RemovePortfolioHoldingRequest(BaseModel):
     market: Optional[str] = Field(None, description="Market code: us, sh, hk")
 
 
+class RemovePortfolioHoldingsBatchRequest(BaseModel):
+    """Removes multiple candidate tickers from the portfolio watchlist."""
+
+    holdings: list[RemovePortfolioHoldingRequest] = Field(..., min_length=1)
+
+
 class PortfolioSearchItem(BaseModel):
     id: str
     match_type: PortfolioMatchType

@@ -118,3 +118,24 @@ def test_terminal_blocks_dojo_tools_load_tool_result() -> None:
     assert decision.action == "block"
     assert decision.code == "terminal_dojo_tools_blocked"
     assert decision.should_halt
+
+
+def test_remove_holding_guardrail_blocks_second_single_remove() -> None:
+    controller = ToolCallGuardrailController()
+    args = {"portfolio_id": "p-1", "ticker": "AAPL", "market": "us"}
+
+    first = controller.before_call("portfolio_write_remove_holding", args)
+    assert first.action == "allow"
+
+    second = controller.before_call("portfolio_write_remove_holding", args)
+    assert second.action == "block"
+    assert second.code == "remove_holding_use_batch"
+
+    batch = controller.before_call(
+        "portfolio_write_remove_candidates",
+        {"portfolio_id": "p-1", "holdings": [{"ticker": "AAPL"}, {"ticker": "MSFT"}]},
+    )
+    assert batch.action == "allow"
+
+    third = controller.before_call("portfolio_write_remove_holding", args)
+    assert third.action == "allow"

@@ -27,6 +27,7 @@ _PORTFOLIO_WRITE_TOOLS = {
     "portfolio_write_create_order",
     "portfolio_write_create_orders",
     "portfolio_write_remove_holding",
+    "portfolio_write_remove_candidates",
     "portfolio_write_auto_allocate",
 }
 
@@ -63,6 +64,7 @@ _MUTATING_BUILD_TOOLS = {
     *_ADD_CANDIDATE_TOOLS,
     *_CREATE_ORDER_TOOLS,
     "portfolio_write_remove_holding",
+    "portfolio_write_remove_candidates",
     "portfolio_write_auto_allocate",
 }
 
@@ -135,6 +137,8 @@ class PortfolioTaskHarness(TaskHarness):
         calls: list[ToolCall],
         state: HarnessLoopState,
     ) -> list[ToolCall]:
+        from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
+
         portfolio_id = state.target_portfolio_id()
         repaired: list[ToolCall] = []
         for call in calls:
@@ -146,7 +150,7 @@ class PortfolioTaskHarness(TaskHarness):
                 )
                 continue
             repaired.append(call)
-        return repaired
+        return merge_remove_holding_tool_calls(repaired)
 
     def validate_progress(self, state: HarnessLoopState) -> HarnessDecision:
         escalation = self._user_input_escalation_decision(state)

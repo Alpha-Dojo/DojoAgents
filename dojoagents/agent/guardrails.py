@@ -83,12 +83,14 @@ class ToolCallGuardrailController:
         self._exact_failure_counts: dict[ToolCallSignature, int] = {}
         self._same_tool_failure_counts: dict[str, int] = {}
         self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
+        self._remove_holding_by_portfolio: dict[str, int] = {}
         self._halt_decision: ToolGuardrailDecision | None = None
 
     def reset_for_turn(self) -> None:
         self._exact_failure_counts.clear()
         self._same_tool_failure_counts.clear()
         self._no_progress.clear()
+        self._remove_holding_by_portfolio.clear()
         self._halt_decision = None
 
     def before_call(self, tool_name: str, args: Mapping[str, Any] | None) -> ToolGuardrailDecision:
@@ -110,6 +112,32 @@ class ToolCallGuardrailController:
                 )
                 self._halt_decision = decision
                 return decision
+
+        if tool_name == "portfolio_write_remove_candidates":
+            portfolio_id = str((args or {}).get("portfolio_id") or "").strip()
+            if portfolio_id:
+                self._remove_holding_by_portfolio.pop(portfolio_id, None)
+
+        if tool_name == "portfolio_write_remove_holding":
+            portfolio_id = str((args or {}).get("portfolio_id") or "").strip()
+            if portfolio_id:
+                prior = self._remove_holding_by_portfolio.get(portfolio_id, 0)
+                if prior >= 1:
+                    decision = ToolGuardrailDecision(
+                        action="block",
+                        code="remove_holding_use_batch",
+                        message=(
+                            "Blocked portfolio_write_remove_holding: this portfolio already had a "
+                            "single-ticker remove this turn. For 2+ tickers call "
+                            "portfolio_write_remove_candidates once with holdings[]."
+                        ),
+                        tool_name=tool_name,
+                        count=prior + 1,
+                        signature=signature,
+                    )
+                    self._halt_decision = decision
+                    return decision
+                self._remove_holding_by_portfolio[portfolio_id] = prior + 1
 
         exact_count = self._exact_failure_counts.get(signature, 0)
         if exact_count >= self.exact_failure_block_after:

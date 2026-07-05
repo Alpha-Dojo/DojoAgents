@@ -147,6 +147,22 @@ def _config_capital_by_market(raw: dict) -> Optional[dict]:
     return capital if isinstance(capital, dict) else None
 
 
+def _has_open_position_for_candidate(
+    positions: list[dict],
+    *,
+    ticker: str,
+    market: Optional[str],
+) -> bool:
+    for row in positions:
+        if str(row.get("ticker")) != ticker:
+            continue
+        if float(row.get("shares") or 0) <= 0:
+            continue
+        if market is None or str(row.get("market")) == market:
+            return True
+    return False
+
+
 def _market_initial_capital(config: Optional[dict], market: str) -> float:
     capital = (config or {}).get("capital_by_market") or {}
     if not isinstance(capital, dict):
@@ -648,6 +664,48 @@ class PortfolioService:
         if not raw:
             return None
         return await self._to_detail(raw)
+
+    async def remove_holdings_batch(
+        self,
+        portfolio_id: str,
+        bodies: list[RemovePortfolioHoldingRequest],
+    ) -> tuple[Optional[PortfolioDetail], list[str]]:
+        raw = await self._store_call("get_raw", portfolio_id)
+        if not raw:
+            return None, []
+        raw = await self._ensure_orders_processed(portfolio_id, raw)
+        positions = aggregate_positions_bounded(
+            [row for row in raw.get("orders") or [] if isinstance(row, dict)],
+            capital_by_market=_config_capital_by_market(raw),
+        )
+
+        blocked_open_position: list[str] = []
+        entries: list[tuple[str, Optional[str]]] = []
+        for body in bodies:
+            ticker = body.ticker.strip()
+            if not ticker:
+                continue
+            market = body.market
+            if _has_open_position_for_candidate(positions, ticker=ticker, market=market):
+                blocked_open_position.append(ticker)
+                continue
+            entries.append((ticker, market))
+
+        if blocked_open_position and not entries:
+            raise PortfolioValidationError(
+                "cannot remove candidate while position is open",
+                field=f"candidates.{blocked_open_position[0]}",
+            )
+
+        if not entries:
+            detail = await self._to_detail(raw)
+            return detail, blocked_open_position
+
+        raw = await self._store_call("remove_candidates_batch", portfolio_id, entries=entries)
+        if not raw:
+            return None, blocked_open_position
+        detail = await self._to_detail(raw)
+        return detail, blocked_open_position
 
     async def auto_allocate(self, portfolio_id: str, body: AutoAllocateRequest) -> Optional[PortfolioDetail]:
         del body

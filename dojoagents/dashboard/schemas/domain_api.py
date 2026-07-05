@@ -607,6 +607,11 @@ class RemovePortfolioHoldingRequestV1(BaseModel):
     market: Optional[str] = Field(None, description="Market code: us, cn, hk")
 
 
+class RemovePortfolioHoldingsRequestV1(BaseModel):
+    portfolio_id: str
+    holdings: List[AddHoldingDetails] = Field(..., min_length=1, max_length=MAX_PORTFOLIO_HOLDINGS_BATCH)
+
+
 class AutoAllocateRequestV1(BaseModel):
     portfolio_id: str
     allocation_strategy: AllocationStrategy = "market_cap"

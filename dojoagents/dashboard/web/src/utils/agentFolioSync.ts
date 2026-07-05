@@ -18,6 +18,7 @@ const PORTFOLIO_MUTATING_TOOLS = new Set([
   'portfolio_write_add_holding',
   'portfolio_write_add_holdings',
   'portfolio_write_remove_holding',
+  'portfolio_write_remove_candidates',
   'portfolio_write_auto_allocate',
 ]);
 

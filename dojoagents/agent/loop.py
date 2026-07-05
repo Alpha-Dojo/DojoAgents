@@ -261,10 +261,12 @@ class DojoStrandsModelBridge(Model):
 
         if invocation_state is not None:
             from dojoagents.agent.models import ChatRequest
+            from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
             from dojoagents.agent.turn_completion import apply_turn_completion_after_model
 
             request = invocation_state.get("_dojo_request")
             if isinstance(request, ChatRequest) and request.channel == "dashboard":
+                llm_result.tool_calls = merge_remove_holding_tool_calls(list(llm_result.tool_calls))
                 apply_turn_completion_after_model(llm_result, invocation_state)
 
         if not has_text_delta and llm_result.content:
