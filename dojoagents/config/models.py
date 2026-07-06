@@ -54,6 +54,7 @@ class SandboxConfig:
 class WebToolsConfig:
     search_backend: str = "ddgs"
     extract_backend: str = "fetch"
+    user_agent: str | None = None
     search_base_url: str | None = None
     extract_base_url: str | None = None
     max_extract_urls: int = 5

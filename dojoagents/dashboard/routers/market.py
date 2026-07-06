@@ -68,7 +68,7 @@ async def market_sector_movers(
     "/screener",
     response_model=StockScreenResponse,
     operation_id="screen_market_stocks",
-    summary="Screen quoted stocks by market cap, return, valuation, and daily change",
+    summary="Screen quoted stocks; excludes delisted/zero-volume; default min cap ~10B; significance-weighted mover sort",
 )
 async def market_stock_screener(
     days: int = Query(0, ge=0, le=90),

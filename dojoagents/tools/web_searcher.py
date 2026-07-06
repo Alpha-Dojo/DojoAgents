@@ -4,6 +4,7 @@ import html
 import ipaddress
 import json
 import re
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlparse
 
@@ -85,8 +86,25 @@ def _trim_content(text: str, cfg: WebToolsConfig) -> tuple[str, bool, str]:
     return clipped + "\n...[truncated]", True, "truncate"
 
 
-def _make_async_client(**kwargs: Any) -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=20.0, follow_redirects=True, **kwargs)
+def _default_user_agent() -> str:
+    try:
+        pkg_version = version("dojoagents")
+    except PackageNotFoundError:
+        pkg_version = "0.0.0"
+    return f"DojoAgents/{pkg_version} (+https://github.com/Alpha-Dojo/DojoAgents)"
+
+
+def _resolve_user_agent(cfg: WebToolsConfig) -> str:
+    custom = (cfg.user_agent or "").strip()
+    if custom:
+        return custom
+    return _default_user_agent()
+
+
+def _make_async_client(cfg: WebToolsConfig, **kwargs: Any) -> httpx.AsyncClient:
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.setdefault("User-Agent", _resolve_user_agent(cfg))
+    return httpx.AsyncClient(timeout=20.0, follow_redirects=True, headers=headers, **kwargs)
 
 
 def _resolve_search_base_url(cfg: WebToolsConfig) -> str:
@@ -142,7 +160,7 @@ async def _ddgs_search_adapter(
     limit: int,
     cfg: WebToolsConfig,
 ) -> list[dict[str, Any]]:
-    async with _make_async_client() as client:
+    async with _make_async_client(cfg) as client:
         response = await client.get(
             f"{_resolve_search_base_url(cfg)}/html/",
             params={"q": query},
@@ -173,7 +191,7 @@ async def _fetch_extract_adapter(
     cfg: WebToolsConfig,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    async with _make_async_client() as client:
+    async with _make_async_client(cfg) as client:
         for url in urls:
             try:
                 response = await client.get(url)

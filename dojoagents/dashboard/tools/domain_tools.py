@@ -470,6 +470,9 @@ def register_dashboard_domain_tools(
             name="screen_market_stocks",
             description=(
                 "Full-market stock screen by market cap, PE, return, daily change. "
+                "Hard-excludes delisted/zero-volume tickers. Default min market cap ~10B when omitted. "
+                "Mover sorts (change_percent/return_pct) use change×log(market_cap). "
+                "Pass min_market_cap=0 only when user explicitly wants small/micro caps. "
                 "Use when there is NO matching taxonomy sector, or after sector tools fail. "
                 "For concept/industry baskets prefer search_sector_taxonomy + filter_sector_constituents first."
             ),
