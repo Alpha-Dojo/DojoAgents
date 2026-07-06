@@ -1076,6 +1076,12 @@ async def build_stock_screen(
     sort_order: str,
     limit: int,
 ) -> StockScreenResponse:
+    from dojoagents.dashboard.services.stock_quote_filter import (
+        change_significance_score,
+        passes_market_cap_floor,
+        stock_passes_market_screen_hard_filters,
+    )
+
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
     rows: list[StockScreenItem] = []
     universe_count = 0
@@ -1086,15 +1092,20 @@ async def build_stock_screen(
         list_market = getattr(registry.stock_store, "list_market", None)
         stocks = list_market(internal_market) if callable(list_market) else []
         for stock in stocks:
-            quote = getattr(stock, "stock_quote", None)
-            if quote is None:
+            if not stock_passes_market_screen_hard_filters(stock):
                 continue
             universe_count += 1
-            market_cap = getattr(quote, "market_cap", None)
-            pe = getattr(quote, "pe", None)
-            change_percent = getattr(quote, "change_percent", None)
+            quote = stock.stock_quote
+            assert quote is not None
+            market_cap = quote.market_cap
+            pe = quote.pe
+            change_percent = quote.change_percent
             window_change_percent = None
-            if min_market_cap is not None and (market_cap is None or market_cap < min_market_cap):
+            if not passes_market_cap_floor(
+                internal_market,
+                market_cap,
+                min_market_cap=min_market_cap,
+            ):
                 continue
             if max_market_cap is not None and market_cap is not None and market_cap > max_market_cap:
                 continue
@@ -1112,24 +1123,25 @@ async def build_stock_screen(
                 continue
             rows.append(
                 StockScreenItem(
-                    ticker=str(getattr(stock, "ticker", "")),
+                    ticker=str(stock.ticker),
                     market=to_native_market_code(internal_market) or internal_market,
-                    name=_safe_stock_bilingual_name(stock, str(getattr(stock, "ticker", ""))),
-                    last_price=getattr(quote, "last_price", None),
+                    name=_safe_stock_bilingual_name(stock, str(stock.ticker)),
+                    last_price=quote.last_price,
                     change_percent=change_percent,
                     window_change_percent=window_change_percent,
                     market_cap=market_cap,
                     pe=pe,
-                    pb=getattr(quote, "pb", None),
+                    pb=quote.pb,
                 )
             )
     sort_key = {
         "market_cap": lambda item: item.market_cap if item.market_cap is not None else float("-inf"),
-        "return_pct": lambda item: item.window_change_percent if item.window_change_percent is not None else float("-inf"),
-        "change_percent": lambda item: item.change_percent if item.change_percent is not None else float("-inf"),
+        "return_pct": lambda item: change_significance_score(item.window_change_percent, item.market_cap),
+        "change_percent": lambda item: change_significance_score(item.change_percent, item.market_cap),
         "pe": lambda item: item.pe if item.pe is not None else float("-inf"),
     }.get(sort_by, lambda item: item.market_cap if item.market_cap is not None else float("-inf"))
-    rows = sorted(rows, key=sort_key, reverse=sort_order == "desc")
+    significance_sort = sort_by in {"change_percent", "return_pct"}
+    rows = sorted(rows, key=sort_key, reverse=True if significance_sort else sort_order == "desc")
     return StockScreenResponse(
         days=days,
         market=to_native_market_code(market) if market else None,

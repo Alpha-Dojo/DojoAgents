@@ -30,6 +30,19 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8765)
 
+    sessions = sub.add_parser("sessions")
+    sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)
+    sessions_export = sessions_sub.add_parser("export", help="Export stored session messages")
+    sessions_export.add_argument("--config", default="~/.dojo/agents.yaml")
+    sessions_export.add_argument("--session-id", default=None, help="Export only one session")
+    sessions_export.add_argument("--output-dir", default=None)
+    sessions_export.add_argument("--format", default="jsonl")
+    sessions_export.add_argument("--include-archived", action="store_true")
+    sessions_export.add_argument("--no-raw-strands", action="store_true")
+    sessions_export.add_argument("--no-dojo-sidecars", action="store_true")
+    sessions_export.add_argument("--no-memory", action="store_true")
+    sessions_export.add_argument("--no-token-usage", action="store_true")
+
     gateway = sub.add_parser("gateway")
     gateway_sub = gateway.add_subparsers(dest="gateway_command")
     gateway_setup = gateway_sub.add_parser("setup")
@@ -95,6 +108,39 @@ async def _run_chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sessions(args: argparse.Namespace) -> int:
+    from dojoagents.config.loader import ConfigStore
+    from dojoagents.agent.session_manager import DojoAgentSessionManager
+
+    if args.sessions_command == "export":
+        sessions_config = ConfigStore(args.config).snapshot().sessions
+        manager = DojoAgentSessionManager(
+            root=sessions_config.root,
+            agent_id=sessions_config.agent_id,
+            provider=sessions_config.provider,
+            sync_memory=False,
+            export_default_dir=sessions_config.export_default_dir,
+            enabled=sessions_config.enabled,
+        )
+        result = manager.export_all_sync(
+            {
+                "session_id": args.session_id,
+                "output_dir": args.output_dir,
+                "format": args.format,
+                "include_archived": args.include_archived,
+                "include_raw_strands": not args.no_raw_strands,
+                "include_dojo_sidecars": not args.no_dojo_sidecars,
+                "include_memory": not args.no_memory,
+                "include_token_usage": not args.no_token_usage,
+            }
+        )
+        LOGGER.info("Exported %s sessions and %s messages to %s", result.session_count, result.message_count, result.export_dir)
+        for file in result.files:
+            LOGGER.info(" - %s", file)
+        return 0
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         args = build_parser().parse_args(argv)
@@ -108,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
         runtime = Runtime.from_default_config()
         uvicorn.run(create_dashboard_app(runtime), host=args.host, port=args.port)
         return 0
+    if args.command == "sessions":
+        return _run_sessions(args)
     if args.command == "gateway":
         if args.gateway_command == "setup":
             return configure_gateway_adapters(args.adapter, config_path=args.config)
