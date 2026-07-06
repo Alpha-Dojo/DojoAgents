@@ -302,6 +302,14 @@ def create_app(
         offline_mode = True
         financial_cfg = FinancialDashboardConfig()
 
+    from dojoagents.dashboard.services.stock_quote_filter import configure_ticker_market_cap_mins
+
+    configure_ticker_market_cap_mins(
+        sh=financial_cfg.ticker_market_cap_min_sh,
+        us=financial_cfg.ticker_market_cap_min_us,
+        hk=financial_cfg.ticker_market_cap_min_hk,
+    )
+
     sdk_cache_dir = financial_cfg.sdk_cache_path
     os.environ["DOJO_CACHE_DIR"] = str(sdk_cache_dir)
     resolved_data_root = (dashboard_data_root or financial_cfg.dashboard_data_path).expanduser()

@@ -20,6 +20,19 @@ def _make_executor(raw_config: dict):
     return ToolExecutor(registry, SandboxPolicy(timeout_seconds=2))
 
 
+def _mock_async_client(web_searcher, cfg, handler, **kwargs):
+    transport = httpx.MockTransport(handler)
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.setdefault("User-Agent", web_searcher._resolve_user_agent(cfg))
+    return httpx.AsyncClient(
+        transport=transport,
+        timeout=20.0,
+        follow_redirects=True,
+        headers=headers,
+        **kwargs,
+    )
+
+
 @pytest.mark.asyncio
 async def test_web_search_returns_metadata_only(monkeypatch):
     from dojoagents import tools as tools_pkg
@@ -175,7 +188,7 @@ async def test_web_search_ddgs_adapter_parses_results(monkeypatch):
             headers={"content-type": "text/html; charset=utf-8"},
         )
 
-    def fake_client_factory(**kwargs):
+    def fake_client_factory(cfg, **kwargs):
         transport = httpx.MockTransport(handler)
         return httpx.AsyncClient(transport=transport, **kwargs)
 
@@ -194,6 +207,9 @@ async def test_web_extract_fetch_adapter_parses_results(monkeypatch):
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "https://example.com/page"
+        user_agent = request.headers.get("user-agent", "")
+        assert user_agent
+        assert not user_agent.startswith("python-httpx")
         return httpx.Response(
             200,
             text="""
@@ -207,9 +223,8 @@ async def test_web_extract_fetch_adapter_parses_results(monkeypatch):
             headers={"content-type": "text/html; charset=utf-8"},
         )
 
-    def fake_client_factory(**kwargs):
-        transport = httpx.MockTransport(handler)
-        return httpx.AsyncClient(transport=transport, **kwargs)
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
 
     monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
 
@@ -228,3 +243,110 @@ async def test_web_extract_without_backend_returns_typed_error():
 
     assert result.ok is False
     assert "not configured" in result.error.lower()
+
+
+def test_resolve_user_agent_defaults_to_package_identity():
+    from dojoagents.config.models import WebToolsConfig
+    from dojoagents.tools.web_searcher import _resolve_user_agent
+
+    resolved = _resolve_user_agent(WebToolsConfig())
+    assert resolved.startswith("DojoAgents/")
+    assert "github.com/Alpha-Dojo/DojoAgents" in resolved
+
+
+def test_resolve_user_agent_honors_config_override():
+    from dojoagents.config.models import WebToolsConfig
+    from dojoagents.tools.web_searcher import _resolve_user_agent
+
+    resolved = _resolve_user_agent(WebToolsConfig(user_agent="CustomBot/2.0 (contact@example.com)"))
+    assert resolved == "CustomBot/2.0 (contact@example.com)"
+
+
+@pytest.mark.asyncio
+async def test_make_async_client_sets_user_agent_header():
+    from dojoagents.config.models import WebToolsConfig
+    from dojoagents.tools.web_searcher import _make_async_client
+
+    client = _make_async_client(WebToolsConfig())
+    try:
+        assert client.headers.get("User-Agent")
+        assert "DojoAgents" in client.headers["User-Agent"]
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_web_extract_fetch_adapter_handles_wikipedia_style_ua_policy(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        user_agent = request.headers.get("user-agent", "")
+        if not user_agent or user_agent.startswith("python-httpx"):
+            return httpx.Response(
+                403,
+                text="Please set a user-agent and respect our robot policy",
+            )
+        return httpx.Response(
+            200,
+            text="""
+            <html>
+            <head><title>Nidec - Wikipedia</title></head>
+            <body><p>Listed on the Tokyo Stock Exchange in 1977.</p></body>
+            </html>
+            """,
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"extract_backend": "fetch"}}})
+    result = await executor.execute_one(
+        ToolCall(
+            id="call-1",
+            name="web_extract",
+            arguments={"url": "https://en.wikipedia.org/wiki/Nidec"},
+        )
+    )
+
+    assert result.ok is True
+    assert result.data["results"][0]["error"] is None
+    assert result.data["results"][0]["title"] == "Nidec - Wikipedia"
+    assert "1977" in result.data["results"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_web_extract_fetch_adapter_uses_configured_user_agent(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("user-agent") == "CustomBot/2.0 (contact@example.com)"
+        return httpx.Response(
+            200,
+            text="<html><head><title>Configured</title></head><body>ok</body></html>",
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor(
+        {
+            "tools": {
+                "web": {
+                    "extract_backend": "fetch",
+                    "user_agent": "CustomBot/2.0 (contact@example.com)",
+                }
+            }
+        }
+    )
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_extract", arguments={"url": "https://example.com/page"})
+    )
+
+    assert result.ok is True
+    assert result.data["results"][0]["title"] == "Configured"

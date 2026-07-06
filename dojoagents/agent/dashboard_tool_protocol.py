@@ -26,7 +26,7 @@ When session history mentions an old portfolio task, treat it as **already done*
 |-------------|---------------------------|------------|
 | Theme / concept / industry basket (具身智能, 机器人, 半导体, AI…) | `search_sector_taxonomy` → `filter_sector_constituents` (per market) → optional `get_ticker_financials` batch → portfolio writes | `search_company_ticker`, `web_search` as primary discovery |
 | Sector analysis / compare industries | `get_taxonomy_tree` or `search_sector_taxonomy` → `get_sector_analysis` | Guessing sector ids |
-| Full-market screen (市值/PE/涨跌幅 filters, no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
+| Full-market screen / 全市场异动 / 涨跌幅排名 (no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
 | Resolve one company name → ticker | `search_company_ticker` (single q, known name) | Repeated keyword searches |
 | Analyze existing portfolio / 候选池成分分析 | `portfolio_read_search` → `portfolio_read_detail` → `get_ticker_financials` batch → answer | `portfolio_write_create`, add candidates, eval_submit |
 | Single stock deep dive | `get_ticker_realtime_quote`, `get_ticker_financials`, `get_ticker_price_trends` (pass `start_date`/`end_date`; same day for one bar) | — |
@@ -39,6 +39,26 @@ Read-only workflow — no portfolio writes:
 2. `portfolio_read_detail` for candidates list
 3. Batch `get_ticker_financials` (and optional quotes) on candidate tickers
 4. Summarize quality, valuation, risks — **stop**. No create, no eval_submit.
+
+### Full-market screen / 全市场异动 (screen_market_stocks)
+
+Server defaults (do NOT re-specify unless overriding user intent):
+
+- **Hard exclude** (always): delisted, no quote, `market_cap≤0`, zero session volume/amount/turnover.
+- **Default min market cap**: ~10B per market when `min_market_cap` is omitted (same as sector tools).
+- **Mover ranking**: `sort_by=change_percent` or `return_pct` ranks by `change × log(market_cap)` (highest significance first; `sort_order` ignored for these fields).
+
+**When to override `min_market_cap` / `max_market_cap`:**
+
+| User intent | Tool args |
+|-------------|-----------|
+| 异动 / 涨跌幅 / 跌幅最大 / 涨幅最大 (default) | omit `min_market_cap`; `sort_by=change_percent` (significance-ranked; use `min_change_percent`/`max_change_percent` to split gainers vs losers) |
+| 小市值 / 微盘 / 仙股 / penny / 壳股 / 低价暴涨 | `min_market_cap=0`; optional `max_market_cap` (e.g. 1e9 for sub-10B only) |
+| 大盘股 / 蓝筹 / 千亿 | `min_market_cap=1e10` or `1e11` |
+| 市值不高且涨幅巨大 (explicit small-cap momentum) | `min_market_cap=0`, `max_market_cap=1e9`, `sort_by=change_percent`, `min_change_percent` > 0 |
+
+**Do NOT** pass `min_market_cap=0` unless the user clearly asked for small/micro caps.
+**Do NOT** sort movers by raw `change_percent` alone — the tool applies significance weighting automatically.
 
 ### Theme / concept stock picking (e.g. 具身智能, 高息, 半导体)
 
@@ -53,8 +73,8 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
    with the full `sector_path_id` (three segments) or all three ids from step 2.
    Use `scope: "L2"` to list the whole L2 branch — never shorten the path to two segments (e.g. `1/2`).
 4. Apply numeric filters on the result set:
-   - market cap: use `min_market_cap` in `screen_market_stocks` only if you pivoted to market-wide screen;
-     otherwise filter constituent rows by `market_cap` field.
+   - market cap: filter constituent rows by `market_cap` field; for `screen_market_stocks` omit `min_market_cap`
+     unless the user asked for small/micro caps (see Full-market screen section).
    - profitability: batch `get_ticker_financials` on candidate tickers, keep net_profit > 0.
 5. Portfolio watchlist (选股/候选池): `portfolio_write_create` → `portfolio_write_add_candidates` →
    `portfolio_read_detail` (read `eval_summary.candidate_count`) → `portfolio_eval_submit` with **min_candidate_count**.
