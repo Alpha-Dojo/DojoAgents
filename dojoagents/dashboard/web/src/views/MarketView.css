@@ -244,7 +244,6 @@
 /* Merged market hero card */
 .market-hero {
   padding: 12px 14px 10px;
-  border: 1px solid var(--border-accent);
   border-radius: 8px;
   background: linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
   display: flex;
