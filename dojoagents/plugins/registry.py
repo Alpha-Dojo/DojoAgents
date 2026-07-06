@@ -38,7 +38,7 @@ CLAUDE_TO_DOJO_HOOKS = {
 @dataclass
 class PluginManifest:
     name: str
-    version: str = "0.1.4"
+    version: str = "0.1.5"
     description: str = ""
     provides_tools: List[str] = field(default_factory=list)
     provides_hooks: List[str] = field(default_factory=list)
@@ -169,7 +169,7 @@ class DojoPluginRegistry:
             try:
                 manifest = PluginManifest(
                     name=meta.get("name", child.name),
-                    version=meta.get("version", "0.1.4"),
+                    version=meta.get("version", "0.1.5"),
                     description=meta.get("description", ""),
                     provides_tools=meta.get("provides_tools", []),
                     provides_hooks=meta.get("provides_hooks", []),

@@ -48,6 +48,8 @@ class DojoProjectedMessage:
     created_at: str
     updated_at: str
     raw: dict[str, Any]
+    raw_strands: dict[str, Any] = field(default_factory=dict)
+    openai_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

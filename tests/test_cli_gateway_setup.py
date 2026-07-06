@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import yaml
 
@@ -180,6 +182,69 @@ def test_gateway_setup_rejects_unknown_adapter(tmp_path):
     code = main(["gateway", "setup", "unknown", "--config", str(tmp_path / "agents.yaml")])
 
     assert code == 2
+
+
+def test_sessions_export_cli_exports_messages(tmp_path):
+    from dojoagents.cli.main import main
+    from dojoagents.agent.models import AgentResponse, ChatRequest
+    from dojoagents.agent.session_manager import DojoAgentSessionManager
+
+    sessions_root = tmp_path / "sessions"
+    manager = DojoAgentSessionManager(root=sessions_root)
+    request = ChatRequest(message="hello", user_id="u1", session_id="sess-cli", channel="cli")
+    handle = manager.begin_run_sync(request, model="fake-model", run_id="run-cli")
+    manager.repository.create_message(
+        "sess-cli",
+        "dojo-agent",
+        manager.message_from_text("user", "hello", 0),
+    )
+    manager.finish_run_sync(handle, AgentResponse(content="hi", session_id="sess-cli"))
+    other = ChatRequest(message="other", user_id="u1", session_id="sess-other", channel="cli")
+    other_handle = manager.begin_run_sync(other, model="fake-model", run_id="run-other")
+    manager.repository.create_message(
+        "sess-other",
+        "dojo-agent",
+        manager.message_from_text("user", "other", 0),
+    )
+    manager.finish_run_sync(other_handle, AgentResponse(content="other", session_id="sess-other"))
+
+    config_path = tmp_path / "agents.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "sessions": {
+                    "root": str(sessions_root),
+                    "agent_id": "dojo-agent",
+                    "export_default_dir": str(tmp_path / "default-export"),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "exports"
+
+    code = main(
+        [
+            "sessions",
+            "export",
+            "--config",
+            str(config_path),
+            "--session-id",
+            "sess-cli",
+            "--output-dir",
+            str(output_root),
+            "--include-archived",
+            "--no-raw-strands",
+        ]
+    )
+
+    assert code == 0
+    [export_dir] = [path for path in output_root.iterdir() if path.is_dir()]
+    assert (export_dir / "messages.jsonl").exists()
+    assert (export_dir / "openai_dataset.jsonl").exists()
+    rows = [json.loads(line) for line in (export_dir / "messages.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {row["session_id"] for row in rows} == {"sess-cli"}
+    assert not (export_dir / "strands").exists()
 
 
 def test_model_setup_writes_config(tmp_path, monkeypatch):
