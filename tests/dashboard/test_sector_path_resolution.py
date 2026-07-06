@@ -45,6 +45,18 @@ def test_resolve_sector_path_accepts_taxonomy_ids(sector_registry) -> None:
     assert path.level3_en == "Application Software"
 
 
+def test_resolve_sector_path_rejects_guessed_numeric_path_id(sector_registry) -> None:
+    with pytest.raises(domain_api.SectorPathResolutionError) as exc:
+        domain_api.resolve_sector_path(sector_registry, sector_path_id="1/12/120")
+    assert "Rejected guessed sector_path_id" in str(exc.value)
+    assert "1/12/120" in str(exc.value)
+
+
+def test_build_sector_taxonomy_search_usage_forbids_constructing_ids(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(sector_registry, query="软件")
+    assert "do NOT construct sector_path_id" in payload["usage"]
+
+
 def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError) as exc:
         domain_api.resolve_sector_path(

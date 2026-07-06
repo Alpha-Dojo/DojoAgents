@@ -515,11 +515,43 @@ def _looks_like_index_guess(level1_id: str, level2_id: str, level3_id: str) -> b
     parts = (level1_id.strip(), level2_id.strip(), level3_id.strip())
     if not all(parts):
         return False
-    if all(part.isdigit() and len(part) <= 2 for part in parts):
+    if all(part.isdigit() for part in parts):
         return True
     if len(set(parts)) == 1 and parts[0].isdigit():
         return True
-    return parts == ("1", "2", "3")
+    return False
+
+
+def _collect_sector_path_suggestions(
+    store: Any,
+    *,
+    query: str = "",
+    limit: int = 3,
+) -> list[Any]:
+    needle = str(query or "").strip()
+    if not needle:
+        return []
+    return store.search_resolved_paths(needle, limit=limit)
+
+
+def _append_sector_path_suggestions(message: str, suggestions: list[Any]) -> str:
+    if not suggestions:
+        return message
+    if "Did you mean:" in message:
+        return message
+    return message + " Did you mean: " + _format_sector_path_suggestions(suggestions) + "?"
+
+
+def _raise_sector_path_resolution_error(
+    message: str,
+    *,
+    suggestions: list[Any] | None = None,
+) -> None:
+    resolved_suggestions = list(suggestions or [])
+    raise SectorPathResolutionError(
+        _append_sector_path_suggestions(message, resolved_suggestions),
+        suggestions=resolved_suggestions,
+    )
 
 
 def _format_sector_path_suggestions(paths: list[Any], *, limit: int = 3) -> str:
@@ -682,15 +714,21 @@ def resolve_sector_path(
         path = store.find_resolved_path(l1, l2, l3)
         if path is not None:
             return path
+        suggestions = _collect_sector_path_suggestions(
+            store,
+            query=str(sector_name or level3_name or level2_name or level1_name or "").strip(),
+        )
         if _looks_like_index_guess(l1, l2, l3):
-            raise SectorPathResolutionError(
+            _raise_sector_path_resolution_error(
                 f"Rejected guessed sector_path_id {path_id}. "
                 "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                "verbatim from the result. Do not use array indices or trial-and-error."
+                "verbatim from best_match. Do not construct ids or use array indices.",
+                suggestions=suggestions,
             )
-        raise SectorPathResolutionError(
+        _raise_sector_path_resolution_error(
             f"unknown sector_path_id: {path_id}. "
-            "Call search_sector_taxonomy with the concept keyword and copy ids from the best match."
+            "Call search_sector_taxonomy with the concept keyword and copy ids from best_match.",
+            suggestions=suggestions,
         )
 
     l1 = str(level1_id or "").strip()
@@ -704,10 +742,12 @@ def resolve_sector_path(
             return path
         if not name_query and not level1_name and not level2_name and not level3_name:
             if _looks_like_index_guess(l1, l2, l3):
-                raise SectorPathResolutionError(
+                suggestions = _collect_sector_path_suggestions(store, query=l3 or l2 or l1)
+                _raise_sector_path_resolution_error(
                     f"Rejected guessed sector path {l1}/{l2}/{l3}. "
                     "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                    "from the best match. Do not use array indices or loop guesses."
+                    "from best_match. Do not construct ids or use array indices.",
+                    suggestions=suggestions,
                 )
 
     if l1 and l2 and not l3 and not name_query:
@@ -765,9 +805,7 @@ def resolve_sector_path(
             " For L2-scope constituents, still pass all three ids from best_match "
             "(or level1_id+level2_id when uniquely resolved) and set scope='L2'."
         )
-    if suggestions:
-        message += " Did you mean: " + _format_sector_path_suggestions(suggestions) + "?"
-    raise SectorPathResolutionError(message, suggestions=suggestions)
+    _raise_sector_path_resolution_error(message, suggestions=suggestions)
 
 
 def _fallback_precomputed_sector_path(
@@ -979,8 +1017,9 @@ def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> di
         ),
         "usage": (
             "1) Pick the highest match_score item. "
-            "2) Call filter_sector_constituents with next_call.arguments (change market). "
-            "3) Optional: get_sector_analysis with get_sector_analysis_example."
+            "2) Copy sector_path_id from best_match — do NOT construct sector_path_id yourself. "
+            "3) Call filter_sector_constituents with next_call.arguments (change market). "
+            "4) Optional: get_sector_analysis with get_sector_analysis_example."
         ),
         "best_match": top,
         "items": items,

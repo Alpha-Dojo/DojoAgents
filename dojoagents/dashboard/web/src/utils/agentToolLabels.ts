@@ -22,6 +22,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   'dojo.sdk.forex.kline': { zh: '获取外汇K线', en: 'Forex kline' },
   web_search: { zh: '搜索资料', en: 'Web search' },
   web_extract: { zh: '提取网页', en: 'Web extract' },
+  write_session_file: { zh: '写入会话文件', en: 'Write session file' },
   agent_viz_build: { zh: '生成可视化', en: 'Build visualization' },
   list_or_search_portfolios: { zh: '查询投资组合', en: 'List portfolios' },
   get_portfolio_analysis: { zh: '分析投资组合', en: 'Portfolio analysis' },
