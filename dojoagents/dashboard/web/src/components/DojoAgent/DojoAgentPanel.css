@@ -477,7 +477,140 @@
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--cyan-dim, var(--cyan));
+}
+
+.dojo-agent-panel__outputs {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dojo-agent-panel__outputs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-panel__outputs-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dojo-agent-panel__outputs-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dojo-agent-panel__outputs-status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__outputs-status--error {
+  color: #f87171;
+}
+
+.dojo-agent-panel__outputs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.dojo-agent-output-file {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dojo-agent-output-file--list {
+  padding: 7px 8px;
+}
+
+.dojo-agent-output-file__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.dojo-agent-output-file__icon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.dojo-agent-output-file__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dojo-agent-output-file__filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.dojo-agent-output-file__size {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-output-file__path {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--cyan-dim, var(--cyan));
+  cursor: pointer;
   word-break: break-all;
+}
+
+.dojo-agent-output-file__path:hover {
+  color: var(--cyan);
+  text-decoration: underline;
+}
+
+.dojo-agent-output-file__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dojo-agent-output-file__error {
+  margin: 0;
+  font-size: 10px;
+  color: #f87171;
+}
+
+.dojo-agent-tool-activity__main .dojo-agent-output-file {
+  margin-top: 6px;
 }
 
 .dojo-agent-panel__title {

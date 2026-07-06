@@ -7,6 +7,7 @@ import { AgentThinkStep } from './AgentThinking';
 import { AgentToolStep } from './AgentToolActivity';
 import { agentToolLabel } from '../../utils/agentToolLabels';
 import { getExecuteCodeSource } from '../../utils/agentToolDetail';
+import { parseSessionOutputFileFromToolData } from '../../utils/sessionOutputFiles';
 
 const REPEATED_TOOL_THRESHOLD = 3;
 
@@ -15,10 +16,16 @@ type TimelineEntry =
   | { kind: 'tool-group'; steps: Extract<AgentActivityStep, { kind: 'tool' }>[] };
 
 function isCompactableToolStep(step: AgentActivityStep): step is Extract<AgentActivityStep, { kind: 'tool' }> {
+  if (step.kind !== 'tool' || step.item.status !== 'done' || step.item.error) {
+    return false;
+  }
+  if (step.item.tool === 'write_session_file' || step.item.tool === 'execute_code' || step.item.tool === 'code_execution') {
+    return false;
+  }
+  if (parseSessionOutputFileFromToolData(step.item.tool, step.item.data)) {
+    return false;
+  }
   return (
-    step.kind === 'tool' &&
-    step.item.status === 'done' &&
-    !step.item.error &&
     !step.item.resultSummary &&
     (step.item.vizBlocks?.length ?? 0) === 0 &&
     !getExecuteCodeSource(step.item.tool, step.item.arguments)
@@ -62,8 +69,10 @@ function buildTimelineEntries(steps: AgentActivityStep[]): TimelineEntry[] {
 
 function RepeatedToolGroup({
   steps,
+  sessionId = null,
 }: {
   steps: Extract<AgentActivityStep, { kind: 'tool' }>[];
+  sessionId?: string | null;
 }) {
   const { locale } = useTranslation();
   const uiLocale = locale === 'zh' ? 'zh' : 'en';
@@ -97,7 +106,7 @@ function RepeatedToolGroup({
       {expanded ? (
         <div className="dojo-agent-tool-activity__group-body">
           {steps.map((step) => (
-            <AgentToolStep key={step.id} item={step.item} />
+            <AgentToolStep key={step.id} item={step.item} sessionId={sessionId} />
           ))}
         </div>
       ) : null}
@@ -110,6 +119,7 @@ interface AgentActivityTimelineProps {
   phase?: 'planning' | 'tools' | 'answering' | 'done' | null;
   streaming?: boolean;
   retryNotice?: string | null;
+  sessionId?: string | null;
   onToggleThinkBlock: (blockId: string) => void;
 }
 
@@ -118,6 +128,7 @@ export function AgentActivityTimeline({
   phase = null,
   streaming = false,
   retryNotice = null,
+  sessionId = null,
   onToggleThinkBlock,
 }: AgentActivityTimelineProps) {
   const { t } = useTranslation();
@@ -149,6 +160,7 @@ export function AgentActivityTimeline({
             <RepeatedToolGroup
               key={`tool-group-${entry.steps[0]?.id ?? index}`}
               steps={entry.steps}
+              sessionId={sessionId}
             />
           );
         }
@@ -175,7 +187,7 @@ export function AgentActivityTimeline({
         if (step.kind === 'eval') {
           return <AgentEvalHints key={step.id} issues={step.hint.issues} />;
         }
-        return <AgentToolStep key={step.id} item={step.item} />;
+        return <AgentToolStep key={step.id} item={step.item} sessionId={sessionId} />;
       })}
       {streaming && retryNotice ? (
         <p className="dojo-agent-thinking__retry">{retryNotice}</p>

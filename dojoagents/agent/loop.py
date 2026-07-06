@@ -850,6 +850,17 @@ class AgentLoop:
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
             if event.tool_use:
+                from dojoagents.agent.sector_session import repair_sector_tool_arguments
+
+                tool_args = dict(event.tool_use.get("input") or {})
+                repaired_args = repair_sector_tool_arguments(
+                    str(event.tool_use.get("name") or ""),
+                    tool_args,
+                    invocation_state,
+                )
+                if repaired_args != tool_args:
+                    event.tool_use["input"] = repaired_args
+            if event.tool_use:
                 active_harness = _resolve_active_harness()
             if event.tool_use and active_harness is not None:
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or event.tool_use.get("name") or "tool"
@@ -941,6 +952,9 @@ class AgentLoop:
                     "ok": matched_result.ok if matched_result is not None else not is_failed,
                 }
                 if matched_result is not None:
+                    from dojoagents.agent.sector_session import record_sector_search_in_invocation
+
+                    record_sector_search_in_invocation(invocation_state, matched_result)
                     trace_item.update(
                         {
                             "latency_ms": matched_result.latency_ms,

@@ -168,7 +168,12 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
         try:
             return resolve_sector_path(registry, **kwargs)
         except SectorPathResolutionError as exc:
-            raise RuntimeError(str(exc)) from exc
+            message = str(exc)
+            if exc.suggestions and "Did you mean:" not in message:
+                from dojoagents.dashboard.services.domain_api import _format_sector_path_suggestions
+
+                message += " Did you mean: " + _format_sector_path_suggestions(exc.suggestions) + "?"
+            raise RuntimeError(message) from exc
 
     l1 = kwargs.get("level1_id") or ""
     l2 = kwargs.get("level2_id") or ""
@@ -186,7 +191,12 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
     try:
         return resolve_sector_path(registry, **kwargs)
     except SectorPathResolutionError as exc:
-        raise RuntimeError(str(exc)) from exc
+        message = str(exc)
+        if exc.suggestions and "Did you mean:" not in message:
+            from dojoagents.dashboard.services.domain_api import _format_sector_path_suggestions
+
+            message += " Did you mean: " + _format_sector_path_suggestions(exc.suggestions) + "?"
+        raise RuntimeError(message) from exc
 
 
 def register_dashboard_domain_tools(

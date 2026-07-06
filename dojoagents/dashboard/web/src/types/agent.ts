@@ -124,6 +124,19 @@ export interface AgentSession {
   revision?: number;
 }
 
+export interface AgentSessionOutputFile {
+  filename: string;
+  path: string;
+  bytes_written: number;
+  updated_at: string;
+}
+
+export interface AgentSessionOutputsResponse {
+  session_id: string;
+  output_dir: string;
+  files: AgentSessionOutputFile[];
+}
+
 export interface AgentSessionStore {
   activeSessionId: string | null;
   sessions: AgentSession[];
