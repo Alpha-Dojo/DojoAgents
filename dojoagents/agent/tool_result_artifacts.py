@@ -282,6 +282,8 @@ def enrich_execute_code_tool_result(result: dict[str, Any]) -> dict[str, Any]:
         payload = extract_viz_payload_from_content(content)
         if payload is not None:
             enriched["data"] = payload
+    elif isinstance(payload.get("session_output_files"), list):
+        pass
     elif not (isinstance(payload.get("dates"), list) and isinstance(payload.get("prices"), list)):
         extracted = extract_viz_payload_from_content(content)
         if extracted is not None:
@@ -289,6 +291,8 @@ def enrich_execute_code_tool_result(result: dict[str, Any]) -> dict[str, Any]:
             enriched["data"] = payload
 
     if isinstance(enriched.get("data"), dict):
+        if isinstance(enriched["data"].get("session_output_files"), list):
+            return enriched
         hint_block = format_execute_code_viz_hint(enriched["data"])
         if hint_block and hint_block not in content:
             enriched["content"] = content + hint_block

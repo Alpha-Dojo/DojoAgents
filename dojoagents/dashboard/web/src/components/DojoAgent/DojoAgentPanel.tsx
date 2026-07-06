@@ -18,6 +18,7 @@ import {
 } from "../../agent/agentStorage";
 import { useAgentSessions } from "../../agent/useAgentSessions";
 import { useAgentPanelWidth } from "../../hooks/useAgentPanelWidth";
+import { useSessionOutputs } from "../../hooks/useSessionOutputs";
 import { useTranslation } from "../../hooks/useTranslation";
 import type { AppTab } from "../../navigation/appTab";
 import type { AgentChatImageAttachment, AgentChatMessage } from "../../types/agent";
@@ -25,6 +26,7 @@ import { AgentModelSwitcher } from "../AgentModelSwitcher";
 import "../AgentModelSwitcher.css";
 import { AgentImagePreview } from "./AgentImagePreview";
 import { AgentActivityTimeline } from "./AgentActivityTimeline";
+import { AgentSessionOutputsPanel } from "./AgentSessionOutputsPanel";
 import { AgentConversationCheckpoints } from "./AgentConversationCheckpoints";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
@@ -325,9 +327,17 @@ export function DojoAgentPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevStreamingRef = useRef(false);
+  const writeOutputsCountRef = useRef(0);
+  const [outputsRefreshKey, setOutputsRefreshKey] = useState(0);
 
   const sessionRun = getSessionRun(activeSessionId);
   const streaming = isSessionRunning(activeSessionId);
+  const {
+    files: sessionOutputFiles,
+    loading: sessionOutputsLoading,
+    error: sessionOutputsError,
+  } = useSessionOutputs(activeSessionId, outputsRefreshKey);
   const messages = streaming
     ? sessionRun.draftMessages
     : (activeSession?.messages ?? []);
@@ -361,6 +371,32 @@ export function DojoAgentPanel({
     const timer = window.setTimeout(() => setRecoveredNotice(false), 12000);
     return () => window.clearTimeout(timer);
   }, [recoveredNotice]);
+
+  useEffect(() => {
+    writeOutputsCountRef.current = 0;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (prevStreamingRef.current && !streaming) {
+      setOutputsRefreshKey((key) => key + 1);
+    }
+    prevStreamingRef.current = streaming;
+  }, [streaming]);
+
+  useEffect(() => {
+    const count = sessionRun.draftMessages
+      .flatMap((message) => message.activitySteps ?? [])
+      .filter(
+        (step) =>
+          step.kind === "tool" &&
+          (step.item.tool === "write_session_file" || step.item.tool === "execute_code") &&
+          step.item.status === "done",
+      ).length;
+    if (count > writeOutputsCountRef.current) {
+      writeOutputsCountRef.current = count;
+      setOutputsRefreshKey((key) => key + 1);
+    }
+  }, [sessionRun.draftMessages]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -884,6 +920,12 @@ export function DojoAgentPanel({
           })}
         </ul>
       )}
+      <AgentSessionOutputsPanel
+        sessionId={activeSessionId}
+        files={sessionOutputFiles}
+        loading={sessionOutputsLoading}
+        error={sessionOutputsError}
+      />
       <p
         className="dojo-agent-panel__storage"
         title={t("agent.storageDetail", {
@@ -1161,6 +1203,7 @@ export function DojoAgentPanel({
                           retryNotice={
                             isStreamingAssistant ? retryNotice : null
                           }
+                          sessionId={activeSessionId}
                           onToggleThinkBlock={(blockId) =>
                             toggleThinkBlock(index, blockId)
                           }

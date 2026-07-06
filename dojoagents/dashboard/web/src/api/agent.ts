@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -338,6 +338,31 @@ export async function streamAgentRunEvents(
     signal,
   });
   return consumeSseResponse(res, handlers, signal);
+}
+
+const SESSION_API_PREFIX = '/api/v1/chat/sessions';
+
+export async function fetchSessionOutputs(sessionId: string): Promise<AgentSessionOutputsResponse> {
+  const res = await fetch(`${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentSessionOutputsResponse>;
+}
+
+export async function revealSessionOutput(sessionId: string, filename: string): Promise<void> {
+  const res = await fetch(
+    `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs/${encodeURIComponent(filename)}/reveal`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
 }
 
 

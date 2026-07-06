@@ -123,6 +123,20 @@ class ToolExecutor:
         metadata = dict(normalized.get("metadata", {}))
         if session_id:
             metadata.setdefault("session_id", session_id)
+
+        exit_code = metadata.get("exit_code")
+        ok = True
+        error = str(normalized.get("error") or "").strip()
+        if exit_code is not None:
+            try:
+                exit_code_int = int(exit_code)
+            except (TypeError, ValueError):
+                exit_code_int = 0
+            if exit_code_int != 0:
+                ok = False
+                if not error:
+                    error = content.strip() or f"Process exited with code {exit_code_int}"
+
         artifact_path = None
         persist_artifact = (
             self.artifact_store is not None
@@ -164,8 +178,9 @@ class ToolExecutor:
         return ToolResult(
             call_id=call.id,
             name=call.name,
-            ok=True,
+            ok=ok,
             content=content,
+            error=error,
             latency_ms=latency_ms,
             truncated=bool(normalized.get("truncated", False)),
             data=normalized.get("data"),

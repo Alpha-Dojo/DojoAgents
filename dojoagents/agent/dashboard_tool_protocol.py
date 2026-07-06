@@ -186,6 +186,25 @@ FORBIDDEN as stock-universe builder:
 Use for news/macro context AFTER dashboard tools return candidates.
 FORBIDDEN as the primary way to discover investable tickers when sector/screen tools exist.
 
+### Save analysis files (JSON / JSONL / text)
+
+Use `write_session_file` or `execute_code` with `dojo_tools.write_session_file(...)`.
+
+- Files are written under `{sessions.root}/{session_id}/outputs/` (tool returns absolute `path`).
+- After writing, **repeat the returned `path` in your reply** so the user can open the file.
+- `format`: `json` | `jsonl` | `text`. Pass structured Python objects when using execute_code.
+- **FORBIDDEN:** `terminal` heredoc / `cat > /workspace/...` / guessing output directories.
+- `execute_code` sets `DOJO_SESSION_OUTPUT_DIR` for the current session when saving from Python.
+
+Typical execute_code pattern:
+
+```python
+import dojo_tools
+payload = {"items": [...]}
+res = dojo_tools.write_session_file("analysis.json", payload, format="json")
+print(dojo_tools.tool_json(res)["path"])
+```
+
 ### portfolio_read_detail artifact pointers (CRITICAL)
 
 Large portfolio responses are compressed to an artifact pointer. The pointer **always includes**
@@ -218,6 +237,9 @@ Use `execute_code` ONLY when you must batch-call dojo_tools or run pandas/numpy 
 fetched tool data inside one script. After `load_tool_result`, use `dojo_tools.tool_rows(res)`
 (not `data['data']`) — e.g. `pd.DataFrame(dojo_tools.tool_rows(res))`; price-trend rows live
 in `klines` with date field `datetime`.
+
+To persist analysis output, call `dojo_tools.write_session_file(filename, content, format=...)`
+and print the returned `path`. Do NOT use terminal heredoc for file writes.
 
 FORBIDDEN uses of `execute_code`:
 

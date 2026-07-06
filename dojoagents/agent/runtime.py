@@ -103,7 +103,11 @@ class Runtime:
         from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
 
         artifact_store = ToolResultArtifactStore(config.sessions.root)
-        tool_registry.register(get_code_execution_spec(tool_registry, policy, artifact_store=artifact_store))
+        tool_registry.register(get_code_execution_spec(tool_registry, policy, artifact_store=artifact_store, sessions_root=config.sessions.root))
+
+        from dojoagents.tools.session_file_tool import get_write_session_file_spec
+
+        tool_registry.register(get_write_session_file_spec(config.sessions.root))
 
         from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
 
