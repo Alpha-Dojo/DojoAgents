@@ -95,12 +95,11 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
         return provider_name or "default"
 
     config = store.snapshot()
-    selected_provider = (provider_name or config.llm_provider.default or "").strip()
-    resolved_name, provider_cfg = resolve_provider_config(config.llm_provider)
+    clean_provider_name = provider_name.strip() if provider_name else None
+    selected_provider, provider_cfg = resolve_provider_config(config.llm_provider, requested_name=clean_provider_name)
     if provider_cfg is None:
-        return selected_provider or "default"
-    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
-        selected_provider = resolved_name or selected_provider
+        fallback = provider_name or getattr(config.llm_provider, "default", None)
+        return (fallback or "default").strip()
 
     if selected_provider == "gemini":
         llm_provider = GeminiNativeProvider(

@@ -21,7 +21,7 @@ DojoAgents is a quantitative finance agent runtime. It wires an LLM-driven agent
 - Backend/API: FastAPI `>=0.110.0,<0.112`, uvicorn `>=0.31.1,<0.33`
 - LLM/API clients: OpenAI SDK `>=1.20.0,<2`, httpx `>=0.27.0,<1`
 - Config/storage/data: PyYAML `>=6.0.1,<7`, pandas `>=2.2.0,<3`, pyarrow `>=14.0.0`, portalocker, APScheduler `>=3.10.0,<4`
-- Agent/tooling: `mcp>=1.26.0,<2`, `strands-agents`, `strands-agents-tools`, `dojosdk==0.1.5`
+- Agent/tooling: `mcp>=1.26.0,<2`, `strands-agents`, `strands-agents-tools`, `dojosdk==0.1.7`
 - Frontend: React `^19.2.6`, React DOM `^19.2.6`, TypeScript `~5.8.3`, Vite `^8.0.12`
 - Test stack: pytest `>=8.4.2`, pytest-asyncio `>=1.2.0`
 
