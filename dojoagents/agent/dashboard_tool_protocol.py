@@ -196,6 +196,26 @@ Use `write_session_file` or `execute_code` with `dojo_tools.write_session_file(.
 - **FORBIDDEN:** `terminal` heredoc / `cat > /workspace/...` / guessing output directories.
 - `execute_code` sets `DOJO_SESSION_OUTPUT_DIR` for the current session when saving from Python.
 
+### User-uploaded session input files
+
+Users may attach files to a chat turn. Uploads are stored under `{sessions.root}/{session_id}/inputs/`.
+
+- The user message includes each file's absolute `path`, `kind`, and a truncated preview when available.
+- Start from the preview for text/code/csv/json/excel/pdf attachments.
+- When preview is truncated or you need more lines/rows/pages, call `read_session_input(filename, offset=..., limit=..., sheet=...)`.
+- `execute_code` sets `DOJO_SESSION_INPUT_DIR` to the current session inputs directory.
+- **FORBIDDEN:** guessing upload paths, shell `cat` on unknown paths, or re-uploading files the user already attached.
+
+Typical execute_code pattern for an attached Excel/CSV file:
+
+```python
+import os
+import pandas as pd
+path = os.path.join(os.environ["DOJO_SESSION_INPUT_DIR"], "model.xlsx")
+df = pd.read_excel(path, sheet_name=0)
+print(df.head(20).to_string())
+```
+
 Typical execute_code pattern:
 
 ```python

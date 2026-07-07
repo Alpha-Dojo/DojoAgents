@@ -89,6 +89,7 @@ interface StartRunParams {
   onComplete: (finalMessages: AgentChatMessage[]) => void;
   onPersistDraft?: (messages: AgentChatMessage[]) => void;
   onRunError?: (message: string) => void;
+  sessionAttachments?: import('../types/agent').AgentSessionInputFile[];
 }
 
 interface AgentRunContextValue {
@@ -536,6 +537,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
           locale: params.locale,
           dashboard_tab: params.dashboardTab,
           messages: params.apiMessages,
+          session_attachments: params.sessionAttachments,
         }));
       } catch (err) {
         runsRef.current.delete(params.sessionId);

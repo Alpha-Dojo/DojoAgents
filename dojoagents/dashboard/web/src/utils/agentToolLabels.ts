@@ -23,6 +23,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   web_search: { zh: '搜索资料', en: 'Web search' },
   web_extract: { zh: '提取网页', en: 'Web extract' },
   write_session_file: { zh: '写入会话文件', en: 'Write session file' },
+  read_session_input: { zh: '读取会话输入文件', en: 'Read session input' },
   agent_viz_build: { zh: '生成可视化', en: 'Build visualization' },
   list_or_search_portfolios: { zh: '查询投资组合', en: 'List portfolios' },
   get_portfolio_analysis: { zh: '分析投资组合', en: 'Portfolio analysis' },
