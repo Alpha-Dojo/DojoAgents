@@ -6,8 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from dojoagents.agent.tool_result_artifacts import _validate_session_id
+from dojoagents.agent.write_session_file_guardrails import (
+    classify_write_session_file,
+    preview_write_content,
+    write_session_file_guardrail_from_classification,
+)
 from dojoagents.dashboard.services.file_store_base import _atomic_write_text
-from dojoagents.tools.process_registry import active_session_id
+from dojoagents.tools.process_registry import active_session_id, active_write_session_file_guard
 from dojoagents.tools.registry import ToolSpec
 
 SESSION_OUTPUT_SUBDIR = "outputs"
@@ -122,6 +127,26 @@ def get_write_session_file_spec(sessions_root: str | Path) -> ToolSpec:
         if not session_id:
             raise RuntimeError("write_session_file requires an active agent session_id")
 
+        guard_ctx = active_write_session_file_guard.get()
+        if guard_ctx is not None and guard_ctx.enabled:
+            filename = str(args.get("filename") or "")
+            content = args.get("content")
+            classification = await classify_write_session_file(
+                guard_ctx.user_message,
+                guard_ctx.llm_provider,
+                model=guard_ctx.model,
+                request_metadata=guard_ctx.request_metadata,
+                filename=filename,
+                content_preview=preview_write_content(content),
+                history=guard_ctx.history,
+            )
+            blocked, block_message, guardrail_code = write_session_file_guardrail_from_classification(
+                "write_session_file",
+                classification,
+            )
+            if blocked:
+                raise RuntimeError(block_message)
+
         payload = write_session_file(
             sessions_root=root,
             session_id=session_id,
@@ -144,9 +169,9 @@ def get_write_session_file_spec(sessions_root: str | Path) -> ToolSpec:
     return ToolSpec(
         name="write_session_file",
         description=(
-            "Write analysis output to the current session outputs directory. "
-            "Returns absolute path and bytes_written. "
-            "Prefer this over terminal heredoc for JSON/JSONL/text deliverables. "
+            "Write session output files ONLY when the user explicitly asked to save, export, "
+            "or download a file. Returns absolute path and bytes_written. "
+            "Do NOT use proactively for routine analysis — put results in the assistant reply. "
             "Also callable as dojo_tools.write_session_file(...) inside execute_code."
         ),
         parameters={

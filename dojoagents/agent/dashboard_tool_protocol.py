@@ -210,14 +210,17 @@ Query rules (see also Temporal context in system prompt):
 - After results return, judge freshness against Temporal context. If articles look stale, tell the
   user and broaden or refine the query — do NOT fix staleness by swapping in a guessed year.
 
-### Save analysis files (JSON / JSONL / text)
+### Save analysis files (JSON / JSONL / text) — user request only
 
-Use `write_session_file` or `execute_code` with `dojo_tools.write_session_file(...)`.
+Only use `write_session_file` or `execute_code` with `dojo_tools.write_session_file(...)` when the
+user explicitly asked to save, export, or download a file. Do NOT write files proactively for routine
+analysis — deliver results in the assistant reply.
 
 - Files are written under `{sessions.root}/{session_id}/outputs/` (tool returns absolute `path`).
 - After writing, **repeat the returned `path` in your reply** so the user can open the file.
 - `format`: `json` | `jsonl` | `text`. Pass structured Python objects when using execute_code.
 - **FORBIDDEN:** `terminal` heredoc / `cat > /workspace/...` / guessing output directories.
+- **FORBIDDEN:** saving analysis output without an explicit user file request (blocked at call time).
 - `execute_code` sets `DOJO_SESSION_OUTPUT_DIR` for the current session when saving from Python.
 
 ### User-uploaded session input files
@@ -280,13 +283,14 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 ### execute_code (computation only — NOT for text formatting)
 
 Use `execute_code` ONLY when you must batch-call dojo_tools or run pandas/numpy transforms on
-fetched tool data inside one script. After `load_tool_result`, use `dojo_tools.tool_table(res)`
-and read columns from `res['schema_hint']['row_fields']` — e.g.
-`pd.DataFrame(dojo_tools.tool_table(res))`; price-trend rows live
-in `klines` with date field `datetime`.
+fetched tool data inside one script. pd/np/dojo_tools are pre-imported.
+After `load_tool_result`, prefer `dojo_tools.tool_print(res)` or
+`dojo_tools.tool_print(res, table='benchmarks', columns=[...])` — safe, no KeyError.
+Metadata: `dojo_tools.tool_meta(res)`. Columns: `dojo_tools.tool_columns(res[, table])`.
 
-To persist analysis output, call `dojo_tools.write_session_file(filename, content, format=...)`
-and print the returned `path`. Do NOT use terminal heredoc for file writes.
+Only persist output to a file when the user explicitly requested a save/export — call
+`dojo_tools.write_session_file(filename, content, format=...)` and print the returned `path`.
+Unrequested file writes are blocked at call time. Do NOT use terminal heredoc for file writes.
 
 FORBIDDEN uses of `execute_code`:
 

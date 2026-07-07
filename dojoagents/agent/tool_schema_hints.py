@@ -40,7 +40,12 @@ _PREFERRED_ROWS_KEYS = (
     "events",
 )
 
-_TOOL_TABLE_PANDAS = "df = pd.DataFrame(dojo_tools.tool_table(res))"
+_TOOL_TABLE_PANDAS = "dojo_tools.tool_print(res)"
+_TOOL_MULTI_TABLE_PANDAS = (
+    "meta = dojo_tools.tool_meta(res); "
+    "dojo_tools.tool_print(res, table='markets'); "
+    "dojo_tools.tool_print(res, table='benchmarks')"
+)
 
 TOOL_RESPONSE_MODELS: dict[str, type[BaseModel]] = {
     "search_company_ticker": CompanyTickerSearchResponse,
@@ -68,9 +73,12 @@ TOOL_NAME_ALIASES: dict[str, str] = {
 MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "get_ticker_price_trends": {
         "pandas_example": (
-            "df = pd.DataFrame(dojo_tools.tool_table(res)); "
+            "df = dojo_tools.tool_df(res); "
             "df['date'] = pd.to_datetime(df['datetime'])"
         ),
+    },
+    "get_market_overview": {
+        "pandas_example": _TOOL_MULTI_TABLE_PANDAS,
     },
     "get_ticker_financials": {
         "tables": {
@@ -102,6 +110,32 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             },
         },
         "default_table": "positions",
+    },
+    "search_sector_taxonomy": {
+        "shape": "tabular",
+        "rows_key": "items",
+        "top_level_keys": ["query", "count", "expanded_queries"],
+        "default_table": "items",
+        "tables": {
+            "items": {
+                "type": "list",
+                "path": "items",
+                "expand_bilingual": [],
+                "row_fields": [
+                    "sector_path_id",
+                    "level1_id",
+                    "level2_id",
+                    "level3_id",
+                    "breadcrumb_zh",
+                    "breadcrumb_en",
+                    "level3_name_zh",
+                    "level3_name_en",
+                    "match_score",
+                    "matched_level",
+                ],
+            },
+        },
+        "pandas_example": "dojo_tools.tool_print(res, table='items')",
     },
 }
 
@@ -174,19 +208,28 @@ def _row_fields_for_model(
     extra: list[str] | None = None,
     skip: frozenset[str] = frozenset(),
 ) -> list[str]:
-    fields: list[str] = list(extra or [])
+    fields: list[str] = []
+    seen: set[str] = set()
+    for name in extra or []:
+        if name and name not in seen:
+            fields.append(name)
+            seen.add(name)
     if model is None:
         return fields
     for name, field in model.model_fields.items():
-        if name in skip:
+        if name in skip or name in seen:
             continue
         if _is_bilingual_text_type(field.annotation):
-            fields.extend([f"{name}_zh", f"{name}_en"])
+            for col in (f"{name}_zh", f"{name}_en"):
+                if col not in seen:
+                    fields.append(col)
+                    seen.add(col)
             continue
         origin = get_origin(_unwrap_annotation(field.annotation))
         if origin is list:
             continue
         fields.append(name)
+        seen.add(name)
     return fields
 
 
@@ -194,6 +237,7 @@ def _list_table(name: str, path: str, row_model: type[BaseModel] | None) -> dict
     return {
         "type": "list",
         "path": path,
+        "expand_bilingual": _bilingual_field_names(row_model) if row_model else [],
         "row_fields": _row_fields_for_model(row_model),
     }
 
