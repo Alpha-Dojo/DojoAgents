@@ -273,7 +273,11 @@ def get_web_searcher_specs(cfg: WebToolsConfig) -> list[ToolSpec]:
     return [
         ToolSpec(
             name="web_search",
-            description="Search the web and return metadata rows only. Use web_extract when full page content is needed.",
+            description=(
+                "Search the web and return metadata rows only. Use event/entity/topic keywords; "
+                "do not add a year unless the user specified one. Use web_extract when full page "
+                "content is needed."
+            ),
             parameters={
                 "type": "object",
                 "properties": {

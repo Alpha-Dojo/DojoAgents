@@ -19,8 +19,13 @@ import {
   type FolioBenchmarkHeadChip,
 } from '../../utils/folioBenchmarkSeries';
 import { formatSignedPercent, priceTickValues } from '../../utils/entityCharts';
-import { formatStockPrice } from '../../utils/marketStats';
-import { buildFolioOrderChartMarkers, type FolioOrderChartMarker } from '../../utils/folioOrderMarkers';
+import {
+  buildFolioOrderChartMarkers,
+  collectFolioOrderEvents,
+  type FolioOrderChartMarker,
+  type FolioOrderMarkerSide,
+} from '../../utils/folioOrderMarkers';
+import { FolioOrderEventRail } from './FolioOrderEventRail';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import { LoadingIndicator } from '../ui/LoadingIndicator';
 import {
@@ -516,14 +521,18 @@ export function FolioNavCurveChart({
   onHoverDateChange,
   windowRebasedByMarket,
 }: FolioNavCurveChartProps) {
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const chartRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; view: ViewRange } | null>(null);
   const [internalHoverDate, setInternalHoverDate] = useState<string | null>(null);
   const [viewRange, setViewRange] = useState<ViewRange>(FULL_VIEW);
   const [isDragging, setIsDragging] = useState(false);
-  const [hoveredOrderMarker, setHoveredOrderMarker] = useState<FolioOrderChartMarker | null>(null);
+  const [selectedOrderEvent, setSelectedOrderEvent] = useState<{
+    date: string;
+    side: FolioOrderMarkerSide;
+    markerId: string;
+  } | null>(null);
   const activeHoverDate = onHoverDateChange ? hoverDate : internalHoverDate;
   const setHoverDate = onHoverDateChange ?? setInternalHoverDate;
 
@@ -613,13 +622,20 @@ export function FolioNavCurveChart({
     );
   }, [chart, orders, visibleMarkets, windowRebasedByMarket, visibleWindow.series]);
 
+  const selectedOrderEvents = useMemo(() => {
+    if (!selectedOrderEvent) return [];
+    return collectFolioOrderEvents(orders, selectedOrderEvent.date, selectedOrderEvent.side);
+  }, [orders, selectedOrderEvent]);
+
   const axisEndLabel = useMemo(
     () => buildMixedAxisEndLabel(latestMarketDates(windowRebasedByMarket)),
     [windowRebasedByMarket],
   );
 
   const displayGeometry = useMemo(() => {
-    if (isDragging || !activeHoverDate || !chart) return null;
+    if (isDragging || selectedOrderEvent || !activeHoverDate || !chart) {
+      return null;
+    }
 
     const localIndex = findVisibleIndexForDate(visibleWindow.series, activeHoverDate);
     if (localIndex == null) return null;
@@ -646,7 +662,14 @@ export function FolioNavCurveChart({
         : null;
 
     return { x, y: crosshairY, dots };
-  }, [activeHoverDate, chart, isDragging, visibleMarkets, windowRebasedByMarket, visibleWindow.series]);
+  }, [activeHoverDate, chart, isDragging, visibleMarkets, selectedOrderEvent, windowRebasedByMarket, visibleWindow.series]);
+
+  const selectedHighlightX = useMemo(() => {
+    if (!selectedOrderEvent || !chart) return null;
+    const localIndex = findVisibleIndexForDate(visibleWindow.series, selectedOrderEvent.date);
+    if (localIndex == null) return null;
+    return indexToChartX(localIndex, visibleWindow.series.length, CHART_W, PAD_X);
+  }, [chart, selectedOrderEvent, visibleWindow.series]);
 
   const updateHoverFromClientX = useCallback(
     (clientX: number) => {
@@ -665,6 +688,17 @@ export function FolioNavCurveChart({
     setIsDragging(false);
   }, []);
 
+  const handleMarkerClick = useCallback((marker: FolioOrderChartMarker) => {
+    setSelectedOrderEvent((current) => {
+      if (current?.markerId === marker.id) return null;
+      return { date: marker.date, side: marker.side, markerId: marker.id };
+    });
+  }, []);
+
+  const clearSelectedOrderEvent = useCallback(() => {
+    setSelectedOrderEvent(null);
+  }, []);
+
   const handleMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
       if (event.button !== 0 || !master?.series.length) return;
@@ -673,7 +707,7 @@ export function FolioNavCurveChart({
       dragRef.current = { startX: event.clientX, view: viewRange };
       setIsDragging(true);
       setHoverDate(null);
-      setHoveredOrderMarker(null);
+      setSelectedOrderEvent(null);
     },
     [master?.series.length, setHoverDate, viewRange],
   );
@@ -695,9 +729,10 @@ export function FolioNavCurveChart({
         );
         return;
       }
+      if (selectedOrderEvent) return;
       updateHoverFromClientX(event.clientX);
     },
-    [minViewSpan, updateHoverFromClientX],
+    [minViewSpan, selectedOrderEvent, updateHoverFromClientX],
   );
 
   useEffect(() => {
@@ -751,22 +786,9 @@ export function FolioNavCurveChart({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [master?.series.length, minViewSpan]);
 
-  const handleMarkerEnter = useCallback(
-    (marker: FolioOrderChartMarker) => {
-      setHoveredOrderMarker(marker);
-      setHoverDate(marker.date);
-    },
-    [setHoverDate],
-  );
-
-  const handleMarkerLeave = useCallback((markerId: string) => {
-    setHoveredOrderMarker((current) => (current?.id === markerId ? null : current));
-  }, []);
-
   const handleMouseLeave = useCallback(() => {
     endDrag();
     setHoverDate(null);
-    setHoveredOrderMarker(null);
   }, [endDrag, setHoverDate]);
 
   if (!chart) {
@@ -824,54 +846,11 @@ export function FolioNavCurveChart({
               <span className="folio-performance__order-legend-item folio-performance__order-legend-item--sell">
                 {t('folio.orderSell')}
               </span>
-            </div>
-          ) : null}
-          {hoveredOrderMarker ? (
-            <div
-              className={`folio-performance__order-tooltip${
-                hoveredOrderMarker.side === 'sell'
-                  ? ' folio-performance__order-tooltip--below'
-                  : ''
-              }`}
-              style={{
-                left: `${(hoveredOrderMarker.x / CHART_W) * 100}%`,
-                top: `${(hoveredOrderMarker.y / CHART_H) * 100}%`,
-              }}
-              role="tooltip"
-            >
-              <div className="folio-performance__order-tooltip-head">
-                <span className="folio-performance__order-tooltip-ticker">{hoveredOrderMarker.ticker}</span>
-                <span className="folio-performance__order-tooltip-name">
-                  {locale === 'zh' && hoveredOrderMarker.nameZh
-                    ? hoveredOrderMarker.nameZh
-                    : hoveredOrderMarker.nameEn || hoveredOrderMarker.name}
+              {orderMarkers.some((marker) => marker.side === 'sync') ? (
+                <span className="folio-performance__order-legend-item folio-performance__order-legend-item--sync">
+                  {t('folio.orderSync')}
                 </span>
-              </div>
-              <div className="folio-performance__order-tooltip-row">
-                <span
-                  className={`folio-performance__order-tooltip-side folio-performance__order-tooltip-side--${hoveredOrderMarker.side}`}
-                >
-                  {hoveredOrderMarker.side === 'buy' ? t('folio.orderBuy') : t('folio.orderSell')}
-                </span>
-                <span className="folio-performance__order-tooltip-sep" aria-hidden>
-                  ·
-                </span>
-                <span>
-                  {t('folio.orderQty')} {hoveredOrderMarker.qty}
-                </span>
-              </div>
-              <div className="folio-performance__order-tooltip-row">
-                <span>
-                  {(hoveredOrderMarker.fillTime ?? hoveredOrderMarker.orderTime ?? hoveredOrderMarker.date).slice(0, 10)}
-                </span>
-                <span className="folio-performance__order-tooltip-sep" aria-hidden>
-                  ·
-                </span>
-                <span>
-                  {t('folio.orderTooltipFillPrice')}{' '}
-                  {formatStockPrice(hoveredOrderMarker.fillPrice ?? hoveredOrderMarker.price)}
-                </span>
-              </div>
+              ) : null}
             </div>
           ) : null}
           <svg
@@ -917,9 +896,14 @@ export function FolioNavCurveChart({
               <g className="folio-performance__order-markers" aria-hidden={false}>
                 {orderMarkers.map((marker) => {
                   const isBuy = marker.side === 'buy';
-                  const points = isBuy
-                    ? `${marker.x},${marker.y - 6} ${marker.x - 4.5},${marker.y + 2} ${marker.x + 4.5},${marker.y + 2}`
-                    : `${marker.x},${marker.y + 6} ${marker.x - 4.5},${marker.y - 2} ${marker.x + 4.5},${marker.y - 2}`;
+                  const isSync = marker.side === 'sync';
+                  const isSelected =
+                    selectedOrderEvent?.date === marker.date && selectedOrderEvent.side === marker.side;
+                  const points = isSync
+                    ? `${marker.x},${marker.y - 5} ${marker.x + 5},${marker.y} ${marker.x},${marker.y + 5} ${marker.x - 5},${marker.y}`
+                    : isBuy
+                      ? `${marker.x},${marker.y - 6} ${marker.x - 4.5},${marker.y + 2} ${marker.x + 4.5},${marker.y + 2}`
+                      : `${marker.x},${marker.y + 6} ${marker.x - 4.5},${marker.y - 2} ${marker.x + 4.5},${marker.y - 2}`;
                   return (
                     <g key={marker.id}>
                       <circle
@@ -927,21 +911,19 @@ export function FolioNavCurveChart({
                         cy={marker.y}
                         r={12}
                         className="folio-performance__order-marker-hit"
-                        onMouseEnter={(event) => {
+                        onMouseDown={(event) => {
                           event.stopPropagation();
-                          handleMarkerEnter(marker);
+                          event.preventDefault();
                         }}
-                        onMouseLeave={(event) => {
+                        onClick={(event) => {
                           event.stopPropagation();
-                          handleMarkerLeave(marker.id);
+                          handleMarkerClick(marker);
                         }}
                       />
                       <polygon
                         points={points}
                         className={`folio-performance__order-marker folio-performance__order-marker--${marker.side}${
-                          hoveredOrderMarker?.id === marker.id
-                            ? ' folio-performance__order-marker--active'
-                            : ''
+                          isSelected ? ' folio-performance__order-marker--selected' : ''
                         }`}
                         pointerEvents="none"
                       />
@@ -949,6 +931,15 @@ export function FolioNavCurveChart({
                   );
                 })}
               </g>
+            ) : null}
+            {selectedHighlightX != null ? (
+              <line
+                x1={selectedHighlightX}
+                y1={PAD_Y}
+                x2={selectedHighlightX}
+                y2={CHART_H - PAD_Y}
+                className="folio-performance__order-event-highlight-v"
+              />
             ) : null}
             {displayGeometry ? (
               <g className="folio-performance__crosshair">
@@ -997,6 +988,15 @@ export function FolioNavCurveChart({
           {axisEndLabel}
         </span>
       </div>
+      {selectedOrderEvent && selectedOrderEvents.length > 0 ? (
+        <FolioOrderEventRail
+          date={selectedOrderEvent.date}
+          side={selectedOrderEvent.side}
+          orders={selectedOrderEvents}
+          activeId={selectedOrderEvent.markerId}
+          onClose={clearSelectedOrderEvent}
+        />
+      ) : null}
     </>
   );
 }

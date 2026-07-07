@@ -283,6 +283,7 @@ export async function createAgentRun(
         session_id: body.session_id,
         locale: body.locale ?? 'zh',
         event_format: 'dojo.v2',
+        ...(body.timezone_iana ? { timezone_iana: body.timezone_iana } : {}),
         ...(body.dashboard_tab ? { dashboard_tab: body.dashboard_tab } : {}),
         ...(body.session_attachments?.length
           ? { session_attachments: body.session_attachments }

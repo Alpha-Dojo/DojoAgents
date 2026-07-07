@@ -26,6 +26,7 @@ _PORTFOLIO_WRITE_TOOLS = {
     "portfolio_write_add_holdings",
     "portfolio_write_create_order",
     "portfolio_write_create_orders",
+    "portfolio_write_sync_positions",
     "portfolio_write_remove_holding",
     "portfolio_write_remove_candidates",
     "portfolio_write_auto_allocate",

@@ -78,6 +78,7 @@ interface StartRunParams {
   sessionId: string;
   modelId: string;
   locale: AgentLocale;
+  timezoneIana?: string;
   dashboardTab?: string;
   draftMessages: AgentChatMessage[];
   apiMessages: AgentApiMessage[];
@@ -535,6 +536,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
           session_id: params.sessionId,
           model_id: params.modelId,
           locale: params.locale,
+          timezone_iana: params.timezoneIana,
           dashboard_tab: params.dashboardTab,
           messages: params.apiMessages,
           session_attachments: params.sessionAttachments,

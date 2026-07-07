@@ -61,7 +61,9 @@ export interface FolioPortfolioConfig {
   capitalByMarket: Record<MarketCode, number>;
 }
 
-export type FolioOrderSide = 'buy' | 'sell';
+export type FolioOrderSide = 'buy' | 'sell' | 'set';
+
+export type FolioOrderKind = 'trade' | 'sync';
 
 export type FolioOrderStatus = 'pending' | 'filled' | 'cancelled' | 'rejected';
 
@@ -73,6 +75,7 @@ export interface FolioOrder {
   nameEn?: string;
   market: MarketCode;
   orderSide: FolioOrderSide;
+  orderKind: FolioOrderKind;
   orderStatus: FolioOrderStatus;
   price: number;
   qty: number;
@@ -80,6 +83,8 @@ export interface FolioOrder {
   fillTime?: string;
   fillPrice?: number | null;
   createdAt: string;
+  source?: string;
+  syncNote?: string;
 }
 
 export interface FolioCreateOrderPayload {
@@ -91,13 +96,28 @@ export interface FolioCreateOrderPayload {
   orderTime?: string | null;
 }
 
+export type FolioPositionActionTab = 'trade' | 'sync';
+
 export interface FolioOrderDraftContext {
   market: MarketCode;
   ticker?: string;
   price?: number;
+  qty?: number;
+  cost?: number;
   name?: string;
   orderSide?: FolioOrderSide;
+  initialTab?: FolioPositionActionTab;
 }
+
+export interface FolioPositionSyncPayload {
+  ticker: string;
+  market: MarketCode;
+  qty: number;
+  cost: number;
+}
+
+/** @deprecated Use FolioOrderDraftContext */
+export type FolioPositionSyncDraftContext = FolioOrderDraftContext;
 
 export interface FolioKpiMetric {
   key: 'netValue' | 'cumulativeReturn' | 'sharpe' | 'maxDrawdown';

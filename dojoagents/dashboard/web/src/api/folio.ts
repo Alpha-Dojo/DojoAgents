@@ -7,10 +7,12 @@ import type {
   FolioHolding,
   FolioKpiMetric,
   FolioOrder,
+  FolioOrderKind,
   FolioOrderSide,
   FolioOrderStatus,
   FolioPortfolioConfig,
   FolioPortfolioKind,
+  FolioPositionSyncPayload,
 } from '../types/folio';
 import { DEFAULT_FOLIO_CONFIG } from '../types/folio';
 import { DATA_START_DATE } from '../utils/klineDate';
@@ -191,6 +193,7 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
     name_en?: string;
     market: MarketCode;
     order_side: FolioOrderSide;
+    order_kind?: FolioOrderKind;
     order_status: FolioOrderStatus;
     price: number;
     qty: number;
@@ -198,6 +201,8 @@ export interface FolioPortfolioDetailResponse extends FolioPortfolioSummaryRespo
     fill_time?: string | null;
     fill_price?: number | null;
     created_at: string;
+    source?: string | null;
+    sync_note?: string | null;
   }>;
 }
 
@@ -308,6 +313,7 @@ interface PortfolioAnalysisResponse {
     name_en?: string;
     market: MarketCode;
     order_side: FolioOrderSide;
+    order_kind?: FolioOrderKind;
     order_status: FolioOrderStatus;
     price: number;
     qty: number;
@@ -315,6 +321,8 @@ interface PortfolioAnalysisResponse {
     fill_time?: string | null;
     fill_price?: number | null;
     created_at: string;
+    source?: string | null;
+    sync_note?: string | null;
   }>;
 }
 
@@ -332,6 +340,7 @@ function mapOrder(raw: NonNullable<FolioPortfolioDetailResponse['orders']>[numbe
     nameEn: raw.name_en,
     market: raw.market,
     orderSide: raw.order_side,
+    orderKind: raw.order_kind ?? 'trade',
     orderStatus: raw.order_status,
     price: raw.price,
     qty: raw.qty,
@@ -339,6 +348,8 @@ function mapOrder(raw: NonNullable<FolioPortfolioDetailResponse['orders']>[numbe
     fillTime: raw.fill_time ?? undefined,
     fillPrice: raw.fill_price ?? null,
     createdAt: raw.created_at,
+    source: raw.source ?? undefined,
+    syncNote: raw.sync_note ?? undefined,
   };
 }
 
@@ -639,6 +650,7 @@ function mapAnalysisToDetail(
       name_en: row.name_en,
       market: row.market,
       order_side: row.order_side,
+      order_kind: row.order_kind ?? 'trade',
       order_status: row.order_status,
       price: row.price,
       qty: row.qty,
@@ -646,6 +658,8 @@ function mapAnalysisToDetail(
       fill_time: row.fill_time ?? null,
       fill_price: row.fill_price ?? null,
       created_at: row.created_at,
+      source: row.source ?? null,
+      sync_note: row.sync_note ?? null,
     })),
   };
 }
@@ -883,6 +897,27 @@ export async function createFolioOrder(
       price: payload.price,
       qty: payload.qty,
       order_time: payload.orderTime ?? undefined,
+    }),
+  });
+  return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });
+}
+
+export async function syncFolioPositions(
+  portfolioId: string,
+  payload: FolioPositionSyncPayload | FolioPositionSyncPayload[],
+): Promise<FolioPortfolioDetail> {
+  const items = Array.isArray(payload) ? payload : [payload];
+  await fetchJson<PortfolioAnalysisResponse>(`${API_PREFIX}/portfolio/position-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      portfolio_id: portfolioId,
+      items: items.map((item) => ({
+        ticker: item.ticker,
+        market: item.market === 'cn' ? 'sh' : item.market,
+        qty: item.qty,
+        ...(item.qty > 0 ? { cost: item.cost } : {}),
+      })),
     }),
   });
   return fetchFolioPortfolioDetail(portfolioId, { includePerformance: true });

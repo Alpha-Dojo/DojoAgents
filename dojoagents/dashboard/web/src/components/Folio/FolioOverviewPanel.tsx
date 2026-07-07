@@ -4,7 +4,7 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { AppTab } from '../../navigation/appTab';
 import type { FolioPortfolioDetail } from '../../api/folio';
 import type { MarketCode } from '../../types/market';
-import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig } from '../../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig, FolioPositionSyncPayload } from '../../types/folio';
 import { DEFAULT_FOLIO_CONFIG } from '../../types/folio';
 import { portfolioDefaultConfig } from '../../utils/folioStartDate';
 import { buildFolioCandidateIndexOptions, resolveFolioBenchmarkLabel } from '../../utils/folioCandidateIndex';
@@ -105,12 +105,14 @@ interface FolioOverviewPanelProps {
   addingTicker?: boolean;
   removingTicker?: string | null;
   placingOrder?: boolean;
+  syncingPosition?: boolean;
   allocating?: boolean;
   benchmarkSymbols: string[];
   onSelectBenchmark: (symbol: string) => void;
   onSetBenchmarkSymbols: (symbols: string[]) => void;
   onApplyConfig: (config: FolioPortfolioConfig) => void;
   onCreateOrder: (payload: FolioCreateOrderPayload) => Promise<void>;
+  onSyncPosition: (payload: FolioPositionSyncPayload) => Promise<void>;
   onNavigateTab?: (tab: AppTab) => void;
   onApplyShares: (sharesByTicker: Record<string, number>) => void;
   onToggleSharesLock: (ticker: string, locked: boolean) => void;
@@ -130,12 +132,14 @@ export function FolioOverviewPanel({
   addingTicker = false,
   removingTicker = null,
   placingOrder = false,
+  syncingPosition = false,
   allocating = false,
   benchmarkSymbols,
   onSelectBenchmark,
   onSetBenchmarkSymbols,
   onApplyConfig,
   onCreateOrder,
+  onSyncPosition,
   onNavigateTab,
   onApplyShares,
   onToggleSharesLock,
@@ -318,6 +322,7 @@ export function FolioOverviewPanel({
             addingTicker={addingTicker}
             removingTicker={removingTicker}
             placingOrder={placingOrder}
+            syncingPosition={syncingPosition}
             allocating={allocating}
             benchmarkSymbol={primaryBenchmarkSymbol}
             benchmarkLabel={selectedBenchmarkLabel}
@@ -331,6 +336,7 @@ export function FolioOverviewPanel({
             onAddHolding={onAddHolding}
             onRemoveHolding={onRemoveHolding}
             onCreateOrder={onCreateOrder}
+            onSyncPosition={onSyncPosition}
             onAutoAllocate={onAutoAllocate}
           />
         </div>

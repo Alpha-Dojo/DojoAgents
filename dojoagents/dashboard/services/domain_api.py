@@ -280,7 +280,12 @@ def _candidate_row(item: Any) -> PortfolioCandidateRow:
 def _order_row(item: Any) -> PortfolioOrderRow:
     data = _model_dict(item)
     side = str(data.get("order_side") or "buy")
+    kind = str(data.get("order_kind") or "trade")
     status = str(data.get("order_status") or "pending")
+    if side not in {"buy", "sell", "set"}:
+        side = "buy"
+    if kind not in {"trade", "sync"}:
+        kind = "trade"
     return PortfolioOrderRow(
         id=str(data.get("id") or ""),
         ticker=str(data.get("ticker") or ""),
@@ -288,7 +293,8 @@ def _order_row(item: Any) -> PortfolioOrderRow:
         name_zh=str(data.get("name_zh") or ""),
         name_en=str(data.get("name_en") or ""),
         market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
-        order_side="sell" if side == "sell" else "buy",
+        order_side=side,  # type: ignore[arg-type]
+        order_kind=kind,  # type: ignore[arg-type]
         order_status=status if status in {"pending", "filled", "cancelled", "rejected"} else "pending",
         price=finite_float(data.get("price")),
         qty=finite_float(data.get("qty")),
@@ -296,6 +302,8 @@ def _order_row(item: Any) -> PortfolioOrderRow:
         fill_time=data.get("fill_time"),
         fill_price=finite_optional_float(data.get("fill_price")),
         created_at=str(data.get("created_at") or ""),
+        source=data.get("source"),
+        sync_note=data.get("sync_note"),
     )
 
 

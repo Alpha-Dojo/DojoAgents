@@ -9,6 +9,7 @@ import {
   fetchFolioPortfolioSummary,
   fetchFolioPortfolios,
   mergeFolioPerformanceIntoDetail,
+  syncFolioPositions,
   type FolioPortfolioDetail,
   type FolioPortfolioPerformance,
   removeFolioHolding,
@@ -23,7 +24,7 @@ import {
 } from '../navigation/folioContext';
 import { cacheKeys } from '../cache/cacheKeys';
 import { fetchCached, getCached, invalidateCache, invalidateCachePrefix, setCached } from '../cache/queryCache';
-import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig } from '../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioPortfolioConfig, FolioPositionSyncPayload } from '../types/folio';
 import type { MarketCode } from '../types/market';
 import type { FolioPortfolioHoldingsPreview } from '../utils/folioPortfolioSearch';
 import { searchPortfoliosClient } from '../utils/folioPortfolioSearch';
@@ -154,6 +155,7 @@ export function useFolioPortfolios() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [addingTicker, setAddingTicker] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [syncingPosition, setSyncingPosition] = useState(false);
   const [removingTicker, setRemovingTicker] = useState<string | null>(null);
   const [allocating, setAllocating] = useState(false);
   const [holdingsByPortfolioId, setHoldingsByPortfolioId] = useState<
@@ -891,6 +893,24 @@ export function useFolioPortfolios() {
     [commitDetail],
   );
 
+  const syncPosition = useCallback(
+    async (id: string, payload: FolioPositionSyncPayload) => {
+      setSyncingPosition(true);
+      try {
+        invalidateCachePrefix(`folio-portfolio:${id}:`);
+        const updated = await syncFolioPositions(id, payload);
+        commitDetail(updated);
+        setDetailError(null);
+      } catch (err: unknown) {
+        setDetailError(parseApiErrorMessage(err, 'Failed to sync position'));
+        throw err;
+      } finally {
+        setSyncingPosition(false);
+      }
+    },
+    [commitDetail],
+  );
+
   const autoAllocate = useCallback(
     async (id: string, strategy: FolioAllocationStrategy = 'market_cap') => {
       setAllocating(true);
@@ -930,6 +950,7 @@ export function useFolioPortfolios() {
     detailError,
     addingTicker,
     placingOrder,
+    syncingPosition,
     removingTicker,
     allocating,
     renamePortfolio,
@@ -947,6 +968,7 @@ export function useFolioPortfolios() {
     addHolding,
     removeHolding,
     createOrder,
+    syncPosition,
     autoAllocate,
   };
 }
