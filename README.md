@@ -29,6 +29,15 @@
 
 DojoAgents is a full-market AI agent framework designed specifically for personal investment. Built to bridge the gap between individual investors and institutional-grade tools, its true powerhouse is a state-of-the-art Agent Loop engine. Instead of a simple dashboard, DojoAgents deploys an autonomous reasoning agent that lives alongside your portfolio, handling everything from full-market data cognition to dynamic cross-market strategy deduction.
 
+<div align="center">
+  <img
+    alt="DojoAgents system architecture diagram"
+    src="dojoagents/dashboard/web/src/assets/images/structure.png"
+    width="960"
+  />
+  <p><em>Seven-layer architecture — from CLI, Web Dashboard, and Chat Gateways through Agent Loop to tools, data, and infrastructure.</em></p>
+</div>
+
 ## ✨ Why DojoAgents?
 
 **🧠 Loop-Driven Cognitive Portfolio Agent (Our Core Engine):** Most financial AI tools are built for quick outputs: news summaries, single-stock explanations, basic indicator readings, or generic market commentary. Our Loop-Driven Cognitive Portfolio Agent is built for portfolio-aware reasoning, connecting your holdings with market data and running structured analysis across four dimensions:
@@ -124,7 +133,7 @@ Once the dashboard is live, click on the Settings icon. DojoAgents features a co
 
 ## 🧠 Core Architecture
 
-DojoAgents is engineered for scale, deep contextual reasoning, and absolute privacy.
+As illustrated in the diagram above, DojoAgents is engineered for scale, deep contextual reasoning, and absolute privacy.
 
 - **Agent Loop Engine:** The core reasoning runtime. Handles multi-turn tool orchestration, context window compression, and strict guardrails to prevent financial hallucinations.
 - **Execution Sandbox:** A secure, isolated environment for on-the-fly Python code execution, technical indicator calculations, and local web data extraction.

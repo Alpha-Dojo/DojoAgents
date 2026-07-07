@@ -99,6 +99,8 @@ export interface AgentChatRequest {
   model_id: string;
   messages: AgentApiMessage[];
   locale?: AgentLocale;
+  /** IANA timezone from dashboard trading clock (e.g. Asia/Shanghai). */
+  timezone_iana?: string;
   dashboard_tab?: string;
   use_tools?: boolean;
   max_tool_steps?: number;

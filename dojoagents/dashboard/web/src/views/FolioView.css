@@ -1398,6 +1398,44 @@
   width: 100%;
 }
 
+.folio-order-form__mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.folio-order-form__mode-tab {
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.folio-order-form__mode-tab:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text);
+}
+
+.folio-order-form__mode-tab--active {
+  border-color: rgba(0, 212, 170, 0.42);
+  background: rgba(0, 212, 170, 0.1);
+  color: var(--accent);
+}
+
+.folio-order-form__mode-tab--active:hover {
+  border-color: rgba(0, 212, 170, 0.5);
+  color: var(--accent);
+}
+
 .folio-order-form__side-toggle {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1528,6 +1566,24 @@
   color: #ff9f9f;
 }
 
+.folio-holdings__market-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folio-dialog__hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.folio-order-form__input--readonly {
+  opacity: 0.72;
+  cursor: default;
+}
+
 .folio-holdings__create-order {
   height: 26px;
   padding: 0 10px;
@@ -1544,6 +1600,24 @@
 .folio-holdings__create-order:hover {
   border-color: rgba(0, 212, 170, 0.5);
   background: rgba(0, 212, 170, 0.14);
+}
+
+.folio-holdings__sync-position {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(100, 160, 255, 0.32);
+  border-radius: 4px;
+  background: rgba(100, 160, 255, 0.08);
+  color: #8cb8ff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.folio-holdings__sync-position:hover {
+  border-color: rgba(100, 160, 255, 0.5);
+  background: rgba(100, 160, 255, 0.14);
 }
 
 .folio-table__trade {
@@ -1592,6 +1666,12 @@
   stroke-width: 0.8;
 }
 
+.folio-performance__order-marker--sync {
+  fill: rgba(100, 160, 255, 0.95);
+  stroke: rgba(160, 200, 255, 0.85);
+  stroke-width: 0.8;
+}
+
 .folio-performance__order-legend {
   position: absolute;
   top: 4px;
@@ -1631,14 +1711,22 @@
   border-top: 7px solid rgba(255, 96, 96, 0.95);
 }
 
-.folio-performance__order-marker--active {
+.folio-performance__order-legend-item--sync::before {
+  width: 7px;
+  height: 7px;
+  border: none;
+  transform: rotate(45deg);
+  background: rgba(100, 160, 255, 0.95);
+}
+
+.folio-performance__order-marker--active,
+.folio-performance__order-marker--selected {
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.45));
 }
 
 .folio-performance__order-tooltip {
   position: absolute;
   z-index: 3;
-  transform: translate(-50%, calc(-100% - 14px));
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -1657,8 +1745,28 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
+.folio-performance__order-tooltip--above {
+  transform: translate(-50%, calc(-100% - 14px));
+}
+
 .folio-performance__order-tooltip--below {
   transform: translate(-50%, 16px);
+}
+
+.folio-performance__order-tooltip--above-left {
+  transform: translate(calc(-100% - 8px), calc(-100% - 14px));
+}
+
+.folio-performance__order-tooltip--above-right {
+  transform: translate(8px, calc(-100% - 14px));
+}
+
+.folio-performance__order-tooltip--below-left {
+  transform: translate(calc(-100% - 8px), 16px);
+}
+
+.folio-performance__order-tooltip--below-right {
+  transform: translate(8px, 16px);
 }
 
 .folio-performance__order-tooltip-head {
@@ -1702,6 +1810,240 @@
 .folio-performance__order-tooltip-side--sell {
   color: var(--red);
   font-weight: 600;
+}
+
+.folio-performance__order-tooltip-side--sync {
+  color: #8cb8ff;
+  font-weight: 600;
+}
+
+.folio-performance__order-event-rail {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 10px 0;
+  padding: 3px 0 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  min-height: 0;
+}
+
+.folio-performance__order-event-rail-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 2px 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.folio-performance__order-event-rail-icon {
+  flex: 0 0 auto;
+}
+
+.folio-performance__order-event-rail-icon--buy {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid rgba(0, 212, 170, 0.95);
+}
+
+.folio-performance__order-event-rail-icon--sell {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 7px solid rgba(255, 96, 96, 0.95);
+}
+
+.folio-performance__order-event-rail-icon--sync {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  background: rgba(100, 160, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(160, 200, 255, 0.45);
+}
+
+.folio-performance__order-event-rail-title {
+  font-weight: 600;
+}
+
+.folio-performance__order-event-rail-head--buy .folio-performance__order-event-rail-title {
+  color: var(--green);
+}
+
+.folio-performance__order-event-rail-head--sell .folio-performance__order-event-rail-title {
+  color: var(--red);
+}
+
+.folio-performance__order-event-rail-head--sync .folio-performance__order-event-rail-title {
+  color: #8cb8ff;
+}
+
+.folio-performance__order-event-rail-date {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.folio-performance__order-event-rail-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.folio-performance__order-event-rail-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.folio-performance__order-event-rail-close:hover,
+.folio-performance__order-event-rail-close:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  outline: none;
+}
+
+.folio-performance__order-event-rail-scroll {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.folio-performance__order-event-rail-scroll::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(to left, rgba(8, 12, 18, 0.96), rgba(8, 12, 18, 0));
+}
+
+.folio-performance__order-event-rail-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 1px 28px 1px 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.folio-performance__order-event-rail-track::-webkit-scrollbar {
+  display: none;
+}
+
+.folio-performance__order-event-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 320px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.folio-performance__order-event-chip--buy {
+  border-color: rgba(0, 212, 170, 0.22);
+  background: rgba(0, 212, 170, 0.06);
+}
+
+.folio-performance__order-event-chip--sell {
+  border-color: rgba(255, 96, 96, 0.22);
+  background: rgba(255, 96, 96, 0.06);
+}
+
+.folio-performance__order-event-chip--sync {
+  border-color: rgba(100, 160, 255, 0.22);
+  background: rgba(100, 160, 255, 0.06);
+}
+
+.folio-performance__order-event-chip--active {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.folio-performance__order-event-chip-market {
+  font-weight: 700;
+}
+
+.folio-performance__order-event-chip--buy .folio-performance__order-event-chip-market {
+  color: var(--green);
+}
+
+.folio-performance__order-event-chip--sell .folio-performance__order-event-chip-market {
+  color: var(--red);
+}
+
+.folio-performance__order-event-chip--sync .folio-performance__order-event-chip-market {
+  color: #8cb8ff;
+}
+
+.folio-performance__order-event-chip-ticker {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.folio-performance__order-event-chip-name {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folio-performance__order-event-chip-sep {
+  opacity: 0.45;
+}
+
+.folio-performance__order-event-chip-qty,
+.folio-performance__order-event-chip-price,
+.folio-performance__order-event-chip-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.folio-performance__order-event-chip-time {
+  color: #8cb8ff;
+  font-weight: 600;
+}
+
+.folio-performance__order-event-highlight-v {
+  stroke: rgba(255, 255, 255, 0.38);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .folio-config__select {

@@ -32,6 +32,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
     performanceLoading,
     allocating,
     placingOrder,
+    syncingPosition,
     renamePortfolio,
     applyPortfolioConfig,
     applyShareOverrides,
@@ -47,6 +48,7 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
     addHolding,
     removeHolding,
     createOrder,
+    syncPosition,
     autoAllocate,
     addingTicker,
     removingTicker,
@@ -86,12 +88,14 @@ export function FolioView({ onNavigateTab }: FolioViewProps) {
             addingTicker={addingTicker}
             removingTicker={removingTicker}
             placingOrder={placingOrder}
+            syncingPosition={syncingPosition}
             allocating={allocating}
             benchmarkSymbols={benchmarkSymbols}
             onSelectBenchmark={selectBenchmarkSymbol}
             onSetBenchmarkSymbols={setBenchmarkSymbols}
             onApplyConfig={(config) => applyPortfolioConfig(activePortfolio.id, config)}
             onCreateOrder={(payload) => createOrder(activePortfolio.id, payload)}
+            onSyncPosition={(payload) => syncPosition(activePortfolio.id, payload)}
             onNavigateTab={onNavigateTab}
             onApplyShares={(shares) => applyShareOverrides(activePortfolio.id, shares)}
             onToggleSharesLock={(ticker, locked) =>

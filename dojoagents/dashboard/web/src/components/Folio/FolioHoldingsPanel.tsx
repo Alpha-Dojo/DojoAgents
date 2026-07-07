@@ -250,13 +250,15 @@ export function FolioHoldingsPanel({
                   <section key={market} className={`folio-holdings__market folio-holdings__market--${market}`}>
                     <header className="folio-holdings__market-head">
                       <FolioMarketLabel market={market} />
-                      <button
-                        type="button"
-                        className="folio-holdings__create-order"
-                        onClick={() => onCreateOrder({ market })}
-                      >
-                        {t('folio.createOrder')}
-                      </button>
+                      <div className="folio-holdings__market-actions">
+                        <button
+                          type="button"
+                          className="folio-holdings__create-order"
+                          onClick={() => onCreateOrder({ market })}
+                        >
+                          {t('folio.createOrder')}
+                        </button>
+                      </div>
                     </header>
 
                     <div className="folio-holdings__table-scroll">

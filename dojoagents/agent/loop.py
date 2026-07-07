@@ -8,6 +8,7 @@ from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.agent.temporal_context import build_temporal_context_block
 from dojoagents.agent.turn_intent import build_turn_intent_anchor_async, filter_tool_specs_for_intent
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
@@ -532,6 +533,7 @@ class AgentLoop:
         # 1. Build the system prompt
         blocks = [
             "You are DojoAgents, a full-market finance analysis agent.",
+            build_temporal_context_block(request.metadata),
             self.skill_manager.prompt_block(platform=request.channel),
             self.memory_manager.build_system_prompt(),
             await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),

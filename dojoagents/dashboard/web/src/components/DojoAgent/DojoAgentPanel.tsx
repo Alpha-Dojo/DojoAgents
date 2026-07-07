@@ -22,6 +22,10 @@ import { useAgentPanelWidth } from "../../hooks/useAgentPanelWidth";
 import { useSessionOutputs } from "../../hooks/useSessionOutputs";
 import { useSessionInputs } from "../../hooks/useSessionInputs";
 import { useTranslation } from "../../hooks/useTranslation";
+import {
+  getTradingTimezone,
+  readStoredTradingTimezone,
+} from "../../timezone/tradingTimezone";
 import type { AppTab } from "../../navigation/appTab";
 import type { AgentChatImageAttachment, AgentChatMessage, AgentSessionInputFile } from "../../types/agent";
 import { AgentModelSwitcher } from "../AgentModelSwitcher";
@@ -814,6 +818,7 @@ export function DojoAgentPanel({
         sessionId,
         modelId: selectedModelId,
         locale,
+        timezoneIana: getTradingTimezone(readStoredTradingTimezone()).iana,
         dashboardTab: sourceTab,
         draftMessages: nextMessages,
         apiMessages,

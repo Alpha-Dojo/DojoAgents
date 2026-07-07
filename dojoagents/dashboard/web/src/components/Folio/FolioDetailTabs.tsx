@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FolioPortfolioDetail } from '../../api/folio';
 import type { AppTab } from '../../navigation/appTab';
-import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioOrderDraftContext } from '../../types/folio';
+import type { FolioAllocationStrategy, FolioCreateOrderPayload, FolioOrderDraftContext, FolioPositionSyncPayload } from '../../types/folio';
 import type { MarketCode } from '../../types/market';
 import { useTranslation } from '../../hooks/useTranslation';
 import { FolioCandidatesPanel } from './FolioCandidatesPanel';
@@ -18,6 +18,7 @@ interface FolioDetailTabsProps {
   addingTicker?: boolean;
   removingTicker?: string | null;
   placingOrder?: boolean;
+  syncingPosition?: boolean;
   allocating?: boolean;
   benchmarkSymbol: string | null;
   benchmarkLabel: string;
@@ -31,6 +32,7 @@ interface FolioDetailTabsProps {
   onAddHolding: (ticker: string, market: MarketCode) => void;
   onRemoveHolding: (ticker: string, market: MarketCode) => void;
   onCreateOrder: (payload: FolioCreateOrderPayload) => Promise<void>;
+  onSyncPosition: (payload: FolioPositionSyncPayload) => Promise<void>;
   onAutoAllocate: (strategy: FolioAllocationStrategy) => void;
 }
 
@@ -40,6 +42,7 @@ export function FolioDetailTabs({
   addingTicker = false,
   removingTicker = null,
   placingOrder = false,
+  syncingPosition = false,
   benchmarkSymbol,
   benchmarkLabel,
   onNavigateTab,
@@ -52,6 +55,7 @@ export function FolioDetailTabs({
   onAddHolding,
   onRemoveHolding,
   onCreateOrder,
+  onSyncPosition,
 }: FolioDetailTabsProps) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<FolioDetailTab>('candidates');
@@ -64,7 +68,7 @@ export function FolioDetailTabs({
     { id: 'risk', label: t('folio.tabRiskExposure') },
   ];
 
-  const openCreateOrder = (context: FolioOrderDraftContext) => {
+  const openPositionAction = (context: FolioOrderDraftContext) => {
     setOrderContext(context);
   };
 
@@ -105,7 +109,7 @@ export function FolioDetailTabs({
               onNavigateTab={onNavigateTab}
               onAddCandidate={onAddHolding}
               onRemoveCandidate={onRemoveHolding}
-              onCreateOrder={openCreateOrder}
+              onCreateOrder={openPositionAction}
             />
           </div>
         ) : null}
@@ -127,7 +131,7 @@ export function FolioDetailTabs({
               onToggleCostLock={onToggleCostLock}
               onApplyCost={onApplyCost}
               onApplyOpenDate={onApplyOpenDate}
-              onCreateOrder={openCreateOrder}
+              onCreateOrder={openPositionAction}
             />
           </div>
         ) : null}
@@ -167,8 +171,10 @@ export function FolioDetailTabs({
         portfolioId={portfolio.id}
         context={orderContext}
         placing={placingOrder}
+        syncing={syncingPosition}
         onClose={() => setOrderContext(null)}
         onSubmit={onCreateOrder}
+        onSync={onSyncPosition}
       />
     </article>
   );

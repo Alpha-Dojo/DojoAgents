@@ -116,6 +116,104 @@ async def test_evaluate_fill_failure_fetches_historical_bar_outside_trailing_win
     assert failure is None
 
 
+def test_aggregate_positions_from_sync_order_sets_absolute_state() -> None:
+    orders = [
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_kind": "sync",
+            "order_side": "set",
+            "qty": 300,
+            "fill_price": 120.5,
+            "price": 120.5,
+            "fill_time": "2026-07-07T00:00:00+00:00",
+        }
+    ]
+    positions = aggregate_positions(orders)
+    assert len(positions) == 1
+    assert positions[0]["shares"] == pytest.approx(300)
+    assert positions[0]["cost"] == pytest.approx(120.5)
+    assert positions[0]["open_date"] == "2026-07-07"
+
+
+def test_sync_order_overrides_prior_buy_and_trade_after_sync() -> None:
+    orders = [
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_side": "buy",
+            "qty": 100,
+            "fill_price": 100.0,
+            "fill_time": "2026-06-01T00:00:00+00:00",
+        },
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_kind": "sync",
+            "order_side": "set",
+            "qty": 300,
+            "fill_price": 120.5,
+            "price": 120.5,
+            "fill_time": "2026-07-07T00:00:00+00:00",
+        },
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_side": "buy",
+            "qty": 50,
+            "fill_price": 130.0,
+            "fill_time": "2026-07-08T00:00:00+00:00",
+        },
+    ]
+    positions = aggregate_positions(orders)
+    assert len(positions) == 1
+    assert positions[0]["shares"] == pytest.approx(350)
+    assert positions[0]["cost_basis"] == pytest.approx(300 * 120.5 + 50 * 130.0)
+
+
+def test_sync_order_clear_position_with_zero_qty() -> None:
+    from dojoagents.dashboard.services.portfolio_order_execution import replay_market_balance
+
+    orders = [
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_kind": "sync",
+            "order_side": "set",
+            "qty": 300,
+            "fill_price": 120.5,
+            "price": 120.5,
+            "fill_time": "2026-07-07T00:00:00+00:00",
+        },
+        {
+            "order_status": "filled",
+            "market": "us",
+            "ticker": "NVDA",
+            "order_kind": "sync",
+            "order_side": "set",
+            "qty": 0,
+            "fill_price": 0,
+            "price": 1.0,
+            "fill_time": "2026-07-08T00:00:00+00:00",
+        },
+    ]
+    positions = aggregate_positions(orders)
+    assert positions == []
+    cash, held = replay_market_balance(
+        orders,
+        market="us",
+        initial_capital=1_000_000.0,
+        as_of_date="2026-07-08",
+    )
+    assert held == {}
+    assert cash == pytest.approx(1_000_000.0)
+
+
 @pytest.mark.asyncio
 async def test_fill_order_without_time_uses_next_day_open() -> None:
     order = {
