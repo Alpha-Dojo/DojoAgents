@@ -8,7 +8,9 @@ from dojoagents.dashboard.schemas.portfolio import (
     AutoAllocateRequest,
     CreatePortfolioOrderRequest,
     CreatePortfolioRequest,
+    PositionSyncItem,
     RemovePortfolioHoldingRequest,
+    SyncPortfolioPositionsRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.agent.escalation import AgentEscalationError
@@ -26,7 +28,8 @@ _POSITION_ORDER_FIELDS = ("price", "cost", "qty", "order_time", "order_side")
 _CANDIDATE_ONLY_ERROR = (
     "This tool adds WATCHLIST CANDIDATES (候选股) only — it does NOT buy shares or record cost. "
     "For 建仓/买入/按成本价/创建交易/持仓, use portfolio_write_create_order or "
-    "portfolio_write_create_orders with order_side, price, qty, and optional order_time."
+    "portfolio_write_create_orders with order_side, price, qty, and optional order_time. "
+    "For 仓位同步/外部持仓导入, use portfolio_write_sync_positions."
 )
 
 
@@ -392,6 +395,66 @@ def register_dashboard_portfolio_tools(
         return _json_content(
             payload,
             resource_changes=[{"resource": "portfolio", "action": "create_order", "portfolio_id": portfolio_id}],
+        )
+
+    async def sync_positions(args: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = str(args.get("portfolio_id") or "").strip()
+        items_raw = args.get("items")
+        if not isinstance(items_raw, list) or not items_raw:
+            raise RuntimeError("items must be a non-empty array")
+
+        items: list[PositionSyncItem] = []
+        for index, row in enumerate(items_raw):
+            if not isinstance(row, dict):
+                raise RuntimeError(f"items[{index}] must be an object")
+            ticker = str(row.get("ticker") or "").strip()
+            if not ticker:
+                raise RuntimeError(f"items[{index}].ticker is required")
+            qty_raw = row.get("qty")
+            if qty_raw is None:
+                raise RuntimeError(f"items[{index}].qty is required")
+            try:
+                qty = float(qty_raw)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(f"items[{index}].qty must be a number") from exc
+            cost_raw = row.get("cost")
+            cost = None if cost_raw is None else float(cost_raw)
+            items.append(
+                PositionSyncItem(
+                    ticker=ticker,
+                    market=_normalize_market(row.get("market")),
+                    qty=qty,
+                    cost=cost,
+                )
+            )
+
+        service = _service_or_raise(registry)
+        try:
+            detail = await service.sync_positions(
+                portfolio_id,
+                SyncPortfolioPositionsRequest(
+                    items=items,
+                    synced_at=str(args.get("synced_at")).strip() if args.get("synced_at") else None,
+                    source=str(args.get("source")).strip() if args.get("source") else None,
+                    note=str(args.get("note")).strip() if args.get("note") else None,
+                ),
+            )
+        except PortfolioValidationError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if detail is None:
+            raise RuntimeError("portfolio not found")
+
+        payload = detail.model_dump()
+        summary = eval_summary_from_detail(payload)
+        payload["sync_result"] = {
+            "synced_count": len(items),
+            "tickers": [item.ticker for item in items],
+            "position_count": summary["position_count"],
+            "position_count_by_market": summary["position_count_by_market"],
+        }
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "sync_positions", "portfolio_id": portfolio_id}],
         )
 
     async def remove_holding(args: dict[str, Any]) -> dict[str, Any]:
@@ -860,6 +923,49 @@ def register_dashboard_portfolio_tools(
                 "required": ["portfolio_id", "orders"],
             },
             handler=create_orders_batch,
+        ),
+        ToolSpec(
+            name="portfolio_write_sync_positions",
+            description=(
+                "Sync absolute positions from an external account (仓位同步). "
+                "Sets target shares and average cost as of the current time — this is NOT a buy/sell trade. "
+                "Each item needs ticker + qty; cost is required when qty > 0. "
+                "Use qty=0 to clear a synced position. "
+                "US qty must be whole shares; HK/A-share qty must be multiples of 100."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "market": {"type": "string", "description": "us, cn, or hk"},
+                                "qty": {
+                                    "type": "number",
+                                    "description": "Absolute target shares after sync",
+                                },
+                                "cost": {
+                                    "type": "number",
+                                    "description": "Average cost price; required when qty > 0",
+                                },
+                            },
+                            "required": ["ticker", "qty"],
+                        },
+                        "minItems": 1,
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Optional external source label, e.g. ibkr",
+                    },
+                    "note": {"type": "string"},
+                },
+                "required": ["portfolio_id", "items"],
+            },
+            handler=sync_positions,
         ),
         ToolSpec(
             name="portfolio_write_remove_holding",

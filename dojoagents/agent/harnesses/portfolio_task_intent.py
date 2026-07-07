@@ -7,6 +7,12 @@ from dojoagents.agent.harness import HarnessLoopState
 
 PortfolioTaskKind = Literal["build", "liquidate", "trade", "delete", "none"]
 
+_SYNC_POSITION_TOOL_NAMES = frozenset(
+    {
+        "portfolio_write_sync_positions",
+    }
+)
+
 _CREATE_ORDER_TOOL_NAMES = frozenset(
     {
         "portfolio_write_create_order",
@@ -30,6 +36,7 @@ _PORTFOLIO_WRITE_TOOL_NAMES = frozenset(
         "portfolio_write_delete",
         *_ADD_CANDIDATE_TOOL_NAMES,
         *_CREATE_ORDER_TOOL_NAMES,
+        *_SYNC_POSITION_TOOL_NAMES,
         "portfolio_write_remove_holding",
         "portfolio_write_remove_candidates",
         "portfolio_write_auto_allocate",
@@ -61,7 +68,7 @@ def classify_portfolio_task(state: HarnessLoopState) -> PortfolioTaskKind:
         return "liquidate"
     if state.any_ok_tool("portfolio_write_create") or state.any_ok_tool(*_ADD_CANDIDATE_TOOL_NAMES):
         return "build"
-    if state.any_ok_tool(*_CREATE_ORDER_TOOL_NAMES):
+    if state.any_ok_tool(*_CREATE_ORDER_TOOL_NAMES) or state.any_ok_tool(*_SYNC_POSITION_TOOL_NAMES):
         return "trade"
     return "build"
 
@@ -103,6 +110,7 @@ def _is_delete_only_task(state: HarnessLoopState) -> bool:
         "portfolio_write_create",
         *_ADD_CANDIDATE_TOOL_NAMES,
         *_CREATE_ORDER_TOOL_NAMES,
+        *_SYNC_POSITION_TOOL_NAMES,
         "portfolio_write_remove_holding",
         "portfolio_write_remove_candidates",
         "portfolio_write_auto_allocate",

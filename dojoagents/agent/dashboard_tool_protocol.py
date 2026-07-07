@@ -93,6 +93,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 |---------|----------|---------|------|------------|
 | Watchlist | 候选股 | Track symbols, no capital spent | `portfolio_write_add_candidate(s)` / `portfolio_write_remove_candidate(s)` | `min_candidate_count` |
 | Filled buy | 持仓 / 建仓 | Spend capital at price × qty | `portfolio_write_create_order(s)` | `min_position_count` |
+| Position sync | 仓位同步 | Import absolute shares + avg cost from external account (NOT a trade) | `portfolio_write_sync_positions` | `min_position_count` |
 | Filled sell / 清仓 | 卖出 / 清仓 | Reduce or close positions via orders | `portfolio_write_create_order(s)` sell | `max_position_count=0` |
 
 **User says 清仓 / 全部卖出 / liquidate all (existing portfolio):**
@@ -128,7 +129,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
    (server infers `order_time` when omitted)
 4. Limit price must fall within that day's `[low, high]` inclusive (open may equal high/low).
 
-**User says 建仓 / 买入 / 按成本价 / 创建交易 / 持仓页面截图 with shares & cost:**
+**User says 建仓 / 买入 / 创建交易 (new trade in this portfolio):**
 1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
 2. If price/date is specified (e.g. 2026-06-18 开盘价): call `get_ticker_price_trends` with
    `start_date` AND `end_date` both set to that day (YYYY-MM-DD), then read `open` from klines.
@@ -143,6 +144,22 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
    - US qty: integer shares; HK/A-share qty: multiples of 100
 4. `portfolio_read_detail` → verify `eval_summary.position_count` (NOT candidate_count)
 5. `portfolio_eval_submit` with **min_position_count** matching filled positions
+
+**User says 仓位同步 / 同步持仓 / 从其他交易所导入 / 外部账户持仓 / 按成本价同步 (import existing holdings):**
+This is **NOT** a buy trade — do NOT use `portfolio_write_create_order` (kline validation and cash deduction apply).
+
+1. `portfolio_read_search` or `portfolio_read_list` → target portfolio_id
+2. Collect absolute target `qty` + average `cost` per ticker (from user message or screenshot).
+3. **One call:** `portfolio_write_sync_positions` with `items: [{ticker, market?, qty, cost}, ...]`.
+   - `qty` = absolute shares after sync; `cost` required when `qty > 0`.
+   - `qty=0` clears that ticker from positions.
+   - Sync time defaults to server now — do NOT pass historical `order_time`.
+4. `portfolio_read_detail` → verify `eval_summary.position_count` and holdings cost/shares
+5. Optional `portfolio_eval_submit` with **min_position_count** when the task requires verification
+
+**User says 建仓 / 买入 / 按成本价 / 创建交易 / 持仓页面截图 with shares & cost:**
+If the user is **recording a new trade** in Alpha Dojo → use `portfolio_write_create_order` workflow above.
+If the user is **importing holdings from another broker** → use `portfolio_write_sync_positions` workflow above.
 
 **Capital preflight (batch 建仓):**
 - Before large batch buys, ensure `Σ(price × qty)` per market fits `capital_by_market`.
@@ -185,6 +202,13 @@ FORBIDDEN as stock-universe builder:
 
 Use for news/macro context AFTER dashboard tools return candidates.
 FORBIDDEN as the primary way to discover investable tickers when sector/screen tools exist.
+
+Query rules (see also Temporal context in system prompt):
+- Use event/entity/topic keywords (e.g. `Meta 卖算力`, `Meta sell compute`).
+- Do NOT append a year to the query unless the user named a specific year.
+- Do NOT use the model training cutoff year (e.g. 2025) when the user says 最近/近期/recent/latest.
+- After results return, judge freshness against Temporal context. If articles look stale, tell the
+  user and broaden or refine the query — do NOT fix staleness by swapping in a guessed year.
 
 ### Save analysis files (JSON / JSONL / text)
 
@@ -243,6 +267,7 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 **Watchlist / 候选股:** create → add_candidates → read_detail → eval_submit (min_candidate_count)
 **剔除候选股:** read_detail → remove_candidates (batch) → read_detail → eval_submit if needed
 **建仓 / 买入:** read_search → create_order(s) with price+qty → read_detail → eval_submit (min_position_count)
+**仓位同步 / 外部导入:** read_search → sync_positions (items qty+cost) → read_detail → eval_submit if needed
 **清仓 / 全部卖出:** read_search → read_detail → create_order(s) sell → read_detail → eval_submit (max_position_count=0)
 **Delete:** read_list → write_delete → done (no read_detail, no eval_submit)
 
@@ -250,6 +275,7 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 
 - `get_ticker_realtime_quote` / `get_ticker_financials`: pass all tickers in one `tickers` array (≤50).
 - `portfolio_write_add_candidates` / `portfolio_write_remove_candidates`: pass all watchlist tickers in one `holdings` array.
+- `portfolio_write_sync_positions`: pass all imported holdings in one `items` array.
 
 ### execute_code (computation only — NOT for text formatting)
 

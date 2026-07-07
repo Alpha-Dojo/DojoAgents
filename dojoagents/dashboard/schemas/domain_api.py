@@ -499,7 +499,8 @@ class PortfolioOrderRow(BaseModel):
     name_zh: str = ""
     name_en: str = ""
     market: str
-    order_side: Literal["buy", "sell"]
+    order_side: Literal["buy", "sell", "set"]
+    order_kind: Literal["trade", "sync"] = "trade"
     order_status: Literal["pending", "filled", "cancelled", "rejected"] = "pending"
     price: float = 0.0
     qty: float = 0.0
@@ -507,6 +508,8 @@ class PortfolioOrderRow(BaseModel):
     fill_time: Optional[str] = None
     fill_price: Optional[float] = None
     created_at: str = ""
+    source: Optional[str] = None
+    sync_note: Optional[str] = None
 
 
 class PortfolioAnalysisResponseV1(BaseModel):
@@ -637,6 +640,21 @@ class CreatePortfolioOrderRequestV1(BaseModel):
 class CancelPortfolioOrderRequestV1(BaseModel):
     portfolio_id: str
     order_id: str = Field(..., min_length=1)
+
+
+class PositionSyncItemV1(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    market: Optional[str] = Field(None, description="Market code: us, cn, hk")
+    qty: float = Field(..., ge=0, description="Absolute target shares after sync")
+    cost: Optional[float] = Field(None, gt=0, description="Average cost price; required when qty > 0")
+
+
+class SyncPortfolioPositionsRequestV1(BaseModel):
+    portfolio_id: str
+    items: list[PositionSyncItemV1] = Field(..., min_length=1)
+    synced_at: Optional[str] = Field(None, description="Sync timestamp (ISO); defaults to server now")
+    source: Optional[str] = Field(None, description="Optional external source label")
+    note: Optional[str] = Field(None, description="Optional sync note")
 
 
 AddPortfolioHoldingRequest = AddPortfolioHoldingRequestV1

@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 PortfolioKind = Literal["manual", "agent"]
 PortfolioMatchType = Literal["name", "holding", "candidate"]
-OrderSide = Literal["buy", "sell"]
+OrderSide = Literal["buy", "sell", "set"]
+OrderKind = Literal["trade", "sync"]
 OrderStatus = Literal["pending", "filled", "cancelled", "rejected"]
 
 
@@ -33,14 +34,17 @@ class PortfolioOrderRecord(BaseModel):
     ticker: str
     market: str
     order_side: OrderSide
+    order_kind: OrderKind = "trade"
     order_status: OrderStatus = "pending"
     price: float = Field(..., gt=0)
-    qty: float = Field(..., gt=0)
+    qty: float = Field(..., ge=0)
     order_time: Optional[str] = Field(None, description="Optional execution date (YYYY-MM-DD or ISO)")
     fill_time: Optional[str] = None
     fill_price: Optional[float] = None
     created_at: str
     updated_at: Optional[str] = None
+    source: Optional[str] = Field(None, description="Optional external source label for sync orders")
+    sync_note: Optional[str] = Field(None, description="Optional note for position sync events")
 
 
 class PortfolioCandidateView(BaseModel):
@@ -231,6 +235,20 @@ class CreatePortfolioOrderRequest(BaseModel):
 
 class CancelPortfolioOrderRequest(BaseModel):
     order_id: str = Field(..., min_length=1)
+
+
+class PositionSyncItem(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    market: Optional[str] = Field(None, description="Market code: us, sh, hk")
+    qty: float = Field(..., ge=0, description="Absolute target shares after sync")
+    cost: Optional[float] = Field(None, gt=0, description="Average cost price; required when qty > 0")
+
+
+class SyncPortfolioPositionsRequest(BaseModel):
+    items: list[PositionSyncItem] = Field(..., min_length=1)
+    synced_at: Optional[str] = Field(None, description="Sync timestamp (ISO); defaults to server now")
+    source: Optional[str] = Field(None, description="Optional external source label")
+    note: Optional[str] = Field(None, description="Optional sync note")
 
 
 class RemovePortfolioHoldingRequest(BaseModel):

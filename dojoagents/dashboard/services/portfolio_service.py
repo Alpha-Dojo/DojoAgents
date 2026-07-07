@@ -46,6 +46,7 @@ from dojoagents.dashboard.schemas.portfolio import (
     PortfolioSearchResponse,
     RemovePortfolioHoldingRequest,
     PortfolioSummary,
+    SyncPortfolioPositionsRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
@@ -564,6 +565,67 @@ class PortfolioService:
             },
         )
 
+    async def sync_positions(
+        self,
+        portfolio_id: str,
+        body: SyncPortfolioPositionsRequest,
+    ) -> Optional[PortfolioDetail]:
+        raw = await self._store_call("get_raw", portfolio_id)
+        if not raw:
+            return None
+
+        synced_at = str(body.synced_at or _utc_now_iso()).strip() or _utc_now_iso()
+        source = str(body.source).strip() if body.source else None
+        note = str(body.note).strip() if body.note else None
+
+        for index, item in enumerate(body.items):
+            ticker = item.ticker.strip()
+            if not ticker:
+                raise PortfolioValidationError("ticker is required", field=f"items[{index}].ticker")
+            market = item.market or self.stock_store.find_market(ticker)
+            if not market:
+                raise PortfolioValidationError(
+                    f"market not found for {ticker}",
+                    field=f"items[{index}].market",
+                )
+            stock = self.stock_store.get(market, ticker)
+            if stock is None:
+                raise PortfolioValidationError(
+                    f"ticker not found: {ticker}",
+                    field=f"items[{index}].ticker",
+                )
+            qty = float(item.qty)
+            if qty > 1e-9 and (item.cost is None or float(item.cost) <= 0):
+                raise PortfolioValidationError(
+                    "cost is required when qty > 0",
+                    field=f"items[{index}].cost",
+                )
+
+            fill_price = float(item.cost) if qty > 1e-9 else 0.0
+            order = {
+                "id": str(uuid.uuid4()),
+                "ticker": ticker,
+                "market": market,
+                "order_kind": "sync",
+                "order_side": "set",
+                "order_status": "filled",
+                "price": fill_price if fill_price > 0 else 1.0,
+                "qty": qty,
+                "order_time": None,
+                "fill_time": synced_at,
+                "fill_price": fill_price if fill_price > 0 else None,
+                "created_at": synced_at,
+                "updated_at": synced_at,
+                "source": source,
+                "sync_note": note,
+            }
+            raw = await self._store_call("add_order", portfolio_id, order=order)
+            if not raw:
+                return None
+
+        raw = await self._ensure_position_candidates(portfolio_id, raw)
+        return await self._to_detail(raw)
+
     async def cancel_order(
         self,
         portfolio_id: str,
@@ -806,6 +868,13 @@ class PortfolioService:
                         position_value += shares * float(row.price)
                         break
             net_value_by_market[market] = cash + position_value
+
+        total_nav = sum(net_value_by_market.values())
+        if total_nav > 0:
+            positions = [
+                item.model_copy(update={"weight": (item.market_value / total_nav) * 100.0})
+                for item in positions
+            ]
 
         return PortfolioDetail(
             **summary.model_dump(),
@@ -1097,6 +1166,7 @@ class PortfolioService:
                     ticker=ticker,
                     market=market,
                     order_side=str(row.get("order_side") or "buy"),
+                    order_kind=str(row.get("order_kind") or "trade"),
                     order_status=str(row.get("order_status") or "pending"),
                     price=float(row.get("price") or 0),
                     qty=float(row.get("qty") or 0),
@@ -1105,6 +1175,8 @@ class PortfolioService:
                     fill_price=float(row["fill_price"]) if row.get("fill_price") is not None else None,
                     created_at=str(row.get("created_at") or ""),
                     updated_at=row.get("updated_at"),
+                    source=row.get("source"),
+                    sync_note=row.get("sync_note"),
                     name=display_name,
                     name_zh=bilingual.zh if bilingual else "",
                     name_en=bilingual.en if bilingual else "",
@@ -1115,8 +1187,6 @@ class PortfolioService:
     async def _build_positions(self, rows: list, config_raw: Optional[dict]) -> List[PortfolioPositionView]:
         del config_raw
         positions: list[PortfolioPositionView] = []
-        total_value = 0.0
-        built: list[tuple[PortfolioPositionView, float]] = []
 
         for row in rows:
             if not isinstance(row, dict):
@@ -1136,7 +1206,6 @@ class PortfolioService:
             cost_basis = float(row.get("cost_basis") or cost * shares)
             open_date = row.get("open_date")
             market_value = price * shares
-            total_value += market_value
             sector_label = await _stock_sector_label(self.stock_sector_store, market, ticker, stock)
             sector = self.stock_sector_store.get(market, ticker)
             level_1 = level_2 = level_3 = ""
@@ -1174,27 +1243,6 @@ class PortfolioService:
             )
             if total_return_pct is not None:
                 view = view.model_copy(update={})
-            built.append((view, market_value))
+            positions.append(view)
 
-        if total_value > 0:
-            positions = [view.model_copy(update={"weight": (value / total_value) * 100.0}) for view, value in built]
-        else:
-            positions = [view for view, _ in built]
-
-        by_market: dict[str, list[PortfolioPositionView]] = {"us": [], "sh": [], "hk": []}
-        for view in positions:
-            by_market.setdefault(view.market, []).append(view)
-
-        weighted: list[PortfolioPositionView] = []
-        for market in ("us", "sh", "hk"):
-            market_rows = by_market.get(market, [])
-            market_total = sum(row.market_value for row in market_rows)
-            if market_total > 0:
-                weighted.extend(
-                    row.model_copy(update={"weight": (row.market_value / market_total) * 100.0})
-                    for row in market_rows
-                )
-            else:
-                weighted.extend(market_rows)
-
-        return weighted
+        return positions
