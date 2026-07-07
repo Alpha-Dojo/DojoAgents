@@ -241,75 +241,83 @@ class DojoStrandsModelBridge(Model):
 
         has_text_delta = False
         while True:
-            item = await queue.get()
-            if isinstance(item, Exception):
-                raise item
-            elif isinstance(item, str):
-                has_text_delta = True
-                yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": item}}}
-            else:
-                llm_result = item
-                if invocation_state is not None:
-                    usage = (llm_result.metadata or {}).get("usage")
-                    if isinstance(usage, dict):
-                        invocation_state["_dojo_last_usage"] = dict(usage)
-                    else:
-                        prompt_est = _estimate_tokens_rough(dojo_msgs)
-                        completion_est = _estimate_tokens_rough([{"role": "assistant", "content": llm_result.content or ""}])
-                        invocation_state["_dojo_last_usage"] = {
-                            "prompt_tokens": prompt_est,
-                            "completion_tokens": completion_est,
-                            "total_tokens": prompt_est + completion_est,
-                            "usage_available": False,
-                        }
-                break
-
-        if invocation_state is not None:
-            from dojoagents.agent.models import ChatRequest
-            from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
-            from dojoagents.agent.turn_completion import apply_turn_completion_after_model
-
-            request = invocation_state.get("_dojo_request")
-            if isinstance(request, ChatRequest) and request.channel == "dashboard":
-                llm_result.tool_calls = merge_remove_holding_tool_calls(list(llm_result.tool_calls))
-                apply_turn_completion_after_model(llm_result, invocation_state)
-
-        if not has_text_delta and llm_result.content:
-            yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
-
-        yield {"contentBlockStop": {"contentBlockIndex": 0}}
-
-        if llm_result.tool_calls:
-            for idx, tc in enumerate(llm_result.tool_calls):
-                block_index = idx + 1
-                yield {
-                    "contentBlockStart": {
-                        "contentBlockIndex": block_index,
-                        "start": {
-                            "toolUse": {
-                                "toolUseId": tc.id,
-                                "name": tc.name,
-                                **({"dojoProviderMetadata": dict(tc.metadata)} if tc.metadata else {}),
+            try:
+                item = await queue.get()
+                if isinstance(item, Exception):
+                    raise item
+                elif isinstance(item, str):
+                    has_text_delta = True
+                    yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": item}}}
+                else:
+                    llm_result = item
+                    if invocation_state is not None:
+                        usage = (llm_result.metadata or {}).get("usage")
+                        if isinstance(usage, dict):
+                            invocation_state["_dojo_last_usage"] = dict(usage)
+                        else:
+                            prompt_est = _estimate_tokens_rough(dojo_msgs)
+                            completion_est = _estimate_tokens_rough([{"role": "assistant", "content": llm_result.content or ""}])
+                            invocation_state["_dojo_last_usage"] = {
+                                "prompt_tokens": prompt_est,
+                                "completion_tokens": completion_est,
+                                "total_tokens": prompt_est + completion_est,
+                                "usage_available": False,
                             }
-                        },
+                    break
+            except Exception as e:
+                LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
+                raise e
+
+        try:
+            if invocation_state is not None:
+                from dojoagents.agent.models import ChatRequest
+                from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
+                from dojoagents.agent.turn_completion import apply_turn_completion_after_model
+
+                request = invocation_state.get("_dojo_request")
+                if isinstance(request, ChatRequest) and request.channel == "dashboard":
+                    llm_result.tool_calls = merge_remove_holding_tool_calls(list(llm_result.tool_calls))
+                    apply_turn_completion_after_model(llm_result, invocation_state)
+
+            if not has_text_delta and llm_result.content:
+                yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
+
+            yield {"contentBlockStop": {"contentBlockIndex": 0}}
+
+            if llm_result.tool_calls:
+                for idx, tc in enumerate(llm_result.tool_calls):
+                    block_index = idx + 1
+                    yield {
+                        "contentBlockStart": {
+                            "contentBlockIndex": block_index,
+                            "start": {
+                                "toolUse": {
+                                    "toolUseId": tc.id,
+                                    "name": tc.name,
+                                    **({"dojoProviderMetadata": dict(tc.metadata)} if tc.metadata else {}),
+                                }
+                            },
+                        }
                     }
-                }
-                yield {"contentBlockDelta": {"contentBlockIndex": block_index, "delta": {"toolUse": {"input": json.dumps(tc.arguments, ensure_ascii=False)}}}}
-                yield {"contentBlockStop": {"contentBlockIndex": block_index}}
+                    yield {"contentBlockDelta": {"contentBlockIndex": block_index, "delta": {"toolUse": {"input": json.dumps(tc.arguments, ensure_ascii=False)}}}}
+                    yield {"contentBlockStop": {"contentBlockIndex": block_index}}
 
-        stop_reason = "end_turn"
-        if llm_result.tool_calls:
-            stop_reason = "tool_use"
+            stop_reason = "end_turn"
+            if llm_result.tool_calls:
+                stop_reason = "tool_use"
 
-        reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
-        event_sink = (invocation_state or {}).get("_dojo_event_sink")
-        reasoning_streamed = bool((llm_result.metadata or {}).get("reasoning_streamed"))
-        if event_sink is not None and not reasoning_streamed and isinstance(reasoning_content, str) and reasoning_content.strip():
-            event_sink.thinking_start()
-            event_sink.thinking_delta(reasoning_content)
-            event_sink.thinking_end()
+            reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
+            event_sink = (invocation_state or {}).get("_dojo_event_sink")
+            reasoning_streamed = bool((llm_result.metadata or {}).get("reasoning_streamed"))
+            if event_sink is not None and not reasoning_streamed and isinstance(reasoning_content, str) and reasoning_content.strip():
+                event_sink.thinking_start()
+                event_sink.thinking_delta(reasoning_content)
+                event_sink.thinking_end()
 
-        yield {"messageStop": {"stopReason": stop_reason, "additionalModelResponseFields": {"reasoning_content": reasoning_content or ""}}}
+            yield {"messageStop": {"stopReason": stop_reason, "additionalModelResponseFields": {"reasoning_content": reasoning_content or ""}}}
+        except Exception as e:
+            LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
+            raise e
 
 
 def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | None) -> list[dict]:
@@ -421,7 +429,7 @@ class AgentLoop:
         )
         self.guardrails = ToolCallGuardrailController()
 
-    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:  # noqa
         plugin_registry = get_plugin_registry()
         used_tokens = 0
         remaining_tokens = getattr(self.config, "session_max_tokens", 500000)
@@ -438,6 +446,7 @@ class AgentLoop:
                 (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
                 None,
             )
+
         invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
         LOGGER.info(
             "AgentLoop.run start: session_id=%s channel=%s model=%s provider=%s provider_impl=%s history_turns=%d message_len=%d",
@@ -499,11 +508,7 @@ class AgentLoop:
 
         user_content = request.metadata.get("user_content", request.message)
         raw_attachments = request.metadata.get("session_attachments")
-        session_attachments = (
-            [item for item in raw_attachments if isinstance(item, dict)]
-            if isinstance(raw_attachments, list)
-            else []
-        )
+        session_attachments = [item for item in raw_attachments if isinstance(item, dict)] if isinstance(raw_attachments, list) else []
         if session_attachments:
             locale = str(request.metadata.get("locale") or "en")
             attachment_block = format_session_attachments_block(session_attachments, locale=locale)
@@ -670,7 +675,9 @@ class AgentLoop:
                 history_msgs.append(
                     {
                         "role": "user",
-                        "content": [{"toolResult": {"status": "success", "toolUseId": msg.get("tool_call_id"), "name": msg.get("name"), "content": [{"text": tool_content or ""}]}}],
+                        "content": [
+                            {"toolResult": {"status": "success", "toolUseId": msg.get("tool_call_id"), "name": msg.get("name"), "content": [{"text": tool_content or ""}]}}
+                        ],
                     }
                 )
             else:
@@ -708,9 +715,7 @@ class AgentLoop:
         current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
         temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
-        used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(
-            flatten_messages_for_compress(temp_with_prompt)
-        )
+        used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
         remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
@@ -814,10 +819,7 @@ class AgentLoop:
                     decision = ToolGuardrailDecision(
                         action="block",
                         code="image_turn_tool_block",
-                        message=(
-                            f"Blocked {tool_name}: the user attached image(s) in this turn. "
-                            "Answer from the image directly instead of using shell or code tools."
-                        ),
+                        message=(f"Blocked {tool_name}: the user attached image(s) in this turn. " "Answer from the image directly instead of using shell or code tools."),
                         tool_name=tool_name,
                     )
                     blocked_res = toolguard_synthetic_result(decision)
@@ -1084,6 +1086,7 @@ class AgentLoop:
             return cleaned.strip()
 
         try:
+
             async def _invoke_agent(prompt: Any) -> Any:
                 return await agent.invoke_async(
                     prompt=prompt,
@@ -1100,12 +1103,7 @@ class AgentLoop:
 
             empty_recovery_attempts = 0
             max_empty_recovery = 1
-            while (
-                not response_text
-                and stopped_reason != "iteration_limit"
-                and last_assistant_turn_empty(agent.messages)
-                and empty_recovery_attempts < max_empty_recovery
-            ):
+            while not response_text and stopped_reason != "iteration_limit" and last_assistant_turn_empty(agent.messages) and empty_recovery_attempts < max_empty_recovery:
                 empty_recovery_attempts += 1
                 recovery_prompt = build_empty_assistant_recovery_prompt(
                     locale,
@@ -1127,11 +1125,7 @@ class AgentLoop:
                     stopped_reason = "iteration_limit"
                     break
 
-            if (
-                not response_text
-                and stopped_reason != "iteration_limit"
-                and last_assistant_turn_empty(agent.messages)
-            ):
+            if not response_text and stopped_reason != "iteration_limit" and last_assistant_turn_empty(agent.messages):
                 response_text = empty_assistant_user_message(locale)
                 stopped_reason = "empty_assistant"
         except Exception as e:

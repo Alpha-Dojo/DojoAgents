@@ -113,9 +113,11 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     )
 
 
-def resolve_provider_config(llm: LLMConfig) -> tuple[str | None, LLMProviderConfig | None]:
+def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -> tuple[str | None, LLMProviderConfig | None]:
     if not llm.providers:
         return None, None
+    if requested_name and requested_name in llm.providers:
+        return requested_name, llm.providers[requested_name]
     name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
     if name is None:
         name = next(iter(llm.providers))
