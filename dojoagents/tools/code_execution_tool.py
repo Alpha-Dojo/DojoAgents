@@ -232,6 +232,7 @@ class AsyncCodeExecutionRPC:
             "ok": True,
             "content": payload.get("content", ""),
             "data": data,
+            "tool_name": str(payload.get("tool_name") or ""),
             "schema_hint": get_tool_artifact_schema_hint(str(payload.get("tool_name") or "")),
             "viz_hint": viz_hint,
             "error": None,
@@ -424,7 +425,11 @@ def get_code_execution_spec(
             "NEVER hardcode market prices or financial rows — fetch data with dojo_tools RPC helpers "
             f"(e.g. {sample_tools}) or `dojo_tools.load_tool_result(call_id)` for persisted large tool outputs. "
             "Use `dojo_tools.tool_json(res)` to parse JSON tool payloads. "
-            "For tabular tool data (klines/items), use `dojo_tools.tool_rows(res)` — "
+            "After `load_tool_result`, read `res['schema_hint']` — use "
+            "`df = pd.DataFrame(dojo_tools.tool_table(res))` (columns come from "
+            "`schema_hint['row_fields']`; do NOT invent column names). "
+            "Multi-table payloads: `dojo_tools.tool_table(res, '<table>')` using keys in "
+            "`schema_hint['tables']`. "
             "e.g. `df = pd.DataFrame(dojo_tools.tool_rows(res))` after load_tool_result; "
             "get_ticker_price_trends rows are in `klines` with field `datetime` (not `data` or `bar_time`). "
             "After computation, print structured VIZ_DATA JSON when a chart is needed; the tool result "

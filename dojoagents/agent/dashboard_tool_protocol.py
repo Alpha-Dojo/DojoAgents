@@ -280,8 +280,9 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 ### execute_code (computation only — NOT for text formatting)
 
 Use `execute_code` ONLY when you must batch-call dojo_tools or run pandas/numpy transforms on
-fetched tool data inside one script. After `load_tool_result`, use `dojo_tools.tool_rows(res)`
-(not `data['data']`) — e.g. `pd.DataFrame(dojo_tools.tool_rows(res))`; price-trend rows live
+fetched tool data inside one script. After `load_tool_result`, use `dojo_tools.tool_table(res)`
+and read columns from `res['schema_hint']['row_fields']` — e.g.
+`pd.DataFrame(dojo_tools.tool_table(res))`; price-trend rows live
 in `klines` with date field `datetime`.
 
 To persist analysis output, call `dojo_tools.write_session_file(filename, content, format=...)`
@@ -293,6 +294,6 @@ FORBIDDEN uses of `execute_code`:
 - printing multi-section design proposals or formatted reports via `print()`
 - any deliverable that should be normal assistant markdown
 
-For analysis / design / interpretation turns, `execute_code` may be hidden — write directly in
-your reply and use `agent_viz_build` or dashboard read tools instead.
+Misuse is blocked at call time by execute_code guardrails — do NOT use execute_code for text
+formatting even when the task is analysis or design. Use agent_viz_build for structured charts.
 """.strip()

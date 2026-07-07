@@ -248,7 +248,7 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert "load_tool_result" in payload["load_hint"]
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
-    assert "tool_rows" in payload["parse_hint"]
+    assert "tool_table" in payload["parse_hint"]
 
 
 def test_build_artifact_pointer_message_includes_latest_kline_summary() -> None:
@@ -351,3 +351,75 @@ def test_extract_viz_payload_from_execute_code_stdout() -> None:
     enriched = enrich_execute_code_tool_result({"content": stdout})
     assert enriched["data"]["summary"]["max_drawdown_pct"] == 17.5
     assert "--- viz_hint ---" in enriched["content"]
+
+
+def test_market_overview_schema_hint_uses_nested_pandas_example() -> None:
+    from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message, get_tool_artifact_schema_hint
+
+    hint = get_tool_artifact_schema_hint("get_market_overview")
+    assert hint is not None
+    assert hint["shape"] == "nested"
+    assert "tool_table" in hint["pandas_example"]
+
+    message = build_artifact_pointer_message(
+        tool_name="get_market_overview",
+        call_id="overview-1",
+        data={
+            "days": 5,
+            "as_of": "2026-07-03",
+            "markets": {"us": {"listed_count": 100, "total_market_cap": 1e13}},
+            "benchmarks": {"us": [{"symbol": "SPY", "change_percent": 1.2}]},
+        },
+    )
+    payload = json.loads(message)
+    assert payload["schema_hint"]["shape"] == "nested"
+    assert "tool_table" in payload["parse_hint"]
+
+
+def test_tool_rows_error_includes_pandas_example_for_nested_payload() -> None:
+    from dojoagents.tools.dojo_tools_stub import build_dojo_tools_stub_code
+
+    namespace: dict = {}
+    exec(build_dojo_tools_stub_code(socket_path="/tmp/test.sock", tool_names=[]), namespace)
+    dojo_tools = namespace
+    res = {
+        "ok": True,
+        "data": {
+            "days": 5,
+            "markets": {"us": {"listed_count": 1}},
+            "benchmarks": {"us": []},
+        },
+        "schema_hint": {
+            "shape": "nested",
+            "pandas_example": "data = dojo_tools.tool_json(res); markets_df = ...",
+        },
+    }
+    with pytest.raises(KeyError, match="suggested"):
+        dojo_tools["tool_rows"](res)
+
+
+@pytest.mark.asyncio
+async def test_load_tool_result_includes_tool_name_and_schema_hint(tmp_path) -> None:
+    from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+
+    store = ToolResultArtifactStore(tmp_path)
+    store.save(
+        session_id="sess-1",
+        call_id="overview-1",
+        tool_name="get_market_overview",
+        arguments={"days": 5},
+        content='{"days": 5}',
+        data={"days": 5, "markets": {}, "benchmarks": {}},
+        ok=True,
+        truncated=False,
+    )
+    server = AsyncCodeExecutionRPC(
+        "/tmp/test.sock",
+        tool_registry=type("R", (), {"get": lambda self, name: None})(),
+        artifact_store=store,
+        agent_session_id="sess-1",
+    )
+    loaded = server._load_tool_result({"call_id": "overview-1"})
+    assert loaded["ok"] is True
+    assert loaded["tool_name"] == "get_market_overview"
+    assert loaded["schema_hint"]["shape"] == "nested"

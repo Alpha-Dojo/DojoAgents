@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from dojoagents.agent.execute_code_guardrails import EXECUTE_CODE_TOOL_NAMES
 from dojoagents.agent.models import ChatRequest
 from dojoagents.logging import LOGGER
 
@@ -18,8 +17,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "{\n"
     '  "continue_unfinished": boolean,\n'
     '  "prior_task_summary": string,\n'
-    '  "last_turn_status": "tools_only_no_deliverable" | "empty_reply" | "complete" | "unknown",\n'
-    '  "needs_code_execution": boolean\n'
+    '  "last_turn_status": "tools_only_no_deliverable" | "empty_reply" | "complete" | "unknown"\n'
     "}\n\n"
     "Rules:\n"
     "- continue_unfinished=true when the user wants to resume or continue work from earlier "
@@ -27,13 +25,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "- continue_unfinished=false when the user asks a new independent question.\n"
     "- prior_task_summary: one concise sentence describing the unfinished task from session "
     "history (empty when continue_unfinished=false).\n"
-    "- last_turn_status: classify the most recent assistant turn in history.\n"
-    "- needs_code_execution=true ONLY when the task requires Python batch orchestration of tools, "
-    "pandas/numpy transforms on fetched data, or numerical computation that cannot be done with "
-    "single dashboard tool calls.\n"
-    "- needs_code_execution=false for conceptual design, knowledge graph schema design, portfolio/stock "
-    "analysis interpretation, Q&A, markdown/text deliverables, ASCII diagrams, or explanations that "
-    "should be written directly in the assistant message."
+    "- last_turn_status: classify the most recent assistant turn in history."
 )
 
 
@@ -42,7 +34,6 @@ class TurnIntentResult:
     mode: TurnIntentMode = "new_task"
     prior_task_summary: str = ""
     last_turn_status: LastTurnStatus = "unknown"
-    needs_code_execution: bool = True
 
 
 DEFAULT_TURN_INTENT = TurnIntentResult()
@@ -102,12 +93,10 @@ def _coerce_turn_intent(data: dict[str, Any]) -> TurnIntentResult:
     valid_statuses = {"tools_only_no_deliverable", "empty_reply", "complete", "unknown"}
     last_turn_status: LastTurnStatus = raw_status if raw_status in valid_statuses else "unknown"
     mode: TurnIntentMode = "continue_unfinished" if continue_unfinished else "new_task"
-    needs_code_execution = bool(data.get("needs_code_execution", True))
     return TurnIntentResult(
         mode=mode,
         prior_task_summary=prior_task_summary,
         last_turn_status=last_turn_status,
-        needs_code_execution=needs_code_execution,
     )
 
 
@@ -116,7 +105,6 @@ def _cache_turn_intent(request: ChatRequest, intent: TurnIntentResult) -> None:
         "continue_unfinished": intent.mode == "continue_unfinished",
         "prior_task_summary": intent.prior_task_summary,
         "last_turn_status": intent.last_turn_status,
-        "needs_code_execution": intent.needs_code_execution,
     }
 
 
@@ -126,7 +114,7 @@ async def classify_turn_intent(
     *,
     model: str,
 ) -> TurnIntentResult:
-    """Use the configured LLM to classify turn scope and whether execute_code is appropriate."""
+    """Use the configured LLM to classify turn scope (new task vs resume unfinished work)."""
     message = str(request.message or "").strip()
     if not message:
         return DEFAULT_TURN_INTENT
@@ -235,32 +223,6 @@ def build_turn_intent_anchor(request: ChatRequest, intent: TurnIntentResult) -> 
     )
 
 
-def build_execute_code_policy_anchor(intent: TurnIntentResult, locale: str) -> str:
-    if intent.needs_code_execution:
-        return ""
-    if locale == "zh":
-        return (
-            "## execute_code 本轮不可用\n"
-            "当前轮次属于分析/设计/解读类任务，未开放 execute_code。"
-            "请直接在回复正文中输出方案、知识图谱 schema、表格或 ASCII 图示；"
-            "需要结构化图表时使用 agent_viz_build，需要数据时使用 dashboard 只读工具。"
-            "禁止用 Python print 排版文本。"
-        )
-    return (
-        "## execute_code unavailable this turn\n"
-        "This turn is analysis/design/explanation — execute_code is not exposed. "
-        "Write schemas, knowledge-graph designs, tables, and ASCII diagrams directly in your reply. "
-        "Use agent_viz_build for structured charts and dashboard read tools for data. "
-        "Do NOT format deliverables with Python print."
-    )
-
-
-def filter_tool_specs_for_intent(tool_specs: list[dict[str, Any]], intent: TurnIntentResult) -> list[dict[str, Any]]:
-    if intent.needs_code_execution:
-        return tool_specs
-    return [spec for spec in tool_specs if str(spec.get("name") or "") not in EXECUTE_CODE_TOOL_NAMES]
-
-
 async def build_turn_intent_anchor_async(
     request: ChatRequest,
     llm_provider: Any,
@@ -268,7 +230,4 @@ async def build_turn_intent_anchor_async(
     model: str,
 ) -> tuple[str, TurnIntentResult]:
     intent = await classify_turn_intent(request, llm_provider, model=model)
-    anchor = build_turn_intent_anchor(request, intent)
-    policy_anchor = build_execute_code_policy_anchor(intent, str(request.metadata.get("locale") or "en"))
-    blocks = [block for block in (anchor, policy_anchor) if block]
-    return "\n\n".join(blocks), intent
+    return build_turn_intent_anchor(request, intent), intent
