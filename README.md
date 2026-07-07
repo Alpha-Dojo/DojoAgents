@@ -32,7 +32,7 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
 <div align="center">
   <img
     alt="DojoAgents system architecture diagram"
-    src="dojoagents/dashboard/web/src/assets/images/structure.png"
+    src="docs/imgs/structure.png"
     width="960"
   />
   <p><em>Seven-layer architecture — from CLI, Web Dashboard, and Chat Gateways through Agent Loop to tools, data, and infrastructure.</em></p>
