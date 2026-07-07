@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchBenchmarkCatalog, type BenchmarkCatalogResponse } from '../../api/market';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { AppTab } from '../../navigation/appTab';
@@ -20,13 +20,12 @@ import {
   type FolioBenchmarkMultiSelectEntry,
 } from './FolioBenchmarkMultiSelect';
 import { FolioDetailTabs } from './FolioDetailTabs';
-import { FolioHeadlineMetrics } from './FolioHeadlineMetrics';
 import { FolioInlineConfig } from './FolioInlineConfig';
 import { pickWindowMasterSeries } from '../../utils/folioNavWindow';
+import { resolveFolioConfigMarkets } from '../../utils/folioConfigMarkets';
 import { FolioNavCurveSection, type FolioNavCurveHeadContext } from './FolioNavCurveChart';
 import { useFolioDetailSplit } from '../../hooks/useFolioDetailSplit';
 import type { FolioPerformanceView } from '../../types/folio';
-import { DojoButton } from '../ui';
 
 interface FolioOverviewBenchmarkSelectProps {
   head: FolioNavCurveHeadContext;
@@ -153,33 +152,35 @@ export function FolioOverviewPanel({
   onAutoAllocate,
 }: FolioOverviewPanelProps) {
   const { t, text, locale } = useTranslation();
-  const { splitRef, ratio, resizing, onResizeStart } = useFolioDetailSplit();
+  const { splitRef, ratio, setRatio, resizing, onResizeStart } = useFolioDetailSplit();
   const config = portfolio.config ?? portfolioDefaultConfig(portfolio, DEFAULT_FOLIO_CONFIG);
+
+  const adjustPerformanceHeightForRail = useCallback(() => {
+    requestAnimationFrame(() => {
+      const container = splitRef.current;
+      const performanceCard = container?.querySelector('.folio-overview__performance') as HTMLElement | null;
+      if (!container || !performanceCard) return;
+
+      const { scrollHeight, clientHeight } = performanceCard;
+      if (scrollHeight > clientHeight) {
+        const diff = scrollHeight - clientHeight;
+        const totalHeight = container.clientHeight;
+        if (totalHeight > 0) {
+          const currentBasis = performanceCard.getBoundingClientRect().height;
+          const targetHeight = currentBasis + diff + 4; // Add a small padding buffer
+          const targetRatio = targetHeight / totalHeight;
+          const newRatio = Math.min(0.78, Math.max(0.28, targetRatio));
+          setRatio(newRatio);
+        }
+      }
+    });
+  }, [splitRef, setRatio]);
   const [draftConfig, setDraftConfig] = useState(config);
-  const hasPortfolioContent = portfolio.candidates.length > 0 || portfolio.positions.length > 0;
-  const [configExpanded, setConfigExpanded] = useState(false);
   const [benchmarkCatalog, setBenchmarkCatalog] = useState<BenchmarkCatalogResponse | null>(null);
-  const prevContentCountRef = useRef(portfolio.candidates.length + portfolio.positions.length);
 
   useEffect(() => {
     setDraftConfig(portfolio.config ?? portfolioDefaultConfig(portfolio, DEFAULT_FOLIO_CONFIG));
   }, [portfolio.config, portfolio.id, portfolio.positions, portfolio.orders]);
-
-  useEffect(() => {
-    setConfigExpanded(false);
-    prevContentCountRef.current = portfolio.candidates.length + portfolio.positions.length;
-  }, [portfolio.id]);
-
-  useEffect(() => {
-    if (loading) return;
-    const contentCount = portfolio.candidates.length + portfolio.positions.length;
-    if (contentCount === 0) {
-      setConfigExpanded(true);
-    } else if (prevContentCountRef.current === 0 && contentCount > 0) {
-      setConfigExpanded(false);
-    }
-    prevContentCountRef.current = contentCount;
-  }, [loading, portfolio.candidates.length, portfolio.positions.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -268,55 +269,28 @@ export function FolioOverviewPanel({
     return entries;
   }, [benchmarkOptions, candidateIndexLabel, portfolio.performance, t, text]);
 
-  const showConfig = hasPortfolioContent ? configExpanded : !loading;
+  const visibleConfigMarkets = useMemo(
+    () => resolveFolioConfigMarkets(portfolio),
+    [portfolio],
+  );
 
   const handleApplyConfig = () => {
     onApplyConfig(draftConfig);
-    if (hasPortfolioContent) {
-      setConfigExpanded(false);
-    }
   };
 
   return (
     <section className="folio-overview">
       <div className="folio-overview__top">
         <div className="folio-overview__top-main">
-          {showConfig ? (
-            <FolioInlineConfig
-              draftConfig={draftConfig}
-              configDirty={configDirty}
-              onChange={setDraftConfig}
-              onApply={handleApplyConfig}
-            />
-          ) : (
-            <FolioHeadlineMetrics portfolio={portfolio} loading={loading} />
-          )}
+          <FolioInlineConfig
+            portfolio={portfolio}
+            draftConfig={draftConfig}
+            configDirty={configDirty}
+            visibleMarkets={visibleConfigMarkets}
+            onChange={setDraftConfig}
+            onApply={handleApplyConfig}
+          />
         </div>
-
-        <DojoButton
-          icon
-          size="sm"
-          variant="secondary"
-          className={`folio-config-toggle${showConfig ? ' folio-config-toggle--active is-active' : ''}${configDirty ? ' folio-config-toggle--dirty' : ''}`}
-          aria-expanded={showConfig}
-          aria-label={t('folio.openConfig')}
-          title={t('folio.openConfig')}
-          disabled={!hasPortfolioContent && !loading}
-          onClick={() => {
-            if (!hasPortfolioContent) return;
-            setConfigExpanded((prev) => !prev);
-          }}
-        >
-          <svg viewBox="0 0 12 12" fill="none" aria-hidden>
-            <path
-              d="M6 1.25v1.5M6 9.25v1.5M1.25 6h1.5M9.25 6h1.5M2.9 2.9l1.06 1.06M8.04 8.04l1.06 1.06M2.9 9.1l1.06-1.06M8.04 3.96l1.06-1.06"
-              stroke="currentColor"
-              strokeWidth="1.1"
-              strokeLinecap="round"
-            />
-            <circle cx="6" cy="6" r="2.1" stroke="currentColor" strokeWidth="1.1" />
-          </svg>
-        </DojoButton>
       </div>
 
       <div
@@ -334,6 +308,8 @@ export function FolioOverviewPanel({
               loading={performanceLoading}
               benchmarkSymbols={benchmarkSymbols}
               benchmarkCatalog={benchmarkCatalog}
+              visibleMarkets={visibleConfigMarkets}
+              onOrderRailToggle={adjustPerformanceHeightForRail}
               benchmarkControl={(head) => (
                 <FolioOverviewBenchmarkSelect
                   head={head}

@@ -15,4 +15,25 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
+              return 'react-vendor';
+            }
+            if (id.includes('antd') || id.includes('@ant-design')) {
+              return 'antd-vendor';
+            }
+            if (id.includes('react-markdown') || id.includes('remark') || id.includes('micromark') || id.includes('mdast') || id.includes('unist')) {
+              return 'markdown-vendor';
+            }
+            return 'vendor';
+          }
+        },
+      },
+    },
+  },
 });

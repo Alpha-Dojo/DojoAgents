@@ -19,6 +19,7 @@ import {
 } from "../../agent/agentStorage";
 import { useAgentSessions } from "../../agent/useAgentSessions";
 import { useAgentPanelWidth } from "../../hooks/useAgentPanelWidth";
+import { useAgentHistoryWidth } from "../../hooks/useAgentHistoryWidth";
 import { useSessionOutputs } from "../../hooks/useSessionOutputs";
 import { useSessionInputs } from "../../hooks/useSessionInputs";
 import { useTranslation } from "../../hooks/useTranslation";
@@ -114,6 +115,27 @@ function HistoryIcon() {
         fill="currentColor"
         d="M512 85.333c235.648 0 426.667 191.019 426.667 426.667S747.648 938.667 512 938.667a424.789 424.789 0 0 1-200.875-50.134L85.333 938.667l50.176-225.707A424.789 424.789 0 0 1 85.333 512C85.333 276.352 276.352 85.333 512 85.333Zm0 85.334C323.477 170.667 170.667 323.477 170.667 512c0 56.96 13.909 111.701 40.106 160.683l14.934 27.904-27.99 125.696 125.782-27.904 27.861 14.89A339.413 339.413 0 0 0 512 853.333 341.333 341.333 0 1 0 512 170.667Zm42.667 128V512h170.666v85.333h-256V298.667h85.334Z"
       />
+    </svg>
+  );
+}
+
+function FileListIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <line x1="10" y1="9" x2="8" y2="9" />
     </svg>
   );
 }
@@ -303,6 +325,7 @@ export function DojoAgentPanel({
 }: DojoAgentPanelProps) {
   const { t, locale } = useTranslation();
   const { width: panelWidth, resizing, onResizeStart } = useAgentPanelWidth();
+  const { width: historyWidth, resizing: historyResizing, onResizeStart: onHistoryResizeStart } = useAgentHistoryWidth();
   const { selectedModelId, agentReady, selectedModel, setSelectedModelId } =
     useAgentModel();
   const {
@@ -334,6 +357,7 @@ export function DojoAgentPanel({
   const [previewImage, setPreviewImage] = useState<AgentChatImageAttachment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [maximized, setMaximized] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
@@ -365,6 +389,7 @@ export function DojoAgentPanel({
     loading: sessionInputsLoading,
     error: sessionInputsError,
   } = useSessionInputs(activeSessionId, inputsRefreshKey);
+  const hasFiles = sessionInputFiles.length > 0 || sessionOutputFiles.length > 0;
   const messages = streaming
     ? sessionRun.draftMessages
     : (activeSession?.messages ?? []);
@@ -969,10 +994,22 @@ export function DojoAgentPanel({
 
   const renderHistoryPanel = () => (
     <div
-      className="dojo-agent-panel__history"
+      className={`dojo-agent-panel__history${
+        historyResizing ? " dojo-agent-panel__history--resizing" : ""
+      }`}
       role="navigation"
       aria-label={t("agent.history")}
     >
+      {panelMaximized ? (
+        <div
+          className="dojo-agent-panel__history-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("agent.resizePanel")}
+          title={t("agent.resizePanel")}
+          onPointerDown={onHistoryResizeStart}
+        />
+      ) : null}
       <div className="dojo-agent-panel__history-head">
         <span className="dojo-agent-panel__history-label">
           {t("agent.history")}
@@ -1065,18 +1102,22 @@ export function DojoAgentPanel({
           })}
         </ul>
       )}
-      <AgentSessionInputsPanel
-        sessionId={activeSessionId}
-        files={sessionInputFiles}
-        loading={sessionInputsLoading}
-        error={sessionInputsError}
-      />
-      <AgentSessionOutputsPanel
-        sessionId={activeSessionId}
-        files={sessionOutputFiles}
-        loading={sessionOutputsLoading}
-        error={sessionOutputsError}
-      />
+      {maximized ? (
+        <>
+          <AgentSessionInputsPanel
+            sessionId={activeSessionId}
+            files={sessionInputFiles}
+            loading={sessionInputsLoading}
+            error={sessionInputsError}
+          />
+          <AgentSessionOutputsPanel
+            sessionId={activeSessionId}
+            files={sessionOutputFiles}
+            loading={sessionOutputsLoading}
+            error={sessionOutputsError}
+          />
+        </>
+      ) : null}
       <p
         className="dojo-agent-panel__storage"
         title={t("agent.storageDetail", {
@@ -1094,6 +1135,27 @@ export function DojoAgentPanel({
     </div>
   );
 
+  const renderFilesPanel = () => (
+    <div
+      className="dojo-agent-panel__history dojo-agent-panel__files-sidebar"
+      role="region"
+      aria-label={t("agent.files")}
+    >
+      <AgentSessionInputsPanel
+        sessionId={activeSessionId}
+        files={sessionInputFiles}
+        loading={sessionInputsLoading}
+        error={sessionInputsError}
+      />
+      <AgentSessionOutputsPanel
+        sessionId={activeSessionId}
+        files={sessionOutputFiles}
+        loading={sessionOutputsLoading}
+        error={sessionOutputsError}
+      />
+    </div>
+  );
+
   const isOpen = pinned || open;
   const panelMaximized = isOpen && maximized;
 
@@ -1103,10 +1165,14 @@ export function DojoAgentPanel({
       className={`dojo-agent-panel ${isOpen ? "dojo-agent-panel--open" : ""}${
         pinned ? " dojo-agent-panel--pinned" : ""
       }${interactive ? " dojo-agent-panel--interactive" : ""}${
-        resizing ? " dojo-agent-panel--resizing" : ""
+        resizing || historyResizing ? " dojo-agent-panel--resizing" : ""
       }${panelMaximized ? " dojo-agent-panel--maximized" : ""}`}
       style={
-        isOpen ? (maximized ? undefined : { width: panelWidth }) : undefined
+        isOpen
+          ? maximized
+            ? ({ "--dojo-agent-history-width": `${historyWidth}px` } as React.CSSProperties)
+            : { width: panelWidth }
+          : undefined
       }
       role="complementary"
       aria-labelledby="dojo-agent-title"
@@ -1142,10 +1208,36 @@ export function DojoAgentPanel({
               aria-expanded={historyOpen}
               aria-label={t("agent.history")}
               title={t("agent.history")}
-              onClick={() => setHistoryOpen((prev) => !prev)}
+              onClick={() => {
+                setHistoryOpen((prev) => {
+                  const next = !prev;
+                  if (next) setFilesOpen(false);
+                  return next;
+                });
+              }}
             >
               <HistoryIcon />
             </DojoButton>
+            {!maximized && hasFiles ? (
+              <DojoButton
+                icon
+                size="xs"
+                variant="secondary"
+                className={`${filesOpen ? "is-active" : ""}`}
+                aria-expanded={filesOpen}
+                aria-label={t("agent.files")}
+                title={t("agent.files")}
+                onClick={() => {
+                  setFilesOpen((prev) => {
+                    const next = !prev;
+                    if (next) setHistoryOpen(false);
+                    return next;
+                  });
+                }}
+              >
+                <FileListIcon />
+              </DojoButton>
+            ) : null}
             <DojoButton
               icon
               size="xs"
@@ -1192,6 +1284,7 @@ export function DojoAgentPanel({
           }`}
         >
           {historyOpen ? renderHistoryPanel() : null}
+          {!maximized && filesOpen && hasFiles ? renderFilesPanel() : null}
           <nav
             className="dojo-agent-panel__history-rail"
             aria-label={t("agent.history")}

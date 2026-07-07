@@ -1,7 +1,7 @@
 import { useTranslation } from '../../hooks/useTranslation';
-import { FOLIO_MARKETS } from '../../types/folio';
 import type { FolioMarketSnapshotsByMarket } from '../../utils/folioPortfolioSnapshot';
 import { formatCompactAmount, formatSignedPercent } from '../../utils/folioFormat';
+import { resolveFolioSnapshotMarkets } from '../../utils/folioConfigMarkets';
 import { MARKET_FLAG_IMAGE } from '../../utils/marketDisplay';
 import type { MarketCode } from '../../types/market';
 
@@ -32,6 +32,7 @@ function formatPct(value: number | null | undefined): string {
 
 export function FolioPortfolioMarketStats({ snapshots }: FolioPortfolioMarketStatsProps) {
   const { t } = useTranslation();
+  const visibleMarkets = resolveFolioSnapshotMarkets(snapshots);
 
   return (
     <table className="folio-sidebar__stats-table">
@@ -64,7 +65,7 @@ export function FolioPortfolioMarketStats({ snapshots }: FolioPortfolioMarketSta
         </tr>
       </thead>
       <tbody>
-        {FOLIO_MARKETS.map((market) => {
+        {visibleMarkets.map((market) => {
           const snap = snapshots?.[market];
           return (
             <tr key={market}>

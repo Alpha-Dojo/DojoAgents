@@ -21,6 +21,10 @@ export function AgentSessionInputsPanel({
     return null;
   }
 
+  if (files.length === 0 && !loading && !error) {
+    return null;
+  }
+
   return (
     <section className="dojo-agent-panel__outputs dojo-agent-panel__inputs" aria-label={t('agent.sessionInputs')}>
       <div className="dojo-agent-panel__outputs-head">
