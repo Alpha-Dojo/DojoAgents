@@ -109,6 +109,10 @@ class Runtime:
 
         tool_registry.register(get_write_session_file_spec(config.sessions.root))
 
+        from dojoagents.tools.session_input_tool import get_read_session_input_spec
+
+        tool_registry.register(get_read_session_input_spec(config.sessions.root))
+
         from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
 
         for spec in get_dojo_sdk_specs(config.dojosdk):

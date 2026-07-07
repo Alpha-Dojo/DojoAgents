@@ -41,6 +41,10 @@ from dojoagents.agent.multimodal import (
     openai_content_to_strands_blocks,
     strands_image_block_to_openai_part,
 )
+from dojoagents.agent.session_attachments import (
+    SESSION_ATTACHMENTS_PROTOCOL,
+    format_session_attachments_block,
+)
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.config.models import LLMProviderConfig
 
@@ -493,6 +497,23 @@ class AgentLoop:
         emit_phase("planning")
 
         user_content = request.metadata.get("user_content", request.message)
+        raw_attachments = request.metadata.get("session_attachments")
+        session_attachments = (
+            [item for item in raw_attachments if isinstance(item, dict)]
+            if isinstance(raw_attachments, list)
+            else []
+        )
+        if session_attachments:
+            locale = str(request.metadata.get("locale") or "en")
+            attachment_block = format_session_attachments_block(session_attachments, locale=locale)
+            if attachment_block and attachment_block not in openai_content_text(user_content):
+                user_text = openai_content_text(user_content)
+                combined = f"{user_text}\n\n{attachment_block}".strip() if user_text else attachment_block
+                if isinstance(user_content, list):
+                    user_content = [*user_content, {"type": "text", "text": attachment_block}]
+                else:
+                    user_content = combined
+                request.metadata["user_content"] = user_content
         image_turn = openai_content_has_images(user_content)
 
         model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
@@ -536,6 +557,8 @@ class AgentLoop:
             blocks.append(turn_anchor)
         if image_turn:
             blocks.append(MULTIMODAL_IMAGE_PROTOCOL)
+        if session_attachments:
+            blocks.append(SESSION_ATTACHMENTS_PROTOCOL)
         system = "\n\n".join(block for block in blocks if block)
 
         # Plan activation check

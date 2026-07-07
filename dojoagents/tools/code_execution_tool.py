@@ -344,13 +344,17 @@ async def handle_code_execution(
     if agent_session_id:
         env["DOJO_SESSION_ID"] = agent_session_id
         if sessions_root:
+            from dojoagents.dashboard.services.session_inputs import resolve_session_input_dir
             from dojoagents.tools.session_file_tool import resolve_session_output_dir
 
             sessions_root_path = Path(sessions_root).expanduser().resolve()
             output_dir = resolve_session_output_dir(sessions_root_path, agent_session_id)
             output_dir.mkdir(parents=True, exist_ok=True)
+            input_dir = resolve_session_input_dir(sessions_root_path, agent_session_id)
+            input_dir.mkdir(parents=True, exist_ok=True)
             env["DOJO_SESSIONS_ROOT"] = str(sessions_root_path)
             env["DOJO_SESSION_OUTPUT_DIR"] = str(output_dir)
+            env["DOJO_SESSION_INPUT_DIR"] = str(input_dir.resolve())
     proc = await asyncio.create_subprocess_exec(
         "python",
         script_file,
