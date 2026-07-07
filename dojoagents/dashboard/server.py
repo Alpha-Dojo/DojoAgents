@@ -107,14 +107,6 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
             api_key_env=provider_cfg.api_key_env,
             base_url=provider_cfg.base_url,
         )
-    elif selected_provider == "moonshot":
-        from dojoagents.agent.moonshot_provider import MoonshotProvider
-
-        llm_provider = MoonshotProvider(
-            api_key=provider_cfg.api_key,
-            base_url=provider_cfg.base_url,
-            thinking=True,  # default based on plan
-        )
     else:
         llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
         llm_provider.name = selected_provider

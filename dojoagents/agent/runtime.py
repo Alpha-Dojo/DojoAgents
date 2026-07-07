@@ -200,22 +200,6 @@ class Runtime:
                 getattr(provider_cfg, "base_url", None),
                 bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
             )
-        elif provider_name == "moonshot":
-            from dojoagents.agent.moonshot_provider import MoonshotProvider
-
-            provider = MoonshotProvider(
-                api_key=provider_cfg.api_key,
-                base_url=provider_cfg.base_url,
-                thinking=True,  # defaulting to True as per plan or can read from kwargs
-            )
-            LOGGER.info(
-                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
-                provider_name,
-                type(provider).__name__,
-                provider_cfg.model,
-                getattr(provider_cfg, "base_url", None),
-                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
-            )
         else:
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
