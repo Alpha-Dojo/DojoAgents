@@ -155,8 +155,9 @@ function buildFolioVisibleChart(
   visibleDates: string[],
   benchmarkSymbols: string[],
   benchmarkCatalog: BenchmarkCatalogResponse | null,
+  markets: MarketCode[] = MARKETS,
 ): FolioChartGeometry | null {
-  const layers = MARKETS.map((market) => {
+  const layers = markets.map((market) => {
     const source = visibleByMarket[market];
     if (!source || source.length < 2) return null;
     const points = alignMarketSeriesToMasterDates(visibleDates, source);
@@ -243,6 +244,7 @@ interface FolioNavCurveChartProps {
   loading?: boolean;
   benchmarkSymbols?: string[];
   benchmarkCatalog?: BenchmarkCatalogResponse | null;
+  visibleMarkets?: MarketCode[];
   hoverDate?: string | null;
   onHoverDateChange?: (date: string | null) => void;
   windowRebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>;
@@ -298,29 +300,30 @@ function pickBenchmarkSeries(
 export function useFolioNavCurveModel(
   performance: FolioPerformanceView | null | undefined,
   benchmarkSymbol?: string | null,
+  markets: MarketCode[] = MARKETS,
 ) {
   const rebasedByMarket = useMemo(() => {
     if (!performance) return {} as Partial<Record<MarketCode, MarketSeriesPoint[]>>;
     const chartSeries = resolveFolioChartSeriesByMarket(performance);
     const result: Partial<Record<MarketCode, MarketSeriesPoint[]>> = {};
-    for (const market of MARKETS) {
+    for (const market of markets) {
       const raw = toMarketSeriesPoints(chartSeries[market]);
       if (raw.length >= 2) {
         result[market] = rebaseMarketSeries(raw);
       }
     }
     return result;
-  }, [performance]);
+  }, [markets, performance]);
 
   const master = useMemo(
-    () => pickMasterMarketSeries(rebasedByMarket, MARKETS),
-    [rebasedByMarket],
+    () => pickMasterMarketSeries(rebasedByMarket, markets),
+    [markets, rebasedByMarket],
   );
 
   const chart = useMemo(() => {
     if (!performance) return null;
 
-    const layers = MARKETS.map((market) => {
+    const layers = markets.map((market) => {
       const portfolioPoints = rebasedByMarket[market];
       if (!portfolioPoints || portfolioPoints.length < 2) return null;
 
@@ -397,11 +400,11 @@ export function useFolioNavCurveModel(
         ),
       })),
     };
-  }, [benchmarkSymbol, performance, rebasedByMarket]);
+  }, [benchmarkSymbol, markets, performance, rebasedByMarket]);
 
   const defaultSnapshot = useMemo(
-    () => buildLatestCumulativeSnapshot(rebasedByMarket, MARKETS),
-    [rebasedByMarket],
+    () => buildLatestCumulativeSnapshot(rebasedByMarket, markets),
+    [markets, rebasedByMarket],
   );
 
   return { rebasedByMarket, master, chart, defaultSnapshot };
@@ -411,9 +414,10 @@ export function buildFolioNavDisplaySnapshot(
   hoverDate: string | null | undefined,
   rebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>,
   defaultSnapshot: PerformanceHeadSnapshot | null,
+  markets: MarketCode[] = MARKETS,
 ): PerformanceHeadSnapshot | null {
   if (hoverDate) {
-    return buildCumulativeSnapshotForDate(hoverDate, rebasedByMarket, MARKETS);
+    return buildCumulativeSnapshotForDate(hoverDate, rebasedByMarket, markets);
   }
   return defaultSnapshot;
 }
@@ -421,11 +425,13 @@ export function buildFolioNavDisplaySnapshot(
 interface FolioNavCurveMarketHeadProps {
   snapshot: PerformanceHeadSnapshot | null;
   loading?: boolean;
+  visibleMarkets?: MarketCode[];
 }
 
 export function FolioNavCurveMarketHead({
   snapshot,
   loading = false,
+  visibleMarkets = MARKETS,
 }: FolioNavCurveMarketHeadProps) {
   const { t } = useTranslation();
 
@@ -439,7 +445,7 @@ export function FolioNavCurveMarketHead({
 
   return (
     <div className="folio-performance__inline-markets">
-      {MARKETS.flatMap((market) => {
+      {visibleMarkets.flatMap((market) => {
         const chip = snapshot.markets.find((item) => item.market === market);
         if (!chip) return [];
         return [
@@ -505,6 +511,7 @@ export function FolioNavCurveChart({
   loading = false,
   benchmarkSymbols = [],
   benchmarkCatalog = null,
+  visibleMarkets = MARKETS,
   hoverDate = null,
   onHoverDateChange,
   windowRebasedByMarket,
@@ -521,8 +528,8 @@ export function FolioNavCurveChart({
   const setHoverDate = onHoverDateChange ?? setInternalHoverDate;
 
   const master = useMemo(
-    () => pickWindowMasterSeries(windowRebasedByMarket, MARKETS),
-    [windowRebasedByMarket],
+    () => pickWindowMasterSeries(windowRebasedByMarket, visibleMarkets),
+    [visibleMarkets, windowRebasedByMarket],
   );
 
   const masterKey = master?.series.map((point) => point.date).join('|') ?? '';
@@ -567,14 +574,14 @@ export function FolioNavCurveChart({
     }
 
     const result: Partial<Record<MarketCode, MarketSeriesPoint[]>> = {};
-    for (const market of MARKETS) {
+    for (const market of visibleMarkets) {
       const sliced = sliceMarketSeriesByDateRange(windowRebasedByMarket[market] ?? [], startDate, endDate);
       if (sliced.length >= 2) {
         result[market] = sliced;
       }
     }
     return result;
-  }, [performance, visibleWindow, windowRebasedByMarket]);
+  }, [performance, visibleMarkets, visibleWindow, windowRebasedByMarket]);
 
   const chart = useMemo(() => {
     if (!performance) return null;
@@ -584,8 +591,9 @@ export function FolioNavCurveChart({
       visibleWindow.series.map((point) => point.date),
       benchmarkSymbols,
       benchmarkCatalog,
+      visibleMarkets,
     );
-  }, [benchmarkCatalog, benchmarkSymbols, performance, visibleByMarket, visibleWindow.series]);
+  }, [benchmarkCatalog, benchmarkSymbols, performance, visibleByMarket, visibleMarkets, visibleWindow.series]);
 
   const yAxisTicks = useMemo(
     () => (chart ? buildReturnAxisTicks(chart.yMin, chart.yMax) : []),
@@ -595,7 +603,7 @@ export function FolioNavCurveChart({
   const orderMarkers = useMemo(() => {
     if (!chart || !orders.length) return [];
     return buildFolioOrderChartMarkers(
-      orders,
+      orders.filter((order) => visibleMarkets.includes(order.market)),
       visibleWindow.series,
       windowRebasedByMarket,
       CHART_W,
@@ -603,7 +611,7 @@ export function FolioNavCurveChart({
       PAD_X,
       PAD_Y,
     );
-  }, [chart, orders, windowRebasedByMarket, visibleWindow.series]);
+  }, [chart, orders, visibleMarkets, windowRebasedByMarket, visibleWindow.series]);
 
   const axisEndLabel = useMemo(
     () => buildMixedAxisEndLabel(latestMarketDates(windowRebasedByMarket)),
@@ -618,10 +626,10 @@ export function FolioNavCurveChart({
 
     const count = visibleWindow.series.length;
     const x = indexToChartX(localIndex, count, CHART_W, PAD_X);
-    const anchorSnapshot = buildHoverSnapshotForDate(activeHoverDate, windowRebasedByMarket, MARKETS);
+    const anchorSnapshot = buildHoverSnapshotForDate(activeHoverDate, windowRebasedByMarket, visibleMarkets);
     if (!anchorSnapshot) return null;
 
-    const dots = MARKETS.map((market) => {
+    const dots = visibleMarkets.map((market) => {
       const value = anchorSnapshot.values[market];
       if (value == null) return null;
       return {
@@ -638,7 +646,7 @@ export function FolioNavCurveChart({
         : null;
 
     return { x, y: crosshairY, dots };
-  }, [activeHoverDate, chart, isDragging, windowRebasedByMarket, visibleWindow.series]);
+  }, [activeHoverDate, chart, isDragging, visibleMarkets, windowRebasedByMarket, visibleWindow.series]);
 
   const updateHoverFromClientX = useCallback(
     (clientX: number) => {
@@ -1006,6 +1014,7 @@ interface FolioNavCurveSectionProps {
   loading?: boolean;
   benchmarkSymbols?: string[];
   benchmarkCatalog?: BenchmarkCatalogResponse | null;
+  visibleMarkets?: MarketCode[];
   benchmarkControl?: (context: FolioNavCurveHeadContext) => ReactNode;
 }
 
@@ -1015,30 +1024,34 @@ export function FolioNavCurveSection({
   loading = false,
   benchmarkSymbols = [],
   benchmarkCatalog = null,
+  visibleMarkets,
   benchmarkControl,
 }: FolioNavCurveSectionProps) {
   const { t } = useTranslation();
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [windowPreset, setWindowPreset] = useState<FolioNavWindowPreset>('all');
+  const activeMarkets = visibleMarkets?.length ? visibleMarkets : MARKETS;
   const { rebasedByMarket } = useFolioNavCurveModel(
     performance,
     benchmarkSymbols[0] ?? null,
+    activeMarkets,
   );
 
   const windowRebasedByMarket = useMemo(
-    () => buildWindowRebasedByMarket(rebasedByMarket, windowPreset, MARKETS),
-    [rebasedByMarket, windowPreset],
+    () => buildWindowRebasedByMarket(rebasedByMarket, windowPreset, activeMarkets),
+    [activeMarkets, rebasedByMarket, windowPreset],
   );
 
   const windowDefaultSnapshot = useMemo(
-    () => buildLatestCumulativeSnapshot(windowRebasedByMarket, MARKETS),
-    [windowRebasedByMarket],
+    () => buildLatestCumulativeSnapshot(windowRebasedByMarket, activeMarkets),
+    [activeMarkets, windowRebasedByMarket],
   );
 
   const displaySnapshot = buildFolioNavDisplaySnapshot(
     hoverDate,
     windowRebasedByMarket,
     windowDefaultSnapshot,
+    activeMarkets,
   );
 
   const handleWindowPresetChange = useCallback((preset: FolioNavWindowPreset) => {
@@ -1061,7 +1074,11 @@ export function FolioNavCurveSection({
           <FolioNavWindowPresets value={windowPreset} onChange={handleWindowPresetChange} />
         </div>
         <div className="folio-performance__head-tail">
-          <FolioNavCurveMarketHead snapshot={displaySnapshot} loading={loading} />
+          <FolioNavCurveMarketHead
+            snapshot={displaySnapshot}
+            loading={loading}
+            visibleMarkets={activeMarkets}
+          />
           {benchmarkControl?.(headContext)}
         </div>
       </header>
@@ -1072,6 +1089,7 @@ export function FolioNavCurveSection({
           loading={loading}
           benchmarkSymbols={benchmarkSymbols}
           benchmarkCatalog={benchmarkCatalog}
+          visibleMarkets={activeMarkets}
           hoverDate={hoverDate}
           onHoverDateChange={setHoverDate}
           windowRebasedByMarket={windowRebasedByMarket}

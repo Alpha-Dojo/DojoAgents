@@ -513,6 +513,8 @@ export const enMessages: MessageTree = {
     headlineAssets: 'Assets',
     headlineTotalPnl: 'Total P&L',
     headlineTodayPnl: "Today's P&L",
+    configMarketColumn: 'Market',
+    configInitialColumn: 'Initial adjustment',
     headlineDailyDelta: "Today's P&L",
     confirmShares: 'Confirm',
     noHoldingsPrefix: 'No',

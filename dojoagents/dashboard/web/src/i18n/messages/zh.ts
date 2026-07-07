@@ -510,6 +510,8 @@ export const zhMessages = {
     headlineAssets: '总净值（Assets）',
     headlineTotalPnl: '总盈亏 (Total P&L)',
     headlineTodayPnl: '今日盈亏（Today P&L）',
+    configMarketColumn: '地区',
+    configInitialColumn: '初始仓位调整',
     headlineDailyDelta: '今日盈亏',
     confirmShares: '确定',
     noHoldingsPrefix: '暂无',
