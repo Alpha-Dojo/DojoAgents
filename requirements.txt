@@ -19,6 +19,7 @@ mock>=5.2.0
 pip>=25.2
 yfinance
 openpyxl
+pypdf>=5.0.0,<7
 dojosdk==0.1.7
 portalocker
 ddgs

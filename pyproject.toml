@@ -29,6 +29,8 @@ dependencies = [
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
+    "openpyxl>=3.1.0,<4",
+    "pypdf>=5.0.0,<7",
 ]
 
 

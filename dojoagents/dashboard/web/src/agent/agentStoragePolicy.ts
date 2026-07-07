@@ -86,11 +86,19 @@ export function compactMessagesForStorage(
       const { data: _data, ...compacted } = item;
       return compacted;
     });
-    const { images: _images, ...rest } = message;
+    const { images: _images, attachments: _attachments, ...rest } = message;
+    const compactAttachments = message.attachments?.map((file) => ({
+      filename: file.filename,
+      path: file.path,
+      bytes: file.bytes,
+      kind: file.kind,
+      summary: file.summary ?? null,
+    }));
     return {
       ...rest,
       ...(activitySteps ? { activitySteps } : {}),
       ...(toolActivity ? { toolActivity } : {}),
+      ...(compactAttachments?.length ? { attachments: compactAttachments } : {}),
     };
   });
 }

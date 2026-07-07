@@ -1,7 +1,12 @@
 import type { AgentChatMessage, AgentApiMessage, AgentApiContentPart } from '../types/agent';
+import { formatSessionAttachmentsForPrompt } from './sessionAttachmentText';
 import { resolveActivitySteps, toolItemsFromSteps } from './agentActivityTimeline';
 
 export type { AgentApiMessage, AgentApiContentPart };
+
+export type PrepareMessagesOptions = {
+  locale?: 'zh' | 'en';
+};
 
 function assistantFallbackContent(message: AgentChatMessage, fallback: string): string {
   const steps = resolveActivitySteps(message);
@@ -16,8 +21,13 @@ function assistantFallbackContent(message: AgentChatMessage, fallback: string): 
   return fallback;
 }
 
-function buildUserApiContent(message: AgentChatMessage): string | AgentApiContentPart[] | null {
-  const text = message.content.trim();
+function buildUserApiContent(
+  message: AgentChatMessage,
+  locale: 'zh' | 'en' = 'zh',
+): string | AgentApiContentPart[] | null {
+  const attachments = message.attachments ?? [];
+  const attachmentBlock = formatSessionAttachmentsForPrompt(attachments, locale);
+  const text = [message.content.trim(), attachmentBlock].filter(Boolean).join('\n\n');
   const images = message.images ?? [];
   if (!text && images.length === 0) return null;
   if (images.length === 0) return text;
@@ -59,11 +69,13 @@ export function finalizeIncompleteAssistantMessages(
 export function prepareMessagesForApi(
   messages: AgentChatMessage[],
   assistantFallback: string,
+  options: PrepareMessagesOptions = {},
 ): AgentApiMessage[] {
+  const locale = options.locale ?? 'zh';
   const prepared: AgentApiMessage[] = [];
   for (const message of messages) {
     if (message.role === 'user') {
-      const userContent = buildUserApiContent(message);
+      const userContent = buildUserApiContent(message, locale);
       if (userContent) {
         prepared.push({ role: message.role, content: userContent });
       }

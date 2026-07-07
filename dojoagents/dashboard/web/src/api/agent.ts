@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -284,6 +284,9 @@ export async function createAgentRun(
         locale: body.locale ?? 'zh',
         event_format: 'dojo.v2',
         ...(body.dashboard_tab ? { dashboard_tab: body.dashboard_tab } : {}),
+        ...(body.session_attachments?.length
+          ? { session_attachments: body.session_attachments }
+          : {}),
       },
     }),
   });
@@ -355,6 +358,29 @@ export async function fetchSessionOutputs(sessionId: string): Promise<AgentSessi
 export async function revealSessionOutput(sessionId: string, filename: string): Promise<void> {
   const res = await fetch(
     `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs/${encodeURIComponent(filename)}/reveal`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+}
+
+export async function fetchSessionInputs(sessionId: string): Promise<AgentSessionInputsResponse> {
+  const res = await fetch(`${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/inputs`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentSessionInputsResponse>;
+}
+
+export async function revealSessionInput(sessionId: string, filename: string): Promise<void> {
+  const res = await fetch(
+    `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(filename)}/reveal`,
     {
       method: 'POST',
       headers: { Accept: 'application/json' },
