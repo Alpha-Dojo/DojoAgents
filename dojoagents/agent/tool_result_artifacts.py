@@ -11,6 +11,8 @@ from dojoagents.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
+from dojoagents.agent.tool_schema_hints import get_tool_schema_hint
+
 ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
 ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
     {
@@ -21,46 +23,9 @@ ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _VIZ_DATA_MARKER = re.compile(r"===\s*VIZ_DATA\s*===", re.IGNORECASE)
 
-# Hints for execute_code when large tool outputs are replaced by artifact pointers.
-TOOL_ARTIFACT_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
-    "get_ticker_price_trends": {
-        "rows_key": "klines",
-        "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
-        "pandas_example": (
-            "df = pd.DataFrame(dojo_tools.tool_rows(res)); "
-            "df['date'] = pd.to_datetime(df['datetime'])"
-        ),
-    },
-    "dojo.sdk.stock.kline": {
-        "rows_key": "klines",
-        "row_fields": ["datetime", "open", "high", "low", "close", "volume"],
-        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
-    },
-    "get_ticker_financials": {
-        "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
-    },
-    "screen_market_stocks": {
-        "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
-    },
-    "filter_sector_constituents": {
-        "rows_key": "items",
-        "pandas_example": "df = pd.DataFrame(dojo_tools.tool_rows(res))",
-    },
-    "portfolio_read_detail": {
-        "rows_key": "positions",
-        "row_fields": ["ticker", "name", "market", "shares", "weight"],
-        "pandas_example": (
-            "detail = dojo_tools.tool_json(res); "
-            "positions = detail.get('positions') or detail.get('holdings') or []"
-        ),
-    },
-}
-
 
 def get_tool_artifact_schema_hint(tool_name: str) -> dict[str, Any] | None:
-    hint = TOOL_ARTIFACT_SCHEMA_HINTS.get(str(tool_name or "").strip())
+    hint = get_tool_schema_hint(tool_name)
     return dict(hint) if hint else None
 
 
@@ -442,7 +407,7 @@ def build_artifact_pointer_message(
     schema_hint = get_tool_artifact_schema_hint(tool_name)
     if schema_hint:
         summary["schema_hint"] = schema_hint
-        summary["parse_hint"] = (
+        summary["parse_hint"] = schema_hint.get("pandas_example") or (
             "res = dojo_tools.load_tool_result(call_id); "
             "rows = dojo_tools.tool_rows(res); "
             f"df = pd.DataFrame(rows)  # rows_key={schema_hint.get('rows_key')!r}"

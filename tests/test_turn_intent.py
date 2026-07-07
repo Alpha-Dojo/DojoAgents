@@ -11,7 +11,6 @@ from dojoagents.agent.turn_intent import (
     build_turn_intent_anchor,
     build_turn_intent_anchor_async,
     classify_turn_intent,
-    filter_tool_specs_for_intent,
 )
 
 
@@ -70,8 +69,7 @@ async def test_classify_turn_intent_uses_llm() -> None:
                 content=(
                     '{"continue_unfinished": true, '
                     '"prior_task_summary": "构建半导体行业上下游关系图谱", '
-                    '"last_turn_status": "tools_only_no_deliverable", '
-                    '"needs_code_execution": false}'
+                    '"last_turn_status": "tools_only_no_deliverable"}'
                 )
             )
         ]
@@ -89,40 +87,6 @@ async def test_classify_turn_intent_uses_llm() -> None:
     assert provider.calls
 
 
-def test_filter_tool_specs_hides_execute_code_for_design_turns() -> None:
-    specs = [
-        {"name": "portfolio_read_detail", "description": "detail"},
-        {"name": "execute_code", "description": "code"},
-    ]
-    filtered = filter_tool_specs_for_intent(
-        specs,
-        TurnIntentResult(needs_code_execution=False),
-    )
-    assert [spec["name"] for spec in filtered] == ["portfolio_read_detail"]
-
-
-@pytest.mark.asyncio
-async def test_classify_turn_intent_sets_needs_code_execution_false_for_design() -> None:
-    provider = StaticLLMProvider(
-        [
-            LLMResult(
-                content=(
-                    '{"continue_unfinished": false, '
-                    '"prior_task_summary": "", '
-                    '"last_turn_status": "unknown", '
-                    '"needs_code_execution": false}'
-                )
-            )
-        ]
-    )
-    intent = await classify_turn_intent(
-        _request("知识图谱节点类型应该怎么设计？"),
-        provider,
-        model="test-model",
-    )
-    assert intent.needs_code_execution is False
-
-
 @pytest.mark.asyncio
 async def test_build_turn_intent_anchor_async() -> None:
     provider = StaticLLMProvider(
@@ -131,8 +95,7 @@ async def test_build_turn_intent_anchor_async() -> None:
                 content=(
                     '{"continue_unfinished": false, '
                     '"prior_task_summary": "", '
-                    '"last_turn_status": "complete", '
-                    '"needs_code_execution": false}'
+                    '"last_turn_status": "complete"}'
                 )
             )
         ]
@@ -145,10 +108,11 @@ async def test_build_turn_intent_anchor_async() -> None:
         provider,
         model="test-model",
     )
-    assert intent.needs_code_execution is False
+    assert intent.mode == "new_task"
     assert "当前任务" in anchor
     assert "不要继续执行旧任务" in anchor
-    assert "execute_code 本轮不可用" in anchor or "execute_code unavailable" in anchor
+    assert "execute_code 本轮不可用" not in anchor
+    assert "execute_code unavailable" not in anchor
 
 
 def test_portfolio_harness_does_not_match_folio_tab_alone() -> None:

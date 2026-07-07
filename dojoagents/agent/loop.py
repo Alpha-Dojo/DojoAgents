@@ -9,7 +9,7 @@ from dojoagents.plugins import get_plugin_registry
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.harness import HarnessLoopState
 from dojoagents.agent.temporal_context import build_temporal_context_block
-from dojoagents.agent.turn_intent import build_turn_intent_anchor_async, filter_tool_specs_for_intent
+from dojoagents.agent.turn_intent import build_turn_intent_anchor_async
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
     empty_assistant_user_message,
@@ -559,7 +559,7 @@ class AgentLoop:
             viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
             if viz_turn_anchor:
                 blocks.append(viz_turn_anchor)
-        turn_anchor, turn_intent = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
+        turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
         if turn_anchor:
             blocks.append(turn_anchor)
         if image_turn:
@@ -719,19 +719,14 @@ class AgentLoop:
         remaining_tokens = max(0, session_max_tokens - used_tokens)
 
         # 4. Collect and bridge tools
-        tool_specs = filter_tool_specs_for_intent(self._collect_tool_specs(), turn_intent)
+        tool_specs = self._collect_tool_specs()
         for plugin_tool in plugin_registry._tools:
             self.tool_executor.registry.register(plugin_tool)
             if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
-                if turn_intent.needs_code_execution or plugin_tool.name not in {"execute_code", "code_execution"}:
-                    tool_specs.append(plugin_tool.schema())
+                tool_specs.append(plugin_tool.schema())
 
         strands_tools = []
         excluded_tools = IMAGE_TURN_EXCLUDED_TOOLS if image_turn else frozenset()
-        if not turn_intent.needs_code_execution:
-            from dojoagents.agent.execute_code_guardrails import EXECUTE_CODE_TOOL_NAMES
-
-            excluded_tools = excluded_tools | EXECUTE_CODE_TOOL_NAMES
         for spec in self.tool_executor.registry.all():
             if spec.name in excluded_tools:
                 continue
