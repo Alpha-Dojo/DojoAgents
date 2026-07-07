@@ -166,6 +166,7 @@ export const enMessages: MessageTree = {
     interrupted: '(Chat interrupted; partial tool steps were saved.)',
     evalTitle: 'Self-check failed — continuing…',
     resizePanel: 'Drag to resize width',
+    files: 'Files',
     sessionOutputs: 'Output files',
     sessionOutputsEmpty: 'No output files yet',
     sessionOutputsLoading: 'Loading output files…',

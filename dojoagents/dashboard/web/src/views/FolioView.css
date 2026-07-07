@@ -1853,6 +1853,7 @@
 }
 
 .folio-performance__order-event-rail {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -1981,11 +1982,12 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
+  flex-wrap: nowrap;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 1px 28px 1px 0;
+  padding: 1px 0;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -1999,8 +2001,8 @@
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
-  max-width: 320px;
-  padding: 3px 8px;
+  max-width: 210px;
+  padding: 3px 7px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
@@ -2009,6 +2011,11 @@
   font-size: 10px;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.folio-performance__order-event-chip--compact {
+  max-width: none;
+  padding-inline: 6px;
 }
 
 .folio-performance__order-event-chip--buy {
@@ -2053,7 +2060,7 @@
 }
 
 .folio-performance__order-event-chip-name {
-  max-width: 72px;
+  max-width: 56px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2071,6 +2078,57 @@
 .folio-performance__order-event-chip-time {
   color: #8cb8ff;
   font-weight: 600;
+}
+
+.folio-performance__order-event-more {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.folio-performance__order-event-more:hover,
+.folio-performance__order-event-more:focus-visible,
+.folio-performance__order-event-more--active {
+  border-color: rgba(0, 212, 170, 0.34);
+  background: rgba(0, 212, 170, 0.1);
+  color: var(--accent);
+  outline: none;
+}
+
+.folio-performance__order-event-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(520px, 100%);
+  max-height: 220px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(8, 14, 24, 0.98);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.34);
+  overflow-y: auto;
+}
+
+.folio-performance__order-event-popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.folio-performance__order-event-popover .folio-performance__order-event-chip {
+  width: 100%;
+  max-width: none;
+  justify-content: flex-start;
 }
 
 .folio-performance__order-event-highlight-v {

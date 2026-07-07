@@ -137,7 +137,39 @@
     height: 100%;
     border-right: 1px solid var(--border-dim);
     border-bottom: 0;
+    position: relative;
+    overflow: hidden;
   }
+
+  .dojo-agent-panel__history-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -2px;
+    width: 4px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 10;
+  }
+
+  .dojo-agent-panel__history-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1px;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background 0.15s ease;
+    opacity: 0.5;
+  }
+
+  .dojo-agent-panel__history-resize-handle:hover::after,
+  .dojo-agent-panel__history--resizing .dojo-agent-panel__history-resize-handle::after {
+    background: var(--cyan);
+  }
+
 
   .dojo-agent-panel--maximized .dojo-agent-panel__history-list {
     flex: 1;
@@ -224,13 +256,31 @@
 .dojo-agent-panel__history {
   flex-shrink: 0;
   max-height: 260px;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--border-dim);
   background: rgba(0, 0, 0, 0.22);
   animation: dojo-agent-history-in 0.18s ease-out;
 }
+
+.dojo-agent-panel__history::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
 
 @keyframes dojo-agent-history-in {
   from {
@@ -299,6 +349,7 @@
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__history-label {
@@ -329,6 +380,7 @@
   margin: 0;
   padding: 20px 16px 24px;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__history-empty svg {
@@ -348,6 +400,7 @@
   padding: 0 8px 8px;
   list-style: none;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__history-item {
@@ -466,6 +519,7 @@
   font-size: 10px;
   line-height: 1.4;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__storage-label {
@@ -480,9 +534,16 @@
 }
 
 .dojo-agent-panel__outputs {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 8px 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 200px;
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__outputs-head {
@@ -491,6 +552,7 @@
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__outputs-label {
@@ -515,11 +577,18 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--text-dim);
+  color: var(--text-muted);
+  padding: 16px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.01);
 }
 
 .dojo-agent-panel__outputs-status--error {
   color: #f87171;
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(248, 113, 113, 0.03);
 }
 
 .dojo-agent-panel__outputs-list {
@@ -529,9 +598,28 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 220px;
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
 
 .dojo-agent-output-file {
   display: flex;
@@ -544,13 +632,63 @@
 }
 
 .dojo-agent-output-file--list {
-  padding: 7px 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 6px;
+  position: relative;
 }
 
-.dojo-agent-output-file__head {
+.dojo-agent-output-file--list:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__head {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+}
+
+.dojo-agent-output-file__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__filename {
+  font-weight: 500;
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__actions {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  bottom: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 0 4px 0 16px;
+  background: linear-gradient(90deg, transparent 0%, rgba(13, 22, 34, 0.95) 25%, #0d1622 100%);
+  border-radius: 0 6px 6px 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+}
+
+.dojo-agent-output-file--list:hover .dojo-agent-output-file__actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .dojo-agent-output-file__icon {
@@ -564,21 +702,30 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  flex: 1;
 }
 
 .dojo-agent-output-file__filename {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  flex: 1;
+  min-width: 0;
 }
 
 .dojo-agent-output-file__size {
   font-size: 10px;
   color: var(--text-dim);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .dojo-agent-output-file__path {
+  display: block;
   width: 100%;
   padding: 0;
   border: 0;
@@ -589,7 +736,9 @@
   line-height: 1.45;
   color: var(--cyan-dim, var(--cyan));
   cursor: pointer;
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dojo-agent-output-file__path:hover {
@@ -1878,3 +2027,8 @@
   background: rgba(248, 113, 113, 0.2);
   border-color: rgba(248, 113, 113, 0.65);
 }
+
+.dojo-agent-panel__files-sidebar {
+  padding-bottom: 8px;
+}
+

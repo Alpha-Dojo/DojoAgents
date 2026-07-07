@@ -253,6 +253,7 @@ interface FolioNavCurveChartProps {
   hoverDate?: string | null;
   onHoverDateChange?: (date: string | null) => void;
   windowRebasedByMarket: Partial<Record<MarketCode, MarketSeriesPoint[]>>;
+  onOrderRailToggle?: () => void;
 }
 
 function normalizeSeries(
@@ -520,6 +521,7 @@ export function FolioNavCurveChart({
   hoverDate = null,
   onHoverDateChange,
   windowRebasedByMarket,
+  onOrderRailToggle,
 }: FolioNavCurveChartProps) {
   const { t } = useTranslation();
   const chartRef = useRef<HTMLDivElement>(null);
@@ -547,6 +549,12 @@ export function FolioNavCurveChart({
   useEffect(() => {
     setViewRange(FULL_VIEW);
   }, [masterKey, benchmarkKey]);
+
+  useEffect(() => {
+    if (selectedOrderEvent) {
+      onOrderRailToggle?.();
+    }
+  }, [selectedOrderEvent, onOrderRailToggle]);
 
   const minViewSpan = useMemo(() => {
     const total = master?.series.length ?? 0;
@@ -1016,6 +1024,7 @@ interface FolioNavCurveSectionProps {
   benchmarkCatalog?: BenchmarkCatalogResponse | null;
   visibleMarkets?: MarketCode[];
   benchmarkControl?: (context: FolioNavCurveHeadContext) => ReactNode;
+  onOrderRailToggle?: () => void;
 }
 
 export function FolioNavCurveSection({
@@ -1026,6 +1035,7 @@ export function FolioNavCurveSection({
   benchmarkCatalog = null,
   visibleMarkets,
   benchmarkControl,
+  onOrderRailToggle,
 }: FolioNavCurveSectionProps) {
   const { t } = useTranslation();
   const [hoverDate, setHoverDate] = useState<string | null>(null);
@@ -1093,6 +1103,7 @@ export function FolioNavCurveSection({
           hoverDate={hoverDate}
           onHoverDateChange={setHoverDate}
           windowRebasedByMarket={windowRebasedByMarket}
+          onOrderRailToggle={onOrderRailToggle}
         />
       </div>
     </>

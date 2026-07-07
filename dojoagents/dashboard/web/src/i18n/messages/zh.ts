@@ -163,6 +163,7 @@ export const zhMessages = {
     interrupted: '（对话中断，已完成部分工具步骤。）',
     evalTitle: '自检未通过，继续执行…',
     resizePanel: '拖动调整宽度',
+    files: '文件列表',
     sessionOutputs: '输出文件',
     sessionOutputsEmpty: '暂无输出文件',
     sessionOutputsLoading: '加载输出文件中…',
