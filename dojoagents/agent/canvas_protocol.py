@@ -120,10 +120,12 @@ When Python computation is required:
    `dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
 3. For large prior tool outputs, use `dojo_tools.load_tool_result(call_id)` instead of
    copying JSON from memory. The artifact pointer includes `schema_hint` and `parse_hint`.
-4. Parse tool payloads with `dojo_tools.tool_json(res)`; build DataFrames from
-   `dojo_tools.tool_rows(res)` (NOT `data['data']`).
-   Example for price trends:
-   `rows = dojo_tools.tool_rows(dojo_tools.load_tool_result(call_id)); df = pd.DataFrame(rows)`
+4. Parse tool payloads with `dojo_tools.tool_json(res)`; metadata scalars via
+   `dojo_tools.tool_meta(res)` (as_of, match_count, … — NOT on the RPC wrapper `res`).
+   Prefer `dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='benchmarks')`
+   for tabular output; use `dojo_tools.tool_pick(df, columns)` to avoid KeyError.
+   Example:
+   `res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res, table='items')`
    Kline rows use field `datetime` for the trade date (fields: datetime, open, high, low, close, volume).
 
 ### execute_code misuse (FORBIDDEN)

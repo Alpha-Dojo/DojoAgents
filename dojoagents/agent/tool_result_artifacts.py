@@ -408,9 +408,7 @@ def build_artifact_pointer_message(
     if schema_hint:
         summary["schema_hint"] = schema_hint
         summary["parse_hint"] = schema_hint.get("pandas_example") or (
-            "res = dojo_tools.load_tool_result(call_id); "
-            "rows = dojo_tools.tool_rows(res); "
-            f"df = pd.DataFrame(rows)  # rows_key={schema_hint.get('rows_key')!r}"
+            "res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)"
         )
 
     viz_payload: dict[str, Any] | None = data if isinstance(data, dict) else None

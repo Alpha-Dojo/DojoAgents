@@ -437,9 +437,10 @@ class AgentLoop:
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
         harness_state = HarnessLoopState(request=request)
-        from dojoagents.tools.process_registry import active_user_message
+        from dojoagents.tools.process_registry import active_user_message, active_write_session_file_guard, WriteSessionFileGuardContext
 
         user_msg_token = active_user_message.set(str(request.message or ""))
+        write_guard_token = None
 
         def _resolve_active_harness():
             return next(
@@ -529,6 +530,8 @@ class AgentLoop:
             model_id = "test-model"
         if model_id is None:
             active_user_message.reset(user_msg_token)
+            if write_guard_token is not None:
+                active_write_session_file_guard.reset(write_guard_token)
             return AgentResponse(
                 content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
                 session_id=request.session_id,
@@ -562,6 +565,16 @@ class AgentLoop:
         turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
         if turn_anchor:
             blocks.append(turn_anchor)
+        write_guard_token = active_write_session_file_guard.set(
+            WriteSessionFileGuardContext(
+                llm_provider=self.llm_provider,
+                model=model_id,
+                user_message=str(request.message or ""),
+                request_metadata=request.metadata,
+                history=request.metadata.get("history") or [],
+                enabled=self.config.enable_guardrails,
+            )
+        )
         if image_turn:
             blocks.append(MULTIMODAL_IMAGE_PROTOCOL)
         if session_attachments:
@@ -575,6 +588,8 @@ class AgentLoop:
             plan_results = await event_bus.publish("TaskComplexityHigh", {"request": request})
             if plan_results:
                 active_user_message.reset(user_msg_token)
+                if write_guard_token is not None:
+                    active_write_session_file_guard.reset(write_guard_token)
                 return plan_results[0]
             plan_prompt = self._plan_activation_hook.get_plan_prompt()
             system = system + "\n\n" + plan_prompt
@@ -848,6 +863,38 @@ class AgentLoop:
                         request_metadata=request.metadata,
                     )
                     blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
+                        tool_name,
+                        classification,
+                    )
+                    if blocked:
+                        from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+
+                        decision = ToolGuardrailDecision(
+                            action="block",
+                            code=guardrail_code,
+                            message=block_message,
+                            tool_name=tool_name,
+                        )
+                        blocked_res = toolguard_synthetic_result(decision)
+                        event.cancel_tool = blocked_res["content"]
+                        return
+                if tool_name == "write_session_file":
+                    from dojoagents.agent.write_session_file_guardrails import (
+                        classify_write_session_file,
+                        preview_write_content,
+                        write_session_file_guardrail_from_classification,
+                    )
+
+                    classification = await classify_write_session_file(
+                        request.message,
+                        self.llm_provider,
+                        model=model_id,
+                        request_metadata=request.metadata,
+                        filename=str(args.get("filename") or ""),
+                        content_preview=preview_write_content(args.get("content")),
+                        history=request.metadata.get("history") or [],
+                    )
+                    blocked, block_message, guardrail_code = write_session_file_guardrail_from_classification(
                         tool_name,
                         classification,
                     )
@@ -1140,6 +1187,8 @@ class AgentLoop:
                     if not response_text.startswith("Blocked"):
                         response_text = f"Blocked {response_text}"
                 active_user_message.reset(user_msg_token)
+                if write_guard_token is not None:
+                    active_write_session_file_guard.reset(write_guard_token)
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
@@ -1252,6 +1301,8 @@ class AgentLoop:
         )
 
         active_user_message.reset(user_msg_token)
+        if write_guard_token is not None:
+            active_write_session_file_guard.reset(write_guard_token)
         return AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata)
 
     def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:

@@ -28,8 +28,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "text, ASCII diagrams, knowledge-graph schema docs, taxonomy tables, or design proposals without "
     "dojo_tools batch orchestration or pandas/numpy computation on fetched data.\n"
     "- allow_execution=true, block_reason=none when the script legitimately batch-calls dojo_tools, "
-    "loads prior tool results, runs numerical transforms on fetched data, or saves fetched/computed "
-    "results via dojo_tools.write_session_file."
+    "loads prior tool results, or runs numerical transforms on fetched data."
 )
 
 _BLOCK_MESSAGES = {

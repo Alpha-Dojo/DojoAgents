@@ -2,13 +2,31 @@ import asyncio
 import uuid
 import atexit
 import contextvars
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Any, Dict
+
 from dojoagents.logging import LOGGER
 
 # Context variable to track active session ID (typically session key) during tool execution
 active_session_id = contextvars.ContextVar("active_session_id", default="")
 # Latest user message for the active agent run (order intent resolution, etc.)
 active_user_message = contextvars.ContextVar("active_user_message", default="")
+
+
+@dataclass
+class WriteSessionFileGuardContext:
+    llm_provider: Any
+    model: str
+    user_message: str = ""
+    request_metadata: dict[str, Any] = field(default_factory=dict)
+    history: list | None = None
+    enabled: bool = True
+
+
+active_write_session_file_guard = contextvars.ContextVar(
+    "active_write_session_file_guard",
+    default=None,
+)
 
 
 class BackgroundProcessSession:

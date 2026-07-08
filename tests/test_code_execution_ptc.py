@@ -160,7 +160,215 @@ def test_hermes_stub_maps_dotted_tool_names():
     assert "def get_ticker_price_trends(" in stub
     assert "def dojo_sdk_stock_kline(" in stub
     assert "def load_tool_result(" in stub
-    assert "def tool_rows(" in stub
+    assert "tool_print" in stub
+    assert "dojo_tools_runtime" in stub
+
+
+@pytest.mark.asyncio
+async def test_code_execution_bootstrap_provides_pandas_without_user_import():
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy))
+
+    code = "print('HasPandas:', pd is not None)\n"
+    result = await handle_code_execution({"code": code}, registry, policy)
+    assert "HasPandas: True" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_tool_df_from_screen_artifact(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    store.save(
+        session_id="session-1",
+        call_id="call-screen",
+        tool_name="screen_market_stocks",
+        arguments={"market": "hk"},
+        content=json.dumps(
+            {
+                "as_of": "2026-07-07",
+                "universe_count": 5000,
+                "match_count": 1,
+                "items": [
+                    {
+                        "ticker": "0700",
+                        "market": "hk",
+                        "name": {"zh": "腾讯", "en": "Tencent"},
+                        "last_price": 400.0,
+                        "pe": 20.0,
+                    }
+                ],
+            }
+        ),
+        data={
+            "as_of": "2026-07-07",
+            "universe_count": 5000,
+            "match_count": 1,
+            "items": [
+                {
+                    "ticker": "0700",
+                    "market": "hk",
+                    "name": {"zh": "腾讯", "en": "Tencent"},
+                    "last_price": 400.0,
+                    "pe": 20.0,
+                }
+            ],
+        },
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+
+    code = (
+        "res = dojo_tools.load_tool_result('call-screen')\n"
+        "meta = dojo_tools.tool_meta(res)\n"
+        "df = dojo_tools.tool_df(res)\n"
+        "print('AsOf:', meta.get('as_of'))\n"
+        "print('NameZh:', df.iloc[0]['name_zh'])\n"
+    )
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+    assert "AsOf: 2026-07-07" in result["content"]
+    assert "NameZh: 腾讯" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_agent_market_overview_script(tmp_path):
+    """Regression: full agent script pattern (meta + multi-table + column pick)."""
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    overview = {
+        "days": 5,
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-07",
+        "as_of": "2026-07-07",
+        "markets": {"cn": {"listed_count": 5000, "total_market_cap": 1e13, "pe_sample_count": 4000}},
+        "benchmarks": {
+            "cn": [
+                {
+                    "market": "cn",
+                    "symbol": "000001.SH",
+                    "name": {"zh": "上证指数", "en": "SSE Composite"},
+                    "price": 3200.5,
+                    "change_percent": 1.2,
+                },
+            ],
+        },
+    }
+    sectors = {
+        "days": 1,
+        "markets": {
+            "cn": {
+                "gainers": [
+                    {
+                        "concept_code": "semis",
+                        "name": {"zh": "半导体", "en": "Semiconductors"},
+                        "change_percent": 3.2,
+                        "member_count": 42,
+                    }
+                ],
+                "losers": [],
+            }
+        },
+    }
+    store.save(
+        session_id="session-1",
+        call_id="call-overview",
+        tool_name="get_market_overview",
+        arguments={"days": 5},
+        content=json.dumps(overview),
+        data=overview,
+    )
+    store.save(
+        session_id="session-1",
+        call_id="call-sectors",
+        tool_name="get_sector_movers",
+        arguments={"days": 1},
+        content=json.dumps(sectors),
+        data=sectors,
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+
+    code = (
+        "res1 = dojo_tools.load_tool_result('call-overview')\n"
+        "meta = dojo_tools.tool_meta(res1)\n"
+        "print('数据时间:', meta.get('as_of'))\n"
+        "print('统计区间:', meta.get('window_start'), '~', meta.get('window_end'))\n"
+        "df_bench = dojo_tools.tool_df(res1, 'benchmarks')\n"
+        "print(dojo_tools.tool_pick(df_bench, ['symbol', 'name_zh', 'price', 'change_percent']).to_string(index=False))\n"
+        "res2 = dojo_tools.load_tool_result('call-sectors')\n"
+        "df_sectors = dojo_tools.tool_df(res2)\n"
+        "print(dojo_tools.tool_pick(df_sectors, ['side', 'rank', 'name_zh', 'change_percent', 'member_count']).head(20).to_string(index=False))\n"
+    )
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+    assert result["metadata"]["exit_code"] == 0
+    assert "2026-07-07" in result["content"]
+    assert "000001.SH" in result["content"]
+    assert "上证指数" in result["content"]
+    assert "半导体" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_market_overview_benchmarks_subset(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    payload = {
+        "days": 5,
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-07",
+        "as_of": "2026-07-07",
+        "markets": {"cn": {"listed_count": 5000, "total_market_cap": 1e13, "pe_sample_count": 4000}},
+        "benchmarks": {
+            "cn": [
+                {
+                    "market": "cn",
+                    "symbol": "000001.SH",
+                    "name": {"zh": "上证指数", "en": "SSE Composite"},
+                    "price": 3200.5,
+                    "change_percent": 1.2,
+                },
+            ],
+        },
+    }
+    store.save(
+        session_id="session-1",
+        call_id="call-overview",
+        tool_name="get_market_overview",
+        arguments={"days": 5},
+        content=json.dumps(payload),
+        data=payload,
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+
+    code = (
+        "res = dojo_tools.load_tool_result('call-overview')\n"
+        "meta = dojo_tools.tool_meta(res)\n"
+        "df_bench = dojo_tools.tool_df(res, 'benchmarks')\n"
+        "print('Window:', meta.get('window_start'), meta.get('window_end'))\n"
+        "print(df_bench[['symbol', 'name_zh', 'price', 'change_percent']].to_string(index=False))\n"
+    )
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+    assert "Window: 2026-07-01 2026-07-07" in result["content"]
+    assert "000001.SH" in result["content"]
+    assert "上证指数" in result["content"]
 
 
 @pytest.mark.asyncio
@@ -248,7 +456,7 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert "load_tool_result" in payload["load_hint"]
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
-    assert "tool_table" in payload["parse_hint"]
+    assert "dojo_tools.tool_" in payload["parse_hint"]
 
 
 def test_build_artifact_pointer_message_includes_latest_kline_summary() -> None:
@@ -359,7 +567,7 @@ def test_market_overview_schema_hint_uses_nested_pandas_example() -> None:
     hint = get_tool_artifact_schema_hint("get_market_overview")
     assert hint is not None
     assert hint["shape"] == "nested"
-    assert "tool_table" in hint["pandas_example"]
+    assert "tool_print" in hint["pandas_example"]
 
     message = build_artifact_pointer_message(
         tool_name="get_market_overview",
@@ -373,15 +581,12 @@ def test_market_overview_schema_hint_uses_nested_pandas_example() -> None:
     )
     payload = json.loads(message)
     assert payload["schema_hint"]["shape"] == "nested"
-    assert "tool_table" in payload["parse_hint"]
+    assert "tool_print" in payload["parse_hint"]
 
 
-def test_tool_rows_error_includes_pandas_example_for_nested_payload() -> None:
-    from dojoagents.tools.dojo_tools_stub import build_dojo_tools_stub_code
+def test_tool_rows_error_includes_table_guidance_for_nested_payload() -> None:
+    from dojoagents.tools.dojo_tools_runtime import tool_rows
 
-    namespace: dict = {}
-    exec(build_dojo_tools_stub_code(socket_path="/tmp/test.sock", tool_names=[]), namespace)
-    dojo_tools = namespace
     res = {
         "ok": True,
         "data": {
@@ -394,8 +599,8 @@ def test_tool_rows_error_includes_pandas_example_for_nested_payload() -> None:
             "pandas_example": "data = dojo_tools.tool_json(res); markets_df = ...",
         },
     }
-    with pytest.raises(KeyError, match="suggested"):
-        dojo_tools["tool_rows"](res)
+    with pytest.raises(KeyError, match="tool_df"):
+        tool_rows(res)
 
 
 @pytest.mark.asyncio

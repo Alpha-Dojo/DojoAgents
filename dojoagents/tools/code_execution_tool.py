@@ -18,11 +18,30 @@ from dojoagents.tools.dojo_tools_stub import (
     HERMES_INTERNAL_LOAD_TOOL,
     build_dojo_tools_stub_code,
 )
+from dojoagents.tools.dojo_tools_runtime import format_execute_code_error_hint
 from dojoagents.tools.process_registry import active_session_id
 from dojoagents.tools.registry import ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
 
 LOGGER = get_logger(__name__)
+
+EXECUTE_CODE_BOOTSTRAP = """\
+import dojo_tools
+try:
+    import pandas as pd
+except ImportError:
+    pd = None  # noqa: F841
+try:
+    import numpy as np
+except ImportError:
+    np = None  # noqa: F841
+
+"""
+
+
+def _wrap_execute_code(code_content: str) -> str:
+    return EXECUTE_CODE_BOOTSTRAP + (code_content or "")
+
 
 # asyncio StreamReader.readline() defaults to 64 KiB per line; execute_code RPC carries
 # full tool args/responses as one JSON line and must support large write_session_file payloads.
@@ -330,7 +349,7 @@ async def handle_code_execution(
 
     script_file = os.path.join(temp_dir, "script.py")
     with open(script_file, "w", encoding="utf-8") as handle:
-        handle.write(code_content)
+        handle.write(_wrap_execute_code(code_content))
 
     env = os.environ.copy()
     env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
@@ -357,7 +376,7 @@ async def handle_code_execution(
             env["DOJO_SESSION_OUTPUT_DIR"] = str(output_dir)
             env["DOJO_SESSION_INPUT_DIR"] = str(input_dir.resolve())
     proc = await asyncio.create_subprocess_exec(
-        "python",
+        sys.executable,
         script_file,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -369,6 +388,9 @@ async def handle_code_execution(
         output = stdout.decode("utf-8", errors="replace")
     finally:
         await rpc_server.stop()
+
+    if proc.returncode:
+        output = format_execute_code_error_hint(output, code_content or "")
 
     session_output_files = _merge_session_output_entries(
         [
@@ -421,24 +443,19 @@ def get_code_execution_spec(
     return ToolSpec(
         name="execute_code",
         description=(
-            "Execute Python for dojo_tools batch orchestration or pandas/numpy computation on fetched data. "
-            "NEVER hardcode market prices or financial rows — fetch data with dojo_tools RPC helpers "
-            f"(e.g. {sample_tools}) or `dojo_tools.load_tool_result(call_id)` for persisted large tool outputs. "
-            "Use `dojo_tools.tool_json(res)` to parse JSON tool payloads. "
-            "After `load_tool_result`, read `res['schema_hint']` — use "
-            "`df = pd.DataFrame(dojo_tools.tool_table(res))` (columns come from "
-            "`schema_hint['row_fields']`; do NOT invent column names). "
-            "Multi-table payloads: `dojo_tools.tool_table(res, '<table>')` using keys in "
-            "`schema_hint['tables']`. "
-            "e.g. `df = pd.DataFrame(dojo_tools.tool_rows(res))` after load_tool_result; "
-            "get_ticker_price_trends rows are in `klines` with field `datetime` (not `data` or `bar_time`). "
-            "After computation, print structured VIZ_DATA JSON when a chart is needed; the tool result "
-            "includes a viz_hint footer for agent_viz_build. "
-            "To save JSON/JSONL/text deliverables, call dojo_tools.write_session_file(...) and print the "
-            "returned path — do NOT use terminal heredoc. "
-            "DOJO_SESSION_OUTPUT_DIR is set to the current session outputs directory. "
-            "FORBIDDEN: using this tool to print ASCII diagrams, schema docs, design proposals, or formatted "
-            "text reports — write those directly in the assistant reply instead."
+            "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
+            "pd/np/dojo_tools are pre-imported. "
+            "Canonical pattern after load_tool_result(call_id): "
+            "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='benchmarks', columns=[...])`. "
+            "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
+            "Multi-market same tool: `dojo_tools.tool_concat([res_cn, res_hk])`. "
+            "Join two tools: `dojo_tools.tool_merge(res_a, res_b)`. "
+            "Metadata scalars: `dojo_tools.tool_meta(res)` (NOT res.get('as_of')). "
+            "Discover columns: `dojo_tools.tool_columns(res[, table])`. "
+            f"Live fetch: dojo_tools RPC helpers (e.g. {sample_tools}). "
+            "NEVER hardcode prices/rows. Multi-table: res['schema_hint']['tables'].keys(). "
+            "write_session_file only when the user explicitly asked to save/export a file. "
+            "FORBIDDEN: ASCII diagrams, schema docs, formatted text reports via print()."
         ),
         parameters={
             "type": "object",
