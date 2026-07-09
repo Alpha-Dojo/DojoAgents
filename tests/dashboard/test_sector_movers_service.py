@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.dashboard.services.market_sector_lead import compute_market_sector_lead
 
 
 def test_ticker_window_results_are_cached_per_day(monkeypatch) -> None:
@@ -48,7 +50,7 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
                 "level3_id": "1",
                 "daily_return_pct": 3.0,
                 "total_market_cap": 300.0,
-                "member_count": 1,
+                "member_count": 2,
             },
             {
                 "market": "us",
@@ -68,7 +70,7 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
                 "level3_id": "3",
                 "daily_return_pct": -2.0,
                 "total_market_cap": 200.0,
-                "member_count": 1,
+                "member_count": 2,
             },
         ]
     )
@@ -85,12 +87,15 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
     class FakePrecomputedStore:
         load_generation = 1
 
-        def get_sector_movers_window_frame(self, days: int):
-            assert days == 2
+        def resolve_window_bounds(self, window: MarketAnalysisWindow) -> MarketAnalysisWindow:
+            return window.with_resolved_bounds(start="2026-01-01", end="2026-01-07")
+
+        def get_sector_movers_window_frame_for_window(self, window: MarketAnalysisWindow):
+            assert window.days == 2
             return sector_rows
 
-        def get_ticker_daily_window_frame(self, days: int):
-            assert days == 2
+        def get_ticker_daily_window_frame_for_window(self, window: MarketAnalysisWindow):
+            assert window.days == 2
             return ticker_rows
 
         def get_sector_constituents_exact(self, level1_id: str, level2_id: str, level3_id: str, market: str | None = None):
@@ -109,7 +114,7 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
             market="us",
             short_name=ticker,
             long_name=ticker,
-            stock_quote=SimpleNamespace(last_price=10.0),
+            stock_quote=SimpleNamespace(last_price=10.0, name=""),
         )
     )
 
@@ -129,3 +134,157 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
     assert [item.name.en for item in response.markets["us"].gainers] == ["Sector 1"]
     assert [item.name.en for item in response.markets["us"].losers] == ["Sector 3"]
     assert constituent_calls == ["1", "3"]
+
+
+def test_single_member_sectors_excluded_from_movers_rankings() -> None:
+    sector_rows = pd.DataFrame(
+        [
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "1",
+                "level3_id": "1",
+                "daily_return_pct": 5.0,
+                "total_market_cap": 500.0,
+                "member_count": 1,
+            },
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "1",
+                "level3_id": "2",
+                "daily_return_pct": -4.0,
+                "total_market_cap": 400.0,
+                "member_count": 1,
+            },
+        ]
+    )
+
+    class FakePrecomputedStore:
+        load_generation = 1
+
+        def resolve_window_bounds(self, window: MarketAnalysisWindow) -> MarketAnalysisWindow:
+            return window.with_resolved_bounds(start="2026-01-01", end="2026-01-07")
+
+        def get_sector_movers_window_frame_for_window(self, window: MarketAnalysisWindow):
+            return sector_rows
+
+        def get_ticker_daily_window_frame_for_window(self, window: MarketAnalysisWindow):
+            return pd.DataFrame()
+
+        def get_sector_constituents_exact(self, *_args, **_kwargs):
+            return []
+
+    service = SectorMoversService(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda _l1, _l2, l3: SimpleNamespace(
+                level3_zh=f"板块{l3}",
+                level3_en=f"Sector {l3}",
+            )
+        ),
+        stock_store=SimpleNamespace(get=lambda *_args, **_kwargs: None),
+        sector_precomputed_store=FakePrecomputedStore(),
+    )
+
+    movers = service.build_market_movers_response(days=1, limit=5, market="us")
+    mesh = service.build_dojo_mesh_sectors_response(limit=5)
+
+    assert movers.markets["us"].gainers == []
+    assert movers.markets["us"].losers == []
+    assert mesh.markets["us"].gainers == []
+    assert mesh.markets["us"].losers == []
+
+
+def test_single_member_sector_still_resolves_cross_market_lookup() -> None:
+    sector_rows = pd.DataFrame(
+        [
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "1",
+                "level3_id": "9",
+                "daily_return_pct": 2.0,
+                "total_market_cap": 100.0,
+                "member_count": 1,
+            },
+        ]
+    )
+    ticker_rows = pd.DataFrame([{"market": "us", "ticker": "SOLO", "daily_return_pct": 2.0}])
+
+    class FakePrecomputedStore:
+        load_generation = 1
+
+        def resolve_window_bounds(self, window: MarketAnalysisWindow) -> MarketAnalysisWindow:
+            return window.with_resolved_bounds(start="2026-01-01", end="2026-01-07")
+
+        def get_sector_movers_window_frame_for_window(self, window: MarketAnalysisWindow):
+            return sector_rows
+
+        def get_ticker_daily_window_frame_for_window(self, window: MarketAnalysisWindow):
+            return ticker_rows
+
+        def get_sector_constituents_exact(self, *_args, **_kwargs):
+            return [{"ticker": "SOLO", "market_cap": 100.0}]
+
+    sector_store = SimpleNamespace(
+        find_resolved_path=lambda _l1, _l2, _l3: SimpleNamespace(
+            level3_zh="单票板块",
+            level3_en="Solo Sector",
+        )
+    )
+    stock_store = SimpleNamespace(
+        get=lambda _market, ticker: SimpleNamespace(
+            ticker=ticker,
+            market="us",
+            short_name=ticker,
+            long_name=ticker,
+            stock_quote=SimpleNamespace(last_price=10.0, name=""),
+        )
+    )
+
+    service = SectorMoversService(
+        sector_store=sector_store,
+        stock_store=stock_store,
+        sector_precomputed_store=FakePrecomputedStore(),
+    )
+
+    response = service.lookup_cross_market_sectors_response(link_key="solo-sector")
+
+    assert response.markets["us"] is not None
+    assert response.markets["us"].member_count == 1
+    assert response.markets["us"].name.en == "Solo Sector"
+
+
+def test_compute_market_sector_lead_excludes_single_member_sectors() -> None:
+    class FakePrecomputedStore:
+        def get_sector_movers_by_window(self, days: int):
+            return [
+                {
+                    "market": "us",
+                    "scope": "L3",
+                    "level1_id": "1",
+                    "level2_id": "1",
+                    "level3_id": "1",
+                    "daily_return_pct": 4.0,
+                    "avg_market_cap": 100.0,
+                    "member_count": 1,
+                }
+            ]
+
+        def get_sector_constituents(self, **_kwargs):
+            return [{"ticker": "AAA", "market_cap": 100.0}]
+
+        def get_ticker_daily_by_window(self, days, tickers):
+            return [{"ticker": "AAA", "daily_return_pct": 4.0}]
+
+    sector_store = SimpleNamespace(
+        find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo"),
+    )
+
+    lead = compute_market_sector_lead("us", sector_store, FakePrecomputedStore(), limit=5)
+
+    assert lead.gainers == []
+    assert lead.losers == []

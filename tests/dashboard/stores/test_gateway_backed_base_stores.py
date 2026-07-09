@@ -199,3 +199,29 @@ async def test_benchmark_store_prefers_catalog_default_symbol() -> None:
     assert response.markets["us"].default_benchmark == "^SPX"
     assert [item.symbol for item in response.markets["us"].benchmarks] == ["^SPX", "^NDX"]
     assert ("benchmark_catalog", None) in gateway.calls
+
+
+@pytest.mark.asyncio
+async def test_benchmark_store_days_one_keeps_full_kline_for_dashboard_chart() -> None:
+    class MultiBarGateway(BaseGateway):
+        async def benchmark_klines(self, symbol, **window):
+            self.calls.append(("benchmark_klines", (symbol, window)))
+            rows = [
+                {
+                    "bar_time": f"2026-06-{day:02d}",
+                    "open": 100.0 + day,
+                    "high": 102.0 + day,
+                    "low": 99.0 + day,
+                    "close": 101.0 + day,
+                }
+                for day in range(15, 21)
+            ]
+            return GatewayResult(rows, "2026-06-20", "sdk_snapshot", False)
+
+    store = BenchmarkStore(MultiBarGateway())
+    response = await store.get_benchmarks(days=1)
+
+    card = response.markets["us"].benchmarks[0]
+    assert len(card.kline) == 6
+    assert card.kline[0].datetime == "2026-06-15"
+    assert card.kline[-1].datetime == "2026-06-20"

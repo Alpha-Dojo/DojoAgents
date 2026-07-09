@@ -73,6 +73,8 @@ from dojoagents.dashboard.services.market_sector_lead import (
     _stock_bilingual_name,
     concept_code_for,
 )
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
+from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
 from dojoagents.dashboard.services.market_stats import compute_market_stats
 from dojoagents.dashboard.services.portfolio_service import DEFAULT_BENCHMARKS
 from dojoagents.dashboard.services.sector_constituents import MARKETS
@@ -1039,13 +1041,24 @@ async def build_market_overview(
     *,
     days: int,
     market: Optional[str],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> MarketOverviewResponse:
-    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks(days=days)
+    window = resolve_market_analysis_window(
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+        default_days=days,
+    )
+    precomputed = getattr(registry, "sector_precomputed_store", None)
+    if precomputed is not None:
+        window = precomputed.resolve_window_bounds(window)
+    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks(window=window)
     markets: dict[str, MarketStatsSnapshot] = {}
     benchmark_map: dict[str, list[BenchmarkSnapshot]] = {}
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
-    window_start = None
-    window_end = None
+    window_start = window.resolved_start
+    window_end = window.resolved_end
     for internal_market in requested_markets:
         if internal_market is None:
             continue
@@ -1070,10 +1083,11 @@ async def build_market_overview(
         markets[native_market] = _stats_snapshot(stats, market=native_market)
         benchmark_map[native_market] = benchmark_list
     return MarketOverviewResponse(
-        days=days,
-        window_start=window_start,
-        window_end=window_end,
-        as_of=benchmarks.as_of or window_end,
+        days=window.days,
+        window_mode=window.mode,
+        window_start=window.resolved_start or window_start,
+        window_end=window.resolved_end or benchmarks.as_of or window_end,
+        as_of=benchmarks.as_of or window.resolved_end or window_end,
         markets=markets,
         benchmarks=benchmark_map,
     )
@@ -1086,6 +1100,8 @@ async def build_sector_movers(
     limit: int,
     market: Optional[str],
     min_cap_by_market: Optional[dict[str, float]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> SectorMoversResponse:
     service = getattr(registry, "sector_movers_service", None)
     if service is not None:
@@ -1095,6 +1111,8 @@ async def build_sector_movers(
             limit=limit,
             market=market,
             min_cap_by_market=min_cap_by_market,
+            start_date=start_date,
+            end_date=end_date,
         )
     return await asyncio.to_thread(
         _build_sector_movers_fallback_sync,
@@ -1103,6 +1121,8 @@ async def build_sector_movers(
         limit,
         market,
         min_cap_by_market,
+        start_date,
+        end_date,
     )
 
 
@@ -1205,12 +1225,22 @@ def _build_sector_movers_fallback_sync(
     limit: int,
     market: Optional[str],
     min_cap_by_market: Optional[dict[str, float]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> SectorMoversResponse:
     min_cap_by_market = min_cap_by_market or {}
+    window = registry.sector_precomputed_store.resolve_window_bounds(
+        resolve_market_analysis_window(
+            days=days,
+            start_date=start_date,
+            end_date=end_date,
+            default_days=days,
+        )
+    )
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
     payload: dict[str, MarketSectorMovers] = {}
 
-    sector_movers = registry.sector_precomputed_store.get_sector_movers_by_window(days)
+    sector_movers = registry.sector_precomputed_store.get_sector_movers_for_window(window)
 
     for internal_market in requested_markets:
         if internal_market is None:
@@ -1221,8 +1251,13 @@ def _build_sector_movers_fallback_sync(
 
         items: list[SectorMoverItem] = []
         for s in market_sectors:
-            total_market_cap = s.get("total_market_cap", 0)
-            if threshold > 0 and total_market_cap < threshold:
+            total_market_cap = finite_float(s.get("total_market_cap", 0))
+            member_count = int(s.get("member_count") or 0)
+            if not sector_eligible_for_movers_ranking(
+                member_count=member_count,
+                total_market_cap=total_market_cap,
+                min_total_market_cap=threshold,
+            ):
                 continue
 
             # Fetch components using get_sector_constituents
@@ -1235,7 +1270,10 @@ def _build_sector_movers_fallback_sync(
 
             # Fetch members returns
             tickers = [c["ticker"] for c in constituents]
-            ticker_returns = registry.sector_precomputed_store.get_ticker_daily_by_window(days, tickers)
+            ticker_returns = registry.sector_precomputed_store.get_ticker_daily_for_window(
+                window,
+                tickers,
+            )
             ticker_return_map = {tr["ticker"]: tr["daily_return_pct"] for tr in ticker_returns}
 
             members = []
@@ -1287,7 +1325,13 @@ def _build_sector_movers_fallback_sync(
             gainers=gainers,
             losers=losers,
         )
-    return SectorMoversResponse(days=days, markets=payload)
+    return SectorMoversResponse(
+        days=window.days,
+        window_mode=window.mode,
+        window_start=window.resolved_start,
+        window_end=window.resolved_end,
+        markets=payload,
+    )
 
 
 async def build_sector_analysis(

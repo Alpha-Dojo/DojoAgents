@@ -26,6 +26,8 @@ When session history mentions an old portfolio task, treat it as **already done*
 |-------------|---------------------------|------------|
 | Theme / concept / industry basket (具身智能, 机器人, 半导体, AI…) | `search_sector_taxonomy` → `filter_sector_constituents` (per market) → optional `get_ticker_financials` batch → portfolio writes | `search_company_ticker`, `web_search` as primary discovery |
 | Sector analysis / compare industries | `get_taxonomy_tree` or `search_sector_taxonomy` → `get_sector_analysis` | Guessing sector ids |
+| Market snapshot / 大盘概览 / cross-market valuation | `get_market_overview` (omit `market` for US+CN+HK) | Re-fetching per market |
+| Sector lead/lag / 领涨领跌板块 / 行业涨跌排名 | `get_sector_movers` → optional `filter_sector_constituents` on ids | `screen_market_stocks` when sector-level ranking is needed |
 | Full-market screen / 全市场异动 / 涨跌幅排名 (no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
 | Resolve one company name → ticker | `search_company_ticker` (single q, known name) | Repeated keyword searches |
 | Analyze existing portfolio / 候选池成分分析 | `portfolio_read_search` → `portfolio_read_detail` → `get_ticker_financials` batch → answer | `portfolio_write_create`, add candidates, eval_submit |
@@ -39,6 +41,46 @@ Read-only workflow — no portfolio writes:
 2. `portfolio_read_detail` for candidates list
 3. Batch `get_ticker_financials` (and optional quotes) on candidate tickers
 4. Summarize quality, valuation, risks — **stop**. No create, no eval_submit.
+
+### Market overview / sector movers (get_market_overview, get_sector_movers)
+
+Use these for **market-wide** or **sector-level** window returns — not for individual stock screens.
+
+**Window (both tools — pick ONE mode):**
+
+| Mode | Args | Notes |
+|------|------|-------|
+| Latest N trade days | `days` (default 1, max 90) | e.g. `days=5` = last 5 trading sessions |
+| Fixed calendar range | `start_date` + `end_date` (YYYY-MM-DD) | Both required; max 126 calendar days; **overrides `days`** |
+
+**Response fields (read via `tool_meta(res)` in execute_code):**
+
+- `window_mode`: `days` or `date_range`
+- `window_start` / `window_end`: actual first/last **trade dates** used (may differ from requested dates on holidays)
+- `as_of`: latest trade date (`get_market_overview` only)
+
+**get_market_overview:**
+
+- Omit `market` for one cross-market call (US, CN, HK).
+- `markets.*`: current listed count, total cap, weighted PE — **snapshot**, not window return.
+- `benchmarks.*`: index `change_percent` and klines are **scoped to the window**.
+
+**get_sector_movers:**
+
+- Returns L3 sector gainers/losers per market; default `limit=5` each side.
+- `change_percent` = sector total return over the window (from precomputed daily data).
+- Rankings exclude `member_count<2`; single-stock L3 sectors are omitted from rankings only.
+- Each row has `level1_id`, `level2_id`, `level3_id` — copy into `filter_sector_constituents` / `get_sector_analysis`.
+- Optional floor: `min_cap_us`, `min_cap_cn` (CN/sh), `min_cap_hk` on total sector cap.
+
+**Examples:**
+
+- 近一周大盘: `get_market_overview({"days": 5})`
+- 年初至今区间: `get_market_overview({"start_date": "2026-01-01", "end_date": "2026-07-07"})`
+- 本周领涨板块: `get_sector_movers({"days": 5, "limit": 10})`
+- 指定区间领跌: `get_sector_movers({"start_date": "2026-01-01", "end_date": "2026-03-31", "market": "us"})`
+
+**Do NOT** pass only one of `start_date` / `end_date`. **Do NOT** use `screen_market_stocks` when the user asked for sector/industry rankings.
 
 ### Full-market screen / 全市场异动 (screen_market_stocks)
 

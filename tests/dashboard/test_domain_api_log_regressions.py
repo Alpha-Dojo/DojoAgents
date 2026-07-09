@@ -22,7 +22,11 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
             )
         ),
         sector_precomputed_store=SimpleNamespace(
-            get_sector_movers_by_window=lambda days: [
+            resolve_window_bounds=lambda window: window.with_resolved_bounds(
+                start="2026-01-01",
+                end="2026-01-07",
+            ),
+            get_sector_movers_for_window=lambda window: [
                 {
                     "market": "us",
                     "scope": "L3",
@@ -38,7 +42,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                 {"ticker": "NVDA", "market_cap": 100.0},
                 {"ticker": "AMD", "market_cap": 100.0},
             ],
-            get_ticker_daily_by_window=lambda days, tickers: [
+            get_ticker_daily_for_window=lambda window, tickers: [
                 {"ticker": "NVDA", "daily_return_pct": 2.0},
                 {"ticker": "AMD", "daily_return_pct": 1.0},
             ],
@@ -56,6 +60,91 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
     assert item.name.zh == "半导体"
     assert item.name.en == "Semiconductors"
     assert item.concept_code == "US.L3.semiconductors"
+
+
+@pytest.mark.asyncio
+async def test_build_sector_movers_supports_date_range_window() -> None:
+    registry = SimpleNamespace(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")
+        ),
+        stock_store=SimpleNamespace(
+            get=lambda market, ticker: SimpleNamespace(
+                ticker=ticker,
+                short_name=ticker,
+                long_name=ticker,
+                stock_quote=SimpleNamespace(last_price=10.0, name=""),
+            )
+        ),
+        sector_precomputed_store=SimpleNamespace(
+            resolve_window_bounds=lambda window: window.with_resolved_bounds(
+                start=window.start_date,
+                end=window.end_date,
+            ),
+            get_sector_movers_for_window=lambda window: [
+                {
+                    "market": "us",
+                    "scope": "L3",
+                    "level1_id": "1",
+                    "level2_id": "2",
+                    "level3_id": "3",
+                    "daily_return_pct": 2.5,
+                    "total_market_cap": 200.0,
+                    "member_count": 2,
+                }
+            ],
+            get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market_cap": 100.0}],
+            get_ticker_daily_for_window=lambda window, tickers: [{"ticker": "NVDA", "daily_return_pct": 2.5}],
+        ),
+        sector_movers_service=None,
+    )
+
+    response = await domain_api.build_sector_movers(
+        registry,
+        days=1,
+        limit=5,
+        market="us",
+        start_date="2026-01-02",
+        end_date="2026-01-31",
+    )
+
+    assert response.window_mode == "date_range"
+    assert response.window_start == "2026-01-02"
+    assert response.window_end == "2026-01-31"
+    assert response.markets["us"].gainers[0].change_percent == 2.5
+
+
+@pytest.mark.asyncio
+async def test_build_sector_movers_excludes_single_member_sectors() -> None:
+    registry = SimpleNamespace(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")
+        ),
+        stock_store=SimpleNamespace(get=lambda *_args, **_kwargs: None),
+        sector_precomputed_store=SimpleNamespace(
+            resolve_window_bounds=lambda window: window,
+            get_sector_movers_for_window=lambda window: [
+                {
+                    "market": "us",
+                    "scope": "L3",
+                    "level1_id": "1",
+                    "level2_id": "2",
+                    "level3_id": "3",
+                    "daily_return_pct": 9.99,
+                    "total_market_cap": 999.0,
+                    "member_count": 1,
+                }
+            ],
+            get_sector_constituents=lambda **_kwargs: [],
+            get_ticker_daily_for_window=lambda window, tickers: [],
+        ),
+        sector_movers_service=None,
+    )
+
+    response = await domain_api.build_sector_movers(registry, days=1, limit=5, market="us")
+
+    assert response.markets["us"].gainers == []
+    assert response.markets["us"].losers == []
 
 
 @pytest.mark.asyncio

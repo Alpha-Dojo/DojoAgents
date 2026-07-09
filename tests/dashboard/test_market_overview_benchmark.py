@@ -19,8 +19,8 @@ async def test_build_market_overview_passes_days_to_benchmark_store() -> None:
     captured: dict[str, int | None] = {"days": None}
 
     class BenchmarkStoreStub:
-        async def get_benchmarks(self, *, days: int = 1):
-            captured["days"] = days
+        async def get_benchmarks(self, *, days: int = 1, window=None):
+            captured["days"] = window.days if window is not None else days
             return DojoMeshBenchmarksResponse(
                 as_of="2026-06-20",
                 markets={

@@ -47,8 +47,24 @@ def test_market_overview_tool_description_guides_cross_market_comparison() -> No
 
     spec = registry.get("get_market_overview")
     assert spec is not None
-    assert "Omit market" in spec.description
+    assert "Omit `market`" in spec.description
     assert "US, CN, and HK" in spec.description
+    assert "window_mode" in spec.description
+    assert "start_date" in spec.parameters["properties"]
+    assert "dates override" in spec.parameters["properties"]["days"]["description"].lower() or "Ignored" in spec.parameters["properties"]["days"]["description"]
+
+
+def test_sector_movers_tool_description_documents_window_and_ranking() -> None:
+    registry = ToolRegistry()
+
+    domain_tools.register_dashboard_domain_tools(registry, _ready_registry())
+
+    spec = registry.get("get_sector_movers")
+    assert spec is not None
+    assert "member_count<2" in spec.description
+    assert "level1_id" in spec.description
+    assert "start_date" in spec.parameters["properties"]
+    assert spec.parameters["properties"]["limit"]["description"]
 
 
 def test_realtime_quote_tool_description_guides_batch_usage() -> None:
@@ -75,7 +91,7 @@ def test_financials_tool_description_guides_batch_usage() -> None:
 
 @pytest.mark.asyncio
 async def test_dashboard_domain_tool_returns_structured_data(monkeypatch) -> None:
-    async def fake_market_overview(registry, *, days, market):
+    async def fake_market_overview(registry, *, days, market, start_date=None, end_date=None):
         return {
             "days": days,
             "markets": {

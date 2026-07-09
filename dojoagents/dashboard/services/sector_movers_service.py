@@ -25,8 +25,26 @@ from dojoagents.dashboard.services.market_sector_lead import (
     link_key_from_concept_code,
 )
 from dojoagents.dashboard.services.domain_utils import finite_float, normalize_market_code, sanitize_mapping, to_native_market_code
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
+from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
 
 MARKETS = ("sh", "hk", "us")
+
+
+def _filter_ranking_candidates(
+    candidates: list["_SectorCandidate"],
+    *,
+    min_total_market_cap: float = 0.0,
+) -> list["_SectorCandidate"]:
+    return [
+        candidate
+        for candidate in candidates
+        if sector_eligible_for_movers_ranking(
+            member_count=candidate.member_count,
+            total_market_cap=candidate.total_market_cap,
+            min_total_market_cap=min_total_market_cap,
+        )
+    ]
 
 
 @dataclass(frozen=True)
@@ -52,7 +70,7 @@ class SectorMoversService:
         self.sector_store = sector_store
         self.stock_store = stock_store
         self.sector_precomputed_store = sector_precomputed_store
-        self._catalog_cache: dict[tuple[int, int], dict[str, list[_SectorCandidate]]] = {}
+        self._catalog_cache: dict[tuple, dict[str, list[_SectorCandidate]]] = {}
 
     def invalidate(self) -> None:
         self._catalog_cache = {}
@@ -64,19 +82,30 @@ class SectorMoversService:
         limit: int,
         market: Optional[str],
         min_cap_by_market: Optional[dict[str, float]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> SectorMoversResponse:
+        window = self.sector_precomputed_store.resolve_window_bounds(
+            resolve_market_analysis_window(
+                days=days,
+                start_date=start_date,
+                end_date=end_date,
+                default_days=days,
+            )
+        )
         min_cap_by_market = min_cap_by_market or {}
         requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
-        ticker_lookup = self._ticker_lookup(days)
+        ticker_lookup = self._ticker_lookup(window)
         payload: dict[str, MarketSectorMovers] = {}
 
         for internal_market in requested_markets:
             if internal_market is None:
                 continue
             threshold = float(min_cap_by_market.get(internal_market) or 0.0)
-            candidates = list(self._catalog_for_days(days).get(internal_market) or [])
-            if threshold > 0:
-                candidates = [candidate for candidate in candidates if candidate.total_market_cap >= threshold]
+            candidates = _filter_ranking_candidates(
+                list(self._catalog_for_window(window).get(internal_market) or []),
+                min_total_market_cap=threshold,
+            )
 
             gainers = sorted(
                 [candidate for candidate in candidates if candidate.change_percent > 0],
@@ -93,14 +122,35 @@ class SectorMoversService:
                 losers=[self._build_source_sector_item(candidate, ticker_lookup) for candidate in losers],
             )
 
-        return SectorMoversResponse(days=days, markets=payload)
+        return SectorMoversResponse(
+            days=window.days,
+            window_mode=window.mode,
+            window_start=window.resolved_start,
+            window_end=window.resolved_end,
+            markets=payload,
+        )
 
-    def build_dojo_mesh_sectors_response(self, *, limit: int = 5) -> DojoMeshSectorsResponse:
-        ticker_lookup = self._ticker_lookup(days=1)
+    def build_dojo_mesh_sectors_response(
+        self,
+        *,
+        limit: int = 5,
+        days: int = 1,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> DojoMeshSectorsResponse:
+        window = self.sector_precomputed_store.resolve_window_bounds(
+            resolve_market_analysis_window(
+                days=days,
+                start_date=start_date,
+                end_date=end_date,
+                default_days=days,
+            )
+        )
+        ticker_lookup = self._ticker_lookup(window)
         markets: dict[str, MarketSectorLead] = {}
-        catalog = self._catalog_for_days(1)
+        catalog = self._catalog_for_window(window)
         for market in MARKETS:
-            candidates = list(catalog.get(market) or [])
+            candidates = _filter_ranking_candidates(list(catalog.get(market) or []))
             gainers = sorted(
                 [candidate for candidate in candidates if candidate.change_percent > 0],
                 key=lambda candidate: _sector_lead_sort_score(candidate.avg_market_cap, candidate.change_percent),
@@ -118,9 +168,9 @@ class SectorMoversService:
 
     def lookup_cross_market_sectors_response(self, *, link_key: str) -> CrossMarketSectorLookupResponse:
         needle = link_key.lower()
-        ticker_lookup = self._ticker_lookup(days=1)
+        ticker_lookup = self._ticker_lookup(MarketAnalysisWindow(mode="days", days=1))
         markets: dict[str, SectorItem | None] = {}
-        catalog = self._catalog_for_days(1)
+        catalog = self._catalog_for_window(MarketAnalysisWindow(mode="days", days=1))
         for market in MARKETS:
             candidate = next(
                 (item for item in catalog.get(market) or [] if (link_key_from_concept_code(item.concept_code) or "").lower() == needle),
@@ -129,13 +179,13 @@ class SectorMoversService:
             markets[market] = self._build_sector_item(candidate, ticker_lookup) if candidate is not None else None
         return CrossMarketSectorLookupResponse(link_key=link_key, markets=markets)
 
-    def _catalog_for_days(self, days: int) -> dict[str, list[_SectorCandidate]]:
-        cache_key = (self.sector_precomputed_store.load_generation, days)
+    def _catalog_for_window(self, window: MarketAnalysisWindow) -> dict[str, list[_SectorCandidate]]:
+        cache_key = (self.sector_precomputed_store.load_generation, *window.cache_key())
         cached = self._catalog_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        sector_rows = self.sector_precomputed_store.get_sector_movers_window_frame(days)
+        sector_rows = self.sector_precomputed_store.get_sector_movers_window_frame_for_window(window)
         markets: dict[str, list[_SectorCandidate]] = {market: [] for market in MARKETS}
         if not sector_rows.empty:
             for row in sector_rows.itertuples(index=False):
@@ -171,8 +221,8 @@ class SectorMoversService:
         self._catalog_cache[cache_key] = markets
         return markets
 
-    def _ticker_lookup(self, days: int) -> dict[tuple[str, str], dict]:
-        frame = self.sector_precomputed_store.get_ticker_daily_window_frame(days)
+    def _ticker_lookup(self, window: MarketAnalysisWindow) -> dict[tuple[str, str], dict]:
+        frame = self.sector_precomputed_store.get_ticker_daily_window_frame_for_window(window)
         if frame.empty:
             return {}
         return {(str(row.market), str(row.ticker)): sanitize_mapping(row._asdict()) for row in frame.itertuples(index=False)}
