@@ -13,6 +13,8 @@ import { EntityTickerSearch } from './EntityTickerSearch';
 
 interface EntitySnapshotPanelProps {
   asset: EntityAssetSnapshot;
+  orderTicker?: string;
+  orderPrice?: number;
   taxonomy: SectorTaxonomyDocument | null;
   selection: SectorPathSelection | null;
   sectorOptions: EntitySectorOption[];
@@ -30,6 +32,8 @@ function formatSigned(value: number, digits = 2): string {
 
 export function EntitySnapshotPanel({
   asset,
+  orderTicker,
+  orderPrice,
   taxonomy,
   selection,
   sectorOptions,
@@ -90,7 +94,12 @@ export function EntitySnapshotPanel({
               {formatSigned(quote.change)} ({formatSigned(quote.changePercent)}%)
             </span>
           </div>
-          <EntityCreateOrderButton ticker={ticker} market={market} name={text(asset.name)} />
+          <EntityCreateOrderButton
+            ticker={orderTicker ?? ticker}
+            market={market}
+            name={text(asset.name)}
+            price={orderPrice}
+          />
         </div>
 
         <div className="core-snapshot__controls">

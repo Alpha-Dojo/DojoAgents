@@ -95,13 +95,20 @@ export function EntityView({ onNavigateTab }: EntityViewProps) {
   const tickerKey = ctx ? `${ctx.market ?? ''}:${ctx.ticker}` : '';
 
   useEffect(() => {
-    if (!quoteReady || !quoteDetail?.name) return;
+    if (!quoteReady || !quoteDetail) return;
     const current = readEntityTickerContext();
     if (!current) return;
-    const { zh, en } = quoteDetail.name;
-    if (!zh && !en) return;
-    if (current.name_zh === zh && current.name_en === en) return;
-    const next = { ...current, name_zh: zh || current.name_zh, name_en: en || current.name_en };
+    const { zh, en } = quoteDetail.name ?? {};
+    const canonicalTicker = quoteDetail.ticker?.trim().toUpperCase();
+    const nameChanged = Boolean(zh || en) && (current.name_zh !== zh || current.name_en !== en);
+    const tickerChanged = Boolean(canonicalTicker) && current.ticker !== canonicalTicker;
+    if (!nameChanged && !tickerChanged) return;
+    const next = {
+      ...current,
+      ...(zh ? { name_zh: zh || current.name_zh } : {}),
+      ...(en ? { name_en: en || current.name_en } : {}),
+      ...(canonicalTicker ? { ticker: canonicalTicker } : {}),
+    };
     saveEntityTickerContext(next);
     setCtx(next);
   }, [quoteReady, quoteDetail, tickerKey]);
@@ -370,6 +377,8 @@ export function EntityView({ onNavigateTab }: EntityViewProps) {
     >
       <EntitySnapshotPanel
         asset={asset}
+        orderTicker={quoteDetail?.ticker ?? ctx.ticker}
+        orderPrice={quoteDetail?.last_price ?? asset.quote.price}
         taxonomy={taxonomy}
         selection={resolvedSelection}
         sectorOptions={sectorOptions}
