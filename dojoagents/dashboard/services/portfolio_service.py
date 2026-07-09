@@ -27,8 +27,10 @@ from dojoagents.dashboard.services.kline_bar_utils import (
     resolve_kline_limit_for_elapsed_days,
 )
 from dojoagents.dashboard.services.market_stats import display_valuation_ratio
+from dojoagents.dashboard.services.domain_utils import normalize_market_code
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 from dojoagents.dashboard.schemas.portfolio import (
     AddPortfolioHoldingRequest,
     AutoAllocateRequest,
@@ -263,6 +265,34 @@ class PortfolioService:
         method = getattr(self.store, method_name)
         return await asyncio.to_thread(method, *args, **kwargs)
 
+    def _resolve_holding_ticker(
+        self,
+        ticker: str,
+        market: Optional[str],
+    ) -> Optional[tuple[str, str]]:
+        raw = str(ticker or "").strip()
+        if not raw:
+            return None
+
+        canonical_ticker, resolved_market = resolve_ticker_symbol(
+            self.stock_store, raw, market
+        )
+        lookup_market = (
+            normalize_market_code(resolved_market)
+            or normalize_market_code(market)
+            or self.stock_store.find_market(canonical_ticker)
+        )
+        if not lookup_market:
+            return None
+
+        stock = self.stock_store.get(lookup_market, canonical_ticker)
+        if stock is None:
+            return None
+
+        stored_market = normalize_market_code(stock.market) or lookup_market
+        stored_ticker = stock.ticker.strip().upper() if stock.ticker else canonical_ticker.upper()
+        return stored_ticker, stored_market
+
     async def list_summaries(self) -> List[PortfolioSummary]:
         rows = await self._store_call("list_index_rows")
         return [self._to_summary(row) for row in rows]
@@ -444,10 +474,10 @@ class PortfolioService:
         return await self._store_call("delete", portfolio_id)
 
     async def add_holding(self, portfolio_id: str, body: AddPortfolioHoldingRequest) -> Optional[PortfolioDetail]:
-        ticker = body.ticker.strip()
-        market = body.market or self.stock_store.find_market(ticker)
-        if not market:
+        resolved = self._resolve_holding_ticker(body.ticker, body.market)
+        if resolved is None:
             return None
+        ticker, market = resolved
 
         raw = await self._store_call("add_candidate", portfolio_id, ticker=ticker, market=market)
         if not raw:
@@ -468,11 +498,11 @@ class PortfolioService:
             ticker = body.ticker.strip()
             if not ticker:
                 continue
-            market = body.market or self.stock_store.find_market(ticker)
-            if not market:
+            resolved = self._resolve_holding_ticker(ticker, body.market)
+            if resolved is None:
                 skipped_missing_market.append(ticker)
                 continue
-            entries.append((ticker, market))
+            entries.append(resolved)
 
         if not entries and skipped_missing_market:
             return None
@@ -490,13 +520,10 @@ class PortfolioService:
         portfolio_id: str,
         body: CreatePortfolioOrderRequest,
     ) -> Optional[PortfolioDetail]:
-        ticker = body.ticker.strip()
-        market = body.market or self.stock_store.find_market(ticker)
-        if not market:
+        resolved = self._resolve_holding_ticker(body.ticker, body.market)
+        if resolved is None:
             return None
-        stock = self.stock_store.get(market, ticker)
-        if stock is None:
-            return None
+        ticker, market = resolved
 
         order_id = str(uuid.uuid4())
         order = {

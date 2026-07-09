@@ -12,6 +12,7 @@ interface EntityCreateOrderButtonProps {
   ticker: string;
   market: MarketCode;
   name: string;
+  price?: number;
 }
 
 interface PortfolioRow {
@@ -28,7 +29,7 @@ function suggestPortfolioName(existing: string[]): string {
   return `组合 ${Date.now()}`;
 }
 
-export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOrderButtonProps) {
+export function EntityCreateOrderButton({ ticker, market, name, price }: EntityCreateOrderButtonProps) {
   const { t } = useTranslation();
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -47,7 +48,7 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
 
   const orderContext: FolioOrderDraftContext | null =
     orderOpen && selectedId
-      ? { market, ticker, name }
+      ? { market, ticker, name, price }
       : null;
 
   const loadPortfolios = async () => {
@@ -108,7 +109,7 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
   const portfolioNameFor = (portfolioId: string) =>
     portfolios.find((row) => row.id === portfolioId)?.name ?? createName.trim();
 
-  const ensureCandidate = async (portfolioId: string) => {
+  const ensureCandidate = async (portfolioId: string): Promise<boolean> => {
     try {
       const updated = await addFolioHolding(portfolioId, { ticker, market });
       publishFolioPortfolioUpdate(updated);
@@ -120,8 +121,13 @@ export function EntityCreateOrderButton({ ticker, market, name }: EntityCreateOr
 
   const openOrderModal = async (portfolioId: string) => {
     setPlacing(true);
+    setStatus(null);
     try {
-      await ensureCandidate(portfolioId);
+      const added = await ensureCandidate(portfolioId);
+      if (!added) {
+        setStatus({ tone: 'err', text: t('folio.addToPortfolioFailed') });
+        return;
+      }
       setSelectedId(portfolioId);
       setOrderOpen(true);
       setOpen(false);
