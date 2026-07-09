@@ -234,6 +234,8 @@ def register_dashboard_domain_tools(
             registry,
             days=_int_arg(args, "days", 1),
             market=_optional_str_arg(args, "market"),
+            start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
+            end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
         )
         return _json_content(result)
 
@@ -254,6 +256,8 @@ def register_dashboard_domain_tools(
                 if value is not None and value > 0
             }
             or None,
+            start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
+            end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
         )
         return _json_content(result)
 
@@ -447,12 +451,50 @@ def register_dashboard_domain_tools(
         ),
         ToolSpec(
             name="get_market_overview",
-            description="Get benchmark performance, total market cap, weighted PE, and listed counts by market. Omit market to compare US, CN, and HK together in one response.",
+            description=(
+                "Cross-market snapshot: listed counts, total market cap, weighted PE (current snapshot), "
+                "and benchmark index cards with window-scoped change% plus clipped klines. "
+                "Omit `market` to fetch US, CN, and HK together in one call. "
+                "Window — pick ONE mode: "
+                "(A) `days` = latest N trading days (default 1, max 90); "
+                "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "
+                "when both dates are set, `days` is ignored. "
+                "Response includes `window_mode` (`days`|`date_range`), `window_start`/`window_end` "
+                "(actual first/last trade dates in range), and `as_of`. "
+                "Benchmark `change_percent` is total return over the window; klines are clipped to it. "
+                "`markets.*` cap/PE/count fields are current snapshot — NOT window return."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "days": {"type": "integer", "minimum": 1, "maximum": 90},
-                    "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
+                    "days": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 90,
+                        "description": (
+                            "Latest N trading days for benchmark window (default 1). "
+                            "Ignored when start_date and end_date are both set."
+                        ),
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": (
+                            "Window start YYYY-MM-DD; must pair with end_date. "
+                            "Overrides days when both dates are provided."
+                        ),
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": (
+                            "Window end YYYY-MM-DD; must pair with start_date. "
+                            "Span (inclusive) must be ≤126 calendar days."
+                        ),
+                    },
+                    "market": {
+                        "type": "string",
+                        "enum": ["cn", "hk", "us"],
+                        "description": "Optional single-market filter. Omit for US + CN + HK in one response.",
+                    },
                 },
             },
             handler=market_overview,
@@ -460,18 +502,65 @@ def register_dashboard_domain_tools(
         ToolSpec(
             name="get_sector_movers",
             description=(
-                "Top gaining/losing L3 sectors. Each item includes level1_id, level2_id, level3_id — "
-                "copy them directly into filter_sector_constituents or get_sector_analysis."
+                "Ranked top gaining/losing L3 sectors by weighted sector return over a window. "
+                "Each item includes level1_id, level2_id, level3_id — copy verbatim into "
+                "filter_sector_constituents or get_sector_analysis. "
+                "Ranking excludes sectors with member_count<2 (single-constituent L3 leaves are omitted). "
+                "Window — pick ONE mode: "
+                "(A) `days` = latest N trading days (default 1, max 90); "
+                "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "
+                "dates override days. "
+                "Sector `change_percent` is total return from first to last trade date in the window "
+                "(from precomputed daily sector returns). "
+                "Response: `window_mode`, `window_start`, `window_end`, and "
+                "`markets.{market}.gainers[]` / `losers[]` with change_percent, member_count, taxonomy ids. "
+                "Optional per-market min total cap: min_cap_us, min_cap_cn (maps to sh), min_cap_hk."
             ),
             parameters={
                 "type": "object",
                 "properties": {
-                    "days": {"type": "integer", "minimum": 0, "maximum": 90},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
-                    "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
-                    "min_cap_us": {"type": "number", "minimum": 0},
-                    "min_cap_cn": {"type": "number", "minimum": 0},
-                    "min_cap_hk": {"type": "number", "minimum": 0},
+                    "days": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 90,
+                        "description": (
+                            "Latest N trading days (default 1). Ignored when start_date+end_date are set."
+                        ),
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Window start YYYY-MM-DD; requires end_date; overrides days.",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Window end YYYY-MM-DD; requires start_date; max 126 calendar-day span.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "Max gainers and max losers per market (default 5).",
+                    },
+                    "market": {
+                        "type": "string",
+                        "enum": ["cn", "sh", "hk", "us"],
+                        "description": "Optional single-market filter. Omit for sh + hk + us.",
+                    },
+                    "min_cap_us": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Optional minimum total sector market cap (USD) for US ranking.",
+                    },
+                    "min_cap_cn": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Optional minimum total sector market cap (CNY) for CN/sh ranking.",
+                    },
+                    "min_cap_hk": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Optional minimum total sector market cap (HKD) for HK ranking.",
+                    },
                 },
             },
             handler=sector_movers,

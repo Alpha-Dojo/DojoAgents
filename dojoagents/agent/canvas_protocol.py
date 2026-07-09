@@ -106,7 +106,10 @@ Visualization policy is defined in the **Visualization policy** system section
 
 - For cross-market valuation comparison, prefer a single `get_market_overview`
   call without `market` so the result covers US, CN, and HK together.
-- For sector ranking, prefer `get_sector_movers` and render ranked bars or tables.
+  Use `days` for recent N trade days, or `start_date`+`end_date` for a fixed range
+  (dates override days; read `window_start`/`window_end` from the response).
+- For sector ranking, prefer `get_sector_movers` with the same window args and render
+  ranked bars or tables. Copy taxonomy ids from movers into follow-up sector tools.
 - For price trends, prefer `get_ticker_price_trends`. For one trading day, set both
   `start_date` and `end_date` to that date (e.g. `2026-06-18`). Omit dates only for full
   history since 2025-01-01.

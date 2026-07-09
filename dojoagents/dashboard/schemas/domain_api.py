@@ -81,7 +81,8 @@ class BenchmarkSnapshot(BaseModel):
 
 
 class MarketOverviewResponse(BaseModel):
-    days: int = Field(1, ge=1, le=90)
+    days: int = Field(1, ge=0, le=90)
+    window_mode: Literal["days", "date_range"] = "days"
     window_start: Optional[str] = None
     window_end: Optional[str] = None
     as_of: Optional[str] = None
@@ -162,6 +163,9 @@ class SectorMoversMarket(BaseModel):
 
 class SectorMoversResponse(BaseModel):
     days: int = Field(1, ge=0, le=90)
+    window_mode: Literal["days", "date_range"] = "days"
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
     markets: Dict[str, MarketSectorMovers] = Field(default_factory=dict)
 
     @model_validator(mode="before")

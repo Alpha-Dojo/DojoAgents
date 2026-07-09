@@ -407,6 +407,9 @@ def build_artifact_pointer_message(
     schema_hint = get_tool_artifact_schema_hint(tool_name)
     if schema_hint:
         summary["schema_hint"] = schema_hint
+        usage_notes = schema_hint.get("usage_notes")
+        if isinstance(usage_notes, str) and usage_notes.strip():
+            summary["usage_notes"] = usage_notes.strip()
         summary["parse_hint"] = schema_hint.get("pandas_example") or (
             "res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)"
         )

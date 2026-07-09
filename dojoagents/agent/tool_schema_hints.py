@@ -14,7 +14,6 @@ from dojoagents.dashboard.schemas.domain_api import (
     SectorAnalysisResponse,
     SectorConstituentsResponse,
     SectorMoverItem,
-    SectorMoverItem,
     SectorMoversResponse,
     StockScreenResponse,
     TaxonomyTreeResponse,
@@ -79,6 +78,22 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "get_market_overview": {
         "pandas_example": _TOOL_MULTI_TABLE_PANDAS,
+        "usage_notes": (
+            "Window: pass days (latest N trade days, default 1, max 90) OR start_date+end_date "
+            "(YYYY-MM-DD, both required, max 126 calendar days); dates override days. "
+            "Scalars via dojo_tools.tool_meta(res): window_mode, window_start, window_end, as_of, days. "
+            "Tables: markets=current cap/PE/count snapshot; benchmarks=window change_percent + clipped klines. "
+            "Omit market arg for US+CN+HK in one call."
+        ),
+    },
+    "get_sector_movers": {
+        "usage_notes": (
+            "Window rules match get_market_overview (days OR start_date+end_date). "
+            "tool_meta(res): window_mode, window_start, window_end, days. "
+            "Default table sectors: gainers/losers per market with side+rank columns. "
+            "change_percent = sector total return over window. Rankings skip member_count<2. "
+            "Copy level1_id/level2_id/level3_id into filter_sector_constituents or get_sector_analysis."
+        ),
     },
     "get_ticker_financials": {
         "tables": {

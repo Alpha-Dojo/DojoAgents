@@ -26,11 +26,22 @@ router = APIRouter(prefix="/market", tags=["macro-market"])
     summary="Macro benchmark performance, total market cap, and weighted PE",
 )
 async def market_overview(
-    days: int = Query(1, ge=1, le=90),
+    days: int = Query(1, ge=0, le=90),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD, requires end_date"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD, requires start_date"),
     registry=Depends(get_financial_registry),
 ) -> MarketOverviewResponse:
-    return await build_market_overview(registry, days=days, market=market)
+    try:
+        return await build_market_overview(
+            registry,
+            days=days,
+            market=market,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get(
@@ -43,6 +54,8 @@ async def market_sector_movers(
     days: int = Query(5, ge=0, le=90),
     limit: int = Query(5, ge=1, le=20),
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD, requires end_date"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD, requires start_date"),
     min_cap_us: Optional[float] = Query(None, ge=0),
     min_cap_cn: Optional[float] = Query(None, ge=0),
     min_cap_hk: Optional[float] = Query(None, ge=0),
@@ -59,6 +72,8 @@ async def market_sector_movers(
                 "sh": min_cap_cn or 0.0,
                 "hk": min_cap_hk or 0.0,
             },
+            start_date=start_date,
+            end_date=end_date,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

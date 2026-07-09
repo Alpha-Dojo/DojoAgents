@@ -35,6 +35,8 @@ def test_market_overview_hint_exposes_table_specs() -> None:
     assert hint["tables"]["markets"]["type"] == "dict_records"
     assert "tool_print" in hint["pandas_example"]
     assert "benchmarks" in hint["pandas_example"]
+    assert "window_mode" in hint["usage_notes"]
+    assert "window_start" in hint["top_level_keys"]
 
 
 def test_sector_movers_hint_exposes_side_list_table() -> None:
@@ -46,6 +48,7 @@ def test_sector_movers_hint_exposes_side_list_table() -> None:
     assert "rank" in hint["row_fields"]
     assert "name_zh" in hint["row_fields"]
     assert "change_percent" in hint["row_fields"]
+    assert "member_count<2" in hint["usage_notes"]
 
 
 def test_tabular_tools_get_table_spec() -> None:
@@ -84,6 +87,7 @@ def test_artifact_pointer_parse_hint_uses_tool_print() -> None:
     )
     payload = json.loads(message)
     assert "tool_print" in payload["parse_hint"]
+    assert "window_mode" in payload["usage_notes"]
 
 
 def test_tool_table_sector_movers_from_schema() -> None:
