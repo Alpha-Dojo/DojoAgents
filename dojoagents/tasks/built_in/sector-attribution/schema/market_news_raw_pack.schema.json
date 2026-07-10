@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["trading_date", "window_start_date", "window_end_date", "sector_moves", "news_items", "sectors_without_news"],
+  "properties": {
+    "trading_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "window_start_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "window_end_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "sector_moves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sector_path_id", "sector_name", "market", "change_percent"],
+        "properties": {
+          "sector_path_id": { "type": "string" },
+          "sector_name": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+          },
+          "market": { "enum": ["us", "cn", "hk"] },
+          "change_percent": { "type": "number" }
+        }
+      }
+    },
+    "news_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "source_url", "published_at", "summary", "linked_sectors"],
+        "properties": {
+          "title": { "type": "string" },
+          "source_url": { "type": "string" },
+          "published_at": { "type": "string" },
+          "summary": { "type": "string" },
+          "linked_sectors": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "sectors_without_news": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

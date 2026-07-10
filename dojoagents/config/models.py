@@ -177,6 +177,14 @@ class PlanConfig:
 
 
 @dataclass(frozen=True)
+class TasksConfig:
+    enabled: bool = True
+    dirs: list[str] = field(default_factory=lambda: ["~/.dojo/tasks"])
+    output_root: str = "~/.dojo/tasks/outputs"
+    auto_detect: bool = False
+
+
+@dataclass(frozen=True)
 class SessionsConfig:
     enabled: bool = True
     provider: str = "dojo_repository"
@@ -205,3 +213,4 @@ class AgentsConfig:
     multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
     planning: PlanConfig = field(default_factory=PlanConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    tasks: TasksConfig = field(default_factory=TasksConfig)

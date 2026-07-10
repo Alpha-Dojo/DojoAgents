@@ -10,9 +10,9 @@ from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.process_registry import WriteSessionFileGuardContext, active_write_session_file_guard
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
+from dojoagents.tools.session_file_names import validate_output_filename
 from dojoagents.tools.session_file_tool import (
     get_write_session_file_spec,
-    validate_output_filename,
     write_session_file,
 )
 

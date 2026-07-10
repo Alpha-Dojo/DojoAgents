@@ -1,0 +1,7 @@
+id: daily-market-events
+name: 每日市场异动事件流水线
+steps:
+  - task: sector-attribution
+    on_success: continue
+  - task: event-trigger
+    on_success: stop

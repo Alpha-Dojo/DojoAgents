@@ -1,0 +1,34 @@
+id: sector-attribution
+name: 板块异动归因分析师
+version: 1
+harness_profile: tool_orchestrated
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - get_market_overview
+  - get_sector_movers
+  - web_search
+  - web_extract
+  - filter_sector_constituents
+  - write_session_file
+outputs:
+  - filename: market_news_raw_pack.json
+    format: json
+    required: true
+    schema: schema/market_news_raw_pack.schema.json
+triggers:
+  keywords:
+    - 板块异动
+    - 异动归因
+    - sector attribution
+  commands:
+    - /task sector-attribution
+downstream: event-trigger
+constraints:
+  max_tool_calls_per_turn: 1
+  tool_budget:
+    web_search: 30
+    web_extract: 15
+    filter_sector_constituents: 10

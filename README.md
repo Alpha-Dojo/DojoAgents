@@ -33,7 +33,7 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
   <img
     alt="DojoAgents system architecture diagram"
     src="docs/imgs/structure.png"
-    width="960"
+    width="720"
   />
   <p><em>Seven-layer architecture — from CLI, Web Dashboard, and Chat Gateways through Agent Loop to tools, data, and infrastructure.</em></p>
 </div>
@@ -54,8 +54,63 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
 
 **🤖 Autonomous Quant Analyst:** Powered by multi-agent collaboration, it autonomously conducts background market research, tracks sector rotations, and monitors your risk exposure while you sleep.
 
-**📱 **Planned Omnichannel Updates**: Future versions will support personalized daily briefings and alert notifications through Slack, Telegram, Discord, Feishu, WeChat, or email.
+**📱 Planned Omnichannel Updates:** Future versions will support personalized daily briefings and alert notifications through Slack, Telegram, Discord, Feishu, WeChat, or email.
 
+## 📈 What DojoAgents Can Do
+
+### 1. Daily Market Overview
+
+*"What's worth watching in global markets today?"* — one of the most common questions investors ask every morning. Behind it lies cross-market moves, sector rotation, stock anomalies, sentiment, and potential catalysts.
+
+DojoAgents enters a data-gathering phase, calling global market, sector, and equity tools to pull movers, strength rankings, price changes, volume shifts, and sector distribution across A-shares, US equities, and HK stocks. Throughout the run, expand any intermediate step to see which tools were invoked, what data was cited, and how the analysis progressed.
+
+<div align="center">
+  <img
+    alt="DojoAgents daily market overview demo"
+    src="docs/gifs/market_overview.gif"
+    width="720"
+  />
+</div>
+
+### 2. News Impact Analysis
+
+When breaking news hits, the first question is always: *which stocks will be affected?*
+
+Take Meta's recent AI infrastructure moves — A-share investors naturally asked: *"Meta selling compute capacity — which US and A-share stocks could be impacted?"* DojoAgents decomposes the question, then gathers data via market, news, company, and sector tools: Meta's price action, related headlines, market performance, and segments like US tech, AI compute chains, semiconductors, cloud, and ad-tech.
+
+<div align="center">
+  <img
+    alt="DojoAgents news impact analysis demo"
+    src="docs/gifs/news_impact.gif"
+    width="720"
+  />
+</div>
+
+### 3. Portfolio Diagnosis from a Screenshot
+
+DojoAgents supports multimodal models — upload a holdings screenshot and get a full portfolio diagnosis. No manual data entry required.
+
+Upload a screenshot with 40+ positions spanning A-shares, US stocks, and ETFs. DojoAgents recognizes each holding, re-groups them by market, sector, and supply-chain position, then generates a risk diagnosis — flagging over-concentration, overlapping exposure, and insufficient defensive assets. Despite 40+ names, many positions effectively bet on the same theme; a broad pullback in semiconductors, AI compute, or growth stocks could drag the entire portfolio down together.
+
+<div align="center">
+  <img
+    alt="DojoAgents portfolio screenshot upload demo"
+    src="docs/gifs/upload_screenshot.gif"
+    width="720"
+  />
+</div>
+
+### 4. Simulated Portfolio from Recommendations
+
+After the diagnosis, DojoAgents proposes follow-up strategies — trim duplicate positions, keep core names, optimize US allocation, reduce weak exposures, and add defensive assets like utilities and consumer staples. Once you approve the recommendations, it can generate a new watchlist portfolio and track it continuously in the Dashboard.
+
+<div align="center">
+  <img
+    alt="DojoAgents simulated portfolio demo"
+    src="docs/gifs/simulated_portfolio.gif"
+    width="720"
+  />
+</div>
 
 ## 🚀 Quick Start
 

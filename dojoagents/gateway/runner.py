@@ -460,71 +460,7 @@ class GatewayRunner:
                 )
                 return {"accepted": True, "command": "plugins-help"}
 
-        # Check for skill commands
-        skill_manager = self.runtime.agent.skill_manager
-        available_skills = skill_manager.list_skills()
-        if name in available_skills:
-            skill_file = None
-            for root in skill_manager.skill_dirs:
-                if not root.exists():
-                    continue
-                candidate = root / name / "SKILL.md"
-                if candidate.exists():
-                    skill_file = candidate
-                    break
-
-            if skill_file:
-                try:
-                    frontmatter, body = skill_manager._get_skill_content(skill_file)
-                    skill_name = frontmatter.get("name", name)
-                    activation_note = (
-                        f'[IMPORTANT: The user has invoked the "{skill_name}" skill, indicating '
-                        f'they want you to follow its instructions. The full skill content is loaded below.]'
-                    )
-                    parts = [
-                        activation_note,
-                        "",
-                        body.strip()
-                    ]
-
-                    skill_dir = skill_file.parent
-                    supporting = []
-                    for subdir in ("references", "templates", "scripts", "assets"):
-                        subdir_path = skill_dir / subdir
-                        if subdir_path.exists():
-                            for f in sorted(subdir_path.rglob("*")):
-                                if f.is_file() and not f.is_symlink():
-                                    rel = str(f.relative_to(skill_dir))
-                                    supporting.append(f"- {rel}  ->  {f}")
-                    if supporting:
-                        parts.extend([
-                            "",
-                            "[This skill has supporting files:]",
-                            *supporting,
-                            f"\nLoad any of these with skill_view(name=\"{name}\", file_path=\"<path>\")."
-                        ])
-
-                    if arg.strip():
-                        parts.extend([
-                            "",
-                            f"The user has provided the following instruction alongside the skill invocation: {arg.strip()}"
-                        ])
-
-                    object.__setattr__(event, "text", "\n".join(parts))
-                    return None
-                except Exception as e:
-                    LOGGER.error(f"Failed to load skill '{name}' inside gateway: {e}")
-                    await adapter.send(event.target, f"Error: Failed to load skill '{name}'.", thread_id=event.thread_id)
-                    return {"accepted": True, "error": str(e)}
-
-        # Unrecognized slash command
-        await adapter.send(
-            event.target,
-            f"Unknown command `/{name}`. Resend without the leading slash to talk normally, "
-            f"or use one of the available skills: {', '.join(available_skills)}.",
-            thread_id=event.thread_id
-        )
-        return {"accepted": True, "command": "unknown"}
+        return None
 
     def _hook_config(self, platform: str) -> dict[str, Any] | None:
         hooks = self.gateway_config.get("hooks", {})
@@ -584,7 +520,13 @@ class GatewayRunner:
                 agent.stream_delta_callback = consumer.on_delta
 
             try:
-                response: AgentResponse = await agent.run(request)
+                from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+
+                response: AgentResponse = await run_agent_with_tasks(
+                    self.runtime,
+                    request,
+                    run_agent=agent.run,
+                )
                 content = _redact_text(response.content)
                 self.session_store.add_transcript(event.session_key, "assistant", content)
                 

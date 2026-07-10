@@ -128,6 +128,7 @@ class AgentRunManager:
         request: ChatRequest,
         model: str,
         agent: Any,
+        runtime: Any | None = None,
         on_started: Any | None = None,
         on_completed: Any | None = None,
         on_failed: Any | None = None,
@@ -152,7 +153,17 @@ class AgentRunManager:
 
         async def _execute() -> None:
             try:
-                response: AgentResponse = await agent.run(request, event_sink=sink)
+                if runtime is not None:
+                    from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+
+                    response: AgentResponse = await run_agent_with_tasks(
+                        runtime,
+                        request,
+                        run_agent=agent.run,
+                        event_sink=sink,
+                    )
+                else:
+                    response = await agent.run(request, event_sink=sink)
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     tool_trace = response.metadata.get("tool_trace", [])
                     tool_steps = len(tool_trace) if isinstance(tool_trace, list) else 0

@@ -257,6 +257,124 @@ async def test_build_performance_batches_order_klines(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_performance_backfills_missing_order_klines_and_uses_deep_benchmark(tmp_path) -> None:
+    store = PortfolioStore(tmp_path)
+    portfolio = store.create("Live")
+    store.add_order(
+        portfolio["id"],
+        order={
+            "id": "order-nvda",
+            "ticker": "NVDA",
+            "market": "us",
+            "order_side": "buy",
+            "order_status": "filled",
+            "price": 172.18,
+            "qty": 100.0,
+            "fill_price": 172.18,
+            "fill_time": "2026-04-02T00:00:00+00:00",
+            "created_at": "2026-04-02T00:00:00+00:00",
+        },
+    )
+    for ticker in ("MU", "QCOM", "GOOG"):
+        store.add_candidate(portfolio["id"], ticker=ticker, market="us")
+
+    class BatchKlines:
+        async def get_klines(self, symbols, limit=None):
+            del limit
+            # Simulate large candidate batch omitting filled order tickers.
+            items = {
+                symbol: StockKlineResponse(
+                    symbol=symbol,
+                    bars=[
+                        StockKlineBar(
+                            symbol=symbol,
+                            bar_time="2026-07-09",
+                            open=100,
+                            high=100,
+                            low=100,
+                            close=100,
+                        )
+                    ],
+                )
+                for symbol in symbols
+                if symbol != "NVDA"
+            }
+            return ConstituentKlineBatchResponse(items=items)
+
+        async def get_or_fetch_kline(self, symbol, limit=None):
+            del limit
+            assert symbol == "NVDA"
+            return StockKlineResponse(
+                symbol=symbol,
+                bars=[
+                    StockKlineBar(
+                        symbol=symbol,
+                        bar_time=day,
+                        open=price,
+                        high=price,
+                        low=price,
+                        close=price,
+                    )
+                    for day, price in (
+                        ("2026-04-02", 172.18),
+                        ("2026-07-09", 202.78),
+                    )
+                ],
+            )
+
+    class Stocks:
+        def get(self, *_args):
+            return None
+
+        def find_market(self, _ticker):
+            return "us"
+
+    class Sectors:
+        def get(self, *_args):
+            return None
+
+    benchmark_limits: list[int] = []
+
+    class Benchmarks:
+        async def get_kline(self, symbol, limit=252):
+            del symbol
+            benchmark_limits.append(int(limit))
+            return StockKlineResponse(
+                symbol="^SPX",
+                bars=[
+                    StockKlineBar(
+                        symbol="^SPX",
+                        bar_time=day,
+                        open=100,
+                        high=100,
+                        low=100,
+                        close=100 + index,
+                    )
+                    for index, day in enumerate(
+                        ["2026-01-02", "2026-04-02", "2026-07-09"],
+                    )
+                ],
+            )
+
+    service = PortfolioService(
+        store,
+        Stocks(),
+        Sectors(),
+        BatchKlines(),
+        benchmark_store=Benchmarks(),
+    )
+
+    detail = await service.get_detail(portfolio["id"], include_performance=True)
+
+    assert benchmark_limits
+    assert max(benchmark_limits) >= 500
+    assert detail.performance is not None
+    us_series = detail.performance.series_by_market["us"]
+    assert us_series.dates[-1] == "2026-07-09"
+    assert us_series.portfolio[-1] != pytest.approx(100.0)
+
+
+@pytest.mark.asyncio
 async def test_service_builds_independent_market_series_with_default_benchmarks(tmp_path) -> None:
     store = PortfolioStore(tmp_path)
     portfolio = store.create("Global")

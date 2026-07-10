@@ -21,6 +21,7 @@ from dojoagents.config.models import AgentConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.memory.manager import MemoryManager
 from dojoagents.skills.manager import SkillManager
+from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.logging import LOGGER
 
@@ -405,6 +406,7 @@ class AgentLoop:
         provider_config: LLMProviderConfig | None = None,
         provider_state: ProviderConversationState | None = None,
         session_manager: Any | None = None,
+        task_manager: TaskPromptManager | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -418,6 +420,7 @@ class AgentLoop:
         self.provider_config = provider_config
         self.provider_state = provider_state or ProviderConversationState()
         self.session_manager = session_manager
+        self.task_manager = task_manager
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -562,6 +565,10 @@ class AgentLoop:
             viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
             if viz_turn_anchor:
                 blocks.append(viz_turn_anchor)
+        if self.task_manager is not None:
+            task_block = self.task_manager.build_injection_block(request)
+            if task_block:
+                blocks.append(task_block)
         turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
         if turn_anchor:
             blocks.append(turn_anchor)
@@ -853,63 +860,94 @@ class AgentLoop:
                     classify_execute_code,
                     execute_code_guardrail_from_classification,
                 )
+                from dojoagents.agent.write_session_file_guardrails import (
+                    active_task_metadata,
+                    classify_write_session_file,
+                    preview_write_content,
+                    should_allow_write_session_file_for_task,
+                    write_session_file_guardrail_from_classification,
+                )
 
                 if tool_name in EXECUTE_CODE_TOOL_NAMES:
-                    classification = await classify_execute_code(
-                        str(args.get("code") or ""),
-                        request.message,
-                        self.llm_provider,
-                        model=model_id,
-                        request_metadata=request.metadata,
-                    )
-                    blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
-                        tool_name,
-                        classification,
-                    )
-                    if blocked:
-                        from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+                    if active_task_metadata(request.metadata) is not None:
+                        code_text = str(args.get("code") or "")
+                        if any(
+                            token in code_text
+                            for token in (
+                                "write_session_file",
+                                "dojo_tools.write_session_file",
+                                "open(",
+                                "Path(",
+                            )
+                        ):
+                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
 
-                        decision = ToolGuardrailDecision(
-                            action="block",
-                            code=guardrail_code,
-                            message=block_message,
-                            tool_name=tool_name,
+                            decision = ToolGuardrailDecision(
+                                action="block",
+                                code="execute_code_task_file_write_forbidden",
+                                message=(
+                                    "Blocked execute_code in task mode: use write_session_file directly "
+                                    "for required task outputs. Do not write JSON files via Python."
+                                ),
+                                tool_name=tool_name,
+                            )
+                            blocked_res = toolguard_synthetic_result(decision)
+                            event.cancel_tool = blocked_res["content"]
+                            return
+                    if active_task_metadata(request.metadata) is None:
+                        classification = await classify_execute_code(
+                            str(args.get("code") or ""),
+                            request.message,
+                            self.llm_provider,
+                            model=model_id,
+                            request_metadata=request.metadata,
                         )
-                        blocked_res = toolguard_synthetic_result(decision)
-                        event.cancel_tool = blocked_res["content"]
-                        return
+                        blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
+                            tool_name,
+                            classification,
+                        )
+                        if blocked:
+                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+
+                            decision = ToolGuardrailDecision(
+                                action="block",
+                                code=guardrail_code,
+                                message=block_message,
+                                tool_name=tool_name,
+                            )
+                            blocked_res = toolguard_synthetic_result(decision)
+                            event.cancel_tool = blocked_res["content"]
+                            return
                 if tool_name == "write_session_file":
-                    from dojoagents.agent.write_session_file_guardrails import (
-                        classify_write_session_file,
-                        preview_write_content,
-                        write_session_file_guardrail_from_classification,
-                    )
-
-                    classification = await classify_write_session_file(
-                        request.message,
-                        self.llm_provider,
-                        model=model_id,
-                        request_metadata=request.metadata,
+                    if not should_allow_write_session_file_for_task(
+                        request.metadata,
                         filename=str(args.get("filename") or ""),
-                        content_preview=preview_write_content(args.get("content")),
-                        history=request.metadata.get("history") or [],
-                    )
-                    blocked, block_message, guardrail_code = write_session_file_guardrail_from_classification(
-                        tool_name,
-                        classification,
-                    )
-                    if blocked:
-                        from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
-
-                        decision = ToolGuardrailDecision(
-                            action="block",
-                            code=guardrail_code,
-                            message=block_message,
-                            tool_name=tool_name,
+                    ):
+                        classification = await classify_write_session_file(
+                            request.message,
+                            self.llm_provider,
+                            model=model_id,
+                            request_metadata=request.metadata,
+                            filename=str(args.get("filename") or ""),
+                            content_preview=preview_write_content(args.get("content")),
+                            history=request.metadata.get("history") or [],
                         )
-                        blocked_res = toolguard_synthetic_result(decision)
-                        event.cancel_tool = blocked_res["content"]
-                        return
+                        blocked, block_message, guardrail_code = write_session_file_guardrail_from_classification(
+                            tool_name,
+                            classification,
+                        )
+                        if blocked:
+                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+
+                            decision = ToolGuardrailDecision(
+                                action="block",
+                                code=guardrail_code,
+                                message=block_message,
+                                tool_name=tool_name,
+                            )
+                            blocked_res = toolguard_synthetic_result(decision)
+                            event.cancel_tool = blocked_res["content"]
+                            return
                 decision = self.guardrails.before_call(tool_name, args)
                 if decision.should_halt:
                     raise GuardrailHaltException(decision.message, "guardrail_halt")
@@ -1242,7 +1280,9 @@ class AgentLoop:
         active_harness = _resolve_active_harness()
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")
-            max_harness_recovery_turns = min(3, max(1, self.config.max_iterations - 1))
+            pipeline_active = isinstance(request.metadata.get("pipeline"), dict)
+            recovery_cap = 8 if pipeline_active else 3
+            max_harness_recovery_turns = min(recovery_cap, max(1, self.config.max_iterations - 1))
             harness_recovery_turns = 0
             while True:
                 decision = active_harness.validate_progress(harness_state)

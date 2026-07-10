@@ -32,6 +32,7 @@ from dojoagents.config.models import (
     DojoSDKConfig,
     ProfilerConfig,
     SessionsConfig,
+    TasksConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -191,6 +192,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
     sessions_raw = raw.get("sessions", {})
+    tasks_raw = raw.get("tasks", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -267,6 +269,12 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             persist_openai_history=bool(sessions_raw.get("persist_openai_history", True)),
             sync_memory=bool(sessions_raw.get("sync_memory", True)),
             export_default_dir=str(sessions_raw.get("export_default_dir", "~/Desktop/dojo-chat-export")),
+        ),
+        tasks=TasksConfig(
+            enabled=bool(tasks_raw.get("enabled", True)),
+            dirs=list(tasks_raw.get("dirs", ["~/.dojo/tasks"])),
+            output_root=str(tasks_raw.get("output_root", "~/.dojo/tasks/outputs")),
+            auto_detect=bool(tasks_raw.get("auto_detect", False)),
         ),
     )
 

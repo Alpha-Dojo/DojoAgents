@@ -12,7 +12,7 @@ from dojoagents.dashboard.services.session_input_ingest import (
     ingest_session_input_preview,
 )
 from dojoagents.dashboard.services.session_outputs import reveal_path_in_file_manager
-from dojoagents.tools.session_file_tool import validate_output_filename
+from dojoagents.tools.session_file_names import validate_output_filename
 
 SESSION_INPUT_SUBDIR = "inputs"
 
