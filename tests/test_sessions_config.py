@@ -2,6 +2,12 @@ from dojoagents.config.loader import _to_config
 from dojoagents.config.models import AgentsConfig
 
 
+def test_tasks_config_defaults_include_output_root():
+    cfg = AgentsConfig()
+
+    assert cfg.tasks.output_root == "~/.dojo/tasks/outputs"
+
+
 def test_sessions_config_defaults_are_runtime_level():
     cfg = AgentsConfig()
 

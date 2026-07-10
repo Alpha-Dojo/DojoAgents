@@ -9,9 +9,9 @@ from typing import Any
 
 from dojoagents.agent.tool_result_artifacts import _validate_session_id
 from dojoagents.logging import LOGGER
+from dojoagents.tools.session_file_names import validate_output_filename
 from dojoagents.tools.session_file_tool import (
     resolve_session_output_dir,
-    validate_output_filename,
 )
 
 

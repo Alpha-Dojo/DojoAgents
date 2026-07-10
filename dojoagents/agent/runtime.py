@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.session_manager import DojoAgentSessionManager
@@ -9,7 +10,11 @@ from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
-from dojoagents.agent.harnesses import PortfolioTaskHarness
+from dojoagents.agent.harnesses import (
+    ArtifactSynthesisHarness,
+    PortfolioTaskHarness,
+    ToolOrchestratedHarness,
+)
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.cron.jobs import JobStore
@@ -33,6 +38,10 @@ class Runtime:
     sessions: DojoAgentSessionManager
     extensions: DojoExtensionRegistry
     scheduler: JobStore
+    task_manager: Any | None = None
+    task_activator: Any | None = None
+    command_router: Any | None = None
+    pipeline_runner: Any | None = None
 
     @classmethod
     def from_default_config(cls) -> "Runtime":
@@ -99,6 +108,42 @@ class Runtime:
         )
         tool_registry.register(get_terminal_spec(policy))
 
+        task_manager = None
+        task_activator = None
+        command_router = None
+        pipeline_runner = None
+        if config.tasks.enabled:
+            from dojoagents.tasks.manager import TaskPromptManager
+            from dojoagents.tasks.activator import TaskActivator
+            from dojoagents.tasks.command_router import CommandRouter
+            from dojoagents.tasks.pipeline import PipelineRunner
+            from dojoagents.tasks.schema_validator import TaskOutputValidator
+
+            built_in_tasks = Path(__file__).parent.parent / "tasks" / "built_in"
+            built_in_pipelines = Path(__file__).parent.parent / "tasks" / "pipelines"
+            task_dirs = [built_in_tasks, *[Path(path).expanduser() for path in config.tasks.dirs]]
+            task_manager = TaskPromptManager(
+                task_dirs=task_dirs,
+                pipeline_dirs=[built_in_pipelines],
+            )
+            task_activator = TaskActivator(
+                manager=task_manager,
+                sessions_root=config.sessions.root,
+                task_output_root=config.tasks.output_root,
+                auto_detect=config.tasks.auto_detect,
+            )
+            command_router = CommandRouter(
+                manager=task_manager,
+                activator=task_activator,
+                skill_manager=skill_manager,
+            )
+            pipeline_runner = PipelineRunner(
+                manager=task_manager,
+                activator=task_activator,
+                validator=TaskOutputValidator(task_manager),
+                task_output_root=config.tasks.output_root,
+            )
+
         from dojoagents.tools.code_execution_tool import get_code_execution_spec
         from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
 
@@ -107,7 +152,18 @@ class Runtime:
 
         from dojoagents.tools.session_file_tool import get_write_session_file_spec
 
-        tool_registry.register(get_write_session_file_spec(config.sessions.root))
+        tool_registry.register(get_write_session_file_spec(
+            config.sessions.root,
+            task_output_root=config.tasks.output_root if config.tasks.enabled else None,
+            task_manager=task_manager,
+        ))
+
+        from dojoagents.tools.session_file_tool import get_read_session_output_spec
+
+        tool_registry.register(get_read_session_output_spec(
+            config.sessions.root,
+            task_output_root=config.tasks.output_root if config.tasks.enabled else None,
+        ))
 
         from dojoagents.tools.session_input_tool import get_read_session_input_spec
 
@@ -241,10 +297,21 @@ class Runtime:
             extension_registry=extensions,
             config=config.agent,
             plan_activation_hook=plan_hook,
-            task_harnesses=[PortfolioTaskHarness()],
+            task_harnesses=[
+                PortfolioTaskHarness(),
+                ToolOrchestratedHarness(
+                    task_manager=task_manager,
+                    task_output_root=config.tasks.output_root,
+                ),
+                ArtifactSynthesisHarness(
+                    task_manager=task_manager,
+                    task_output_root=config.tasks.output_root,
+                ),
+            ],
             provider_config=provider_cfg,
             provider_state=provider_state,
             session_manager=sessions,
+            task_manager=task_manager,
         )
 
         # Wire pool runtime reference after agent creation
@@ -278,6 +345,10 @@ class Runtime:
             sessions=sessions,
             extensions=extensions,
             scheduler=JobStore(Path(config.scheduler.store).expanduser()),
+            task_manager=task_manager,
+            task_activator=task_activator,
+            command_router=command_router,
+            pipeline_runner=pipeline_runner,
         )
 
     def for_profile(self, _profile: str) -> "Runtime":

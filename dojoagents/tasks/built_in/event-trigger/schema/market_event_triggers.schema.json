@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["event_time", "event_summary", "sector_impacts"],
+  "properties": {
+    "event_time": { "type": "string" },
+    "event_summary": {
+      "type": "object",
+      "required": ["headline", "category", "source", "content", "surprise"],
+      "properties": {
+        "headline": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+        },
+        "category": { "type": "string" },
+        "source": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+        },
+        "content": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+        },
+        "surprise": { "enum": ["expected", "slight", "significant"] }
+      }
+    },
+    "sector_impacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sector_id", "sector_name", "affected_markets", "direction", "reason"],
+        "properties": {
+          "sector_id": { "type": "string" },
+          "sector_name": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+          },
+          "affected_markets": {
+            "type": "array",
+            "items": { "enum": ["us", "cn", "hk"] },
+            "minItems": 1
+          },
+          "direction": { "enum": ["Positive", "Negative", "Divergent"] },
+          "reason": { "type": "string", "maxLength": 100 }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

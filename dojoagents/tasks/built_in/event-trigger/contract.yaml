@@ -1,0 +1,32 @@
+id: event-trigger
+name: 全球市场异动事件分析师
+version: 1
+harness_profile: artifact_synthesis
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - read_session_output
+  - write_session_file
+inputs:
+  - filename: market_news_raw_pack.json
+    format: json
+    required: true
+    source_task: sector-attribution
+    schema: schema/market_news_raw_pack.schema.json
+outputs:
+  - filename: market_event_triggers.jsonl
+    format: jsonl
+    required: true
+    schema: schema/market_event_triggers.schema.json
+triggers:
+  keywords:
+    - 市场触发事件
+    - 事件提炼
+    - event trigger
+  commands:
+    - /task event-trigger
+constraints:
+  must_read_input_before_write: true
+  forbid_full_json_in_chat: true

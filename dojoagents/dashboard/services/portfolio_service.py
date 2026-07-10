@@ -52,6 +52,7 @@ from dojoagents.dashboard.schemas.portfolio import (
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
+from dojoagents.dashboard.services.benchmark_store import DEFAULT_LOOKBACK_DAYS
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.portfolio_performance import (
     build_candidate_index_performance,
@@ -140,6 +141,18 @@ def _resolve_kline_limit(raw: dict) -> int:
     if not start:
         return KLINE_MAX_LIMIT
     return resolve_kline_limit_for_elapsed_days(start)
+
+
+def _resolve_benchmark_kline_limit(kline_limit: int) -> int:
+    """Match market-overview benchmark depth so portfolio NAV is not truncated early."""
+    return max(int(kline_limit), DEFAULT_LOOKBACK_DAYS)
+
+
+def _order_tickers_by_market(orders: list[dict]) -> dict[str, list[str]]:
+    return {
+        market: sorted(market_tickers_from_orders(orders, market=market))
+        for market in MARKETS
+    }
 
 
 def _config_capital_by_market(raw: dict) -> Optional[dict]:
@@ -240,6 +253,32 @@ def _ticker_closes_by_market_from_batch(
             if closes:
                 ticker_closes_by_market[market][ticker] = closes
     return ticker_closes_by_market
+
+
+async def _ensure_order_ticker_closes(
+    kline_store: KlineStore,
+    orders: list[dict],
+    ticker_closes_by_market: dict[str, dict[str, dict[str, float]]],
+    *,
+    chart_start: str,
+    kline_limit: int,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Backfill missing order-ticker closes after batch fetch (large candidate batches can drop symbols)."""
+    result = {market: dict(tickers) for market, tickers in ticker_closes_by_market.items()}
+    for market, tickers in _order_tickers_by_market(orders).items():
+        if not tickers:
+            continue
+        market_closes = result.setdefault(market, {})
+        for ticker in tickers:
+            if market_closes.get(ticker):
+                continue
+            kline = await kline_store.get_or_fetch_kline(ticker, limit=kline_limit)
+            if kline is None or not kline.bars:
+                continue
+            closes = _closes_from_kline_bars(kline.bars, chart_start=chart_start)
+            if closes:
+                market_closes[ticker] = closes
+    return result
 
 
 class PortfolioService:
@@ -974,28 +1013,50 @@ class PortfolioService:
             return cached
 
         kline_limit = _resolve_kline_limit(raw)
+        benchmark_kline_limit = _resolve_benchmark_kline_limit(kline_limit)
         chart_start = start_date if start_date >= DATA_START_DATE else DATA_START_DATE
         orders = [row for row in raw.get("orders") or [] if isinstance(row, dict)]
         candidate_rows = [row for row in raw.get("candidates") or [] if isinstance(row, dict)]
         performance_tickers = _collect_performance_tickers(orders, candidate_rows)
-        kline_batch = (
-            await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
-            if performance_tickers
+        order_tickers = sorted(
+            {
+                ticker
+                for market_tickers in _order_tickers_by_market(orders).values()
+                for ticker in market_tickers
+            }
+        )
+        order_kline_batch = (
+            await self.kline_store.get_klines(order_tickers, limit=kline_limit)
+            if order_tickers
             else ConstituentKlineBatchResponse(items={})
         )
+        if performance_tickers and set(performance_tickers) - set(order_tickers):
+            kline_batch = await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
+        else:
+            kline_batch = order_kline_batch
 
         ticker_closes_by_market = await self._load_order_ticker_closes_by_market(
             orders,
             chart_start=chart_start,
             kline_limit=kline_limit,
-            kline_batch=kline_batch,
+            kline_batch=order_kline_batch,
+        )
+        ticker_closes_by_market = await _ensure_order_ticker_closes(
+            self.kline_store,
+            orders,
+            ticker_closes_by_market,
+            chart_start=chart_start,
+            kline_limit=kline_limit,
         )
         benchmark_closes_by_market: dict[str, dict[str, float]] = {}
         calendar: set[str] = set()
 
         for market in MARKETS:
             benchmark_symbol = resolved_benchmarks[market]
-            benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
+            benchmark = await self.benchmark_store.get_kline(
+                benchmark_symbol,
+                limit=benchmark_kline_limit,
+            )
             if benchmark is None or not benchmark.bars:
                 continue
             benchmark_closes = {bar.bar_time[:10]: float(bar.close) for bar in benchmark.bars}
@@ -1051,7 +1112,10 @@ class PortfolioService:
             if not points or len(points) < 2:
                 return None
             benchmark_symbol = resolved_benchmarks[market]
-            benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
+            benchmark = await self.benchmark_store.get_kline(
+                benchmark_symbol,
+                limit=benchmark_kline_limit,
+            )
             if benchmark is None or not benchmark.bars:
                 return None
             benchmark_closes = {bar.bar_time[:10]: float(bar.close) for bar in benchmark.bars}

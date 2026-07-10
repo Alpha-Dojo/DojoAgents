@@ -265,17 +265,29 @@ async def _close_dojo_client(client: Any) -> None:
 
 
 async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
-    run = runtime.agent.run
-    if event_sink is None:
-        return await run(req)
-    try:
-        signature = inspect.signature(run)
-    except (TypeError, ValueError):
-        return await run(req, event_sink=event_sink)
-    accepts_event_sink = "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
-    if accepts_event_sink:
-        return await run(req, event_sink=event_sink)
-    return await run(req)
+    from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+
+    async def _inner(request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+        run = runtime.agent.run
+        if event_sink is None:
+            return await run(request)
+        try:
+            signature = inspect.signature(run)
+        except (TypeError, ValueError):
+            return await run(request, event_sink=event_sink)
+        accepts_event_sink = "event_sink" in signature.parameters or any(
+            param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
+        )
+        if accepts_event_sink:
+            return await run(request, event_sink=event_sink)
+        return await run(request)
+
+    return await run_agent_with_tasks(
+        runtime,
+        req,
+        run_agent=_inner,
+        event_sink=event_sink,
+    )
 
 
 def create_app(
@@ -586,6 +598,7 @@ def create_app(
                 request=req,
                 model=info.get("model", "default"),
                 agent=runtime.agent,
+                runtime=runtime,
                 on_started=_on_started,
                 on_completed=_on_completed,
                 on_failed=_on_failed,

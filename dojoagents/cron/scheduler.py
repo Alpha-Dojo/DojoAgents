@@ -4,6 +4,7 @@ from typing import Any
 
 from dojoagents.agent.models import AgentResponse
 from dojoagents.cron.jobs import JobRun, JobStore
+from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
 
 
 class SchedulerService:
@@ -24,7 +25,11 @@ class SchedulerService:
     async def run_job(self, job_id: str) -> JobRun:
         job = self.job_store.get(job_id)
         runtime = self.runtime_factory.for_profile(job.profile)
-        response: AgentResponse = await runtime.agent.run(job.to_chat_request())
+        response: AgentResponse = await run_agent_with_tasks(
+            runtime,
+            job.to_chat_request(),
+            run_agent=runtime.agent.run,
+        )
         run = self.job_store.save_output(job, response.content)
         if job.delivery and self.gateway is not None:
             await self.gateway.send(job.delivery, response.content)

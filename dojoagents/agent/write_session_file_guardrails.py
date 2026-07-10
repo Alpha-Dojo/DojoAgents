@@ -49,6 +49,50 @@ class WriteSessionFileClassification:
 DEFAULT_WRITE_SESSION_FILE_CLASSIFICATION = WriteSessionFileClassification()
 
 
+def active_task_metadata(request_metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(request_metadata, dict):
+        return None
+    active = request_metadata.get("active_task")
+    if not isinstance(active, dict):
+        return None
+    task_id = str(active.get("task_id") or "").strip()
+    return active if task_id else None
+
+
+def task_required_output_filenames(request_metadata: dict[str, Any] | None) -> set[str]:
+    active = active_task_metadata(request_metadata)
+    if active is None:
+        return set()
+    outputs = active.get("outputs")
+    if not isinstance(outputs, list):
+        return set()
+    names: set[str] = set()
+    for item in outputs:
+        if isinstance(item, dict):
+            filename = str(item.get("filename") or "").strip()
+            if filename:
+                names.add(filename)
+    return names
+
+
+def should_allow_write_session_file_for_task(
+    request_metadata: dict[str, Any] | None,
+    *,
+    filename: str = "",
+) -> bool:
+    """Task/pipeline runs declare required output artifacts; those writes are always allowed."""
+    active = active_task_metadata(request_metadata)
+    if active is None:
+        return False
+    required = task_required_output_filenames(request_metadata)
+    if not required:
+        return True
+    safe_name = str(filename or "").strip()
+    if not safe_name:
+        return True
+    return safe_name in required
+
+
 def _parse_classifier_json(content: str) -> dict[str, Any] | None:
     text = (content or "").strip()
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
@@ -100,6 +144,11 @@ async def classify_write_session_file(
 ) -> WriteSessionFileClassification:
     """Use the configured LLM to decide whether a session file write is user-requested."""
     metadata = request_metadata if isinstance(request_metadata, dict) else {}
+    if should_allow_write_session_file_for_task(metadata, filename=filename):
+        return WriteSessionFileClassification(
+            allow_write=True,
+            explanation="Task mode required output artifact.",
+        )
     cache_bucket = metadata.setdefault("_write_session_file_classifications", {})
     cache_key = _turn_cache_key(user_message, history)
     if isinstance(cache_bucket, dict) and cache_key in cache_bucket:
