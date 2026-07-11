@@ -7,7 +7,7 @@
   min-height: 0;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background: #07101AE5;
+  background: var(--bg-panel);
   overflow: hidden;
   display: flex;
   flex-direction: column;

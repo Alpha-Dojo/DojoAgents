@@ -245,7 +245,6 @@
 .market-hero {
   padding: 12px 14px 10px;
   border-radius: 8px;
-  background: linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-panel) 100%);
   display: flex;
   flex-direction: column;
   gap: 10px;
