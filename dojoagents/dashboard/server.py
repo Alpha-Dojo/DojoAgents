@@ -632,13 +632,7 @@ def create_app(
         record = manager.get(run_id)
         if record is None:
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
-        return {
-            "run_id": record.id,
-            "session_id": record.session_id,
-            "status": record.status,
-            "event_count": len(record.events),
-            "model": record.model,
-        }
+        return record.to_status_dict()
 
     @app.post("/api/chat/runs/{run_id}/cancel")
     async def cancel_chat_run(run_id: str) -> Any:
