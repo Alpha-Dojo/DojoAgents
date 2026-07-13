@@ -19,7 +19,14 @@ from dojoagents.dashboard.schemas.portfolio import PortfolioDetail
 
 
 def test_risk_stats_are_deterministic_for_rebased_nav() -> None:
-    stats = compute_risk_stats([100.0, 110.0, 99.0])
+    stats = compute_risk_stats(
+        {
+            "2026-01-01": 100.0,
+            "2026-01-02": 110.0,
+            "2026-01-03": 99.0,
+        },
+        trading_days=["2026-01-01", "2026-01-02", "2026-01-03"],
+    )
 
     assert stats.trading_days == 3
     assert stats.cumulative_return_pct == pytest.approx(-1.0)
@@ -27,6 +34,63 @@ def test_risk_stats_are_deterministic_for_rebased_nav() -> None:
     assert stats.volatility_pct is not None and stats.volatility_pct > 0
     assert stats.sharpe_ratio is not None
     assert stats.calmar_ratio is not None
+
+
+def test_risk_stats_forward_fill_invalid_nav_on_trading_day() -> None:
+    stats = compute_risk_stats(
+        {
+            "2026-01-01": 100.0,
+            "2026-01-02": 0.0,
+            "2026-01-03": 105.0,
+        },
+        trading_days=["2026-01-01", "2026-01-02", "2026-01-03"],
+    )
+
+    assert stats.cumulative_return_pct == pytest.approx(5.0)
+    assert stats.trading_days == 3
+    assert stats.volatility_pct is not None and stats.volatility_pct > 0
+
+
+def test_risk_stats_forward_fill_missing_trading_day() -> None:
+    stats = compute_risk_stats(
+        {"2026-01-01": 100.0, "2026-01-03": 105.0},
+        trading_days=["2026-01-01", "2026-01-02", "2026-01-03"],
+    )
+
+    assert stats.cumulative_return_pct == pytest.approx(5.0)
+    assert stats.trading_days == 3
+    assert stats.volatility_pct is not None and stats.volatility_pct > 0
+
+
+def test_risk_stats_forward_fill_preserves_drawdown_through_invalid_nav() -> None:
+    stats = compute_risk_stats(
+        {
+            "2026-01-01": 100.0,
+            "2026-01-02": 0.0,
+            "2026-01-03": 80.0,
+        },
+        trading_days=["2026-01-01", "2026-01-02", "2026-01-03"],
+    )
+
+    assert stats.cumulative_return_pct == pytest.approx(-20.0)
+    assert stats.max_drawdown_pct == pytest.approx(-20.0)
+
+
+def test_risk_stats_use_market_trading_calendar_for_sparse_nav() -> None:
+    from dojoagents.dashboard.services.market_trading_calendar import trading_days_for_market
+
+    trading_days = trading_days_for_market("us", "2026-01-02", "2026-01-06")
+    stats = compute_risk_stats(
+        {
+            "2026-01-02": 100.0,
+            "2026-01-06": 102.0,
+        },
+        trading_days=trading_days,
+    )
+
+    assert stats.cumulative_return_pct == pytest.approx(2.0)
+    assert stats.trading_days == len(trading_days)
+    assert stats.volatility_pct is not None and stats.volatility_pct > 0
 
 
 def test_market_nav_is_flat_before_first_order() -> None:
@@ -38,15 +102,16 @@ def test_market_nav_is_flat_before_first_order() -> None:
         ticker_closes={},
         benchmark_symbol="^SPX",
         benchmark_closes={
-            "2026-01-01": 100,
-            "2026-01-02": 101,
-            "2026-01-03": 102,
+            "2026-01-02": 100,
+            "2026-01-05": 101,
+            "2026-01-06": 102,
         },
     )
 
-    assert result.dates == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert result.dates == ["2026-01-02", "2026-01-05", "2026-01-06"]
     assert result.portfolio == pytest.approx([100, 100, 100])
     assert result.benchmark == pytest.approx([100, 101, 102])
+    assert result.stats.trading_days >= 3
 
 
 def test_market_nav_includes_cash_balance_and_positions() -> None:
@@ -61,28 +126,28 @@ def test_market_nav_includes_cash_balance_and_positions() -> None:
                 "qty": 100,
                 "price": 393.6,
                 "fill_price": 393.6,
-                "fill_time": "2026-03-01T00:00:00+00:00",
-                "created_at": "2026-03-01T00:00:00+00:00",
+                "fill_time": "2026-03-02T00:00:00+00:00",
+                "created_at": "2026-03-02T00:00:00+00:00",
             }
         ],
         initial_capital=1_000_000,
         start_date="2026-01-01",
         ticker_closes={
             "MU": {
-                "2026-01-01": 300,
-                "2026-03-01": 400,
-                "2026-03-02": 440,
+                "2026-01-02": 300,
+                "2026-03-02": 400,
+                "2026-03-03": 440,
             }
         },
         benchmark_symbol="^SPX",
         benchmark_closes={
-            "2026-01-01": 100,
-            "2026-03-01": 110,
-            "2026-03-02": 112,
+            "2026-01-02": 100,
+            "2026-03-02": 110,
+            "2026-03-03": 112,
         },
     )
 
-    assert result.dates == ["2026-01-01", "2026-03-01", "2026-03-02"]
+    assert result.dates == ["2026-01-02", "2026-03-02", "2026-03-03"]
     assert result.portfolio[0] == pytest.approx(100)
     # 2026-03-01: cash 960640 + 100 * 400 = 1_000_640
     assert result.portfolio[1] == pytest.approx(100.064)
@@ -105,8 +170,8 @@ def test_market_nav_extends_cash_only_market_to_unified_calendar() -> None:
         calendar_dates=["2026-01-01", "2026-06-23", "2026-06-29"],
     )
 
-    assert result.dates == ["2026-01-01", "2026-06-23", "2026-06-29"]
-    assert result.portfolio == pytest.approx([100, 100, 100])
+    assert result.dates == ["2026-06-23", "2026-06-29"]
+    assert result.portfolio == pytest.approx([100, 100])
 
 
 @pytest.mark.asyncio
@@ -189,7 +254,7 @@ async def test_build_performance_batches_order_klines(tmp_path) -> None:
                         ),
                         StockKlineBar(
                             symbol=symbol,
-                            bar_time="2026-01-03",
+                            bar_time="2026-01-05",
                             open=110,
                             high=110,
                             low=110,
@@ -231,7 +296,7 @@ async def test_build_performance_batches_order_klines(tmp_path) -> None:
                     ),
                     StockKlineBar(
                         symbol="^SPX",
-                        bar_time="2026-01-03",
+                        bar_time="2026-01-05",
                         open=101,
                         high=101,
                         low=101,
