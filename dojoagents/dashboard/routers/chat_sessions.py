@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from dojoagents.dashboard.schemas.chat_sessions import ChatSessionExportRequest
+from dojoagents.dashboard.deps import get_chat_session_service
+from dojoagents.dashboard.services.chat_session_service import ChatSessionService
+from dojoagents.dashboard.schemas.chat_sessions import (
+    ArchiveChatSessionResponse,
+    ChatSessionExportRequest,
+    ChatSessionExportResponse,
+    ChatSessionListResponse,
+    ChatSessionMessagesResponse,
+    ChatSessionSummaryResponse,
+)
 from dojoagents.dashboard.schemas.session_inputs import (
     SessionInputRevealResponse,
     SessionInputsResponse,
@@ -30,14 +37,6 @@ from dojoagents.logging import LOGGER
 router = APIRouter(prefix="/chat/sessions", tags=["chat-sessions"])
 
 
-def _session_manager(request: Request) -> Any:
-    runtime = getattr(request.app.state, "runtime", None)
-    sessions = getattr(runtime, "sessions", None)
-    if sessions is None:
-        raise RuntimeError("session manager is not initialized")
-    return sessions
-
-
 def _sessions_root(request: Request) -> Path:
     store = getattr(request.app.state, "config_store", None)
     if store is None:
@@ -48,62 +47,59 @@ def _sessions_root(request: Request) -> Path:
     return Path(store.snapshot().sessions.root).expanduser().resolve()
 
 
-@router.get("")
+@router.get("", response_model=ChatSessionListResponse)
 async def list_chat_sessions(
-    request: Request,
     limit: int = 50,
     cursor: str | None = None,
     include_archived: bool = False,
+    service: ChatSessionService = Depends(get_chat_session_service),
 ) -> Any:
-    sessions = _session_manager(request)
-    result = await sessions.list_sessions(limit=limit, cursor=cursor, include_archived=include_archived)
-    return {"sessions": [asdict(item) for item in result.sessions], "next_cursor": result.next_cursor}
+    return await service.list_sessions(limit=limit, cursor=cursor, include_archived=include_archived)
 
 
-@router.get("/{session_id}")
-async def get_chat_session(request: Request, session_id: str) -> Any:
-    sessions = _session_manager(request)
-    result = await sessions.get_session(session_id)
+@router.get("/{session_id}", response_model=ChatSessionSummaryResponse)
+async def get_chat_session(
+    session_id: str,
+    service: ChatSessionService = Depends(get_chat_session_service),
+) -> Any:
+    result = await service.get_session(session_id)
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-    return asdict(result)
+    return result
 
 
-@router.get("/{session_id}/messages")
+@router.get("/{session_id}/messages", response_model=ChatSessionMessagesResponse)
 async def get_chat_session_messages(
-    request: Request,
     session_id: str,
     limit: int = 200,
     offset: int = 0,
+    service: ChatSessionService = Depends(get_chat_session_service),
 ) -> Any:
-    sessions = _session_manager(request)
-    if await sessions.get_session(session_id) is None:
+    result = await service.get_messages(session_id, limit=limit, offset=offset)
+    if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-    result = await sessions.get_messages(session_id, limit=limit, offset=offset)
-    turns = await sessions.get_turns(session_id) if offset == 0 else []
-    return {
-        "session_id": result.session_id,
-        "agent_id": result.agent_id,
-        "messages": [asdict(item) for item in result.messages],
-        "next_offset": result.next_offset,
-        "turns": turns,
-    }
+    turns = await service.get_turns(session_id) if offset == 0 else []
+    result.turns = turns
+    return result
 
 
-@router.post("/{session_id}/archive")
-async def archive_chat_session(request: Request, session_id: str) -> Any:
-    sessions = _session_manager(request)
-    archived = await sessions.archive_session(session_id)
-    if not archived:
+@router.post("/{session_id}/archive", response_model=ArchiveChatSessionResponse)
+async def archive_chat_session(
+    session_id: str,
+    service: ChatSessionService = Depends(get_chat_session_service),
+) -> Any:
+    result = await service.archive_session(session_id)
+    if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-    return {"archived": True, "session_id": session_id}
+    return result
 
 
-@router.post("/export")
-async def export_chat_sessions(request: Request, payload: ChatSessionExportRequest) -> Any:
-    sessions = _session_manager(request)
-    result = await sessions.export_all(payload.model_dump())
-    return asdict(result)
+@router.post("/export", response_model=ChatSessionExportResponse)
+async def export_chat_sessions(
+    payload: ChatSessionExportRequest,
+    service: ChatSessionService = Depends(get_chat_session_service),
+) -> Any:
+    return await service.export_sessions(payload)
 
 
 @router.get("/{session_id}/outputs", response_model=SessionOutputsResponse)
