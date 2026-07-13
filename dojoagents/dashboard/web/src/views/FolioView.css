@@ -7,9 +7,6 @@
   flex-direction: column;
   overflow: hidden;
   padding: 8px 12px 10px;
-  background:
-    radial-gradient(ellipse 70% 40% at 50% -20%, rgba(0, 229, 255, 0.05), transparent 60%),
-    var(--bg-deep);
 }
 
 .folio-view--empty {
@@ -28,13 +25,12 @@
 }
 
 .folio-view__layout--sidebar-collapsed {
-  grid-template-columns: minmax(48px, 48px) minmax(0, 1fr);
+  grid-template-columns: minmax(48px, 48px) minmax(0, 1fr) !important;
 }
 
 .folio-card {
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -965,6 +961,7 @@
   flex: 1;
   min-width: 0;
   height: 100%;
+  background: var(--bg-panel);
 }
 
 .folio-overview__top-main .folio-headline,
@@ -1112,7 +1109,6 @@
   overflow: hidden;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background: rgba(6, 16, 30, 0.58);
 }
 
 .folio-config-inline__aside {
@@ -1146,7 +1142,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: hidden;
 }
 
@@ -1164,7 +1160,6 @@
   font-size: 10px;
   font-weight: var(--panel-title-weight, 700);
   line-height: 1.2;
-  background: rgba(255, 255, 255, 0.025);
 }
 
 .folio-config-inline__matrix-head > span,
@@ -2197,7 +2192,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 8px;
 }
 
 .folio-overview__split {
@@ -2205,7 +2200,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin-top: 2px;
 }
 
 .folio-overview__split--resizing {
@@ -2221,8 +2215,8 @@
 
 .folio-overview__resize-handle {
   flex-shrink: 0;
-  height: 6px;
-  margin: -1px 0;
+  height: 8px;
+  margin: 0;
   cursor: row-resize;
   touch-action: none;
   position: relative;
@@ -2234,7 +2228,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 2px;
+  top: 3px;
   height: 2px;
   border-radius: 999px;
   background: transparent;
@@ -2314,8 +2308,7 @@
   min-height: 0;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
-  background: #07101AE5;
-  /* background: linear-gradient(180deg, rgba(14, 26, 44, 0.98) 0%, rgba(9, 17, 30, 0.99) 100%); */
+  background: var(--bg-panel);
   overflow: hidden;
 }
 
@@ -3544,7 +3537,6 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 6px 8px;
 }
 
 .folio-holdings__table-scroll {
