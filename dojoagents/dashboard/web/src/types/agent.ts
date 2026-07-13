@@ -15,6 +15,21 @@ export interface AgentModelsResponse {
   models: AgentModelItem[];
 }
 
+export interface AgentSessionTokenStatus {
+  last_prompt_tokens: number;
+  last_completion_tokens: number;
+  last_total_tokens: number;
+  session_max_tokens: number;
+  compression_threshold_ratio: number;
+  utilization_ratio: number;
+  cumulative_prompt_tokens: number;
+  cumulative_completion_tokens: number;
+  cumulative_total_tokens: number;
+  compression_count: number;
+  model_context_window: number;
+  loop_count: number;
+}
+
 export type AgentChatRole = 'user' | 'assistant';
 
 export type AgentApiContentPart =
@@ -38,6 +53,8 @@ export interface AgentToolActivityItem {
   data?: Record<string, unknown> | null;
   resultSummary?: string | null;
   resultContent?: string | null;
+  /** Allows server-history reconstruction to expose raw non-code tool output. */
+  showRawResultContent?: boolean;
   vizBlocks?: import('./agentViz').AgentVizBlock[];
 }
 
@@ -136,9 +153,105 @@ export interface AgentSession {
   messages: AgentChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** Server-discovered sessions hydrate their messages lazily on first selection. */
+  source?: 'local' | 'server';
+  messagesHydrated?: boolean;
+  /** Whether persisted server turn events have been rebuilt into activitySteps. */
+  activityHydrated?: boolean;
+  /** Bumped when server-history activity reconstruction gains new sources. */
+  activityHydrationVersion?: number;
   /** Monotonic local version used to resolve async persistence races. */
   revision?: number;
 }
+
+export interface AgentServerSessionSummary {
+  session_id: string;
+  agent_id: string;
+  title: string;
+  user_id: string;
+  channel: string;
+  model: string;
+  locale: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  turn_count: number;
+  run_count: number;
+  last_run_id?: string | null;
+  status: string;
+  archived: boolean;
+}
+
+export interface AgentServerSessionListResponse {
+  sessions: AgentServerSessionSummary[];
+  next_cursor: string | null;
+}
+
+export interface AgentServerSessionMessage {
+  message_id: number;
+  role: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+  raw: Record<string, unknown>;
+  raw_strands?: Record<string, unknown>;
+  openai_messages?: Array<Record<string, unknown>>;
+  tool_results?: AgentServerProjectedToolResult[];
+}
+
+export interface AgentServerProjectedToolResult {
+  call_id: string;
+  tool: string;
+  content: string;
+  data?: Record<string, unknown> | null;
+  viz_blocks?: import('./agentViz').AgentVizBlock[];
+  truncated?: boolean;
+}
+
+export interface AgentServerSessionMessagesResponse {
+  session_id: string;
+  agent_id: string;
+  messages: AgentServerSessionMessage[];
+  next_offset: number | null;
+  turns?: AgentServerSessionTurn[];
+}
+
+export interface AgentServerSessionTurn {
+  schema_version?: number;
+  turn_id?: string;
+  run_id?: string | null;
+  events?: AgentServerSessionEvent[];
+  tool_trace?: AgentServerToolTrace[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AgentServerToolTrace {
+  call_id?: string;
+  tool?: string;
+  arguments?: Record<string, unknown>;
+  ok?: boolean;
+  latency_ms?: number;
+  error?: string | null;
+  content?: string;
+  data?: Record<string, unknown> | null;
+  viz_blocks?: import('./agentViz').AgentVizBlock[];
+}
+
+export type AgentServerSessionEvent = {
+  type: string;
+  call_id?: string;
+  tool?: string;
+  arguments?: Record<string, unknown>;
+  ok?: boolean;
+  content?: string;
+  error?: string;
+  latency_ms?: number;
+  data?: Record<string, unknown> | null;
+  viz_blocks?: import('./agentViz').AgentVizBlock[];
+  issues?: string[];
+  text?: string;
+};
 
 export interface AgentSessionOutputFile {
   filename: string;

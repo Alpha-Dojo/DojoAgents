@@ -80,11 +80,13 @@ async def get_chat_session_messages(
     if await sessions.get_session(session_id) is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
     result = await sessions.get_messages(session_id, limit=limit, offset=offset)
+    turns = await sessions.get_turns(session_id) if offset == 0 else []
     return {
         "session_id": result.session_id,
         "agent_id": result.agent_id,
         "messages": [asdict(item) for item in result.messages],
         "next_offset": result.next_offset,
+        "turns": turns,
     }
 
 

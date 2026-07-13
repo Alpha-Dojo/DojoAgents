@@ -1668,6 +1668,228 @@
   background: rgba(0, 0, 0, 0.12);
 }
 
+.dojo-agent-command-palette,
+.dojo-agent-status {
+  margin-bottom: 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.dojo-agent-command-palette {
+  padding: 6px;
+}
+
+.dojo-agent-command-palette__label {
+  margin: 0;
+  padding: 4px 7px 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dojo-agent-command-palette__option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dojo-agent-command-palette__option:hover,
+.dojo-agent-command-palette__option.is-selected {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dojo-agent-command-palette__icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgba(0, 229, 255, 0.09);
+  color: var(--cyan);
+  font-size: 16px;
+}
+
+.dojo-agent-command-palette__copy {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.dojo-agent-command-palette__copy strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dojo-agent-command-palette__copy span {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dojo-agent-command-palette kbd {
+  color: var(--text-dim);
+  font: 11px var(--font-mono);
+}
+
+.dojo-agent-status {
+  padding: 10px 12px 12px;
+}
+
+.dojo-agent-status__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.dojo-agent-status__head button {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dojo-agent-status__head button:hover {
+  color: var(--text-primary);
+}
+
+.dojo-agent-status__notice,
+.dojo-agent-status__error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.dojo-agent-status__error {
+  color: #f87171;
+}
+
+.dojo-agent-status__summary,
+.dojo-agent-status__details {
+  margin: 0;
+}
+
+.dojo-agent-status__summary > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dojo-agent-status dt {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.dojo-agent-status dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font: 11px var(--font-mono);
+}
+
+.dojo-agent-status__summary dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dojo-agent-status__summary dd span {
+  margin-left: 8px;
+  color: var(--green);
+}
+
+.dojo-agent-status--warning .dojo-agent-status__summary dd span {
+  color: #f59e0b;
+}
+
+.dojo-agent-status__meter {
+  position: relative;
+  height: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dojo-agent-status__meter span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+
+.dojo-agent-status--warning .dojo-agent-status__meter span {
+  background: #f59e0b;
+}
+
+.dojo-agent-status__meter i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.dojo-agent-status__meter-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 5px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.dojo-agent-status__details {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-dim);
+}
+
+.dojo-agent-status__details div {
+  min-width: 0;
+}
+
+.dojo-agent-status__details dd {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 620px) {
+  .dojo-agent-status__details {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dojo-agent-command-palette__copy span {
+    display: none;
+  }
+}
+
 .dojo-agent-panel__hint,
 .dojo-agent-panel__error {
   margin: 0 0 8px;
@@ -2031,4 +2253,3 @@
 .dojo-agent-panel__files-sidebar {
   padding-bottom: 8px;
 }
-
