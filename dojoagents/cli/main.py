@@ -84,6 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
     precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
     precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
 
+    from dojoagents.cli.tasks import add_tasks_parser
+
+    add_tasks_parser(sub)
+
     return parser
 
 
@@ -221,6 +225,10 @@ def main(argv: list[str] | None = None) -> int:
         from dojoagents.cli.precompute_sector import run_precompute_sector
 
         return asyncio.run(run_precompute_sector(args))
+    if args.command == "tasks":
+        from dojoagents.cli.tasks import run_tasks_command
+
+        return asyncio.run(run_tasks_command(args))
     return 2
 
 

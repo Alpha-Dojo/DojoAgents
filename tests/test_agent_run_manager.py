@@ -163,6 +163,14 @@ def test_create_background_run_and_fetch_status_and_events():
     assert tool_result["viz_blocks"][0]["kind"] == "table"
     assert done["tool_trace"][0]["arguments"] == {"name": "Quality"}
 
+    final_status = client.get(f"/api/chat/runs/{body['run_id']}")
+    assert final_status.status_code == 200
+    final = final_status.json()
+    assert final["status"] == "done"
+    assert final["metadata"]["usage"]["total_tokens"] == 2
+    assert final["pipeline_completed"] is None
+    assert final["content"] == "done"
+
 
 def test_background_run_events_respect_cursor():
     client = TestClient(_make_app())
