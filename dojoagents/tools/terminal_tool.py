@@ -57,7 +57,10 @@ async def handle_terminal(args: dict, policy: SandboxPolicy) -> dict:
 def get_terminal_spec(policy: SandboxPolicy) -> ToolSpec:
     return ToolSpec(
         name="terminal",
-        description="Execute shell commands on a Linux environment.",
+        description=(
+            "Execute shell commands on a Linux environment. "
+            "Do NOT use for writing JSON/JSONL deliverables — use write_session_file instead."
+        ),
         parameters={
             "type": "object",
             "properties": {

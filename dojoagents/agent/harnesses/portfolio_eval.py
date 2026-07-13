@@ -160,6 +160,7 @@ def eval_summary_from_detail(data: object) -> dict[str, Any]:
             "CANDIDATES (候选股/watchlist): use portfolio_write_add_candidate(s). "
             "Set min_candidate_count only for watchlist tasks. "
             "POSITIONS (持仓/建仓/buy at cost): use portfolio_write_create_order(s). "
+            "POSITION SYNC (仓位同步/外部导入): use portfolio_write_sync_positions — NOT create_order. "
             "Set min_position_count for 建仓 tasks. "
             "Set max_position_count=0 for 清仓/liquidation tasks. "
             "Use ACTUAL counts from this summary — never pre-add estimates."

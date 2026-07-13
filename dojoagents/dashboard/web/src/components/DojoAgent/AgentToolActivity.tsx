@@ -8,10 +8,12 @@ import {
   getExecuteCodeResultContent,
   getExecuteCodeSource,
 } from '../../utils/agentToolDetail';
+import { parseSessionOutputFilesFromToolData } from '../../utils/sessionOutputFiles';
 import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
 import doneIcon from '../../assets/svg/done.svg';
 import errorIcon from '../../assets/svg/error.svg';
 import { ChevronIcon } from '../Folio/FolioSidebarIcons';
+import { AgentSessionOutputFile } from './AgentSessionOutputFile';
 import { AgentVizBlockView } from './viz/AgentVizPanel';
 
 function ToolStepDetails({
@@ -71,9 +73,10 @@ function ToolStepDetails({
 
 interface AgentToolStepProps {
   item: AgentToolActivityItem;
+  sessionId?: string | null;
 }
 
-export function AgentToolStep({ item }: AgentToolStepProps) {
+export function AgentToolStep({ item, sessionId = null }: AgentToolStepProps) {
   const { t, locale } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const uiLocale = locale === 'zh' ? 'zh' : 'en';
@@ -83,7 +86,10 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
   const resultContent = getExecuteCodeResultContent(item.tool, item.resultContent);
   const resultDetail = item.resultSummary ?? null;
   const vizBlocks = item.vizBlocks ?? [];
-  const showInlineResult = Boolean(resultDetail) && vizBlocks.length === 0 && !codeSource;
+  const outputFiles =
+    item.status === 'done' ? parseSessionOutputFilesFromToolData(item.tool, item.data) : [];
+  const showInlineResult =
+    Boolean(resultDetail) && vizBlocks.length === 0 && !codeSource && outputFiles.length === 0;
   const canExpandDetails =
     Boolean(codeSource) ||
     Boolean(resultContent) ||
@@ -148,6 +154,17 @@ export function AgentToolStep({ item }: AgentToolStepProps) {
             ) : null}
           </button>
           {argDetail ? <p className="dojo-agent-tool-activity__detail">{argDetail}</p> : null}
+          {outputFiles.length > 0 && sessionId
+            ? outputFiles.map((outputFile) => (
+                <AgentSessionOutputFile
+                  key={`${outputFile.filename}:${outputFile.path}`}
+                  sessionId={sessionId}
+                  filename={outputFile.filename}
+                  path={outputFile.path}
+                  bytesWritten={outputFile.bytes_written}
+                />
+              ))
+            : null}
           {showInlineResult && item.status === 'done' ? (
             <p className="dojo-agent-tool-activity__detail dojo-agent-tool-activity__detail--result">
               {resultDetail}

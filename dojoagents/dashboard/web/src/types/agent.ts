@@ -64,11 +64,24 @@ export interface AgentChatImageAttachment {
   name?: string;
 }
 
+export interface AgentSessionInputFile {
+  filename: string;
+  path: string;
+  bytes: number;
+  kind: string;
+  updated_at?: string;
+  summary?: string | null;
+  preview_text?: string | null;
+  truncated?: boolean;
+}
+
 export interface AgentChatMessage {
   role: AgentChatRole;
   content: string;
   /** Pasted or uploaded images attached to a user message. */
   images?: AgentChatImageAttachment[];
+  /** Uploaded session input files attached to a user message. */
+  attachments?: AgentSessionInputFile[];
   /** Chronological stream of thinking, tools, and eval hints. */
   activitySteps?: AgentActivityStep[];
   /** @deprecated Migrated into activitySteps for display order. */
@@ -86,10 +99,13 @@ export interface AgentChatRequest {
   model_id: string;
   messages: AgentApiMessage[];
   locale?: AgentLocale;
+  /** IANA timezone from dashboard trading clock (e.g. Asia/Shanghai). */
+  timezone_iana?: string;
   dashboard_tab?: string;
   use_tools?: boolean;
   max_tool_steps?: number;
   exclude_mutating_tools?: boolean;
+  session_attachments?: AgentSessionInputFile[];
 }
 
 export interface AgentToolTraceItem {
@@ -122,6 +138,25 @@ export interface AgentSession {
   updatedAt: number;
   /** Monotonic local version used to resolve async persistence races. */
   revision?: number;
+}
+
+export interface AgentSessionOutputFile {
+  filename: string;
+  path: string;
+  bytes_written: number;
+  updated_at: string;
+}
+
+export interface AgentSessionOutputsResponse {
+  session_id: string;
+  output_dir: string;
+  files: AgentSessionOutputFile[];
+}
+
+export interface AgentSessionInputsResponse {
+  session_id: string;
+  input_dir: string;
+  files: AgentSessionInputFile[];
 }
 
 export interface AgentSessionStore {

@@ -4,6 +4,7 @@ import type {
   AgentSession,
   AgentSessionStore,
 } from '../types/agent';
+import { parseSessionOutputFilesFromToolData } from '../utils/sessionOutputFiles';
 
 export const MAX_AGENT_SESSIONS = 50;
 export const MAX_AGENT_SESSION_STORAGE_BYTES = 3_500_000;
@@ -41,6 +42,30 @@ function compactActivityStep(step: AgentActivityStep): AgentActivityStep {
   if (step.kind !== 'tool' || step.item.status !== 'done' || step.item.data == null) {
     return step;
   }
+  const outputFiles = parseSessionOutputFilesFromToolData(step.item.tool, step.item.data);
+  if (outputFiles.length > 0) {
+    const { data: _data, ...item } = step.item;
+    return {
+      ...step,
+      item: {
+        ...item,
+        data: {
+          session_output_files: outputFiles.map((file) => ({
+            filename: file.filename,
+            path: file.path,
+            ...(typeof file.bytes_written === 'number'
+              ? { bytes_written: file.bytes_written }
+              : {}),
+          })),
+          filename: outputFiles[outputFiles.length - 1]?.filename,
+          path: outputFiles[outputFiles.length - 1]?.path,
+          ...(typeof outputFiles[outputFiles.length - 1]?.bytes_written === 'number'
+            ? { bytes_written: outputFiles[outputFiles.length - 1]?.bytes_written }
+            : {}),
+        },
+      },
+    };
+  }
   const { data: _data, ...item } = step.item;
   return { ...step, item };
 }
@@ -61,11 +86,19 @@ export function compactMessagesForStorage(
       const { data: _data, ...compacted } = item;
       return compacted;
     });
-    const { images: _images, ...rest } = message;
+    const { images: _images, attachments: _attachments, ...rest } = message;
+    const compactAttachments = message.attachments?.map((file) => ({
+      filename: file.filename,
+      path: file.path,
+      bytes: file.bytes,
+      kind: file.kind,
+      summary: file.summary ?? null,
+    }));
     return {
       ...rest,
       ...(activitySteps ? { activitySteps } : {}),
       ...(toolActivity ? { toolActivity } : {}),
+      ...(compactAttachments?.length ? { attachments: compactAttachments } : {}),
     };
   });
 }

@@ -23,7 +23,8 @@
 
 .dojo-loading--page {
   width: 100%;
-  min-height: min(360px, 48vh);
+  height: 100%;
+  flex: 1;
   flex-direction: column;
   gap: 14px;
 }

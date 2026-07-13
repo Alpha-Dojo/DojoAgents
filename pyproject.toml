@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.1.4"
+version = "0.1.6"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -29,6 +29,8 @@ dependencies = [
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
+    "openpyxl>=3.1.0,<4",
+    "pypdf>=5.0.0,<7",
 ]
 
 

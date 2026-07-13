@@ -111,6 +111,28 @@ Export endpoint:
 POST /api/v1/chat/sessions/export
 ```
 
+Export all sessions by omitting `session_id`, or export one session by passing it:
+
+```json
+{
+  "session_id": "session-123",
+  "output_dir": "~/Desktop/dojo-chat-export",
+  "include_archived": true
+}
+```
+
+CLI export:
+
+```bash
+dojoagents sessions export \
+  --config ~/.dojo/agents.yaml \
+  --session-id session-123 \
+  --output-dir ~/Desktop/dojo-chat-export \
+  --include-archived
+```
+
+The API and CLI use the same runtime session export implementation. The CLI reads `sessions.root`, `sessions.agent_id`, and `sessions.export_default_dir` from the config file, and is useful for backups or dataset generation without starting the dashboard server. Omit `--session-id` to export all visible sessions. If the requested session is archived, include `include_archived` or `--include-archived`.
+
 If no output directory is provided, exports go to:
 
 ```text
@@ -121,11 +143,12 @@ An export bundle includes:
 
 - `sessions.json`
 - `messages.jsonl`
+- `openai_dataset.jsonl`
 - `manifest.json`
 - `transcripts/*.md`
 - a `strands/` copy of raw session files
 
-This is suitable for audit, replay, backup, and external archival workflows.
+`messages.jsonl` contains per-message audit rows. `openai_dataset.jsonl` contains one OpenAI-compatible conversation record per session in the form `{"messages": [...]}`, including standard `tool_calls` and `tool_call_id` fields for tool use. This is suitable for audit, replay, backup, external archival workflows, and dataset preparation.
 
 ## Development Notes
 

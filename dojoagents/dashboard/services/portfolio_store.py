@@ -447,6 +447,21 @@ class PortfolioStore:
         del shares
         return self.add_candidate(portfolio_id, ticker=ticker, market=market)
 
+    def _candidate_row_matches(
+        self,
+        row: Any,
+        *,
+        ticker: str,
+        market: Optional[str],
+    ) -> bool:
+        if not isinstance(row, dict):
+            return False
+        if str(row.get("ticker")) != ticker:
+            return False
+        if market is None:
+            return True
+        return str(row.get("market")) == market
+
     def remove_candidate(
         self,
         portfolio_id: str,
@@ -454,34 +469,59 @@ class PortfolioStore:
         ticker: str,
         market: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
-        payload = self._read_portfolio_file(portfolio_id)
-        if not payload:
-            return None
+        return self.remove_candidates_batch(
+            portfolio_id,
+            entries=[(ticker.strip(), market)],
+            single_entry_not_found_returns_none=True,
+        )
 
-        candidates = payload.setdefault("candidates", [])
-        if not isinstance(candidates, list):
-            candidates = []
-            payload["candidates"] = candidates
+    def remove_candidates_batch(
+        self,
+        portfolio_id: str,
+        *,
+        entries: list[tuple[str, Optional[str]]],
+        single_entry_not_found_returns_none: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        if not entries:
+            return self._read_portfolio_file(portfolio_id)
 
-        target_ticker = ticker.strip()
-        before = len(candidates)
-        payload["candidates"] = [
-            row
-            for row in candidates
-            if not (
-                isinstance(row, dict)
-                and str(row.get("ticker")) == target_ticker
-                and (market is None or str(row.get("market")) == market)
-            )
-        ]
-        if len(payload["candidates"]) == before:
-            return None
+        with self._lock_for(portfolio_id):
+            payload = self._read_portfolio_file(portfolio_id)
+            if not payload:
+                return None
 
-        payload["updated_at"] = _utc_now_iso()
-        self._write_portfolio_file(payload)
-        self._upsert_index_row(payload)
-        self._save_index()
-        return payload
+            candidates = payload.setdefault("candidates", [])
+            if not isinstance(candidates, list):
+                candidates = []
+                payload["candidates"] = candidates
+
+            targets = [
+                (ticker.strip(), market)
+                for ticker, market in entries
+                if ticker.strip()
+            ]
+            if not targets:
+                return payload
+
+            before = len(candidates)
+
+            def _should_remove(row: Any) -> bool:
+                return any(
+                    self._candidate_row_matches(row, ticker=target_ticker, market=target_market)
+                    for target_ticker, target_market in targets
+                )
+
+            payload["candidates"] = [row for row in candidates if not _should_remove(row)]
+            if len(payload["candidates"]) == before:
+                if single_entry_not_found_returns_none and len(targets) == 1:
+                    return None
+                return payload
+
+            payload["updated_at"] = _utc_now_iso()
+            self._write_portfolio_file(payload)
+            self._upsert_index_row(payload)
+            self._save_index()
+            return payload
 
     def remove_holding(
         self,

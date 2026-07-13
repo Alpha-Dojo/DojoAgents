@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -283,7 +283,11 @@ export async function createAgentRun(
         session_id: body.session_id,
         locale: body.locale ?? 'zh',
         event_format: 'dojo.v2',
+        ...(body.timezone_iana ? { timezone_iana: body.timezone_iana } : {}),
         ...(body.dashboard_tab ? { dashboard_tab: body.dashboard_tab } : {}),
+        ...(body.session_attachments?.length
+          ? { session_attachments: body.session_attachments }
+          : {}),
       },
     }),
   });
@@ -338,6 +342,54 @@ export async function streamAgentRunEvents(
     signal,
   });
   return consumeSseResponse(res, handlers, signal);
+}
+
+const SESSION_API_PREFIX = '/api/v1/chat/sessions';
+
+export async function fetchSessionOutputs(sessionId: string): Promise<AgentSessionOutputsResponse> {
+  const res = await fetch(`${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentSessionOutputsResponse>;
+}
+
+export async function revealSessionOutput(sessionId: string, filename: string): Promise<void> {
+  const res = await fetch(
+    `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs/${encodeURIComponent(filename)}/reveal`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+}
+
+export async function fetchSessionInputs(sessionId: string): Promise<AgentSessionInputsResponse> {
+  const res = await fetch(`${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/inputs`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentSessionInputsResponse>;
+}
+
+export async function revealSessionInput(sessionId: string, filename: string): Promise<void> {
+  const res = await fetch(
+    `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/inputs/${encodeURIComponent(filename)}/reveal`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
 }
 
 

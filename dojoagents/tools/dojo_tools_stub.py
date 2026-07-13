@@ -18,6 +18,7 @@ HERMES_CONVENIENCE_TOOLS = frozenset(
     {
         "terminal",
         "read_file",
+        "write_session_file",
     }
 )
 
@@ -65,22 +66,60 @@ def build_dojo_tools_stub_code(*, socket_path: str, tool_names: Iterable[str]) -
 
     return f'''"""Auto-generated RPC bridge to DojoAgents tools for execute_code."""
 import json
+import os
 import socket
 import sys
+
+from dojoagents.tools.dojo_tools_runtime import (
+    row_fields_for_table,
+    table_names,
+    tool_columns,
+    tool_concat,
+    tool_df,
+    tool_json,
+    tool_merge,
+    tool_meta,
+    tool_pick,
+    tool_print,
+    tool_rows,
+    tool_table,
+)
 
 _SOCKET_PATH = {socket_path!r}
 
 
 def _read_response(sock):
     chunks = []
+    total = 0
+    max_size = 32 * 1024 * 1024
     while True:
         chunk = sock.recv(65536)
         if not chunk:
             break
         chunks.append(chunk)
-        if chunk.endswith(b"\\n"):
+        total += len(chunk)
+        if total > max_size:
+            raise ValueError("execute_code RPC response exceeds 32 MiB")
+        joined = b"".join(chunks)
+        if b"\\n" in joined:
             break
-    return b"".join(chunks).decode("utf-8")
+    return joined.split(b"\\n", 1)[0].decode("utf-8")
+
+
+def _record_session_output(payload):
+    manifest = os.environ.get("DOJO_SESSION_OUTPUT_MANIFEST")
+    if not manifest or not isinstance(payload, dict):
+        return
+    entry = {{
+        "filename": payload.get("filename"),
+        "path": payload.get("path"),
+        "bytes_written": payload.get("bytes_written"),
+        "output_dir": payload.get("output_dir"),
+    }}
+    if not entry.get("filename") or not entry.get("path"):
+        return
+    with open(manifest, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\\n")
 
 
 def _rpc_call(tool_name, args):
@@ -124,18 +163,25 @@ def read_file(path, offset=1, limit=500):
     return _rpc_call("read_file", {{"path": path, "offset": offset, "limit": limit}})
 
 
-def tool_json(res):
-    if not isinstance(res, dict):
-        raise TypeError("tool response must be a dict")
-    if not res.get("ok"):
-        raise RuntimeError(res.get("error") or "tool call failed")
+def write_session_file(filename, content, format="text", append=False):
+    res = _rpc_call(
+        "write_session_file",
+        {{
+            "filename": filename,
+            "content": content,
+            "format": format,
+            "append": append,
+        }},
+    )
     data = res.get("data")
     if isinstance(data, dict):
-        return data
-    content = res.get("content")
-    if isinstance(content, str) and content.strip().startswith(("{{", "[")):
-        return json.loads(content)
+        _record_session_output(data)
+    else:
+        content_text = res.get("content")
+        if isinstance(content_text, str) and content_text.strip().startswith("{{"):
+            try:
+                _record_session_output(json.loads(content_text))
+            except json.JSONDecodeError:
+                pass
     return res
-
-
 '''

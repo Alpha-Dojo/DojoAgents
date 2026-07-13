@@ -221,6 +221,8 @@ class OpenAICompatibleProvider:
                 chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
                 if chunk_usage is not None:
                     stream_usage = chunk_usage
+                if not chunk.choices:
+                    continue
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_delta = getattr(delta, "reasoning_content", None) or (

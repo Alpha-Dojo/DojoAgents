@@ -1,4 +1,7 @@
 .dojo-agent-panel {
+  --dojo-agent-history-width: 240px;
+  --dojo-agent-history-rail-width: 48px;
+  --dojo-agent-content-max-width: 960px;
   position: relative;
   flex-shrink: 0;
   width: 0;
@@ -8,7 +11,7 @@
   display: flex;
   flex-direction: row;
   overflow: hidden;
-  background: #07101AE5;
+  background: var(--bg-panel);
   border-left: 1px solid transparent;
   transition: none;
 }
@@ -20,6 +23,20 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.dojo-agent-panel__workspace,
+.dojo-agent-panel__main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dojo-agent-panel__history-rail {
+  display: none;
 }
 
 .dojo-agent-panel__resize-handle {
@@ -94,6 +111,125 @@
     transform 0.16s ease;
 }
 
+@media (min-width: 901px) {
+  .dojo-agent-panel--maximized .dojo-agent-panel__workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .dojo-agent-panel--maximized
+    .dojo-agent-panel__workspace--history-open {
+    grid-template-columns:
+      var(--dojo-agent-history-width)
+      minmax(0, 1fr);
+  }
+
+  .dojo-agent-panel--maximized
+    .dojo-agent-panel__workspace--history-collapsed {
+    grid-template-columns:
+      var(--dojo-agent-history-rail-width)
+      minmax(0, 1fr);
+  }
+
+  .dojo-agent-panel--maximized .dojo-agent-panel__history {
+    max-height: none;
+    height: 100%;
+    border-right: 1px solid var(--border-dim);
+    border-bottom: 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .dojo-agent-panel__history-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -2px;
+    width: 4px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 10;
+  }
+
+  .dojo-agent-panel__history-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1px;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background 0.15s ease;
+    opacity: 0.5;
+  }
+
+  .dojo-agent-panel__history-resize-handle:hover::after,
+  .dojo-agent-panel__history--resizing .dojo-agent-panel__history-resize-handle::after {
+    background: var(--cyan);
+  }
+
+
+  .dojo-agent-panel--maximized .dojo-agent-panel__history-list {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .dojo-agent-panel--maximized
+    .dojo-agent-panel__workspace--history-collapsed
+    .dojo-agent-panel__history-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border-right: 1px solid var(--border-dim);
+    background: rgba(0, 0, 0, 0.22);
+    box-sizing: border-box;
+  }
+
+  .dojo-agent-panel--maximized .dojo-agent-panel__messages,
+  .dojo-agent-panel--maximized .dojo-agent-panel__composer {
+    width: 100%;
+    max-width: var(--dojo-agent-content-max-width);
+    margin-inline: auto;
+    box-sizing: border-box;
+  }
+
+  .dojo-agent-panel--maximized .dojo-agent-panel__history-collapse {
+    display: inline-flex;
+  }
+
+  .dojo-agent-panel--maximized .agent-conversation-checkpoints {
+    display: block;
+  }
+}
+
+@media (max-width: 900px) {
+  .dojo-agent-panel--maximized .dojo-agent-panel__workspace,
+  .dojo-agent-panel--maximized .dojo-agent-panel__main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dojo-agent-panel--maximized .dojo-agent-panel__history-rail {
+    display: none;
+  }
+}
+
+@media (min-width: 1520px) and (max-width: 1600px)  {
+  .dojo-agent-panel:not(.dojo-agent-panel--maximized) {
+    max-width: 650px;
+  }
+}
+
+@media (min-width: 1100px) and (max-width: 1520px) { 
+  .dojo-agent-panel:not(.dojo-agent-panel--maximized) {
+    max-width: calc(80% - 600px);
+  }
+}
+
 .dojo-agent-panel__head {
   display: flex;
   align-items: center;
@@ -120,13 +256,31 @@
 .dojo-agent-panel__history {
   flex-shrink: 0;
   max-height: 260px;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--border-dim);
   background: rgba(0, 0, 0, 0.22);
   animation: dojo-agent-history-in 0.18s ease-out;
 }
+
+.dojo-agent-panel__history::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.dojo-agent-panel__history::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
 
 @keyframes dojo-agent-history-in {
   from {
@@ -148,7 +302,58 @@
   flex-shrink: 0;
 }
 
+.dojo-agent-panel__history-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__history-collapse {
+  display: none;
+}
+
+.dojo-agent-panel__history-collapse svg,
+.dojo-agent-panel__history-rail svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dojo-agent-panel__history-search {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.dojo-agent-panel__history-search:focus {
+  outline: none;
+  border-color: var(--green);
+}
+
+.dojo-agent-panel__history-search::placeholder {
+  color: var(--text-dim);
+}
+
+.dojo-agent-panel__history-no-results {
+  padding: 24px 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 .dojo-agent-panel__history-label {
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -175,10 +380,13 @@
   margin: 0;
   padding: 20px 16px 24px;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__history-empty svg {
   opacity: 0.35;
+  width: 32px;
+  height: 32px;
 }
 
 .dojo-agent-panel__history-empty p {
@@ -192,6 +400,7 @@
   padding: 0 8px 8px;
   list-style: none;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__history-item {
@@ -310,6 +519,7 @@
   font-size: 10px;
   line-height: 1.4;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
 .dojo-agent-panel__storage-label {
@@ -321,7 +531,279 @@
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--cyan-dim, var(--cyan));
-  word-break: break-all;
+}
+
+.dojo-agent-panel__outputs {
+  margin: 8px 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 200px;
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__outputs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.dojo-agent-panel__outputs-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dojo-agent-panel__outputs-count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dojo-agent-panel__outputs-status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  padding: 16px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.dojo-agent-panel__outputs-status--error {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(248, 113, 113, 0.03);
+}
+
+.dojo-agent-panel__outputs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.dojo-agent-panel__outputs-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+
+.dojo-agent-output-file {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dojo-agent-output-file--list {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 6px;
+  position: relative;
+}
+
+.dojo-agent-output-file--list:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dojo-agent-output-file__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__filename {
+  font-weight: 500;
+}
+
+.dojo-agent-output-file--list .dojo-agent-output-file__actions {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  bottom: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 0 4px 0 16px;
+  background: linear-gradient(90deg, transparent 0%, rgba(13, 22, 34, 0.95) 25%, #0d1622 100%);
+  border-radius: 0 6px 6px 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+}
+
+.dojo-agent-output-file--list:hover .dojo-agent-output-file__actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dojo-agent-output-file__icon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.dojo-agent-output-file__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dojo-agent-output-file__filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.dojo-agent-output-file__size {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.dojo-agent-output-file__path {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--cyan-dim, var(--cyan));
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dojo-agent-output-file__path:hover {
+  color: var(--cyan);
+  text-decoration: underline;
+}
+
+.dojo-agent-output-file__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dojo-agent-output-file__error {
+  margin: 0;
+  font-size: 10px;
+  color: #f87171;
+}
+
+.dojo-agent-tool-activity__main .dojo-agent-output-file {
+  margin-top: 6px;
+}
+
+.dojo-agent-panel__pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dojo-agent-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.dojo-agent-file-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.dojo-agent-file-chip__size {
+  color: var(--text-dim);
+}
+
+.dojo-agent-file-chip__remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dojo-agent-panel__inputs {
+  margin-top: 8px;
 }
 
 .dojo-agent-panel__title {
@@ -393,6 +875,131 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.agent-conversation-checkpoints {
+  position: absolute;
+  top: 50%;
+  left: max(
+    12px,
+    calc(50% - var(--dojo-agent-content-max-width) / 2 - 44px)
+  );
+  z-index: 3;
+  display: none;
+  transform: translateY(-50%);
+}
+
+.agent-conversation-checkpoints__list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-height: min(60vh, 520px);
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.agent-conversation-checkpoints__list::-webkit-scrollbar {
+  display: none;
+}
+
+.agent-conversation-checkpoints__item {
+  position: relative;
+  flex-shrink: 0;
+  height: 12px;
+}
+
+.agent-conversation-checkpoints__tick {
+  width: 32px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--border-hover);
+  cursor: pointer;
+}
+
+.agent-conversation-checkpoints__tick-line {
+  display: block;
+  width: var(--checkpoint-tick-width, 9px);
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transition:
+    width 0.15s ease,
+    color 0.15s ease;
+}
+
+.agent-conversation-checkpoints__item[data-interactive="true"]
+  .agent-conversation-checkpoints__tick,
+.agent-conversation-checkpoints:not([data-interacting])
+  .agent-conversation-checkpoints__tick[aria-current="location"] {
+  color: var(--cyan);
+}
+
+.agent-conversation-checkpoints__tick:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.agent-conversation-checkpoints__preview {
+  position: absolute;
+  top: 50%;
+  left: 36px;
+  width: min(280px, 32vw);
+  padding: 12px 14px;
+  border: 1px solid var(--border-dim);
+  border-radius: 10px;
+  background: var(--bg-deep);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+  transform: translate(0, -50%);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s ease;
+}
+
+.agent-conversation-checkpoints__preview strong,
+.agent-conversation-checkpoints__preview span {
+  display: block;
+}
+
+.agent-conversation-checkpoints__preview strong {
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-conversation-checkpoints__preview span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.dojo-agent-panel--maximized .dojo-agent-panel__message {
+  scroll-margin-top: 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-conversation-checkpoints__tick-line,
+  .agent-conversation-checkpoints__preview {
+    transition: none;
+  }
 }
 
 .dojo-agent-panel__empty-state {
@@ -1147,6 +1754,23 @@
   color: var(--text-dim);
 }
 
+.dojo-agent-panel__composer--drag-over {
+  outline: 1px dashed rgba(0, 229, 255, 0.45);
+  outline-offset: -4px;
+  background: rgba(0, 229, 255, 0.04);
+}
+
+.dojo-agent-panel__composer-drop-hint {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px dashed rgba(0, 229, 255, 0.35);
+  background: rgba(0, 229, 255, 0.06);
+  font-size: 11px;
+  color: var(--cyan);
+  text-align: center;
+}
+
 .dojo-agent-panel__attachment-list {
   display: flex;
   flex-wrap: wrap;
@@ -1222,6 +1846,138 @@
   cursor: pointer;
 }
 
+.dojo-agent-panel__attachment--file {
+  width: auto;
+  min-width: 160px;
+  max-width: 220px;
+  height: auto;
+  min-height: 72px;
+}
+
+.dojo-agent-panel__attachment-file-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 28px 10px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dojo-agent-panel__attachment-file-icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.dojo-agent-panel__attachment-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dojo-agent-panel__attachment-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.dojo-agent-panel__attachment-file-size {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-user-attachments {
+  margin-bottom: 8px;
+}
+
+.dojo-agent-user-attachments__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dojo-agent-user-attachments__image-btn {
+  width: 96px;
+  height: 96px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dojo-agent-user-attachments__image {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dojo-agent-user-attachments__file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.dojo-agent-user-attachments__file-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.dojo-agent-user-attachments__file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dojo-agent-user-attachments__file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.dojo-agent-user-attachments__file-size {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.dojo-agent-user-attachments__file-action {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--cyan);
+}
+
+.dojo-agent-user-attachments__toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--cyan);
+  font-size: 11px;
+  cursor: pointer;
+}
+
 .dojo-agent-panel__send {
   flex-shrink: 0;
   min-width: 72px;
@@ -1271,3 +2027,8 @@
   background: rgba(248, 113, 113, 0.2);
   border-color: rgba(248, 113, 113, 0.65);
 }
+
+.dojo-agent-panel__files-sidebar {
+  padding-bottom: 8px;
+}
+

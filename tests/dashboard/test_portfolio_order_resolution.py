@@ -54,12 +54,13 @@ class FakeKlineStore:
 
 class FakeStockStore:
     def resolve(self, ticker, market=None):
-        if ticker.upper() in {"GOOG", "AAPL"}:
-            return SimpleNamespace(ticker=ticker.upper(), market=market or "us")
+        upper = ticker.upper()
+        if upper in {"GOOG", "GOOGL", "AAPL"}:
+            return SimpleNamespace(ticker=upper, market=market or "us")
         return None
 
     def find_market(self, ticker):
-        if ticker.upper() in {"GOOG", "AAPL"}:
+        if ticker.upper() in {"GOOG", "GOOGL", "AAPL"}:
             return "us"
         if ticker.endswith(".SS"):
             return "sh"
@@ -178,7 +179,128 @@ async def test_resolve_finds_trade_date_from_limit_price() -> None:
 
     assert body.order_time == "2026-06-18"
     assert body.price == pytest.approx(357.89)
+    assert meta.time_source == "inferred_from_latest_bar"
+
+
+@pytest.mark.asyncio
+async def test_resolve_current_price_uses_latest_trading_day() -> None:
+    store = FakeKlineStore([Bar("2026-07-03", 355.0, 362.0, 354.0, 359.91)])
+    body, meta = await resolve_portfolio_order_request(
+        _registry(store),
+        FakePortfolioService(),
+        "p1",
+        {
+            "ticker": "GOOGL",
+            "market": "us",
+            "order_side": "buy",
+            "price": 359.91,
+            "qty": 100,
+        },
+    )
+
+    assert body.order_time == "2026-07-03"
+    assert body.price == pytest.approx(359.91)
+    assert meta.time_source == "inferred_from_latest_bar"
+
+
+@pytest.mark.asyncio
+async def test_resolve_historical_price_falls_back_to_matching_bar() -> None:
+    store = FakeKlineStore(
+        [
+            Bar("2026-06-10", 300.0, 310.0, 295.0, 305.0),
+            Bar("2026-06-18", 363.89, 369.0, 356.61, 367.46),
+        ]
+    )
+    body, meta = await resolve_portfolio_order_request(
+        _registry(store),
+        FakePortfolioService(),
+        "p1",
+        {
+            "ticker": "GOOG",
+            "market": "us",
+            "order_side": "buy",
+            "price": 305.0,
+            "qty": 100,
+        },
+    )
+
+    assert body.order_time == "2026-06-10"
     assert meta.time_source == "inferred_from_price"
+
+
+@pytest.mark.asyncio
+async def test_resolve_accepts_price_at_daily_high_boundary() -> None:
+    store = FakeKlineStore([Bar("2026-07-03", 350.0, 359.91, 348.0, 359.0)])
+    body, meta = await resolve_portfolio_order_request(
+        _registry(store),
+        FakePortfolioService(),
+        "p1",
+        {
+            "ticker": "GOOG",
+            "market": "us",
+            "order_side": "buy",
+            "price": 359.91,
+            "order_time": "2026-07-03",
+            "qty": 10,
+        },
+    )
+
+    assert body.price == pytest.approx(359.91)
+    assert meta.bar_high == pytest.approx(359.91)
+    assert body.resolved_bar is not None
+    assert body.resolved_bar.date == "2026-07-03"
+    assert body.resolved_bar.low == pytest.approx(348.0)
+    assert body.resolved_bar.high == pytest.approx(359.91)
+
+
+@pytest.mark.asyncio
+async def test_fetch_resolution_uses_date_window_not_tail_limit() -> None:
+    store = FakeKlineStore([Bar("2026-07-03", 350.0, 362.0, 348.0, 359.91)])
+    await resolve_portfolio_order_request(
+        _registry(store),
+        FakePortfolioService(),
+        "p1",
+        {"ticker": "GOOG", "market": "us", "order_side": "buy", "price": 359.91},
+    )
+
+    assert store.calls
+    assert "start_time" in store.calls[0]
+    assert "end_time" in store.calls[0]
+    assert "limit" not in store.calls[0] or store.calls[0].get("limit") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_gooql_falls_back_to_goog_kline_symbol() -> None:
+    class SplitKlineStore(FakeKlineStore):
+        async def get_or_fetch_kline(self, symbol, **kwargs):
+            self.calls.append({"symbol": symbol, **kwargs})
+            if symbol == "GOOGL":
+                from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
+
+                return StockKlineResponse(symbol=symbol, bars=[])
+            return await super().get_or_fetch_kline(symbol, **kwargs)
+
+    store = SplitKlineStore([Bar("2026-07-03", 355.0, 362.0, 354.0, 359.91)])
+    body, meta = await resolve_portfolio_order_request(
+        _registry(store),
+        FakePortfolioService(),
+        "p1",
+        {
+            "ticker": "GOOGL",
+            "market": "us",
+            "order_side": "buy",
+            "price": 359.91,
+            "qty": 10,
+        },
+    )
+
+    assert body.ticker == "GOOG"
+    assert body.order_time == "2026-07-03"
+    assert meta.kline_symbol == "GOOG"
+    assert body.resolved_bar is not None
+    assert body.resolved_bar.date == "2026-07-03"
+    assert any(call["symbol"] == "GOOGL" for call in store.calls)
+    assert any(call["symbol"] == "GOOG" for call in store.calls)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from dojoagents.logging import get_logger
+from dojoagents.agent.tool_result_artifacts import enrich_execute_code_tool_result
 from dojoagents.tools.agent_viz import build_viz_blocks
 
 LOGGER = get_logger(__name__)
@@ -55,6 +56,9 @@ def _infer_portfolio_resource_changes(
 class ToolResultPresenterRegistry:
     def normalize(self, tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:
         result = dict(raw)
+        if tool_name in {"execute_code", "code_execution"}:
+            result = enrich_execute_code_tool_result(result)
+
         data = result.get("data")
         if data is None and isinstance(result.get("content"), str):
             data = _parse_json_content(result["content"])

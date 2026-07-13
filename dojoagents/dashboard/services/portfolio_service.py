@@ -27,8 +27,10 @@ from dojoagents.dashboard.services.kline_bar_utils import (
     resolve_kline_limit_for_elapsed_days,
 )
 from dojoagents.dashboard.services.market_stats import display_valuation_ratio
+from dojoagents.dashboard.services.domain_utils import normalize_market_code
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 from dojoagents.dashboard.schemas.portfolio import (
     AddPortfolioHoldingRequest,
     AutoAllocateRequest,
@@ -46,9 +48,11 @@ from dojoagents.dashboard.schemas.portfolio import (
     PortfolioSearchResponse,
     RemovePortfolioHoldingRequest,
     PortfolioSummary,
+    SyncPortfolioPositionsRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
+from dojoagents.dashboard.services.benchmark_store import DEFAULT_LOOKBACK_DAYS
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.portfolio_performance import (
     build_candidate_index_performance,
@@ -139,12 +143,40 @@ def _resolve_kline_limit(raw: dict) -> int:
     return resolve_kline_limit_for_elapsed_days(start)
 
 
+def _resolve_benchmark_kline_limit(kline_limit: int) -> int:
+    """Match market-overview benchmark depth so portfolio NAV is not truncated early."""
+    return max(int(kline_limit), DEFAULT_LOOKBACK_DAYS)
+
+
+def _order_tickers_by_market(orders: list[dict]) -> dict[str, list[str]]:
+    return {
+        market: sorted(market_tickers_from_orders(orders, market=market))
+        for market in MARKETS
+    }
+
+
 def _config_capital_by_market(raw: dict) -> Optional[dict]:
     config = raw.get("config")
     if not isinstance(config, dict):
         return None
     capital = config.get("capital_by_market")
     return capital if isinstance(capital, dict) else None
+
+
+def _has_open_position_for_candidate(
+    positions: list[dict],
+    *,
+    ticker: str,
+    market: Optional[str],
+) -> bool:
+    for row in positions:
+        if str(row.get("ticker")) != ticker:
+            continue
+        if float(row.get("shares") or 0) <= 0:
+            continue
+        if market is None or str(row.get("market")) == market:
+            return True
+    return False
 
 
 def _market_initial_capital(config: Optional[dict], market: str) -> float:
@@ -223,6 +255,32 @@ def _ticker_closes_by_market_from_batch(
     return ticker_closes_by_market
 
 
+async def _ensure_order_ticker_closes(
+    kline_store: KlineStore,
+    orders: list[dict],
+    ticker_closes_by_market: dict[str, dict[str, dict[str, float]]],
+    *,
+    chart_start: str,
+    kline_limit: int,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Backfill missing order-ticker closes after batch fetch (large candidate batches can drop symbols)."""
+    result = {market: dict(tickers) for market, tickers in ticker_closes_by_market.items()}
+    for market, tickers in _order_tickers_by_market(orders).items():
+        if not tickers:
+            continue
+        market_closes = result.setdefault(market, {})
+        for ticker in tickers:
+            if market_closes.get(ticker):
+                continue
+            kline = await kline_store.get_or_fetch_kline(ticker, limit=kline_limit)
+            if kline is None or not kline.bars:
+                continue
+            closes = _closes_from_kline_bars(kline.bars, chart_start=chart_start)
+            if closes:
+                market_closes[ticker] = closes
+    return result
+
+
 class PortfolioService:
     def __init__(
         self,
@@ -245,6 +303,34 @@ class PortfolioService:
     async def _store_call(self, method_name: str, *args, **kwargs):
         method = getattr(self.store, method_name)
         return await asyncio.to_thread(method, *args, **kwargs)
+
+    def _resolve_holding_ticker(
+        self,
+        ticker: str,
+        market: Optional[str],
+    ) -> Optional[tuple[str, str]]:
+        raw = str(ticker or "").strip()
+        if not raw:
+            return None
+
+        canonical_ticker, resolved_market = resolve_ticker_symbol(
+            self.stock_store, raw, market
+        )
+        lookup_market = (
+            normalize_market_code(resolved_market)
+            or normalize_market_code(market)
+            or self.stock_store.find_market(canonical_ticker)
+        )
+        if not lookup_market:
+            return None
+
+        stock = self.stock_store.get(lookup_market, canonical_ticker)
+        if stock is None:
+            return None
+
+        stored_market = normalize_market_code(stock.market) or lookup_market
+        stored_ticker = stock.ticker.strip().upper() if stock.ticker else canonical_ticker.upper()
+        return stored_ticker, stored_market
 
     async def list_summaries(self) -> List[PortfolioSummary]:
         rows = await self._store_call("list_index_rows")
@@ -427,10 +513,10 @@ class PortfolioService:
         return await self._store_call("delete", portfolio_id)
 
     async def add_holding(self, portfolio_id: str, body: AddPortfolioHoldingRequest) -> Optional[PortfolioDetail]:
-        ticker = body.ticker.strip()
-        market = body.market or self.stock_store.find_market(ticker)
-        if not market:
+        resolved = self._resolve_holding_ticker(body.ticker, body.market)
+        if resolved is None:
             return None
+        ticker, market = resolved
 
         raw = await self._store_call("add_candidate", portfolio_id, ticker=ticker, market=market)
         if not raw:
@@ -451,11 +537,11 @@ class PortfolioService:
             ticker = body.ticker.strip()
             if not ticker:
                 continue
-            market = body.market or self.stock_store.find_market(ticker)
-            if not market:
+            resolved = self._resolve_holding_ticker(ticker, body.market)
+            if resolved is None:
                 skipped_missing_market.append(ticker)
                 continue
-            entries.append((ticker, market))
+            entries.append(resolved)
 
         if not entries and skipped_missing_market:
             return None
@@ -473,13 +559,10 @@ class PortfolioService:
         portfolio_id: str,
         body: CreatePortfolioOrderRequest,
     ) -> Optional[PortfolioDetail]:
-        ticker = body.ticker.strip()
-        market = body.market or self.stock_store.find_market(ticker)
-        if not market:
+        resolved = self._resolve_holding_ticker(body.ticker, body.market)
+        if resolved is None:
             return None
-        stock = self.stock_store.get(market, ticker)
-        if stock is None:
-            return None
+        ticker, market = resolved
 
         order_id = str(uuid.uuid4())
         order = {
@@ -496,6 +579,8 @@ class PortfolioService:
             "created_at": _utc_now_iso(),
             "updated_at": None,
         }
+        if body.resolved_bar is not None:
+            order["resolved_bar"] = body.resolved_bar.model_dump()
         raw = await self._store_call("add_order", portfolio_id, order=order)
         if not raw:
             return None
@@ -545,6 +630,67 @@ class PortfolioService:
                 "order_status": status,
             },
         )
+
+    async def sync_positions(
+        self,
+        portfolio_id: str,
+        body: SyncPortfolioPositionsRequest,
+    ) -> Optional[PortfolioDetail]:
+        raw = await self._store_call("get_raw", portfolio_id)
+        if not raw:
+            return None
+
+        synced_at = str(body.synced_at or _utc_now_iso()).strip() or _utc_now_iso()
+        source = str(body.source).strip() if body.source else None
+        note = str(body.note).strip() if body.note else None
+
+        for index, item in enumerate(body.items):
+            ticker = item.ticker.strip()
+            if not ticker:
+                raise PortfolioValidationError("ticker is required", field=f"items[{index}].ticker")
+            market = item.market or self.stock_store.find_market(ticker)
+            if not market:
+                raise PortfolioValidationError(
+                    f"market not found for {ticker}",
+                    field=f"items[{index}].market",
+                )
+            stock = self.stock_store.get(market, ticker)
+            if stock is None:
+                raise PortfolioValidationError(
+                    f"ticker not found: {ticker}",
+                    field=f"items[{index}].ticker",
+                )
+            qty = float(item.qty)
+            if qty > 1e-9 and (item.cost is None or float(item.cost) <= 0):
+                raise PortfolioValidationError(
+                    "cost is required when qty > 0",
+                    field=f"items[{index}].cost",
+                )
+
+            fill_price = float(item.cost) if qty > 1e-9 else 0.0
+            order = {
+                "id": str(uuid.uuid4()),
+                "ticker": ticker,
+                "market": market,
+                "order_kind": "sync",
+                "order_side": "set",
+                "order_status": "filled",
+                "price": fill_price if fill_price > 0 else 1.0,
+                "qty": qty,
+                "order_time": None,
+                "fill_time": synced_at,
+                "fill_price": fill_price if fill_price > 0 else None,
+                "created_at": synced_at,
+                "updated_at": synced_at,
+                "source": source,
+                "sync_note": note,
+            }
+            raw = await self._store_call("add_order", portfolio_id, order=order)
+            if not raw:
+                return None
+
+        raw = await self._ensure_position_candidates(portfolio_id, raw)
+        return await self._to_detail(raw)
 
     async def cancel_order(
         self,
@@ -647,6 +793,48 @@ class PortfolioService:
             return None
         return await self._to_detail(raw)
 
+    async def remove_holdings_batch(
+        self,
+        portfolio_id: str,
+        bodies: list[RemovePortfolioHoldingRequest],
+    ) -> tuple[Optional[PortfolioDetail], list[str]]:
+        raw = await self._store_call("get_raw", portfolio_id)
+        if not raw:
+            return None, []
+        raw = await self._ensure_orders_processed(portfolio_id, raw)
+        positions = aggregate_positions_bounded(
+            [row for row in raw.get("orders") or [] if isinstance(row, dict)],
+            capital_by_market=_config_capital_by_market(raw),
+        )
+
+        blocked_open_position: list[str] = []
+        entries: list[tuple[str, Optional[str]]] = []
+        for body in bodies:
+            ticker = body.ticker.strip()
+            if not ticker:
+                continue
+            market = body.market
+            if _has_open_position_for_candidate(positions, ticker=ticker, market=market):
+                blocked_open_position.append(ticker)
+                continue
+            entries.append((ticker, market))
+
+        if blocked_open_position and not entries:
+            raise PortfolioValidationError(
+                "cannot remove candidate while position is open",
+                field=f"candidates.{blocked_open_position[0]}",
+            )
+
+        if not entries:
+            detail = await self._to_detail(raw)
+            return detail, blocked_open_position
+
+        raw = await self._store_call("remove_candidates_batch", portfolio_id, entries=entries)
+        if not raw:
+            return None, blocked_open_position
+        detail = await self._to_detail(raw)
+        return detail, blocked_open_position
+
     async def auto_allocate(self, portfolio_id: str, body: AutoAllocateRequest) -> Optional[PortfolioDetail]:
         del body
         raw = await self._store_call("get_raw", portfolio_id)
@@ -747,6 +935,13 @@ class PortfolioService:
                         break
             net_value_by_market[market] = cash + position_value
 
+        total_nav = sum(net_value_by_market.values())
+        if total_nav > 0:
+            positions = [
+                item.model_copy(update={"weight": (item.market_value / total_nav) * 100.0})
+                for item in positions
+            ]
+
         return PortfolioDetail(
             **summary.model_dump(),
             config=parsed_config,
@@ -818,28 +1013,50 @@ class PortfolioService:
             return cached
 
         kline_limit = _resolve_kline_limit(raw)
+        benchmark_kline_limit = _resolve_benchmark_kline_limit(kline_limit)
         chart_start = start_date if start_date >= DATA_START_DATE else DATA_START_DATE
         orders = [row for row in raw.get("orders") or [] if isinstance(row, dict)]
         candidate_rows = [row for row in raw.get("candidates") or [] if isinstance(row, dict)]
         performance_tickers = _collect_performance_tickers(orders, candidate_rows)
-        kline_batch = (
-            await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
-            if performance_tickers
+        order_tickers = sorted(
+            {
+                ticker
+                for market_tickers in _order_tickers_by_market(orders).values()
+                for ticker in market_tickers
+            }
+        )
+        order_kline_batch = (
+            await self.kline_store.get_klines(order_tickers, limit=kline_limit)
+            if order_tickers
             else ConstituentKlineBatchResponse(items={})
         )
+        if performance_tickers and set(performance_tickers) - set(order_tickers):
+            kline_batch = await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
+        else:
+            kline_batch = order_kline_batch
 
         ticker_closes_by_market = await self._load_order_ticker_closes_by_market(
             orders,
             chart_start=chart_start,
             kline_limit=kline_limit,
-            kline_batch=kline_batch,
+            kline_batch=order_kline_batch,
+        )
+        ticker_closes_by_market = await _ensure_order_ticker_closes(
+            self.kline_store,
+            orders,
+            ticker_closes_by_market,
+            chart_start=chart_start,
+            kline_limit=kline_limit,
         )
         benchmark_closes_by_market: dict[str, dict[str, float]] = {}
         calendar: set[str] = set()
 
         for market in MARKETS:
             benchmark_symbol = resolved_benchmarks[market]
-            benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
+            benchmark = await self.benchmark_store.get_kline(
+                benchmark_symbol,
+                limit=benchmark_kline_limit,
+            )
             if benchmark is None or not benchmark.bars:
                 continue
             benchmark_closes = {bar.bar_time[:10]: float(bar.close) for bar in benchmark.bars}
@@ -895,7 +1112,10 @@ class PortfolioService:
             if not points or len(points) < 2:
                 return None
             benchmark_symbol = resolved_benchmarks[market]
-            benchmark = await self.benchmark_store.get_kline(benchmark_symbol, limit=kline_limit)
+            benchmark = await self.benchmark_store.get_kline(
+                benchmark_symbol,
+                limit=benchmark_kline_limit,
+            )
             if benchmark is None or not benchmark.bars:
                 return None
             benchmark_closes = {bar.bar_time[:10]: float(bar.close) for bar in benchmark.bars}
@@ -1037,6 +1257,7 @@ class PortfolioService:
                     ticker=ticker,
                     market=market,
                     order_side=str(row.get("order_side") or "buy"),
+                    order_kind=str(row.get("order_kind") or "trade"),
                     order_status=str(row.get("order_status") or "pending"),
                     price=float(row.get("price") or 0),
                     qty=float(row.get("qty") or 0),
@@ -1045,6 +1266,8 @@ class PortfolioService:
                     fill_price=float(row["fill_price"]) if row.get("fill_price") is not None else None,
                     created_at=str(row.get("created_at") or ""),
                     updated_at=row.get("updated_at"),
+                    source=row.get("source"),
+                    sync_note=row.get("sync_note"),
                     name=display_name,
                     name_zh=bilingual.zh if bilingual else "",
                     name_en=bilingual.en if bilingual else "",
@@ -1055,8 +1278,6 @@ class PortfolioService:
     async def _build_positions(self, rows: list, config_raw: Optional[dict]) -> List[PortfolioPositionView]:
         del config_raw
         positions: list[PortfolioPositionView] = []
-        total_value = 0.0
-        built: list[tuple[PortfolioPositionView, float]] = []
 
         for row in rows:
             if not isinstance(row, dict):
@@ -1076,7 +1297,6 @@ class PortfolioService:
             cost_basis = float(row.get("cost_basis") or cost * shares)
             open_date = row.get("open_date")
             market_value = price * shares
-            total_value += market_value
             sector_label = await _stock_sector_label(self.stock_sector_store, market, ticker, stock)
             sector = self.stock_sector_store.get(market, ticker)
             level_1 = level_2 = level_3 = ""
@@ -1114,27 +1334,6 @@ class PortfolioService:
             )
             if total_return_pct is not None:
                 view = view.model_copy(update={})
-            built.append((view, market_value))
+            positions.append(view)
 
-        if total_value > 0:
-            positions = [view.model_copy(update={"weight": (value / total_value) * 100.0}) for view, value in built]
-        else:
-            positions = [view for view, _ in built]
-
-        by_market: dict[str, list[PortfolioPositionView]] = {"us": [], "sh": [], "hk": []}
-        for view in positions:
-            by_market.setdefault(view.market, []).append(view)
-
-        weighted: list[PortfolioPositionView] = []
-        for market in ("us", "sh", "hk"):
-            market_rows = by_market.get(market, [])
-            market_total = sum(row.market_value for row in market_rows)
-            if market_total > 0:
-                weighted.extend(
-                    row.model_copy(update={"weight": (row.market_value / market_total) * 100.0})
-                    for row in market_rows
-                )
-            else:
-                weighted.extend(market_rows)
-
-        return weighted
+        return positions

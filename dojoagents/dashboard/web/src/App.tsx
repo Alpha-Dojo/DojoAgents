@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, lazy, Suspense } from 'react';
 import './App.css';
 import { AgentRunProvider } from './agent/AgentRunContext';
 import { AgentModelProvider } from './agent/AgentModelContext';
@@ -9,14 +9,16 @@ import { LocaleProvider } from './i18n/LocaleContext';
 import { useAppTab } from './hooks/useAppTab';
 import { useMarketDataRevisionSync } from './hooks/useMarketDataRevisionSync';
 import type { AppTab } from './navigation/appTab';
-import { EntityView } from './views/EntityView';
-import { FolioView } from './views/FolioView';
-import { MarketView } from './views/MarketView';
-import { SectorView } from './views/SectorView';
+import { LoadingIndicator } from './components/ui/LoadingIndicator';
 import './styles/marketDirection.css';
 import './styles/chartDate.css';
 import './styles/panelTitle.css';
 import './styles/uiPrimitives.css';
+
+const EntityView = lazy(() => import('./views/EntityView').then(m => ({ default: m.EntityView })));
+const FolioView = lazy(() => import('./views/FolioView').then(m => ({ default: m.FolioView })));
+const MarketView = lazy(() => import('./views/MarketView').then(m => ({ default: m.MarketView })));
+const SectorView = lazy(() => import('./views/SectorView').then(m => ({ default: m.SectorView })));
 
 
 function MainView({
@@ -109,7 +111,9 @@ export default function App() {
             />
             <main className="app-main" aria-label={tab}>
               <div className="app-main__content">
-                <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
+                <Suspense fallback={<LoadingIndicator variant="page" />}>
+                  <MainView tab={tab} onNavigateTab={navigateTab} agentVisible={agentVisible} />
+                </Suspense>
               </div>
                 <DojoAgentPanel
                   open={agentVisible}

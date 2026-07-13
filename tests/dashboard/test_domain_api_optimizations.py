@@ -137,7 +137,11 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
             )
         ),
         sector_precomputed_store=SimpleNamespace(
-            get_sector_movers_by_window=lambda days: [
+            resolve_window_bounds=lambda window: window.with_resolved_bounds(
+                start="2026-01-01",
+                end="2026-01-07",
+            ),
+            get_sector_movers_for_window=lambda window: [
                 {
                     "market": "us",
                     "scope": "L3",
@@ -153,7 +157,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                 {"ticker": "NVDA", "market_cap": 100.0},
                 {"ticker": "AMD", "market_cap": 100.0},
             ],
-            get_ticker_daily_by_window=lambda days, tickers: [
+            get_ticker_daily_for_window=lambda window, tickers: [
                 {"ticker": "NVDA", "daily_return_pct": 2.0},
                 {"ticker": "AMD", "daily_return_pct": 1.0},
             ],

@@ -81,7 +81,8 @@ class BenchmarkSnapshot(BaseModel):
 
 
 class MarketOverviewResponse(BaseModel):
-    days: int = Field(1, ge=1, le=90)
+    days: int = Field(1, ge=0, le=90)
+    window_mode: Literal["days", "date_range"] = "days"
     window_start: Optional[str] = None
     window_end: Optional[str] = None
     as_of: Optional[str] = None
@@ -162,6 +163,9 @@ class SectorMoversMarket(BaseModel):
 
 class SectorMoversResponse(BaseModel):
     days: int = Field(1, ge=0, le=90)
+    window_mode: Literal["days", "date_range"] = "days"
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
     markets: Dict[str, MarketSectorMovers] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -499,7 +503,8 @@ class PortfolioOrderRow(BaseModel):
     name_zh: str = ""
     name_en: str = ""
     market: str
-    order_side: Literal["buy", "sell"]
+    order_side: Literal["buy", "sell", "set"]
+    order_kind: Literal["trade", "sync"] = "trade"
     order_status: Literal["pending", "filled", "cancelled", "rejected"] = "pending"
     price: float = 0.0
     qty: float = 0.0
@@ -507,6 +512,8 @@ class PortfolioOrderRow(BaseModel):
     fill_time: Optional[str] = None
     fill_price: Optional[float] = None
     created_at: str = ""
+    source: Optional[str] = None
+    sync_note: Optional[str] = None
 
 
 class PortfolioAnalysisResponseV1(BaseModel):
@@ -607,6 +614,11 @@ class RemovePortfolioHoldingRequestV1(BaseModel):
     market: Optional[str] = Field(None, description="Market code: us, cn, hk")
 
 
+class RemovePortfolioHoldingsRequestV1(BaseModel):
+    portfolio_id: str
+    holdings: List[AddHoldingDetails] = Field(..., min_length=1, max_length=MAX_PORTFOLIO_HOLDINGS_BATCH)
+
+
 class AutoAllocateRequestV1(BaseModel):
     portfolio_id: str
     allocation_strategy: AllocationStrategy = "market_cap"
@@ -632,6 +644,21 @@ class CreatePortfolioOrderRequestV1(BaseModel):
 class CancelPortfolioOrderRequestV1(BaseModel):
     portfolio_id: str
     order_id: str = Field(..., min_length=1)
+
+
+class PositionSyncItemV1(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    market: Optional[str] = Field(None, description="Market code: us, cn, hk")
+    qty: float = Field(..., ge=0, description="Absolute target shares after sync")
+    cost: Optional[float] = Field(None, gt=0, description="Average cost price; required when qty > 0")
+
+
+class SyncPortfolioPositionsRequestV1(BaseModel):
+    portfolio_id: str
+    items: list[PositionSyncItemV1] = Field(..., min_length=1)
+    synced_at: Optional[str] = Field(None, description="Sync timestamp (ISO); defaults to server now")
+    source: Optional[str] = Field(None, description="Optional external source label")
+    note: Optional[str] = Field(None, description="Optional sync note")
 
 
 AddPortfolioHoldingRequest = AddPortfolioHoldingRequestV1

@@ -15,6 +15,7 @@ from strands.types.exceptions import SessionException
 from strands.types.session import SessionMessage
 
 from dojoagents.agent.models import AgentResponse, ChatRequest
+from dojoagents.agent.multimodal import strands_image_block_to_openai_part
 from dojoagents.agent.session_models import (
     DojoProjectedMessage,
     DojoSessionExportResult,
@@ -62,6 +63,81 @@ def _text_from_content(content: Any) -> str:
                         parts.append(str(item.get("text") or ""))
         return "".join(parts)
     return str(content or "")
+
+
+def _openai_messages_from_strands(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    role = str(raw.get("role") or "")
+    content = raw.get("content")
+    if isinstance(content, str):
+        return [{"role": role, "content": content}] if role else []
+    if not isinstance(content, list):
+        return [{"role": role, "content": str(content or "")}] if role else []
+
+    text = ""
+    user_parts: list[dict[str, Any]] = []
+    tool_calls: list[dict[str, Any]] = []
+    tool_results: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if "text" in block:
+            block_text = str(block.get("text") or "")
+            text += block_text
+            if block_text:
+                user_parts.append({"type": "text", "text": block_text})
+            continue
+        if "image" in block:
+            image_part = strands_image_block_to_openai_part(block)
+            if image_part is not None:
+                user_parts.append(image_part)
+            continue
+        if "toolUse" in block:
+            tool_use = block.get("toolUse") or {}
+            if not isinstance(tool_use, dict):
+                continue
+            tool_calls.append(
+                {
+                    "id": str(tool_use.get("toolUseId") or ""),
+                    "type": "function",
+                    "function": {
+                        "name": str(tool_use.get("name") or ""),
+                        "arguments": json.dumps(tool_use.get("input") or {}, ensure_ascii=False),
+                    },
+                }
+            )
+            continue
+        if "toolResult" in block:
+            tool_result = block.get("toolResult") or {}
+            if not isinstance(tool_result, dict):
+                continue
+            result_text = ""
+            for item in tool_result.get("content") or []:
+                if isinstance(item, dict) and "text" in item:
+                    result_text += str(item.get("text") or "")
+            tool_results.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(tool_result.get("toolUseId") or ""),
+                    "name": str(tool_result.get("name") or "unknown"),
+                    "content": result_text,
+                }
+            )
+
+    messages: list[dict[str, Any]] = []
+    if role == "assistant":
+        assistant: dict[str, Any] = {"role": "assistant", "content": text}
+        if tool_calls:
+            assistant["tool_calls"] = tool_calls
+        messages.append(assistant)
+    elif role == "user" and not tool_results:
+        if any(part.get("type") == "image_url" for part in user_parts):
+            messages.append({"role": "user", "content": user_parts})
+        else:
+            messages.append({"role": "user", "content": text})
+    elif role and role not in {"user", "assistant"}:
+        messages.append({"role": role, "content": text})
+    messages.extend(tool_results)
+    return messages
 
 
 class DojoAgentSessionManager:
@@ -295,13 +371,17 @@ class DojoAgentSessionManager:
 
     def _project(self, message: SessionMessage) -> DojoProjectedMessage:
         raw = message.to_message()
+        openai_messages = _openai_messages_from_strands(raw)
+        raw_openai = openai_messages[0] if openai_messages else {"role": str(raw.get("role") or ""), "content": _text_from_content(raw.get("content"))}
         return DojoProjectedMessage(
             message_id=message.message_id,
-            role=str(raw.get("role") or ""),
+            role=str(raw_openai.get("role") or raw.get("role") or ""),
             content=_text_from_content(raw.get("content")),
             created_at=message.created_at,
             updated_at=message.updated_at,
-            raw=raw,
+            raw=raw_openai,
+            raw_strands=raw,
+            openai_messages=openai_messages,
         )
 
     def _summary_for(self, session_id: str) -> DojoSessionSummary:
@@ -394,12 +474,22 @@ class DojoAgentSessionManager:
         export_dir.mkdir()
         (export_dir / "transcripts").mkdir()
         files: list[str] = []
-        sessions = self.list_sessions_sync(include_archived=bool(payload.get("include_archived", False))).sessions
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id:
+            summary = self.get_session_sync(session_id)
+            sessions = [summary] if summary is not None else []
+            if sessions and summary.archived and not bool(payload.get("include_archived", False)):
+                sessions = []
+        else:
+            sessions = self.list_sessions_sync(include_archived=bool(payload.get("include_archived", False))).sessions
         all_rows: list[dict[str, Any]] = []
+        openai_dataset_rows: list[dict[str, Any]] = []
         for summary in sessions:
             messages = self.get_messages_sync(summary.session_id, agent_id=summary.agent_id).messages
+            openai_conversation: list[dict[str, Any]] = []
             transcript_lines = [f"# {summary.title or summary.session_id}", ""]
             for message in messages:
+                openai_conversation.extend(message.openai_messages or [message.raw])
                 row = {
                     "session_id": summary.session_id,
                     "agent_id": summary.agent_id,
@@ -408,6 +498,8 @@ class DojoAgentSessionManager:
                     "content": message.content,
                     "created_at": message.created_at,
                     "raw": message.raw,
+                    "raw_strands": message.raw_strands,
+                    "openai_messages": message.openai_messages,
                 }
                 all_rows.append(row)
                 transcript_lines.append(f"## {message.role} {message.message_id}")
@@ -417,6 +509,8 @@ class DojoAgentSessionManager:
             transcript_path = export_dir / "transcripts" / f"{summary.session_id}.md"
             transcript_path.write_text("\n".join(transcript_lines), encoding="utf-8")
             files.append(str(transcript_path.relative_to(export_dir)))
+            if openai_conversation:
+                openai_dataset_rows.append({"messages": openai_conversation})
         sessions_path = export_dir / "sessions.json"
         sessions_path.write_text(json.dumps([asdict(summary) for summary in sessions], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         files.append("sessions.json")
@@ -426,6 +520,12 @@ class DojoAgentSessionManager:
             encoding="utf-8",
         )
         files.append("messages.jsonl")
+        openai_dataset_path = export_dir / "openai_dataset.jsonl"
+        openai_dataset_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in openai_dataset_rows),
+            encoding="utf-8",
+        )
+        files.append("openai_dataset.jsonl")
         manifest_path = export_dir / "manifest.json"
         manifest_path.write_text(
             json.dumps(
@@ -442,14 +542,15 @@ class DojoAgentSessionManager:
             encoding="utf-8",
         )
         files.append("manifest.json")
-        strands_dir = export_dir / "strands"
-        strands_dir.mkdir()
-        for session_id in self.repository.list_session_ids():
-            src = self._session_dir(session_id)
-            dst = strands_dir / src.name
-            if src.exists():
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-        files.append("strands")
+        if bool(payload.get("include_raw_strands", True)):
+            strands_dir = export_dir / "strands"
+            strands_dir.mkdir()
+            for exported_session in sessions:
+                src = self._session_dir(exported_session.session_id)
+                dst = strands_dir / src.name
+                if src.exists():
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+            files.append("strands")
         return DojoSessionExportResult(
             ok=True,
             export_dir=str(export_dir),

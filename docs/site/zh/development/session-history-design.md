@@ -111,6 +111,28 @@ sessions:
 POST /api/v1/chat/sessions/export
 ```
 
+不传 `session_id` 时导出所有 session；传入后只导出指定 session：
+
+```json
+{
+  "session_id": "session-123",
+  "output_dir": "~/Desktop/dojo-chat-export",
+  "include_archived": true
+}
+```
+
+CLI 导出：
+
+```bash
+dojoagents sessions export \
+  --config ~/.dojo/agents.yaml \
+  --session-id session-123 \
+  --output-dir ~/Desktop/dojo-chat-export \
+  --include-archived
+```
+
+API 和 CLI 复用同一套 runtime session 导出实现。CLI 会从配置文件读取 `sessions.root`、`sessions.agent_id` 和 `sessions.export_default_dir`，适合在不启动 Dashboard server 的情况下做备份或数据集生成。不传 `--session-id` 时导出所有可见 session；如果指定的 session 已归档，需要传 `include_archived` 或 `--include-archived`。
+
 未指定目录时，导出到：
 
 ```text
@@ -121,11 +143,12 @@ POST /api/v1/chat/sessions/export
 
 - `sessions.json`
 - `messages.jsonl`
+- `openai_dataset.jsonl`
 - `manifest.json`
 - `transcripts/*.md`
 - `strands/` 原始会话文件副本
 
-适合做审计、人工回放、离线备份和外部归档。
+`messages.jsonl` 包含逐条 message 的审计记录。`openai_dataset.jsonl` 按 session 输出 `{"messages": [...]}` 形式的 OpenAI 兼容对话数据，其中工具调用使用标准的 `tool_calls` 和 `tool_call_id` 字段。该导出适合审计、人工回放、离线备份、外部归档和数据集准备。
 
 ## 开发注意事项
 

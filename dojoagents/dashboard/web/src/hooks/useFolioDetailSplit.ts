@@ -96,6 +96,7 @@ export function useFolioDetailSplit() {
   return {
     splitRef,
     ratio,
+    setRatio,
     resizing,
     onResizeStart,
   };

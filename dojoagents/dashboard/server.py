@@ -95,12 +95,11 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
         return provider_name or "default"
 
     config = store.snapshot()
-    selected_provider = (provider_name or config.llm_provider.default or "").strip()
-    resolved_name, provider_cfg = resolve_provider_config(config.llm_provider)
+    clean_provider_name = provider_name.strip() if provider_name else None
+    selected_provider, provider_cfg = resolve_provider_config(config.llm_provider, requested_name=clean_provider_name)
     if provider_cfg is None:
-        return selected_provider or "default"
-    if selected_provider == "default" or selected_provider not in config.llm_provider.providers:
-        selected_provider = resolved_name or selected_provider
+        fallback = provider_name or getattr(config.llm_provider, "default", None)
+        return (fallback or "default").strip()
 
     if selected_provider == "gemini":
         llm_provider = GeminiNativeProvider(
@@ -266,17 +265,29 @@ async def _close_dojo_client(client: Any) -> None:
 
 
 async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
-    run = runtime.agent.run
-    if event_sink is None:
-        return await run(req)
-    try:
-        signature = inspect.signature(run)
-    except (TypeError, ValueError):
-        return await run(req, event_sink=event_sink)
-    accepts_event_sink = "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
-    if accepts_event_sink:
-        return await run(req, event_sink=event_sink)
-    return await run(req)
+    from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+
+    async def _inner(request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+        run = runtime.agent.run
+        if event_sink is None:
+            return await run(request)
+        try:
+            signature = inspect.signature(run)
+        except (TypeError, ValueError):
+            return await run(request, event_sink=event_sink)
+        accepts_event_sink = "event_sink" in signature.parameters or any(
+            param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
+        )
+        if accepts_event_sink:
+            return await run(request, event_sink=event_sink)
+        return await run(request)
+
+    return await run_agent_with_tasks(
+        runtime,
+        req,
+        run_agent=_inner,
+        event_sink=event_sink,
+    )
 
 
 def create_app(
@@ -301,6 +312,14 @@ def create_app(
         sdk_cfg = None
         offline_mode = True
         financial_cfg = FinancialDashboardConfig()
+
+    from dojoagents.dashboard.services.stock_quote_filter import configure_ticker_market_cap_mins
+
+    configure_ticker_market_cap_mins(
+        sh=financial_cfg.ticker_market_cap_min_sh,
+        us=financial_cfg.ticker_market_cap_min_us,
+        hk=financial_cfg.ticker_market_cap_min_hk,
+    )
 
     sdk_cache_dir = financial_cfg.sdk_cache_path
     os.environ["DOJO_CACHE_DIR"] = str(sdk_cache_dir)
@@ -579,6 +598,7 @@ def create_app(
                 request=req,
                 model=info.get("model", "default"),
                 agent=runtime.agent,
+                runtime=runtime,
                 on_started=_on_started,
                 on_completed=_on_completed,
                 on_failed=_on_failed,
@@ -612,13 +632,7 @@ def create_app(
         record = manager.get(run_id)
         if record is None:
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
-        return {
-            "run_id": record.id,
-            "session_id": record.session_id,
-            "status": record.status,
-            "event_count": len(record.events),
-            "model": record.model,
-        }
+        return record.to_status_dict()
 
     @app.post("/api/chat/runs/{run_id}/cancel")
     async def cancel_chat_run(run_id: str) -> Any:

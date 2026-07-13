@@ -6,6 +6,7 @@ from typing import List, Any
 from dojoagents.dashboard.schemas.stock import Stock
 from dojoagents.dashboard.services.domain_utils import finite_float
 from dojoagents.dashboard.services.sector_store import SectorStore
+from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
 from dojoagents.dashboard.schemas.dojo_mesh import (
     BilingualText,
     DojoMeshSectorsResponse,
@@ -181,17 +182,22 @@ def compute_market_sector_lead(
     limit: int = 5,
 ) -> MarketSectorLead:
     sectors = build_market_sectors(market, sector_store, sector_precomputed_store)
+    ranked = [
+        sector
+        for sector in sectors
+        if sector_eligible_for_movers_ranking(member_count=sector.member_count or 0)
+    ]
 
     gainers = _apply_strength(
         sorted(
-            [s for s in sectors if s.change_percent > 0],
+            [s for s in ranked if s.change_percent > 0],
             key=lambda s: _sector_lead_sort_score(s.avg_market_cap, s.change_percent),
             reverse=True,
         )[:limit]
     )
     losers = _apply_strength(
         sorted(
-            [s for s in sectors if s.change_percent < 0],
+            [s for s in ranked if s.change_percent < 0],
             key=lambda s: _sector_lead_sort_score(s.avg_market_cap, s.change_percent),
         )[:limit]
     )

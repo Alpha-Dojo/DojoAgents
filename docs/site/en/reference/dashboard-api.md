@@ -79,9 +79,21 @@ The `chat_sessions` router is mounted at `/api/v1/chat/sessions`.
 | `GET` | `/api/v1/chat/sessions/{session_id}` | Read session sidecar metadata |
 | `GET` | `/api/v1/chat/sessions/{session_id}/messages?limit=200&offset=0` | Read session messages |
 | `POST` | `/api/v1/chat/sessions/{session_id}/archive` | Archive a session |
-| `POST` | `/api/v1/chat/sessions/export` | Export all sessions to the configured or requested directory |
+| `POST` | `/api/v1/chat/sessions/export` | Export all sessions, or one session when `session_id` is provided, to the configured or requested directory |
 
 Default session and export paths are controlled by `sessions.root` and `sessions.export_default_dir`.
+
+Export request body:
+
+```json
+{
+  "session_id": "session-123",
+  "output_dir": "~/Desktop/dojo-chat-export",
+  "include_archived": true
+}
+```
+
+Omit `session_id` to export all visible sessions.
 
 ## Domain Routers
 

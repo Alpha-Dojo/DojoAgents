@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Optional
 
 from dojoagents.agent.escalation import AgentEscalationError
 from dojoagents.agent.harnesses.portfolio_eval import _position_rows_from_detail
 from dojoagents.agent.harnesses.portfolio_task_intent import is_liquidation_intent
-from dojoagents.dashboard.schemas.portfolio import CreatePortfolioOrderRequest
-from dojoagents.dashboard.services.domain_api import _resolve_kline_symbol
-from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, extract_bar_time
+from dojoagents.dashboard.schemas.portfolio import CreatePortfolioOrderRequest, ResolvedOrderBar
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
+from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, price_within_daily_range
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.portfolio_allocation import normalize_shares
+from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_with_symbol_fallback
 from dojoagents.dashboard.services.portfolio_order_execution import (
     _parse_date,
     replay_market_balance,
@@ -19,7 +21,25 @@ from dojoagents.dashboard.services.portfolio_order_execution import (
 )
 
 DEFAULT_POSITION_PCT = 0.10
-_KLINE_LOOKBACK_LIMIT = 252
+
+
+def _resolved_bar_from_meta(meta: ResolvedOrderMeta) -> ResolvedOrderBar | None:
+    if not meta.bar_date or meta.bar_low is None or meta.bar_high is None or meta.bar_open is None:
+        return None
+    try:
+        low = float(meta.bar_low)
+        high = float(meta.bar_high)
+        open_price = float(meta.bar_open)
+    except (TypeError, ValueError):
+        return None
+    if low <= 0 or high <= 0 or open_price <= 0:
+        return None
+    return ResolvedOrderBar(
+        date=str(meta.bar_date)[:10],
+        open=open_price,
+        low=low,
+        high=high,
+    )
 
 
 @dataclass
@@ -98,7 +118,11 @@ def _latest_bar(bars: list[dict[str, float]]) -> dict[str, float] | None:
 
 
 def _find_bar_for_price(bars: list[dict[str, float]], price: float) -> dict[str, float] | None:
-    matches = [bar for bar in bars if bar["low"] - 1e-9 <= price <= bar["high"] + 1e-9]
+    matches = [
+        bar
+        for bar in bars
+        if price_within_daily_range(price, float(bar["low"]), float(bar["high"]))
+    ]
     if not matches:
         return None
     return matches[-1]
@@ -274,22 +298,15 @@ async def _fetch_resolution_bars(
     symbol: str,
     market: str,
     order_time: str | None,
-) -> list[Any]:
-    if order_time:
-        response = await kline_store.get_or_fetch_kline(
-            symbol,
-            market=market,
-            start_time=order_time,
-            end_time=order_time,
-        )
-        return list(response.bars) if response is not None else []
-    response = await kline_store.get_or_fetch_kline(
-        symbol,
+    user_price: float | None = None,
+) -> tuple[list[Any], str]:
+    return await fetch_kline_bars_with_symbol_fallback(
+        kline_store,
+        symbol=symbol,
         market=market,
-        min_bar_time=DATA_START_DATE,
-        limit=_KLINE_LOOKBACK_LIMIT,
+        order_time=order_time,
+        user_price=user_price,
     )
-    return list(response.bars) if response is not None else []
 
 
 def _parsed_bar_for_date(bars: list[dict[str, float]], target: str) -> dict[str, float] | None:
@@ -324,7 +341,7 @@ def _resolve_price_and_time(
             )
         low = float(bar["low"])
         high = float(bar["high"])
-        if price < low or price > high:
+        if not price_within_daily_range(price, low, high):
             _raise_escalation(
                 "price_not_fillable",
                 (
@@ -366,15 +383,42 @@ def _resolve_price_and_time(
         return float(bar["open"]), order_time, meta
 
     if price is not None and not order_time:
+        latest = _latest_bar(bars)
+        if latest is not None and price_within_daily_range(
+            price,
+            float(latest["low"]),
+            float(latest["high"]),
+        ):
+            meta.price_source = "user"
+            meta.time_source = "inferred_from_latest_bar"
+            meta.bar_date = latest["date"]
+            meta.bar_low = float(latest["low"])
+            meta.bar_high = float(latest["high"])
+            meta.bar_open = float(latest["open"])
+            meta.bar_close = float(latest["close"])
+            meta.notes.append(
+                f"Matched limit price to the latest trading day {latest['date']} (current-price semantics)."
+            )
+            return price, latest["date"], meta
+
         bar = _find_bar_for_price(bars, price)
         if bar is None:
+            context: dict[str, Any] = {"ticker": ticker, "price": price}
+            if latest is not None:
+                context.update(
+                    {
+                        "latest_date": latest["date"],
+                        "latest_low": latest["low"],
+                        "latest_high": latest["high"],
+                    }
+                )
             _raise_escalation(
                 "price_not_fillable",
                 (
-                    f"no recent trading day found where {ticker} traded between the limit price "
+                    f"no trading day found where {ticker} traded between the limit price "
                     f"{price:.4f} and daily high/low"
                 ),
-                context={"ticker": ticker, "price": price},
+                context=context,
             )
         meta.price_source = "user"
         meta.time_source = "inferred_from_price"
@@ -383,7 +427,7 @@ def _resolve_price_and_time(
         meta.bar_high = bar["high"]
         meta.bar_open = bar["open"]
         meta.bar_close = bar["close"]
-        meta.notes.append(f"Inferred trade date {bar['date']} from the nearest matching daily bar.")
+        meta.notes.append(f"Inferred trade date {bar['date']} from a historical daily bar.")
         return price, bar["date"], meta
 
     latest = _latest_bar(bars)
@@ -427,7 +471,7 @@ async def resolve_portfolio_order_request(
     if stock_store is None or kline_store is None:
         raise RuntimeError("financial stores are not ready")
 
-    symbol, resolved_market = _resolve_kline_symbol(stock_store, ticker, market)
+    symbol, resolved_market = resolve_ticker_symbol(stock_store, ticker, market)
     internal_market = resolved_market or market
     if not internal_market:
         internal_market = stock_store.find_market(symbol) or stock_store.find_market(ticker)
@@ -441,12 +485,15 @@ async def resolve_portfolio_order_request(
     user_price = float(raw_price) if raw_price is not None else None
     user_qty = float(raw_qty) if raw_qty is not None else None
 
-    bars_raw = await _fetch_resolution_bars(
+    bars_raw, kline_symbol = await _fetch_resolution_bars(
         kline_store,
         symbol=canonical_ticker,
         market=internal_market,
         order_time=order_time,
+        user_price=user_price,
     )
+    if kline_symbol:
+        canonical_ticker = kline_symbol
     bars = _sorted_bars(bars_raw)
     if order_time and not bars:
         _raise_escalation(
@@ -549,5 +596,6 @@ async def resolve_portfolio_order_request(
         price=price,
         qty=resolved_qty,
         order_time=trade_date,
+        resolved_bar=_resolved_bar_from_meta(meta),
     )
     return body, meta

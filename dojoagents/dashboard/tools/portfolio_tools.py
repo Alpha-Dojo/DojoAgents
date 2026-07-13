@@ -8,7 +8,9 @@ from dojoagents.dashboard.schemas.portfolio import (
     AutoAllocateRequest,
     CreatePortfolioOrderRequest,
     CreatePortfolioRequest,
+    PositionSyncItem,
     RemovePortfolioHoldingRequest,
+    SyncPortfolioPositionsRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.agent.escalation import AgentEscalationError
@@ -26,7 +28,8 @@ _POSITION_ORDER_FIELDS = ("price", "cost", "qty", "order_time", "order_side")
 _CANDIDATE_ONLY_ERROR = (
     "This tool adds WATCHLIST CANDIDATES (候选股) only — it does NOT buy shares or record cost. "
     "For 建仓/买入/按成本价/创建交易/持仓, use portfolio_write_create_order or "
-    "portfolio_write_create_orders with order_side, price, qty, and optional order_time."
+    "portfolio_write_create_orders with order_side, price, qty, and optional order_time. "
+    "For 仓位同步/外部持仓导入, use portfolio_write_sync_positions."
 )
 
 
@@ -394,6 +397,66 @@ def register_dashboard_portfolio_tools(
             resource_changes=[{"resource": "portfolio", "action": "create_order", "portfolio_id": portfolio_id}],
         )
 
+    async def sync_positions(args: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = str(args.get("portfolio_id") or "").strip()
+        items_raw = args.get("items")
+        if not isinstance(items_raw, list) or not items_raw:
+            raise RuntimeError("items must be a non-empty array")
+
+        items: list[PositionSyncItem] = []
+        for index, row in enumerate(items_raw):
+            if not isinstance(row, dict):
+                raise RuntimeError(f"items[{index}] must be an object")
+            ticker = str(row.get("ticker") or "").strip()
+            if not ticker:
+                raise RuntimeError(f"items[{index}].ticker is required")
+            qty_raw = row.get("qty")
+            if qty_raw is None:
+                raise RuntimeError(f"items[{index}].qty is required")
+            try:
+                qty = float(qty_raw)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(f"items[{index}].qty must be a number") from exc
+            cost_raw = row.get("cost")
+            cost = None if cost_raw is None else float(cost_raw)
+            items.append(
+                PositionSyncItem(
+                    ticker=ticker,
+                    market=_normalize_market(row.get("market")),
+                    qty=qty,
+                    cost=cost,
+                )
+            )
+
+        service = _service_or_raise(registry)
+        try:
+            detail = await service.sync_positions(
+                portfolio_id,
+                SyncPortfolioPositionsRequest(
+                    items=items,
+                    synced_at=str(args.get("synced_at")).strip() if args.get("synced_at") else None,
+                    source=str(args.get("source")).strip() if args.get("source") else None,
+                    note=str(args.get("note")).strip() if args.get("note") else None,
+                ),
+            )
+        except PortfolioValidationError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if detail is None:
+            raise RuntimeError("portfolio not found")
+
+        payload = detail.model_dump()
+        summary = eval_summary_from_detail(payload)
+        payload["sync_result"] = {
+            "synced_count": len(items),
+            "tickers": [item.ticker for item in items],
+            "position_count": summary["position_count"],
+            "position_count_by_market": summary["position_count_by_market"],
+        }
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "sync_positions", "portfolio_id": portfolio_id}],
+        )
+
     async def remove_holding(args: dict[str, Any]) -> dict[str, Any]:
         portfolio_id = str(args.get("portfolio_id") or "").strip()
         body = RemovePortfolioHoldingRequest(
@@ -404,6 +467,67 @@ def register_dashboard_portfolio_tools(
         if detail is None:
             raise RuntimeError("portfolio or holding not found")
         payload = detail.model_dump()
+        return _json_content(
+            payload,
+            resource_changes=[{"resource": "portfolio", "action": "remove_holding", "portfolio_id": portfolio_id}],
+        )
+
+    async def remove_holdings_batch(args: dict[str, Any]) -> dict[str, Any]:
+        portfolio_id = str(args.get("portfolio_id") or "").strip()
+        holdings_raw = args.get("holdings")
+        if not isinstance(holdings_raw, list) or not holdings_raw:
+            raise RuntimeError("holdings must be a non-empty array")
+
+        bodies: list[RemovePortfolioHoldingRequest] = []
+        for row in holdings_raw:
+            if not isinstance(row, dict):
+                continue
+            bodies.append(
+                RemovePortfolioHoldingRequest(
+                    ticker=str(row.get("ticker") or "").strip(),
+                    market=_normalize_market(row.get("market")),
+                )
+            )
+        if not bodies:
+            raise RuntimeError("holdings must include at least one ticker")
+
+        service = _service_or_raise(registry)
+        before = await service.get_detail(portfolio_id, include_performance=False)
+        before_keys = {
+            (str(row.ticker).upper(), str(row.market))
+            for row in (before.candidates if before else [])
+        }
+
+        detail, blocked_open_position = await service.remove_holdings_batch(portfolio_id, bodies)
+        if detail is None:
+            raise RuntimeError("portfolio not found")
+
+        after_keys = {(str(row.ticker).upper(), str(row.market)) for row in detail.candidates}
+        requested_keys: list[tuple[str, str | None]] = []
+        for body in bodies:
+            ticker = body.ticker.strip().upper()
+            if not ticker:
+                continue
+            market = body.market or registry.stock_store.find_market(ticker) if registry.stock_store else None
+            requested_keys.append((ticker, market))
+
+        removed_keys = before_keys - after_keys
+        skipped_not_in_watchlist = [
+            ticker
+            for ticker, market in requested_keys
+            if market and (ticker, market) not in before_keys
+        ]
+
+        payload = detail.model_dump()
+        payload["remove_result"] = {
+            "removed_from": "candidates",
+            "requested": len(requested_keys),
+            "removed": len(removed_keys),
+            "skipped_not_in_watchlist": skipped_not_in_watchlist,
+            "blocked_open_position": blocked_open_position,
+            "candidate_count": len(detail.candidates),
+            "candidate_count_by_market": eval_summary_from_detail(payload)["candidate_count_by_market"],
+        }
         return _json_content(
             payload,
             resource_changes=[{"resource": "portfolio", "action": "remove_holding", "portfolio_id": portfolio_id}],
@@ -508,6 +632,8 @@ def register_dashboard_portfolio_tools(
                 "Fetch one portfolio detail. "
                 "candidates = watchlist (候选股); positions/holdings = filled buys (持仓, from orders). "
                 "eval_summary has candidate_count AND position_count — use the right metric for eval_submit. "
+                "For 买入/卖出/减仓/清仓 order workflows set include_performance=false to keep the response small. "
+                "When compressed to an artifact pointer, positions[] and eval_summary remain visible. "
                 "Required verification step after any portfolio write."
             ),
             parameters={
@@ -711,12 +837,14 @@ def register_dashboard_portfolio_tools(
             description=(
                 "Buy or sell to create/update a REAL position (持仓/建仓/清仓). "
                 "Provide ticker + order_side; price/qty/order_time are optional — the server resolves defaults: "
-                "no date -> latest close; date only -> that day's open; price only -> nearest day where price is "
-                "within daily low/high; no qty on buy -> 10% of available market cash (lot-normalized); "
+                "no date + no price -> latest daily close; order_time only -> that day's open; "
+                "price only -> latest trading day when price fits that bar, else nearest historical match; "
+                "price + order_time -> validate price within that day's [low, high] inclusive. "
+                "When using a realtime quote price, also pass order_time from the latest kline datetime. "
+                "no qty on buy -> 10% of available market cash (lot-normalized); "
                 "no qty on sell -> if user asked 清仓/全部卖出, sell all held shares; otherwise ask the user "
                 "(suggest 50%, 75%, 100% via qty_pct). "
-                "US qty must be whole shares; HK/A-share qty must be multiples of 100. "
-                "Limit price must fall within the trade day's high/low range."
+                "US qty must be whole shares; HK/A-share qty must be multiples of 100."
             ),
             parameters={
                 "type": "object",
@@ -727,7 +855,10 @@ def register_dashboard_portfolio_tools(
                     "order_side": {"type": "string", "enum": ["buy", "sell"]},
                     "price": {
                         "type": "number",
-                        "description": "Optional limit price; must be within the trade day's low/high",
+                        "description": (
+                            "Optional limit price; must be within order_time day's [low, high] inclusive. "
+                            "When sourced from realtime quote, pass order_time too."
+                        ),
                     },
                     "qty": {
                         "type": "number",
@@ -743,7 +874,9 @@ def register_dashboard_portfolio_tools(
                     },
                     "order_time": {
                         "type": "string",
-                        "description": "Optional execution date YYYY-MM-DD",
+                        "description": (
+                            "Optional execution date YYYY-MM-DD. Recommended when passing a quote-derived price."
+                        ),
                     },
                 },
                 "required": ["portfolio_id", "ticker", "order_side"],
@@ -792,8 +925,55 @@ def register_dashboard_portfolio_tools(
             handler=create_orders_batch,
         ),
         ToolSpec(
+            name="portfolio_write_sync_positions",
+            description=(
+                "Sync absolute positions from an external account (仓位同步). "
+                "Sets target shares and average cost as of the current time — this is NOT a buy/sell trade. "
+                "Each item needs ticker + qty; cost is required when qty > 0. "
+                "Use qty=0 to clear a synced position. "
+                "US qty must be whole shares; HK/A-share qty must be multiples of 100."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "market": {"type": "string", "description": "us, cn, or hk"},
+                                "qty": {
+                                    "type": "number",
+                                    "description": "Absolute target shares after sync",
+                                },
+                                "cost": {
+                                    "type": "number",
+                                    "description": "Average cost price; required when qty > 0",
+                                },
+                            },
+                            "required": ["ticker", "qty"],
+                        },
+                        "minItems": 1,
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Optional external source label, e.g. ibkr",
+                    },
+                    "note": {"type": "string"},
+                },
+                "required": ["portfolio_id", "items"],
+            },
+            handler=sync_positions,
+        ),
+        ToolSpec(
             name="portfolio_write_remove_holding",
-            description="Remove one ticker from the portfolio WATCHLIST (候选股). Does not close a filled position — use create_order with order_side=sell for that.",
+            description=(
+                "Remove one ticker from the portfolio WATCHLIST (候选股). "
+                "For 2+ tickers use portfolio_write_remove_candidates in one call. "
+                "Does not close a filled position — use create_order with order_side=sell for that."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -804,6 +984,35 @@ def register_dashboard_portfolio_tools(
                 "required": ["portfolio_id", "ticker"],
             },
             handler=remove_holding,
+        ),
+        ToolSpec(
+            name="portfolio_write_remove_candidates",
+            description=(
+                "Remove multiple tickers from the portfolio WATCHLIST (候选股) in one batch. "
+                "Prefer this over repeated portfolio_write_remove_holding when removing 2+ symbols. "
+                "Does NOT close filled positions — use portfolio_write_create_orders with order_side=sell."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "portfolio_id": {"type": "string"},
+                    "holdings": {
+                        "type": "array",
+                        "description": "Candidate tickers to remove (ticker + optional market).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ticker": {"type": "string"},
+                                "market": {"type": "string"},
+                            },
+                            "required": ["ticker"],
+                        },
+                        "minItems": 1,
+                    },
+                },
+                "required": ["portfolio_id", "holdings"],
+            },
+            handler=remove_holdings_batch,
         ),
         ToolSpec(
             name="portfolio_write_auto_allocate",

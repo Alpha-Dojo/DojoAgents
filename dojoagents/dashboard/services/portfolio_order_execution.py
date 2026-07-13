@@ -5,11 +5,22 @@ from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from dojoagents.dashboard.services.domain_utils import normalize_market_code
-from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time
+from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, price_within_daily_range
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_with_symbol_fallback
 
-OrderSide = str  # "buy" | "sell"
+OrderSide = str  # "buy" | "sell" | "set"
+OrderKind = str  # "trade" | "sync"
 OrderStatus = str  # "pending" | "filled" | "cancelled" | "rejected"
+
+
+def _order_kind(order: dict[str, Any]) -> str:
+    kind = str(order.get("order_kind") or "trade").strip().lower()
+    return kind if kind in {"trade", "sync"} else "trade"
+
+
+def _is_sync_set_order(order: dict[str, Any]) -> bool:
+    return _order_kind(order) == "sync" and str(order.get("order_side") or "").lower() == "set"
 
 
 @dataclass(frozen=True)
@@ -87,18 +98,14 @@ def _next_trading_day(bars: list[Any], after_date: str) -> Optional[dict[str, fl
 
 
 def available_shares(orders: list[dict[str, Any]], *, market: str, ticker: str) -> float:
-    shares = 0.0
-    for order in orders:
-        if str(order.get("order_status")) != "filled":
-            continue
-        if str(order.get("market")) != market or str(order.get("ticker")) != ticker:
-            continue
-        qty = float(order.get("qty") or 0)
-        if str(order.get("order_side")) == "buy":
-            shares += qty
-        elif str(order.get("order_side")) == "sell":
-            shares -= qty
-    return max(shares, 0.0)
+    # Share count only — use ample notional cash so buy replay is not cash-gated.
+    _, positions = replay_market_balance(
+        orders,
+        market=market,
+        initial_capital=1e18,
+        as_of_date="9999-12-31",
+    )
+    return max(float(positions.get(ticker) or 0.0), 0.0)
 
 
 def resolve_market_initial_capital(capital_by_market: dict[str, Any] | None, market: str) -> float:
@@ -112,6 +119,24 @@ def resolve_market_initial_capital(capital_by_market: dict[str, Any] | None, mar
     return float(capital.get(market) or 0)
 
 
+def _bar_dict_from_resolved(order: dict[str, Any]) -> Optional[dict[str, float]]:
+    raw = order.get("resolved_bar")
+    if not isinstance(raw, dict):
+        return None
+    bar_date = _parse_date(raw.get("date"))
+    if not bar_date:
+        return None
+    try:
+        open_price = float(raw.get("open") or 0)
+        low = float(raw.get("low") or 0)
+        high = float(raw.get("high") or 0)
+    except (TypeError, ValueError):
+        return None
+    if open_price <= 0 or low <= 0 or high <= 0:
+        return None
+    return {"date": bar_date, "open": open_price, "low": low, "high": high}
+
+
 async def _fetch_order_kline_bars(
     kline_store: KlineStore,
     *,
@@ -119,26 +144,40 @@ async def _fetch_order_kline_bars(
     market: str,
     scheduled_date: str | None = None,
     after_date: str | None = None,
+    user_price: float | None = None,
 ) -> list[Any]:
-    """Fetch kline bars scoped to the order date instead of the default trailing window."""
-    if scheduled_date:
-        response = await kline_store.get_or_fetch_kline(
-            ticker,
-            market=market or None,
-            start_time=scheduled_date,
-            end_time=scheduled_date,
-            limit=8,
-        )
-    elif after_date:
-        response = await kline_store.get_or_fetch_kline(
-            ticker,
-            market=market or None,
-            start_time=after_date,
-            limit=32,
-        )
-    else:
-        response = await kline_store.get_or_fetch_kline(ticker, market=market or None, limit=252)
-    return list(response.bars) if response is not None else []
+    bars, _ = await fetch_kline_bars_with_symbol_fallback(
+        kline_store,
+        symbol=ticker,
+        market=market,
+        order_time=scheduled_date,
+        user_price=user_price if scheduled_date is None else None,
+        after_date=after_date if scheduled_date is None else None,
+    )
+    return bars
+
+
+async def _resolve_scheduled_fill_bar(
+    order: dict[str, Any],
+    *,
+    kline_store: KlineStore,
+    ticker: str,
+    market: str,
+    scheduled: str,
+) -> tuple[Optional[dict[str, float]], list[Any]]:
+    resolved = _bar_dict_from_resolved(order)
+    if resolved is not None and resolved["date"] == scheduled:
+        return resolved, []
+
+    bars = await _fetch_order_kline_bars(
+        kline_store,
+        ticker=ticker,
+        market=market,
+        scheduled_date=scheduled,
+    )
+    if not bars:
+        return None, []
+    return _bar_for_date(bars, scheduled), bars
 
 
 async def evaluate_order_fill_failure(
@@ -148,6 +187,8 @@ async def evaluate_order_fill_failure(
     prior_orders: list[dict[str, Any]],
     initial_capital: float = 0.0,
 ) -> Optional[OrderFillFailure]:
+    if _is_sync_set_order(order):
+        return None
     ticker = str(order.get("ticker") or "")
     market = str(order.get("market") or "")
     side = str(order.get("order_side") or "buy").lower()
@@ -171,29 +212,27 @@ async def evaluate_order_fill_failure(
 
     scheduled = _parse_date(order.get("order_time"))
     created = _parse_date(order.get("created_at")) or date.today().isoformat()
-    bars = await _fetch_order_kline_bars(
-        kline_store,
-        ticker=ticker,
-        market=market,
-        scheduled_date=scheduled,
-        after_date=None if scheduled else created,
-    )
-    if not bars:
-        return OrderFillFailure(
-            "no_kline_data",
-            f"no kline data available for {ticker}",
-            {"ticker": ticker},
-        )
-
     if scheduled:
-        bar = _bar_for_date(bars, scheduled)
+        bar, bars = await _resolve_scheduled_fill_bar(
+            order,
+            kline_store=kline_store,
+            ticker=ticker,
+            market=market,
+            scheduled=scheduled,
+        )
+        if not bars and bar is None:
+            return OrderFillFailure(
+                "no_kline_data",
+                f"no kline data available for {ticker}",
+                {"ticker": ticker},
+            )
         if bar is None:
             return OrderFillFailure(
                 "no_trading_bar",
                 f"no trading bar for {ticker} on {scheduled}",
                 {"ticker": ticker, "date": scheduled},
             )
-        if limit_price < bar["low"] or limit_price > bar["high"]:
+        if not price_within_daily_range(limit_price, bar["low"], bar["high"]):
             return OrderFillFailure(
                 "price_out_of_range",
                 (
@@ -221,6 +260,19 @@ async def evaluate_order_fill_failure(
             if cash_failure is not None:
                 return cash_failure
         return None
+
+    bars = await _fetch_order_kline_bars(
+        kline_store,
+        ticker=ticker,
+        market=market,
+        after_date=created,
+    )
+    if not bars:
+        return OrderFillFailure(
+            "no_kline_data",
+            f"no kline data available for {ticker}",
+            {"ticker": ticker},
+        )
 
     bar = _next_trading_day(bars, created)
     if bar is None:
@@ -269,6 +321,8 @@ async def try_fill_order(
     prior_orders: list[dict[str, Any]],
     initial_capital: float = 0.0,
 ) -> dict[str, Any]:
+    if _is_sync_set_order(order):
+        return order
     if str(order.get("order_status")) != "pending":
         return order
 
@@ -289,25 +343,29 @@ async def try_fill_order(
 
     scheduled = _parse_date(order.get("order_time"))
     created = _parse_date(order.get("created_at")) or date.today().isoformat()
-    bars = await _fetch_order_kline_bars(
-        kline_store,
-        ticker=ticker,
-        market=market,
-        scheduled_date=scheduled,
-        after_date=None if scheduled else created,
-    )
-    if not bars:
-        return order
-
     if scheduled:
-        bar = _bar_for_date(bars, scheduled)
+        bar, bars = await _resolve_scheduled_fill_bar(
+            order,
+            kline_store=kline_store,
+            ticker=ticker,
+            market=market,
+            scheduled=scheduled,
+        )
         if bar is None:
             return order
-        if limit_price < bar["low"] or limit_price > bar["high"]:
+        if not price_within_daily_range(limit_price, bar["low"], bar["high"]):
             return order
         fill_price = limit_price
         fill_date = bar["date"]
     else:
+        bars = await _fetch_order_kline_bars(
+            kline_store,
+            ticker=ticker,
+            market=market,
+            after_date=created,
+        )
+        if not bars:
+            return order
         bar = _next_trading_day(bars, created)
         if bar is None:
             return order
@@ -381,6 +439,18 @@ def aggregate_positions(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
         fill_price = float(order.get("fill_price") or order.get("price") or 0)
         fill_date = _parse_date(order.get("fill_time") or order.get("order_time") or order.get("created_at"))
         side = str(order.get("order_side") or "buy").lower()
+        if _is_sync_set_order(order):
+            if qty <= 1e-9:
+                buckets.pop(key, None)
+            else:
+                buckets[key] = {
+                    "ticker": ticker,
+                    "market": market,
+                    "shares": qty,
+                    "cost_basis": fill_price * qty if fill_price > 0 else 0.0,
+                    "open_date": fill_date,
+                }
+            continue
         if side == "buy":
             if bucket["shares"] <= 0 and fill_date:
                 bucket["open_date"] = fill_date
@@ -478,6 +548,18 @@ def aggregate_positions_bounded(
             side = str(order.get("order_side") or "buy").lower()
             if not ticker or qty <= 0 or fill_price <= 0:
                 continue
+            if _is_sync_set_order(order):
+                if qty <= 1e-9:
+                    buckets.pop(ticker, None)
+                else:
+                    buckets[ticker] = {
+                        "ticker": ticker,
+                        "market": market,
+                        "shares": qty,
+                        "cost_basis": fill_price * qty,
+                        "open_date": fill_date,
+                    }
+                continue
             if side == "buy":
                 cost = fill_price * qty
                 if cost > cash + 1e-9:
@@ -535,7 +617,15 @@ def _apply_filled_order(
     qty = float(order.get("qty") or 0)
     fill_price = float(order.get("fill_price") or order.get("price") or 0)
     side = str(order.get("order_side") or "buy").lower()
-    if not ticker or qty <= 0 or fill_price <= 0:
+    if not ticker:
+        return cash, positions
+    if _is_sync_set_order(order):
+        if qty <= 1e-9:
+            positions.pop(ticker, None)
+        else:
+            positions[ticker] = qty
+        return cash, positions
+    if qty <= 0 or fill_price <= 0:
         return cash, positions
     if side == "buy":
         cost = fill_price * qty
@@ -608,7 +698,17 @@ def sanitize_invalid_filled_orders(
         side = str(order.get("order_side") or "buy").lower()
         invalid = False
 
-        if not ticker or qty <= 0 or fill_price <= 0:
+        if _is_sync_set_order(order):
+            if not ticker:
+                invalid = True
+            elif qty <= 1e-9:
+                positions.pop(ticker, None)
+            else:
+                if fill_price <= 0:
+                    invalid = True
+                else:
+                    positions[ticker] = qty
+        elif not ticker or qty <= 0 or fill_price <= 0:
             invalid = True
         elif side == "buy":
             cost = fill_price * qty

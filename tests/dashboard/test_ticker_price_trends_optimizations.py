@@ -297,3 +297,46 @@ async def test_price_trends_returns_kline_even_when_financials_fail() -> None:
     assert response.ticker == "AAPL"
     assert len(response.bars) == 1
     assert response.pe_points == []
+
+
+@pytest.mark.asyncio
+async def test_price_trends_single_day_falls_back_to_wide_window() -> None:
+    from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+
+    all_bars = [
+        StockKlineBar(symbol="AAPL", bar_time="2026-02-20", open=130, high=135, low=128, close=132),
+        StockKlineBar(symbol="AAPL", bar_time="2026-07-03", open=197, high=200, low=192, close=195),
+    ]
+
+    class SplitKlineStore:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def get_or_fetch_kline(self, symbol, **kwargs):
+            self.calls.append(dict(kwargs))
+            start = str(kwargs.get("start_time") or "")[:10]
+            end = str(kwargs.get("end_time") or "")[:10]
+            if start and end and start == end:
+                return None
+            return StockKlineResponse(symbol=symbol, as_of=all_bars[-1].bar_time, bars=all_bars)
+
+    store = SplitKlineStore()
+    registry = SimpleNamespace(
+        kline_store=store,
+        stock_fin_indicators_store=FinStore(),
+        stock_store=StockStore(),
+    )
+
+    response = await build_ticker_price_trends_v1(
+        registry,
+        ticker="AAPL",
+        market="us",
+        start_date="2026-02-20",
+        end_date="2026-02-20",
+        limit=None,
+    )
+
+    assert response is not None
+    assert len(response.klines) == 1
+    assert str(response.klines[0].datetime).startswith("2026-02-20")
+    assert len(store.calls) == 2

@@ -164,6 +164,7 @@ class TestConfigLoader:
                     "web": {
                         "search_backend": "mock-search",
                         "extract_backend": "mock-extract",
+                        "user_agent": "CustomBot/1.0",
                         "search_base_url": "http://localhost:8080",
                         "extract_base_url": "http://localhost:8081",
                         "summary_threshold_chars": 1200,
@@ -173,6 +174,7 @@ class TestConfigLoader:
         )
         assert cfg.tools.web.search_backend == "mock-search"
         assert cfg.tools.web.extract_backend == "mock-extract"
+        assert cfg.tools.web.user_agent == "CustomBot/1.0"
         assert cfg.tools.web.search_base_url == "http://localhost:8080"
         assert cfg.tools.web.extract_base_url == "http://localhost:8081"
         assert cfg.tools.web.summary_threshold_chars == 1200

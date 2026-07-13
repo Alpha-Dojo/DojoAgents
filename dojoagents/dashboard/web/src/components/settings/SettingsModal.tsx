@@ -112,9 +112,6 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
       { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
       { value: 'kimi-k2.6', label: 'Kimi K2.6' },
       { value: 'kimi-k2.5', label: 'Kimi K2.5' },
-      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
-      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
-      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
     ],
   },
   ollama: {
@@ -154,9 +151,6 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
       { value: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code HighSpeed' },
       { value: 'kimi-k2.6', label: 'Kimi K2.6' },
       { value: 'kimi-k2.5', label: 'Kimi K2.5' },
-      { value: 'moonshot-v1-8k', label: 'Moonshot v1 8K' },
-      { value: 'moonshot-v1-32k', label: 'Moonshot v1 32K' },
-      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K' },
     ],
   },
   minimax: {

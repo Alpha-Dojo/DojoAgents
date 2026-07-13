@@ -326,5 +326,17 @@ export function formatToolResultData(
     parts.push(previewTickers(tickers, 8));
   }
   parts.push(...collectDefault10PctDisclosures(data, locale));
+  const outputPath = typeof data.path === 'string' ? data.path : null;
+  const outputFilename = typeof data.filename === 'string' ? data.filename : null;
+  if (outputPath && outputFilename) {
+    parts.push(outputFilename);
+    if (typeof data.bytes_written === 'number') {
+      parts.push(
+        locale === 'zh'
+          ? `${data.bytes_written} 字节`
+          : `${data.bytes_written} bytes`,
+      );
+    }
+  }
   return parts.length > 0 ? parts.join(' · ') : null;
 }

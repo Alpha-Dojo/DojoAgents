@@ -54,6 +54,7 @@ class SandboxConfig:
 class WebToolsConfig:
     search_backend: str = "ddgs"
     extract_backend: str = "fetch"
+    user_agent: str | None = None
     search_base_url: str | None = None
     extract_base_url: str | None = None
     max_extract_urls: int = 5
@@ -176,6 +177,14 @@ class PlanConfig:
 
 
 @dataclass(frozen=True)
+class TasksConfig:
+    enabled: bool = True
+    dirs: list[str] = field(default_factory=lambda: ["~/.dojo/tasks"])
+    output_root: str = "~/.dojo/tasks/outputs"
+    auto_detect: bool = False
+
+
+@dataclass(frozen=True)
 class SessionsConfig:
     enabled: bool = True
     provider: str = "dojo_repository"
@@ -204,3 +213,4 @@ class AgentsConfig:
     multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
     planning: PlanConfig = field(default_factory=PlanConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    tasks: TasksConfig = field(default_factory=TasksConfig)

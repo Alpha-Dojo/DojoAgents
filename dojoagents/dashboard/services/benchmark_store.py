@@ -17,6 +17,7 @@ from dojoagents.dashboard.schemas.benchmark import (
 )
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
 from dojoagents.dashboard.services.domain_utils import normalize_market_code
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_window_bounds_from_trade_dates
 
 MARKETS = ("sh", "hk", "us")
 DEFAULT_BENCHMARKS = {
@@ -119,19 +120,46 @@ def _fallback_catalog() -> dict[str, list[BenchmarkMeta]]:
     return catalog
 
 
-def _window_change_percent(bars: list[StockKlineBar], days: int) -> float:
+def _bar_day(bar: StockKlineBar) -> str:
+    return str(bar.bar_time or "")[:10]
+
+
+def _bars_for_window(bars: list[StockKlineBar], window: MarketAnalysisWindow) -> list[StockKlineBar]:
+    if not bars:
+        return []
+    if window.mode == "date_range":
+        start_date = window.start_date or ""
+        end_date = window.end_date or ""
+        filtered = [bar for bar in bars if start_date <= _bar_day(bar) <= end_date]
+        return filtered
+    if window.days <= 1:
+        return bars[-1:] if bars else []
+    take = min(max(window.days, 1), len(bars))
+    return bars[-take:]
+
+
+def _window_change_percent(bars: list[StockKlineBar], window: MarketAnalysisWindow) -> float:
     if not bars:
         return 0.0
-    if days <= 1 and len(bars) >= 2:
+    scoped = _bars_for_window(bars, window)
+    if not scoped:
+        return 0.0
+    if window.mode == "days" and window.days <= 1 and len(bars) >= 2:
         base = bars[-2].close
         latest = bars[-1].close
+    elif len(scoped) >= 2 and _bar_day(scoped[0]) != _bar_day(scoped[-1]):
+        base = scoped[0].close
+        latest = scoped[-1].close
     else:
-        window = min(max(days, 1), len(bars) - 1) if len(bars) > 1 else 0
-        base = bars[-1 - window].close if window > 0 else bars[0].close
-        latest = bars[-1].close
+        latest = scoped[-1].close
+        base = bars[bars.index(scoped[-1]) - 1].close if scoped[-1] in bars and bars.index(scoped[-1]) > 0 else latest
     if base <= 0:
         return 0.0
     return (latest / base - 1.0) * 100.0
+
+
+def _window_change_percent_legacy(bars: list[StockKlineBar], days: int) -> float:
+    return _window_change_percent(bars, MarketAnalysisWindow(mode="days", days=days))
 
 
 class BenchmarkStore:
@@ -141,7 +169,7 @@ class BenchmarkStore:
         self.gateway = client if callable(gateway_method) else DojoDataGateway(client)
         self._catalog: dict[str, list[BenchmarkMeta]] = _fallback_catalog()
         self._catalog_loaded = False
-        self._response_cache: dict[int, DojoMeshBenchmarksResponse] = {}
+        self._response_cache: dict[tuple[str, ...], DojoMeshBenchmarksResponse] = {}
         self._kline_cache: Dict[str, StockKlineResponse] = {}
         self._inflight: Dict[str, asyncio.Task[Optional[StockKlineResponse]]] = {}
         self._selected_defaults: dict[str, str | None] = {market: None for market in MARKETS}
@@ -223,42 +251,54 @@ class BenchmarkStore:
             LOGGER.info("Failed to fetch benchmark kline for %s: %s", symbol, exc)
             return None
 
-    async def _build_card(self, meta: BenchmarkMeta, *, days: int) -> Optional[BenchmarkCard]:
-        limit = max(DEFAULT_LOOKBACK_DAYS, days + 5)
+    async def _build_card(self, meta: BenchmarkMeta, *, window: MarketAnalysisWindow) -> Optional[BenchmarkCard]:
+        limit = DEFAULT_LOOKBACK_DAYS if window.mode == "date_range" else max(DEFAULT_LOOKBACK_DAYS, window.days + 5)
         kline_resp = await self.get_kline(meta.symbol, limit=limit)
         if not kline_resp or not kline_resp.bars:
             return None
         bars = kline_resp.bars
-        latest = bars[-1]
+        scoped = _bars_for_window(bars, window)
+        if not scoped:
+            return None
+        latest = scoped[-1]
         return BenchmarkCard(
             market=meta.market,
             symbol=meta.symbol,
             name=meta.name,
             price=round(latest.close, 2),
-            change_percent=round(_window_change_percent(bars, days), 2),
+            change_percent=round(_window_change_percent(bars, window), 2),
             kline=[BenchmarkKline(datetime=bar.bar_time, close=round(bar.close, 2)) for bar in bars],
         )
 
-    async def get_benchmarks(self, *, days: int = 1) -> DojoMeshBenchmarksResponse:
+    async def get_benchmarks(
+        self,
+        *,
+        days: int = 1,
+        window: MarketAnalysisWindow | None = None,
+    ) -> DojoMeshBenchmarksResponse:
         if not self._catalog_loaded:
             await self.load()
-        cached = self._response_cache.get(days)
+        resolved_window = window or MarketAnalysisWindow(mode="days", days=days)
+        cache_key = resolved_window.cache_key()
+        cached = self._response_cache.get(cache_key)
         if cached is not None:
             return cached
 
         response = DojoMeshBenchmarksResponse(markets={})
         latest_as_of: str | None = None
+        trade_dates: list[str] = []
 
         for market in MARKETS:
             cards: list[BenchmarkCard] = []
             for meta in self._catalog.get(market, []):
-                card = await self._build_card(meta, days=days)
+                card = await self._build_card(meta, window=resolved_window)
                 if card is None:
                     continue
                 cards.append(card)
                 if card.kline:
                     as_of = card.kline[-1].datetime
                     latest_as_of = as_of if latest_as_of is None else max(latest_as_of, as_of)
+                    trade_dates.extend(str(point.datetime or "")[:10] for point in card.kline if point.datetime)
             if not cards:
                 self._selected_defaults[market] = None
                 continue
@@ -277,5 +317,11 @@ class BenchmarkStore:
             )
 
         response.as_of = latest_as_of
-        self._response_cache[days] = response
+        if resolved_window.mode == "date_range":
+            try:
+                bounded = resolve_window_bounds_from_trade_dates(resolved_window, trade_dates)
+                response.as_of = bounded.resolved_end or latest_as_of
+            except ValueError:
+                pass
+        self._response_cache[cache_key] = response
         return response

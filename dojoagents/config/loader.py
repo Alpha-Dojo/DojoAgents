@@ -32,6 +32,7 @@ from dojoagents.config.models import (
     DojoSDKConfig,
     ProfilerConfig,
     SessionsConfig,
+    TasksConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -113,9 +114,11 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     )
 
 
-def resolve_provider_config(llm: LLMConfig) -> tuple[str | None, LLMProviderConfig | None]:
+def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -> tuple[str | None, LLMProviderConfig | None]:
     if not llm.providers:
         return None, None
+    if requested_name and requested_name in llm.providers:
+        return requested_name, llm.providers[requested_name]
     name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
     if name is None:
         name = next(iter(llm.providers))
@@ -168,6 +171,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         web=WebToolsConfig(
             search_backend=web_raw.get("search_backend") or "ddgs",
             extract_backend=web_raw.get("extract_backend") or "fetch",
+            user_agent=web_raw.get("user_agent"),
             search_base_url=web_raw.get("search_base_url"),
             extract_base_url=web_raw.get("extract_base_url"),
             max_extract_urls=int(web_raw.get("max_extract_urls", 5)),
@@ -188,6 +192,7 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
     sessions_raw = raw.get("sessions", {})
+    tasks_raw = raw.get("tasks", {})
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -264,6 +269,12 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             persist_openai_history=bool(sessions_raw.get("persist_openai_history", True)),
             sync_memory=bool(sessions_raw.get("sync_memory", True)),
             export_default_dir=str(sessions_raw.get("export_default_dir", "~/Desktop/dojo-chat-export")),
+        ),
+        tasks=TasksConfig(
+            enabled=bool(tasks_raw.get("enabled", True)),
+            dirs=list(tasks_raw.get("dirs", ["~/.dojo/tasks"])),
+            output_root=str(tasks_raw.get("output_root", "~/.dojo/tasks/outputs")),
+            auto_detect=bool(tasks_raw.get("auto_detect", False)),
         ),
     )
 

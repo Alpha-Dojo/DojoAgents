@@ -16,6 +16,8 @@ from dojoagents.dashboard.schemas.domain_api import (
     PortfolioListResponseV1,
     PortfolioPerformanceResponseV1,
     RemovePortfolioHoldingRequestV1,
+    RemovePortfolioHoldingsRequestV1,
+    SyncPortfolioPositionsRequestV1,
     UpdateHoldingsMetadataRequestV1,
 )
 from dojoagents.dashboard.schemas.portfolio import (
@@ -23,6 +25,9 @@ from dojoagents.dashboard.schemas.portfolio import (
     CancelPortfolioOrderRequest,
     CreatePortfolioOrderRequest,
     CreatePortfolioRequest,
+    PositionSyncItem,
+    RemovePortfolioHoldingRequest,
+    SyncPortfolioPositionsRequest,
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.services.domain_api import (
@@ -215,6 +220,32 @@ async def remove_holding(
     return portfolio_detail_to_analysis(detail)
 
 
+@router.delete(
+    "/holdings/batch",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="remove_portfolio_holdings",
+    summary="Remove multiple tickers from a portfolio watchlist",
+)
+async def remove_holdings_batch(
+    body: RemovePortfolioHoldingsRequestV1,
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    bodies = [
+        RemovePortfolioHoldingRequest(
+            ticker=holding.ticker,
+            market=holding.market,
+        )
+        for holding in body.holdings
+    ]
+    detail, _blocked = await registry.portfolio_service.remove_holdings_batch(
+        body.portfolio_id,
+        bodies,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio or holding not found")
+    return portfolio_detail_to_analysis(detail)
+
+
 @router.post(
     "/holdings/metadata",
     response_model=PortfolioAnalysisResponseV1,
@@ -287,6 +318,44 @@ async def create_order(
         ) from exc
     if detail is None:
         raise HTTPException(status_code=404, detail="portfolio or ticker not found")
+    return portfolio_detail_to_analysis(detail)
+
+
+@router.post(
+    "/position-sync",
+    response_model=PortfolioAnalysisResponseV1,
+    operation_id="sync_portfolio_positions",
+    summary="Sync absolute positions from an external account",
+)
+async def sync_positions(
+    body: SyncPortfolioPositionsRequestV1,
+    registry=Depends(get_financial_registry),
+) -> PortfolioAnalysisResponseV1:
+    try:
+        detail = await registry.portfolio_service.sync_positions(
+            body.portfolio_id,
+            SyncPortfolioPositionsRequest(
+                items=[
+                    PositionSyncItem(
+                        ticker=item.ticker,
+                        market=item.market,
+                        qty=item.qty,
+                        cost=item.cost,
+                    )
+                    for item in body.items
+                ],
+                synced_at=body.synced_at,
+                source=body.source,
+                note=body.note,
+            ),
+        )
+    except PortfolioValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "field": exc.field, "context": exc.context or {}},
+        ) from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail="portfolio not found")
     return portfolio_detail_to_analysis(detail)
 
 

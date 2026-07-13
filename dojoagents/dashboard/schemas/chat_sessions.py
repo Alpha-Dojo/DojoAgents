@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ChatSessionExportRequest(BaseModel):
+    session_id: str | None = None
     output_dir: str | None = None
     format: str = "jsonl"
     include_raw_strands: bool = True

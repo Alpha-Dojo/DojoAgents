@@ -60,6 +60,8 @@ class AgentRunRecord:
     model: str
     status: RunStatus = "running"
     events: list[dict[str, Any]] = field(default_factory=list)
+    result_metadata: dict[str, Any] = field(default_factory=dict)
+    result_content: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     task: concurrent.futures.Future[Any] | None = None
@@ -71,6 +73,28 @@ class AgentRunRecord:
     def set_status(self, status: RunStatus) -> None:
         self.status = status
         self.updated_at = time.time()
+
+    def set_result(self, response: AgentResponse) -> None:
+        self.result_content = str(response.content or "")
+        metadata = response.metadata
+        self.result_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+
+    def set_error_result(self, exc: BaseException) -> None:
+        self.result_content = str(exc)
+        self.result_metadata = {"error": "runtime_error", "message": str(exc)}
+
+    def to_status_dict(self) -> dict[str, Any]:
+        metadata = dict(self.result_metadata) if isinstance(self.result_metadata, dict) else {}
+        return {
+            "run_id": self.id,
+            "session_id": self.session_id,
+            "status": self.status,
+            "event_count": len(self.events),
+            "model": self.model,
+            "metadata": metadata,
+            "pipeline_completed": metadata.get("pipeline_completed"),
+            "content": self.result_content,
+        }
 
     async def wait_for_events(self, cursor: int, timeout: float = 0.25) -> tuple[int, RunStatus]:
         if cursor < len(self.events) or self.status != "running":
@@ -128,6 +152,7 @@ class AgentRunManager:
         request: ChatRequest,
         model: str,
         agent: Any,
+        runtime: Any | None = None,
         on_started: Any | None = None,
         on_completed: Any | None = None,
         on_failed: Any | None = None,
@@ -152,11 +177,22 @@ class AgentRunManager:
 
         async def _execute() -> None:
             try:
-                response: AgentResponse = await agent.run(request, event_sink=sink)
+                if runtime is not None:
+                    from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+
+                    response: AgentResponse = await run_agent_with_tasks(
+                        runtime,
+                        request,
+                        run_agent=agent.run,
+                        event_sink=sink,
+                    )
+                else:
+                    response = await agent.run(request, event_sink=sink)
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     tool_trace = response.metadata.get("tool_trace", [])
                     tool_steps = len(tool_trace) if isinstance(tool_trace, list) else 0
                     sink.done(model_id=model, tool_trace=tool_trace, tool_steps=tool_steps)
+                record.set_result(response)
                 record.set_status("done")
                 if on_completed is not None:
                     result = on_completed(record, response)
@@ -165,6 +201,7 @@ class AgentRunManager:
             except asyncio.CancelledError:
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error("Run cancelled", code="cancelled")
+                record.result_metadata = {"cancelled": True}
                 record.set_status("cancelled")
                 if on_cancelled is not None:
                     result = on_cancelled(record)
@@ -174,6 +211,7 @@ class AgentRunManager:
             except Exception as exc:  # noqa: BLE001
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error(str(exc))
+                record.set_error_result(exc)
                 record.set_status("error")
                 if on_failed is not None:
                     result = on_failed(record, exc)

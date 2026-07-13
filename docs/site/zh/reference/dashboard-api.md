@@ -79,9 +79,21 @@ Session API 由 `chat_sessions` router 挂在 `/api/v1/chat/sessions`。
 | `GET` | `/api/v1/chat/sessions/{session_id}` | 查询 session sidecar 元数据 |
 | `GET` | `/api/v1/chat/sessions/{session_id}/messages?limit=200&offset=0` | 查询 session 消息 |
 | `POST` | `/api/v1/chat/sessions/{session_id}/archive` | 归档 session |
-| `POST` | `/api/v1/chat/sessions/export` | 导出所有 session 到配置或请求指定目录 |
+| `POST` | `/api/v1/chat/sessions/export` | 导出所有 session；传 `session_id` 时只导出指定 session 到配置或请求指定目录 |
 
 默认 session 根目录和导出目录由 `sessions.root`、`sessions.export_default_dir` 控制。
+
+导出请求体：
+
+```json
+{
+  "session_id": "session-123",
+  "output_dir": "~/Desktop/dojo-chat-export",
+  "include_archived": true
+}
+```
+
+不传 `session_id` 时导出所有可见 session。
 
 ## Domain Routers
 

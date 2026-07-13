@@ -16,7 +16,7 @@ PRESET_PROVIDERS = {
     "deepseek": {"label": "DeepSeek", "default_url": "https://api.deepseek.com/v1", "default_model": "deepseek-chat"},
     "glm": {"label": "GLM (ZhipuAI)", "default_url": "https://open.bigmodel.cn/api/paas/v4/", "default_model": "glm-4"},
     "minimax": {"label": "MiniMax", "default_url": "https://api.minimax.chat/v1", "default_model": "abab6.5-chat"},
-    "kimi": {"label": "Kimi (Moonshot)", "default_url": "https://api.moonshot.cn/v1", "default_model": "moonshot-v1-8k"},
+    "kimi": {"label": "Kimi (Moonshot)", "default_url": "https://api.moonshot.cn/v1", "default_model": "kimi-k2.6"},
 }
 
 

@@ -3,7 +3,13 @@ import { createPortal } from 'react-dom';
 import { fetchEntityTickerSearch } from '../../api/entity';
 import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode } from '../../types/market';
-import type { FolioCreateOrderPayload, FolioOrderDraftContext, FolioOrderSide } from '../../types/folio';
+import type {
+  FolioCreateOrderPayload,
+  FolioOrderDraftContext,
+  FolioOrderSide,
+  FolioPositionActionTab,
+  FolioPositionSyncPayload,
+} from '../../types/folio';
 import type { EntityTickerSearchItem } from '../../types/entity';
 import { todayIsoDate } from '../../utils/folioStartDate';
 import { fetchTickerOpenOnDate, formatOrderLimitPrice } from '../../utils/folioOrderPrice';
@@ -19,8 +25,10 @@ interface FolioCreateOrderModalProps {
   portfolioId: string;
   context: FolioOrderDraftContext | null;
   placing?: boolean;
+  syncing?: boolean;
   onClose: () => void;
   onSubmit: (payload: FolioCreateOrderPayload) => Promise<void>;
+  onSync?: (payload: FolioPositionSyncPayload) => Promise<void>;
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
@@ -36,19 +44,24 @@ export function FolioCreateOrderModal({
   open,
   context,
   placing = false,
+  syncing = false,
   onClose,
   onSubmit,
+  onSync,
 }: FolioCreateOrderModalProps) {
   const { t, locale } = useTranslation();
   const listId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
+  const showSyncTab = Boolean(onSync);
+  const [activeTab, setActiveTab] = useState<FolioPositionActionTab>('trade');
   const [market, setMarket] = useState<MarketCode>('us');
   const [ticker, setTicker] = useState('');
   const [tickerName, setTickerName] = useState('');
   const [orderSide, setOrderSide] = useState<FolioOrderSide>('buy');
   const [price, setPrice] = useState('');
   const [qty, setQty] = useState('');
+  const [cost, setCost] = useState('');
   const [orderTime, setOrderTime] = useState(todayIsoDate());
   const [query, setQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -58,6 +71,8 @@ export function FolioCreateOrderModal({
   const [error, setError] = useState<string | null>(null);
   const debouncedQuery = useDebouncedValue(query.trim(), 220);
   const tickerLocked = Boolean(context?.ticker);
+  const syncDate = todayIsoDate();
+  const submitting = placing || syncing;
 
   useEffect(() => {
     if (!open || !context) return;
@@ -65,15 +80,17 @@ export function FolioCreateOrderModal({
     setTicker(context.ticker ?? '');
     setTickerName(context.name ?? '');
     setOrderSide(context.orderSide ?? 'buy');
-    setPrice('');
-    setQty('');
+    setPrice(context.price != null && context.price > 0 ? String(context.price) : '');
+    setQty(context.qty != null && context.qty >= 0 ? String(context.qty) : '');
+    setCost(context.cost != null && context.cost > 0 ? String(context.cost) : '');
     setOrderTime(todayIsoDate());
     setQuery('');
     setError(null);
-  }, [context, open]);
+    setActiveTab(context.initialTab === 'sync' && showSyncTab ? 'sync' : 'trade');
+  }, [context, open, showSyncTab]);
 
   useEffect(() => {
-    if (!open || !ticker.trim() || !orderTime) return;
+    if (!open || activeTab !== 'trade' || !ticker.trim() || !orderTime) return;
 
     let cancelled = false;
     setPriceLoading(true);
@@ -92,7 +109,7 @@ export function FolioCreateOrderModal({
     return () => {
       cancelled = true;
     };
-  }, [market, open, orderTime, ticker]);
+  }, [activeTab, market, open, orderTime, ticker]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,7 +187,7 @@ export function FolioCreateOrderModal({
 
   const showTickerDisplay = tickerLocked || Boolean(ticker.trim());
 
-  const handleSubmit = async () => {
+  const handleSubmitTrade = async () => {
     const parsedPrice = Number(price);
     const parsedQty = Number(qty);
     if (!ticker.trim()) {
@@ -202,7 +219,48 @@ export function FolioCreateOrderModal({
     }
   };
 
+  const handleSubmitSync = async () => {
+    if (!onSync) return;
+    const parsedCost = Number(cost);
+    const parsedQty = Number(qty);
+    if (!ticker.trim()) {
+      setError(t('folio.orderTickerRequired'));
+      return;
+    }
+    if (!Number.isFinite(parsedQty) || parsedQty < 0) {
+      setError(t('folio.syncQtyRequired'));
+      return;
+    }
+    if (parsedQty > 0 && (!Number.isFinite(parsedCost) || parsedCost <= 0)) {
+      setError(t('folio.syncCostRequired'));
+      return;
+    }
+
+    setError(null);
+    try {
+      await onSync({
+        ticker: ticker.trim(),
+        market,
+        qty: parsedQty,
+        cost: parsedQty > 0 ? parsedCost : 0,
+      });
+      onClose();
+    } catch (err: unknown) {
+      setError(formatFolioOrderError(err, t, t('folio.syncSubmitFailed')));
+    }
+  };
+
+  const handleSubmit = () => {
+    if (activeTab === 'sync') {
+      void handleSubmitSync();
+      return;
+    }
+    void handleSubmitTrade();
+  };
+
   if (!open || !context) return null;
+
+  const dialogTitleId = 'folio-position-action-dialog-title';
 
   return createPortal(
     <div className="folio-dialog" role="presentation">
@@ -217,34 +275,55 @@ export function FolioCreateOrderModal({
         className="folio-dialog__panel folio-dialog__panel--order"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="folio-order-dialog-title"
+        aria-labelledby={dialogTitleId}
         tabIndex={-1}
       >
-        <h3 id="folio-order-dialog-title" className="folio-dialog__title">
-          {t('folio.createOrder')}
-        </h3>
+        {showSyncTab ? (
+          <div className="folio-order-form__mode-tabs" role="tablist" aria-label={t('folio.positionActionTabs')}>
+            <button
+              type="button"
+              role="tab"
+              id="folio-position-action-tab-trade"
+              aria-selected={activeTab === 'trade'}
+              aria-controls="folio-position-action-panel-trade"
+              className={`folio-order-form__mode-tab${
+                activeTab === 'trade' ? ' folio-order-form__mode-tab--active' : ''
+              }`}
+              onClick={() => {
+                setActiveTab('trade');
+                setError(null);
+              }}
+            >
+              {t('folio.createOrder')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="folio-position-action-tab-sync"
+              aria-selected={activeTab === 'sync'}
+              aria-controls="folio-position-action-panel-sync"
+              className={`folio-order-form__mode-tab${
+                activeTab === 'sync' ? ' folio-order-form__mode-tab--active' : ''
+              }`}
+              onClick={() => {
+                setActiveTab('sync');
+                setError(null);
+              }}
+            >
+              {t('folio.syncPosition')}
+            </button>
+          </div>
+        ) : (
+          <h3 id={dialogTitleId} className="folio-dialog__title">
+            {t('folio.createOrder')}
+          </h3>
+        )}
+
+        {activeTab === 'sync' ? (
+          <p className="folio-dialog__hint">{t('folio.syncPositionHint')}</p>
+        ) : null}
 
         <div className="folio-order-form">
-          <label className="folio-order-form__field">
-            <span className="folio-order-form__label">{t('folio.orderSide')}</span>
-            <div className="folio-order-form__side-toggle">
-              <button
-                type="button"
-                className={`folio-order-form__side${orderSide === 'buy' ? ' folio-order-form__side--active folio-order-form__side--buy' : ''}`}
-                onClick={() => setOrderSide('buy')}
-              >
-                {t('folio.orderBuy')}
-              </button>
-              <button
-                type="button"
-                className={`folio-order-form__side${orderSide === 'sell' ? ' folio-order-form__side--active folio-order-form__side--sell' : ''}`}
-                onClick={() => setOrderSide('sell')}
-              >
-                {t('folio.orderSell')}
-              </button>
-            </div>
-          </label>
-
           <label className="folio-order-form__field">
             <span className="folio-order-form__label">{t('folio.colTicker')}</span>
             {showTickerDisplay ? (
@@ -308,51 +387,121 @@ export function FolioCreateOrderModal({
             )}
           </label>
 
-          <label className="folio-order-form__field">
-            <span className="folio-order-form__label">{t('folio.colPrice')}</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              className="folio-config__input folio-order-form__input"
-              value={price}
-              placeholder={priceLoading ? t('folio.orderPriceLoading') : undefined}
-              onChange={(event) => setPrice(event.target.value)}
-            />
-          </label>
+          {activeTab === 'trade' ? (
+            <>
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.orderSide')}</span>
+                <div className="folio-order-form__side-toggle">
+                  <button
+                    type="button"
+                    className={`folio-order-form__side${
+                      orderSide === 'buy' ? ' folio-order-form__side--active folio-order-form__side--buy' : ''
+                    }`}
+                    onClick={() => setOrderSide('buy')}
+                  >
+                    {t('folio.orderBuy')}
+                  </button>
+                  <button
+                    type="button"
+                    className={`folio-order-form__side${
+                      orderSide === 'sell' ? ' folio-order-form__side--active folio-order-form__side--sell' : ''
+                    }`}
+                    onClick={() => setOrderSide('sell')}
+                  >
+                    {t('folio.orderSell')}
+                  </button>
+                </div>
+              </label>
 
-          <label className="folio-order-form__field">
-            <span className="folio-order-form__label">{t('folio.orderQty')}</span>
-            <input
-              type="number"
-              min={0}
-              step="1"
-              className="folio-config__input folio-order-form__input"
-              value={qty}
-              onChange={(event) => setQty(event.target.value)}
-            />
-          </label>
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.colPrice')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="folio-config__input folio-order-form__input"
+                  value={price}
+                  placeholder={priceLoading ? t('folio.orderPriceLoading') : undefined}
+                  onChange={(event) => setPrice(event.target.value)}
+                />
+              </label>
 
-          <label className="folio-order-form__field">
-            <span className="folio-order-form__label">{t('folio.orderDate')}</span>
-            <FolioStartDatePicker value={orderTime} onChange={setOrderTime} />
-          </label>
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.orderQty')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="1"
+                  className="folio-config__input folio-order-form__input"
+                  value={qty}
+                  onChange={(event) => setQty(event.target.value)}
+                />
+              </label>
+
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.orderDate')}</span>
+                <FolioStartDatePicker value={orderTime} onChange={setOrderTime} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.colShares')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="1"
+                  className="folio-config__input folio-order-form__input"
+                  value={qty}
+                  onChange={(event) => setQty(event.target.value)}
+                />
+              </label>
+
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.colCost')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="folio-config__input folio-order-form__input"
+                  value={cost}
+                  onChange={(event) => setCost(event.target.value)}
+                />
+              </label>
+
+              <label className="folio-order-form__field">
+                <span className="folio-order-form__label">{t('folio.syncTime')}</span>
+                <input
+                  type="text"
+                  className="folio-config__input folio-order-form__input folio-order-form__input--readonly"
+                  value={syncDate}
+                  readOnly
+                />
+              </label>
+            </>
+          )}
 
           {error ? <p className="folio-order-form__error">{error}</p> : null}
         </div>
 
         <div className="folio-dialog__actions">
-          <DojoButton type="button" size="sm" variant="secondary" onClick={onClose}>
+          <DojoButton type="button" size="sm" variant="secondary" onClick={onClose} disabled={submitting}>
             {t('folio.cancel')}
           </DojoButton>
           <DojoButton
             type="button"
             size="sm"
             variant="primary"
-            disabled={placing}
-            onClick={() => void handleSubmit()}
+            disabled={submitting}
+            onClick={handleSubmit}
           >
-            {placing ? t('folio.orderSubmitting') : t('folio.orderSubmit')}
+            {activeTab === 'sync'
+              ? syncing
+                ? t('folio.syncSubmitting')
+                : t('folio.syncSubmit')
+              : placing
+                ? t('folio.orderSubmitting')
+                : t('folio.orderSubmit')}
           </DojoButton>
         </div>
       </div>

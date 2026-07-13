@@ -66,17 +66,15 @@ from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_income_for_market,
 )
 from dojoagents.dashboard.services.fin_indicators_utils import report_type_for_market
-from dojoagents.dashboard.services.kline_bar_utils import (
-    DATA_START_DATE,
-    ashare_kline_symbol_candidates,
-    infer_ashare_kline_suffix,
-    resolve_tail_limit,
-)
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE, resolve_tail_limit
+from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 from dojoagents.dashboard.services.market_sector_lead import (
     MAX_SECTOR_MEMBERS,
     _stock_bilingual_name,
     concept_code_for,
 )
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
+from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
 from dojoagents.dashboard.services.market_stats import compute_market_stats
 from dojoagents.dashboard.services.portfolio_service import DEFAULT_BENCHMARKS
 from dojoagents.dashboard.services.sector_constituents import MARKETS
@@ -284,7 +282,12 @@ def _candidate_row(item: Any) -> PortfolioCandidateRow:
 def _order_row(item: Any) -> PortfolioOrderRow:
     data = _model_dict(item)
     side = str(data.get("order_side") or "buy")
+    kind = str(data.get("order_kind") or "trade")
     status = str(data.get("order_status") or "pending")
+    if side not in {"buy", "sell", "set"}:
+        side = "buy"
+    if kind not in {"trade", "sync"}:
+        kind = "trade"
     return PortfolioOrderRow(
         id=str(data.get("id") or ""),
         ticker=str(data.get("ticker") or ""),
@@ -292,7 +295,8 @@ def _order_row(item: Any) -> PortfolioOrderRow:
         name_zh=str(data.get("name_zh") or ""),
         name_en=str(data.get("name_en") or ""),
         market=to_native_market_code(data.get("market")) or str(data.get("market") or ""),
-        order_side="sell" if side == "sell" else "buy",
+        order_side=side,  # type: ignore[arg-type]
+        order_kind=kind,  # type: ignore[arg-type]
         order_status=status if status in {"pending", "filled", "cancelled", "rejected"} else "pending",
         price=finite_float(data.get("price")),
         qty=finite_float(data.get("qty")),
@@ -300,6 +304,8 @@ def _order_row(item: Any) -> PortfolioOrderRow:
         fill_time=data.get("fill_time"),
         fill_price=finite_optional_float(data.get("fill_price")),
         created_at=str(data.get("created_at") or ""),
+        source=data.get("source"),
+        sync_note=data.get("sync_note"),
     )
 
 
@@ -519,11 +525,43 @@ def _looks_like_index_guess(level1_id: str, level2_id: str, level3_id: str) -> b
     parts = (level1_id.strip(), level2_id.strip(), level3_id.strip())
     if not all(parts):
         return False
-    if all(part.isdigit() and len(part) <= 2 for part in parts):
+    if all(part.isdigit() for part in parts):
         return True
     if len(set(parts)) == 1 and parts[0].isdigit():
         return True
-    return parts == ("1", "2", "3")
+    return False
+
+
+def _collect_sector_path_suggestions(
+    store: Any,
+    *,
+    query: str = "",
+    limit: int = 3,
+) -> list[Any]:
+    needle = str(query or "").strip()
+    if not needle:
+        return []
+    return store.search_resolved_paths(needle, limit=limit)
+
+
+def _append_sector_path_suggestions(message: str, suggestions: list[Any]) -> str:
+    if not suggestions:
+        return message
+    if "Did you mean:" in message:
+        return message
+    return message + " Did you mean: " + _format_sector_path_suggestions(suggestions) + "?"
+
+
+def _raise_sector_path_resolution_error(
+    message: str,
+    *,
+    suggestions: list[Any] | None = None,
+) -> None:
+    resolved_suggestions = list(suggestions or [])
+    raise SectorPathResolutionError(
+        _append_sector_path_suggestions(message, resolved_suggestions),
+        suggestions=resolved_suggestions,
+    )
 
 
 def _format_sector_path_suggestions(paths: list[Any], *, limit: int = 3) -> str:
@@ -686,15 +724,21 @@ def resolve_sector_path(
         path = store.find_resolved_path(l1, l2, l3)
         if path is not None:
             return path
+        suggestions = _collect_sector_path_suggestions(
+            store,
+            query=str(sector_name or level3_name or level2_name or level1_name or "").strip(),
+        )
         if _looks_like_index_guess(l1, l2, l3):
-            raise SectorPathResolutionError(
+            _raise_sector_path_resolution_error(
                 f"Rejected guessed sector_path_id {path_id}. "
                 "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                "verbatim from the result. Do not use array indices or trial-and-error."
+                "verbatim from best_match. Do not construct ids or use array indices.",
+                suggestions=suggestions,
             )
-        raise SectorPathResolutionError(
+        _raise_sector_path_resolution_error(
             f"unknown sector_path_id: {path_id}. "
-            "Call search_sector_taxonomy with the concept keyword and copy ids from the best match."
+            "Call search_sector_taxonomy with the concept keyword and copy ids from best_match.",
+            suggestions=suggestions,
         )
 
     l1 = str(level1_id or "").strip()
@@ -708,10 +752,12 @@ def resolve_sector_path(
             return path
         if not name_query and not level1_name and not level2_name and not level3_name:
             if _looks_like_index_guess(l1, l2, l3):
-                raise SectorPathResolutionError(
+                suggestions = _collect_sector_path_suggestions(store, query=l3 or l2 or l1)
+                _raise_sector_path_resolution_error(
                     f"Rejected guessed sector path {l1}/{l2}/{l3}. "
                     "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                    "from the best match. Do not use array indices or loop guesses."
+                    "from best_match. Do not construct ids or use array indices.",
+                    suggestions=suggestions,
                 )
 
     if l1 and l2 and not l3 and not name_query:
@@ -769,9 +815,7 @@ def resolve_sector_path(
             " For L2-scope constituents, still pass all three ids from best_match "
             "(or level1_id+level2_id when uniquely resolved) and set scope='L2'."
         )
-    if suggestions:
-        message += " Did you mean: " + _format_sector_path_suggestions(suggestions) + "?"
-    raise SectorPathResolutionError(message, suggestions=suggestions)
+    _raise_sector_path_resolution_error(message, suggestions=suggestions)
 
 
 def _fallback_precomputed_sector_path(
@@ -983,8 +1027,9 @@ def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> di
         ),
         "usage": (
             "1) Pick the highest match_score item. "
-            "2) Call filter_sector_constituents with next_call.arguments (change market). "
-            "3) Optional: get_sector_analysis with get_sector_analysis_example."
+            "2) Copy sector_path_id from best_match — do NOT construct sector_path_id yourself. "
+            "3) Call filter_sector_constituents with next_call.arguments (change market). "
+            "4) Optional: get_sector_analysis with get_sector_analysis_example."
         ),
         "best_match": top,
         "items": items,
@@ -996,13 +1041,24 @@ async def build_market_overview(
     *,
     days: int,
     market: Optional[str],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> MarketOverviewResponse:
-    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks(days=days)
+    window = resolve_market_analysis_window(
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+        default_days=days,
+    )
+    precomputed = getattr(registry, "sector_precomputed_store", None)
+    if precomputed is not None:
+        window = precomputed.resolve_window_bounds(window)
+    benchmarks: DojoMeshBenchmarksResponse = await registry.benchmark_store.get_benchmarks(window=window)
     markets: dict[str, MarketStatsSnapshot] = {}
     benchmark_map: dict[str, list[BenchmarkSnapshot]] = {}
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
-    window_start = None
-    window_end = None
+    window_start = window.resolved_start
+    window_end = window.resolved_end
     for internal_market in requested_markets:
         if internal_market is None:
             continue
@@ -1027,10 +1083,11 @@ async def build_market_overview(
         markets[native_market] = _stats_snapshot(stats, market=native_market)
         benchmark_map[native_market] = benchmark_list
     return MarketOverviewResponse(
-        days=days,
-        window_start=window_start,
-        window_end=window_end,
-        as_of=benchmarks.as_of or window_end,
+        days=window.days,
+        window_mode=window.mode,
+        window_start=window.resolved_start or window_start,
+        window_end=window.resolved_end or benchmarks.as_of or window_end,
+        as_of=benchmarks.as_of or window.resolved_end or window_end,
         markets=markets,
         benchmarks=benchmark_map,
     )
@@ -1043,6 +1100,8 @@ async def build_sector_movers(
     limit: int,
     market: Optional[str],
     min_cap_by_market: Optional[dict[str, float]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> SectorMoversResponse:
     service = getattr(registry, "sector_movers_service", None)
     if service is not None:
@@ -1052,6 +1111,8 @@ async def build_sector_movers(
             limit=limit,
             market=market,
             min_cap_by_market=min_cap_by_market,
+            start_date=start_date,
+            end_date=end_date,
         )
     return await asyncio.to_thread(
         _build_sector_movers_fallback_sync,
@@ -1060,6 +1121,8 @@ async def build_sector_movers(
         limit,
         market,
         min_cap_by_market,
+        start_date,
+        end_date,
     )
 
 
@@ -1080,6 +1143,12 @@ async def build_stock_screen(
     sort_order: str,
     limit: int,
 ) -> StockScreenResponse:
+    from dojoagents.dashboard.services.stock_quote_filter import (
+        change_significance_score,
+        passes_market_cap_floor,
+        stock_passes_market_screen_hard_filters,
+    )
+
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
     rows: list[StockScreenItem] = []
     universe_count = 0
@@ -1090,15 +1159,20 @@ async def build_stock_screen(
         list_market = getattr(registry.stock_store, "list_market", None)
         stocks = list_market(internal_market) if callable(list_market) else []
         for stock in stocks:
-            quote = getattr(stock, "stock_quote", None)
-            if quote is None:
+            if not stock_passes_market_screen_hard_filters(stock):
                 continue
             universe_count += 1
-            market_cap = getattr(quote, "market_cap", None)
-            pe = getattr(quote, "pe", None)
-            change_percent = getattr(quote, "change_percent", None)
+            quote = stock.stock_quote
+            assert quote is not None
+            market_cap = quote.market_cap
+            pe = quote.pe
+            change_percent = quote.change_percent
             window_change_percent = None
-            if min_market_cap is not None and (market_cap is None or market_cap < min_market_cap):
+            if not passes_market_cap_floor(
+                internal_market,
+                market_cap,
+                min_market_cap=min_market_cap,
+            ):
                 continue
             if max_market_cap is not None and market_cap is not None and market_cap > max_market_cap:
                 continue
@@ -1116,24 +1190,25 @@ async def build_stock_screen(
                 continue
             rows.append(
                 StockScreenItem(
-                    ticker=str(getattr(stock, "ticker", "")),
+                    ticker=str(stock.ticker),
                     market=to_native_market_code(internal_market) or internal_market,
-                    name=_safe_stock_bilingual_name(stock, str(getattr(stock, "ticker", ""))),
-                    last_price=getattr(quote, "last_price", None),
+                    name=_safe_stock_bilingual_name(stock, str(stock.ticker)),
+                    last_price=quote.last_price,
                     change_percent=change_percent,
                     window_change_percent=window_change_percent,
                     market_cap=market_cap,
                     pe=pe,
-                    pb=getattr(quote, "pb", None),
+                    pb=quote.pb,
                 )
             )
     sort_key = {
         "market_cap": lambda item: item.market_cap if item.market_cap is not None else float("-inf"),
-        "return_pct": lambda item: item.window_change_percent if item.window_change_percent is not None else float("-inf"),
-        "change_percent": lambda item: item.change_percent if item.change_percent is not None else float("-inf"),
+        "return_pct": lambda item: change_significance_score(item.window_change_percent, item.market_cap),
+        "change_percent": lambda item: change_significance_score(item.change_percent, item.market_cap),
         "pe": lambda item: item.pe if item.pe is not None else float("-inf"),
     }.get(sort_by, lambda item: item.market_cap if item.market_cap is not None else float("-inf"))
-    rows = sorted(rows, key=sort_key, reverse=sort_order == "desc")
+    significance_sort = sort_by in {"change_percent", "return_pct"}
+    rows = sorted(rows, key=sort_key, reverse=True if significance_sort else sort_order == "desc")
     return StockScreenResponse(
         days=days,
         market=to_native_market_code(market) if market else None,
@@ -1150,12 +1225,22 @@ def _build_sector_movers_fallback_sync(
     limit: int,
     market: Optional[str],
     min_cap_by_market: Optional[dict[str, float]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> SectorMoversResponse:
     min_cap_by_market = min_cap_by_market or {}
+    window = registry.sector_precomputed_store.resolve_window_bounds(
+        resolve_market_analysis_window(
+            days=days,
+            start_date=start_date,
+            end_date=end_date,
+            default_days=days,
+        )
+    )
     requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
     payload: dict[str, MarketSectorMovers] = {}
 
-    sector_movers = registry.sector_precomputed_store.get_sector_movers_by_window(days)
+    sector_movers = registry.sector_precomputed_store.get_sector_movers_for_window(window)
 
     for internal_market in requested_markets:
         if internal_market is None:
@@ -1166,8 +1251,13 @@ def _build_sector_movers_fallback_sync(
 
         items: list[SectorMoverItem] = []
         for s in market_sectors:
-            total_market_cap = s.get("total_market_cap", 0)
-            if threshold > 0 and total_market_cap < threshold:
+            total_market_cap = finite_float(s.get("total_market_cap", 0))
+            member_count = int(s.get("member_count") or 0)
+            if not sector_eligible_for_movers_ranking(
+                member_count=member_count,
+                total_market_cap=total_market_cap,
+                min_total_market_cap=threshold,
+            ):
                 continue
 
             # Fetch components using get_sector_constituents
@@ -1180,7 +1270,10 @@ def _build_sector_movers_fallback_sync(
 
             # Fetch members returns
             tickers = [c["ticker"] for c in constituents]
-            ticker_returns = registry.sector_precomputed_store.get_ticker_daily_by_window(days, tickers)
+            ticker_returns = registry.sector_precomputed_store.get_ticker_daily_for_window(
+                window,
+                tickers,
+            )
             ticker_return_map = {tr["ticker"]: tr["daily_return_pct"] for tr in ticker_returns}
 
             members = []
@@ -1232,7 +1325,13 @@ def _build_sector_movers_fallback_sync(
             gainers=gainers,
             losers=losers,
         )
-    return SectorMoversResponse(days=days, markets=payload)
+    return SectorMoversResponse(
+        days=window.days,
+        window_mode=window.mode,
+        window_start=window.resolved_start,
+        window_end=window.resolved_end,
+        markets=payload,
+    )
 
 
 async def build_sector_analysis(
@@ -1680,50 +1779,55 @@ def _resolve_kline_symbol(
     ticker: str,
     market: Optional[str],
 ) -> tuple[str, Optional[str]]:
-    """Map user ticker input to canonical SDK/stock_store symbol (e.g. 0700 + hk -> 0700.HK)."""
-    raw = ticker.strip().upper()
-    internal_market = normalize_market_code(market)
-    if not raw:
-        return raw, internal_market
+    return resolve_ticker_symbol(stock_store, ticker, market)
 
-    if stock_store is not None:
-        stock = stock_store.resolve(raw, market=internal_market)
-        if stock is not None:
-            resolved_market = normalize_market_code(stock.market) or internal_market
-            return stock.ticker.strip().upper(), resolved_market
 
-        candidates: list[str] = []
-        if internal_market == "hk" and "." not in raw:
-            candidates.append(f"{raw}.HK")
-        if "." not in raw:
-            candidates.extend(ashare_kline_symbol_candidates(raw))
-        for candidate in candidates:
-            stock = stock_store.resolve(candidate, market=internal_market)
-            if stock is not None:
-                resolved_market = normalize_market_code(stock.market) or internal_market
-                return stock.ticker.strip().upper(), resolved_market
-            lookup_market = internal_market or "sh"
-            if infer_ashare_kline_suffix(raw) is not None:
-                lookup_market = "sh"
-            stock = stock_store.get(lookup_market, candidate)
-            if stock is not None:
-                return stock.ticker.strip().upper(), lookup_market
+async def _fetch_kline_for_price_trends(
+    kline_store,
+    *,
+    symbol: str,
+    market: str | None,
+    kline_t: str,
+    start_date: str | None,
+    end_date: str | None,
+    limit: int | None,
+):
+    """Fetch klines for price trends; fall back to wide-window local filter when date query is empty."""
+    kline = await kline_store.get_or_fetch_kline(
+        symbol,
+        market=market,
+        kline_t=kline_t,
+        start_time=start_date,
+        end_time=end_date,
+        min_bar_time=None if start_date else DATA_START_DATE,
+        limit=limit,
+    )
+    if kline is not None or not start_date or not end_date:
+        return kline
 
-        if internal_market is None:
-            for candidate in (raw, *candidates):
-                found_market = stock_store.find_market(candidate)
-                if not found_market:
-                    continue
-                stock = stock_store.get(found_market, candidate)
-                if stock is not None:
-                    return stock.ticker.strip().upper(), normalize_market_code(found_market)
+    from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
 
-    if internal_market == "hk" and "." not in raw:
-        return f"{raw}.HK", internal_market
-    ashare_suffix = infer_ashare_kline_suffix(raw)
-    if ashare_suffix is not None and (internal_market in {None, "sh"}):
-        return f"{raw}{ashare_suffix}", internal_market or "sh"
-    return raw, internal_market
+    wide = await kline_store.get_or_fetch_kline(
+        symbol,
+        market=market,
+        kline_t=kline_t,
+        min_bar_time=DATA_START_DATE,
+    )
+    if wide is None:
+        return None
+
+    def _bar_day(bar: Any) -> str:
+        if hasattr(bar, "bar_time"):
+            return str(bar.bar_time or "")[:10]
+        if hasattr(bar, "model_dump"):
+            payload = bar.model_dump()
+            return str(payload.get("bar_time") or payload.get("datetime") or "")[:10]
+        return ""
+
+    filtered = [bar for bar in wide.bars if start_date <= _bar_day(bar) <= end_date]
+    if not filtered:
+        return None
+    return StockKlineResponse(symbol=symbol, as_of=_bar_day(filtered[-1]), bars=filtered)
 
 
 async def build_ticker_price_trends_v1(
@@ -1744,13 +1848,13 @@ async def build_ticker_price_trends_v1(
         end_time=end_date,
         limit=limit,
     )
-    kline = await registry.kline_store.get_or_fetch_kline(
-        symbol,
+    kline = await _fetch_kline_for_price_trends(
+        registry.kline_store,
+        symbol=symbol,
         market=internal_market,
         kline_t=kline_t,
-        start_time=start_date,
-        end_time=end_date,
-        min_bar_time=None if start_date else DATA_START_DATE,
+        start_date=start_date,
+        end_date=end_date,
         limit=limit,
     )
     if kline is None:

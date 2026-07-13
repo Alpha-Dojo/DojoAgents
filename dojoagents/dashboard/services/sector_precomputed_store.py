@@ -8,6 +8,7 @@ import pandas as pd
 
 from dojoagents.config.loader import FinancialDashboardConfig
 from dojoagents.dashboard.services.domain_utils import normalize_market_code, sanitize_records
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_window_bounds_from_trade_dates
 from dojoagents.dashboard.services.precompute_sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE,
@@ -53,8 +54,8 @@ class SectorPrecomputedStore:
         self._load_generation = 0
         self._constituents_exact_index: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
         self._sector_daily_index: Optional[pd.DataFrame] = None
-        self._sector_window_cache: dict[int, pd.DataFrame] = {}
-        self._ticker_window_cache: dict[int, pd.DataFrame] = {}
+        self._sector_window_cache: dict[tuple[str, ...], pd.DataFrame] = {}
+        self._ticker_window_cache: dict[tuple[str, ...], pd.DataFrame] = {}
 
     def available(self) -> bool:
         return self.dataset_dir.exists() and (self.dataset_dir / MANIFEST_FILE).exists()
@@ -205,26 +206,51 @@ class SectorPrecomputedStore:
         return sanitize_records(df[df["trade_date"] == target_date])
 
     def get_sector_movers_window_frame(self, days: int) -> pd.DataFrame:
+        return self.get_sector_movers_window_frame_for_window(
+            MarketAnalysisWindow(mode="days", days=days),
+        )
+
+    def get_sector_movers_window_frame_for_window(self, window: MarketAnalysisWindow) -> pd.DataFrame:
         df = self._load_sector_daily()
         if df.empty:
             return pd.DataFrame()
-        cached = self._sector_window_cache.get(days)
+        cache_key = window.cache_key()
+        cached = self._sector_window_cache.get(cache_key)
         if cached is not None:
             return cached
-        computed = self._compute_window_frame(
-            df,
-            group_cols=["scope", "level1_id", "level2_id", "level3_id", "market"],
-            value_col="index_level",
-            days=days,
-        )
-        existing = self._sector_window_cache.get(days)
+        if window.mode == "date_range":
+            computed = self._compute_date_range_frame(
+                df,
+                group_cols=["scope", "level1_id", "level2_id", "level3_id", "market"],
+                value_col="index_level",
+                start_date=str(window.start_date or ""),
+                end_date=str(window.end_date or ""),
+            )
+        else:
+            computed = self._compute_window_frame(
+                df,
+                group_cols=["scope", "level1_id", "level2_id", "level3_id", "market"],
+                value_col="index_level",
+                days=window.days,
+            )
+        existing = self._sector_window_cache.get(cache_key)
         if existing is not None:
             return existing
-        self._sector_window_cache[days] = computed
+        self._sector_window_cache[cache_key] = computed
         return computed
+
+    def resolve_window_bounds(self, window: MarketAnalysisWindow) -> MarketAnalysisWindow:
+        df = self._load_sector_daily()
+        if df.empty or "trade_date" not in df.columns:
+            return resolve_window_bounds_from_trade_dates(window, [])
+        trade_dates = [str(item) for item in df["trade_date"].tolist()]
+        return resolve_window_bounds_from_trade_dates(window, trade_dates)
 
     def get_sector_movers_by_window(self, days: int) -> list[dict]:
         return sanitize_records(self.get_sector_movers_window_frame(days))
+
+    def get_sector_movers_for_window(self, window: MarketAnalysisWindow) -> list[dict]:
+        return sanitize_records(self.get_sector_movers_window_frame_for_window(window))
 
     def get_ticker_daily(self, date: str, tickers: list[str], market: str | None = None) -> list[dict]:
         df = self._load_ticker_daily()
@@ -236,26 +262,53 @@ class SectorPrecomputedStore:
         return sanitize_records(df[mask])
 
     def get_ticker_daily_window_frame(self, days: int) -> pd.DataFrame:
+        return self.get_ticker_daily_window_frame_for_window(
+            MarketAnalysisWindow(mode="days", days=days),
+        )
+
+    def get_ticker_daily_window_frame_for_window(self, window: MarketAnalysisWindow) -> pd.DataFrame:
         df = self._load_ticker_daily()
         if df.empty:
             return pd.DataFrame()
-        cached = self._ticker_window_cache.get(days)
+        cache_key = window.cache_key()
+        cached = self._ticker_window_cache.get(cache_key)
         if cached is not None:
             return cached
-        computed = self._compute_window_frame(
-            df,
-            group_cols=["market", "ticker"],
-            value_col="close",
-            days=days,
-        )
-        existing = self._ticker_window_cache.get(days)
+        if window.mode == "date_range":
+            computed = self._compute_date_range_frame(
+                df,
+                group_cols=["market", "ticker"],
+                value_col="close",
+                start_date=str(window.start_date or ""),
+                end_date=str(window.end_date or ""),
+            )
+        else:
+            computed = self._compute_window_frame(
+                df,
+                group_cols=["market", "ticker"],
+                value_col="close",
+                days=window.days,
+            )
+        existing = self._ticker_window_cache.get(cache_key)
         if existing is not None:
             return existing
-        self._ticker_window_cache[days] = computed
+        self._ticker_window_cache[cache_key] = computed
         return computed
 
     def get_ticker_daily_by_window(self, days: int, tickers: list[str], market: str | None = None) -> list[dict]:
-        df = self.get_ticker_daily_window_frame(days)
+        return self.get_ticker_daily_for_window(
+            MarketAnalysisWindow(mode="days", days=days),
+            tickers,
+            market=market,
+        )
+
+    def get_ticker_daily_for_window(
+        self,
+        window: MarketAnalysisWindow,
+        tickers: list[str],
+        market: str | None = None,
+    ) -> list[dict]:
+        df = self.get_ticker_daily_window_frame_for_window(window)
         if df.empty or not tickers:
             return []
 
@@ -360,6 +413,46 @@ class SectorPrecomputedStore:
         start_values = pd.to_numeric(merged["_window_start_value"], errors="coerce")
         merged["daily_return_pct"] = ((latest_values / start_values) - 1.0) * 100.0
         invalid = start_values.isna() | latest_values.isna() | (start_values <= 0)
+        merged.loc[invalid, "daily_return_pct"] = 0.0
+        merged["daily_return_pct"] = merged["daily_return_pct"].fillna(0.0)
+        if "change_percent" in merged.columns:
+            merged = merged.drop(columns=["change_percent"])
+        return merged.drop(columns=["_window_start_value"], errors="ignore")
+
+    @staticmethod
+    def _compute_date_range_frame(
+        df: pd.DataFrame,
+        *,
+        group_cols: list[str],
+        value_col: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame()
+
+        sort_cols = [*group_cols, "trade_date"]
+        df_sorted = df.sort_values(by=sort_cols).reset_index(drop=True)
+        mask = (df_sorted["trade_date"] >= start_date) & (df_sorted["trade_date"] <= end_date)
+        filtered = df_sorted[mask]
+        if filtered.empty:
+            return pd.DataFrame()
+
+        if start_date == end_date:
+            single_day = filtered.groupby(group_cols, sort=False, as_index=False).tail(1)
+            if "daily_return_pct" not in single_day.columns:
+                single_day["daily_return_pct"] = 0.0
+            return single_day
+
+        first_rows = filtered.groupby(group_cols, sort=False, as_index=False).head(1)
+        last_rows = filtered.groupby(group_cols, sort=False, as_index=False).tail(1)
+        start_values = first_rows[group_cols + [value_col]].rename(columns={value_col: "_window_start_value"})
+        merged = last_rows.merge(start_values, on=group_cols, how="left")
+
+        latest_values = pd.to_numeric(merged[value_col], errors="coerce")
+        start_values_numeric = pd.to_numeric(merged["_window_start_value"], errors="coerce")
+        merged["daily_return_pct"] = ((latest_values / start_values_numeric) - 1.0) * 100.0
+        invalid = start_values_numeric.isna() | latest_values.isna() | (start_values_numeric <= 0)
         merged.loc[invalid, "daily_return_pct"] = 0.0
         merged["daily_return_pct"] = merged["daily_return_pct"].fillna(0.0)
         if "change_percent" in merged.columns:

@@ -136,9 +136,13 @@ class KlineStore:
         try:
             if resolved_limit > 0:
                 fetch_limit = resolved_limit
-            elif start_time or end_time or min_bar_time:
+            elif start_time or end_time:
+                # Explicit date window: omit SDK limit. A small limit (e.g. 40 for one
+                # calendar day) truncates to early bars and drops the requested day.
+                fetch_limit = 0
+            elif min_bar_time:
                 fetch_limit = resolve_kline_limit_for_elapsed_days(
-                    start_time or min_bar_time or DATA_START_DATE,
+                    min_bar_time or DATA_START_DATE,
                     end_date=end_time,
                 )
             else:
@@ -146,6 +150,10 @@ class KlineStore:
             kwargs: Dict[str, Any] = {}
             if fetch_limit > 0:
                 kwargs["limit"] = fetch_limit
+            if start_time:
+                kwargs["start_time"] = start_time
+            if end_time:
+                kwargs["end_time"] = end_time
             if kline_t is not None:
                 kwargs["kline_t"] = kline_t
             if price_adj_type is not None:

@@ -308,6 +308,34 @@ async def test_agent_viz_build_market_overview_returns_kpis_and_weighted_pe_bar(
 
 
 @pytest.mark.asyncio
+async def test_agent_viz_build_drawdown_analysis_returns_line_and_kpi() -> None:
+    result = await _call_build(
+        {
+            "mapping_hint": "drawdown_analysis",
+            "title": "SNDK drawdown",
+            "data": {
+                "dates": ["2025-01-02", "2025-01-03", "2025-01-06"],
+                "prices": [150.0, 155.0, 140.0],
+                "drawdown_pcts": [0.0, 0.0, -9.7],
+                "summary": {
+                    "ticker": "SNDK",
+                    "max_drawdown_pct": 9.7,
+                    "total_return_pct": -6.7,
+                },
+            },
+        }
+    )
+
+    assert result["data"]["kinds"] == ["line", "kpi_row"]
+    line_block, kpi_block = result["viz_blocks"]
+    assert line_block["kind"] == "line"
+    assert len(line_block["payload"]["series"]) == 2
+    assert line_block["payload"]["series"][0]["id"] == "price"
+    assert kpi_block["kind"] == "kpi_row"
+    assert kpi_block["payload"]["metrics"][0]["label"] == "Max drawdown"
+
+
+@pytest.mark.asyncio
 async def test_agent_viz_build_unknown_data_returns_empty_blocks() -> None:
     result = await _call_build({"kind": "auto", "data": {"message": "plain text only"}})
 
@@ -319,6 +347,22 @@ async def test_agent_viz_build_unknown_data_returns_empty_blocks() -> None:
 def test_build_viz_blocks_rejects_invalid_kind() -> None:
     with pytest.raises(RuntimeError, match="Unsupported visualization kind"):
         build_viz_blocks({"rows": []}, kind="bubble")
+
+
+def test_presenter_auto_generates_drawdown_blocks_from_execute_code_viz_data() -> None:
+    stdout = (
+        "analysis complete\n\n=== VIZ_DATA ===\n"
+        '{"dates":["2025-01-02","2025-01-03"],"prices":[150,145],'
+        '"drawdown_pcts":[0,-3.3],"summary":{"ticker":"SNDK","max_drawdown_pct":3.3}}'
+    )
+    normalized = ToolResultPresenterRegistry().normalize(
+        "execute_code",
+        {"content": stdout},
+    )
+
+    assert normalized["data"]["summary"]["ticker"] == "SNDK"
+    assert len(normalized["viz_blocks"]) >= 1
+    assert normalized["viz_blocks"][0]["kind"] == "line"
 
 
 def test_presenter_auto_generates_quote_card_for_sdk_quote() -> None:

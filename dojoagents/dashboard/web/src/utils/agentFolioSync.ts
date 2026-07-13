@@ -18,7 +18,11 @@ const PORTFOLIO_MUTATING_TOOLS = new Set([
   'portfolio_write_add_holding',
   'portfolio_write_add_holdings',
   'portfolio_write_remove_holding',
+  'portfolio_write_remove_candidates',
   'portfolio_write_auto_allocate',
+  'portfolio_write_create_order',
+  'portfolio_write_create_orders',
+  'portfolio_write_sync_positions',
 ]);
 
 export interface AgentPortfolioMutation {
