@@ -38,6 +38,8 @@ import { AgentSessionInputsPanel } from "./AgentSessionInputsPanel";
 import { AgentPendingAttachments } from "./AgentPendingAttachments";
 import { AgentUserMessageAttachments } from "./AgentUserMessageAttachments";
 import { AgentConversationCheckpoints } from "./AgentConversationCheckpoints";
+import { AgentCommandPalette } from "./AgentCommandPalette";
+import { AgentStatusPanel } from "./AgentStatusPanel";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { AgentSuggestedQuestions } from "./AgentSuggestedQuestions";
 import {
@@ -351,6 +353,8 @@ export function DojoAgentPanel({
   } = useAgentRun();
 
   const [input, setInput] = useState("");
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusRefreshKey, setStatusRefreshKey] = useState(0);
   const [pendingImages, setPendingImages] = useState<AgentChatImageAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<AgentSessionInputFile[]>([]);
   const [imageAttaching, setImageAttaching] = useState(false);
@@ -433,6 +437,7 @@ export function DojoAgentPanel({
     if (prevStreamingRef.current && !streaming) {
       setOutputsRefreshKey((key) => key + 1);
       setInputsRefreshKey((key) => key + 1);
+      setStatusRefreshKey((key) => key + 1);
     }
     prevStreamingRef.current = streaming;
   }, [streaming]);
@@ -919,9 +924,37 @@ export function DojoAgentPanel({
     !streaming &&
     !attachmentAttaching;
 
+  const normalizedCommand = input.trim().toLowerCase();
+  const commandPaletteOpen =
+    input.trimStart().startsWith("/") && "/status".startsWith(normalizedCommand);
+
+  const executeStatusCommand = useCallback(() => {
+    setInput("");
+    setError(null);
+    setStatusOpen(true);
+    setStatusRefreshKey((key) => key + 1);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commandPaletteOpen && event.key === "Escape") {
+      event.preventDefault();
+      setInput("");
+      return;
+    }
+    if (
+      commandPaletteOpen &&
+      (event.key === "ArrowDown" || event.key === "ArrowUp")
+    ) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      if (normalizedCommand === "/status" || commandPaletteOpen) {
+        executeStatusCommand();
+        return;
+      }
       if (!canSend) {
         if (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0) {
           setError(t("agent.sendRequiresInput"));
@@ -1480,6 +1513,21 @@ export function DojoAgentPanel({
           onDragLeave={handleComposerDragLeave}
           onDrop={handleComposerDrop}
         >
+          {statusOpen ? (
+            <AgentStatusPanel
+              sessionId={activeSessionId}
+              refreshKey={statusRefreshKey}
+              onClose={() => setStatusOpen(false)}
+            />
+          ) : null}
+          {commandPaletteOpen ? (
+            <AgentCommandPalette
+              label={t("agent.commands")}
+              description={t("agent.statusCommandDescription")}
+              selected
+              onSelect={executeStatusCommand}
+            />
+          ) : null}
           {!agentReady && (
             <p className="dojo-agent-panel__hint">
               {t("agent.apiNotConfigured")}
