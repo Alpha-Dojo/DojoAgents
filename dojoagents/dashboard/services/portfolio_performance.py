@@ -7,34 +7,70 @@ from dojoagents.dashboard.schemas.portfolio import (
     PortfolioMarketPerformance,
     PortfolioRiskStats,
 )
+from dojoagents.dashboard.services.market_trading_calendar import trading_days_for_market
+
+TRADING_DAYS_YEAR = 252
 
 
-def compute_risk_stats(nav: list[float]) -> PortfolioRiskStats:
-    values = [float(value) for value in nav if math.isfinite(float(value)) and value > 0]
-    if not values:
+def _is_valid_nav(value: float) -> bool:
+    return math.isfinite(value) and value > 0
+
+
+def compute_risk_stats(
+    nav_by_date: dict[str, float],
+    *,
+    trading_days: list[str],
+) -> PortfolioRiskStats:
+    """Risk metrics on a market trading calendar with forward-filled NAV gaps."""
+    if not trading_days:
         return PortfolioRiskStats()
-    returns = [values[index] / values[index - 1] - 1 for index in range(1, len(values))]
-    cumulative = (values[-1] / values[0] - 1) * 100 if values[0] else None
+
+    filled_nav: list[float] = []
+    last_good: float | None = None
+    for day in trading_days:
+        raw = nav_by_date.get(day)
+        if raw is not None and _is_valid_nav(float(raw)):
+            last_good = float(raw)
+        if last_good is None:
+            continue
+        filled_nav.append(last_good)
+
+    if not filled_nav:
+        return PortfolioRiskStats()
+
+    start_value = filled_nav[0]
+    end_value = filled_nav[-1]
+    cumulative = (end_value / start_value - 1) * 100 if start_value else None
+
+    returns = [
+        current / previous - 1
+        for previous, current in zip(filled_nav, filled_nav[1:])
+        if previous > 0
+    ]
+
     volatility: float | None = None
     sharpe: float | None = None
-    if returns:
+    if len(returns) >= 2:
         daily_vol = statistics.pstdev(returns)
         if daily_vol > 0:
-            volatility = daily_vol * math.sqrt(252) * 100
-            sharpe = statistics.fmean(returns) / daily_vol * math.sqrt(252)
+            volatility = daily_vol * math.sqrt(TRADING_DAYS_YEAR) * 100
+            sharpe = statistics.fmean(returns) / daily_vol * math.sqrt(TRADING_DAYS_YEAR)
         else:
             volatility = 0.0
+    elif len(returns) == 1:
+        volatility = 0.0
 
-    peak = values[0]
+    peak = filled_nav[0]
     max_drawdown = 0.0
-    for value in values:
+    for value in filled_nav:
         peak = max(peak, value)
         drawdown = (value / peak - 1) * 100
         max_drawdown = min(max_drawdown, drawdown)
 
+    trading_day_count = len(filled_nav)
     calmar: float | None = None
-    if len(values) > 1 and max_drawdown < 0:
-        annualized = ((values[-1] / values[0]) ** (252 / (len(values) - 1)) - 1) * 100
+    if trading_day_count > 1 and max_drawdown < 0:
+        annualized = ((end_value / start_value) ** (TRADING_DAYS_YEAR / (trading_day_count - 1)) - 1) * 100
         calmar = annualized / abs(max_drawdown)
     return PortfolioRiskStats(
         cumulative_return_pct=cumulative if cumulative is None or math.isfinite(cumulative) else None,
@@ -42,7 +78,7 @@ def compute_risk_stats(nav: list[float]) -> PortfolioRiskStats:
         sharpe_ratio=sharpe if sharpe is None or math.isfinite(sharpe) else None,
         max_drawdown_pct=max_drawdown if math.isfinite(max_drawdown) else 0.0,
         calmar_ratio=calmar if calmar is None or math.isfinite(calmar) else None,
-        trading_days=len(values),
+        trading_days=trading_day_count,
     )
 
 
@@ -99,6 +135,23 @@ def _align_series_to_dates(
     return dates, primary_values, secondary_values
 
 
+def _resolve_end_date(
+    *,
+    start_date: str,
+    benchmark_closes: dict[str, float],
+    ticker_closes: dict[str, dict[str, float]],
+    calendar_dates: list[str] | None,
+) -> str | None:
+    end_candidates = [day for day in benchmark_closes if day >= start_date]
+    for closes in ticker_closes.values():
+        end_candidates.extend(day for day in closes if day >= start_date)
+    if calendar_dates:
+        end_candidates.extend(day for day in calendar_dates if day >= start_date)
+    if not end_candidates:
+        return None
+    return max(end_candidates)
+
+
 def build_candidate_index_performance(
     *,
     market: str,
@@ -116,13 +169,15 @@ def build_candidate_index_performance(
     dates, values, benchmark_values = aligned
     portfolio_nav = rebase_nav(values)
     benchmark_nav = rebase_nav(benchmark_values)
+    nav_by_date = {day: value for day, value in zip(dates, values)}
+    stats_trading_days = trading_days_for_market(market, dates[0], dates[-1])
     return PortfolioMarketPerformance(
         market=market,
         dates=dates,
         portfolio=portfolio_nav,
         benchmark=benchmark_nav,
         benchmark_symbol=benchmark_symbol,
-        stats=compute_risk_stats(portfolio_nav),
+        stats=compute_risk_stats(nav_by_date, trading_days=stats_trading_days),
     )
 
 
@@ -149,14 +204,27 @@ def build_market_performance(
         )
 
     market_orders = market_filled_orders(orders, market=market)
-    if calendar_dates:
-        master_dates = [day for day in calendar_dates if day >= start_date]
-    else:
-        master_dates = sorted(
-            {day for day in benchmark_closes if day >= start_date}
-            | {day for closes in ticker_closes.values() for day in closes if day >= start_date}
+    end_date = _resolve_end_date(
+        start_date=start_date,
+        benchmark_closes=benchmark_closes,
+        ticker_closes=ticker_closes,
+        calendar_dates=calendar_dates,
+    )
+    if end_date is None:
+        return PortfolioMarketPerformance(
+            market=market,
+            benchmark_symbol=benchmark_symbol,
         )
-    if len(master_dates) < 2:
+
+    if calendar_dates:
+        chart_dates = {day for day in calendar_dates if day >= start_date}
+    else:
+        chart_dates = {day for day in benchmark_closes if day >= start_date} | {
+            day for closes in ticker_closes.values() for day in closes if day >= start_date
+        }
+
+    trading_days = trading_days_for_market(market, start_date, end_date)
+    if len(trading_days) < 2:
         return PortfolioMarketPerformance(
             market=market,
             benchmark_symbol=benchmark_symbol,
@@ -165,11 +233,12 @@ def build_market_performance(
     dates: list[str] = []
     values: list[float] = []
     benchmark_values: list[float] = []
+    nav_by_date: dict[str, float] = {}
     cash = float(initial_capital)
     positions: dict[str, float] = {}
     order_index = 0
 
-    for day in master_dates:
+    for day in trading_days:
         while order_index < len(market_orders):
             order = market_orders[order_index]
             fill_date = str(
@@ -196,11 +265,16 @@ def build_market_performance(
         if benchmark_price is None:
             continue
 
+        nav = cash + position_value
+        nav_by_date[day] = nav
+        if day not in chart_dates:
+            continue
+
         dates.append(day)
-        values.append(cash + position_value)
+        values.append(nav)
         benchmark_values.append(benchmark_price)
 
-    if len(dates) < 2:
+    if len(dates) < 2 or not nav_by_date:
         return PortfolioMarketPerformance(
             market=market,
             benchmark_symbol=benchmark_symbol,
@@ -208,11 +282,13 @@ def build_market_performance(
 
     portfolio_nav = rebase_nav(values)
     benchmark_nav = rebase_nav(benchmark_values)
+    stats_start = min(nav_by_date)
+    stats_trading_days = [day for day in trading_days if day >= stats_start]
     return PortfolioMarketPerformance(
         market=market,
         dates=dates,
         portfolio=portfolio_nav,
         benchmark=benchmark_nav,
         benchmark_symbol=benchmark_symbol,
-        stats=compute_risk_stats(portfolio_nav),
+        stats=compute_risk_stats(nav_by_date, trading_days=stats_trading_days),
     )

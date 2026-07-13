@@ -335,6 +335,7 @@ export function DojoAgentPanel({
     activeSession,
     createSession,
     selectSession,
+    hydrateSessionMessages,
     ensureActiveSession,
     replaceSessionMessages,
     deleteSession,
@@ -577,12 +578,20 @@ export function DojoAgentPanel({
       if (session) {
         setSelectedModelId(session.modelId);
       }
-      selectSession(sessionId);
-      window.setTimeout(() => {
-        setSwitchingSessionId(null);
-      }, 120);
+      void (async () => {
+        try {
+          await hydrateSessionMessages(sessionId);
+          selectSession(sessionId);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : t("agent.sessionLoadFailed"));
+        } finally {
+          window.setTimeout(() => {
+            setSwitchingSessionId(null);
+          }, 120);
+        }
+      })();
     },
-    [activeSessionId, selectSession, sessions, setSelectedModelId],
+    [activeSessionId, hydrateSessionMessages, selectSession, sessions, setSelectedModelId, t],
   );
 
   const addImageFiles = useCallback(

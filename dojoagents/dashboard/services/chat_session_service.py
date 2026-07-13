@@ -89,6 +89,9 @@ class ChatSessionService:
             next_offset=result.next_offset,
         )
 
+    async def get_turns(self, session_id: str) -> list[dict[str, Any]]:
+        return await self.session_manager.get_turns(session_id)
+
     async def archive_session(self, session_id: str) -> ArchiveChatSessionResponse | None:
         archived = await self.session_manager.archive_session(session_id)
         if not archived:

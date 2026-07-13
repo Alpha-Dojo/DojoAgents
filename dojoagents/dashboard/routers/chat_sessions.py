@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -79,6 +78,8 @@ async def get_chat_session_messages(
     result = await service.get_messages(session_id, limit=limit, offset=offset)
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+    turns = await service.get_turns(session_id) if offset == 0 else []
+    result.turns = turns
     return result
 
 

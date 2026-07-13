@@ -37,7 +37,13 @@ def _make_client(tmp_path):
 
 
 def test_chat_sessions_routes_list_get_messages_archive_and_export(tmp_path):
-    client, _ = _make_client(tmp_path)
+    client, sessions = _make_client(tmp_path)
+    turns_path = sessions._turns_path("sess-api")
+    turns_path.write_text(
+        '{"turn_id":"turn-1","events":[{"type":"think_delta","text":"reason"},'
+        '{"type":"tool_start","call_id":"call-1","tool":"search","arguments":{}}]}\n',
+        encoding="utf-8",
+    )
 
     list_response = client.get("/api/v1/chat/sessions")
     assert list_response.status_code == 200
@@ -50,6 +56,7 @@ def test_chat_sessions_routes_list_get_messages_archive_and_export(tmp_path):
     messages_response = client.get("/api/v1/chat/sessions/sess-api/messages")
     assert messages_response.status_code == 200
     assert [item["role"] for item in messages_response.json()["messages"]] == ["user", "assistant"]
+    assert messages_response.json()["turns"][0]["events"][1]["type"] == "tool_start"
 
     export_response = client.post(
         "/api/v1/chat/sessions/export",

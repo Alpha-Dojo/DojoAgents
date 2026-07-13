@@ -57,6 +57,7 @@ class ChatSessionMessagesResponse(BaseModel):
     agent_id: str
     messages: list[ChatSessionMessageResponse]
     next_offset: int | None = None
+    turns: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ArchiveChatSessionResponse(BaseModel):
