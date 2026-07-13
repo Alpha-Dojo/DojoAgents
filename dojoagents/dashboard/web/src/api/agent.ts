@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse, AgentSessionTokenStatus } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -318,6 +318,19 @@ export async function fetchAgentRunStatus(
     event_count: number;
     model: string;
   }>;
+}
+
+export async function fetchAgentSessionTokenStatus(
+  sessionId: string,
+): Promise<AgentSessionTokenStatus> {
+  const res = await fetch(
+    `${CHAT_API_PREFIX}/chat/sessions/${encodeURIComponent(sessionId)}/tokens`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentSessionTokenStatus>;
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {

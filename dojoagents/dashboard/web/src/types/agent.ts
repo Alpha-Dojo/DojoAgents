@@ -15,6 +15,21 @@ export interface AgentModelsResponse {
   models: AgentModelItem[];
 }
 
+export interface AgentSessionTokenStatus {
+  last_prompt_tokens: number;
+  last_completion_tokens: number;
+  last_total_tokens: number;
+  session_max_tokens: number;
+  compression_threshold_ratio: number;
+  utilization_ratio: number;
+  cumulative_prompt_tokens: number;
+  cumulative_completion_tokens: number;
+  cumulative_total_tokens: number;
+  compression_count: number;
+  model_context_window: number;
+  loop_count: number;
+}
+
 export type AgentChatRole = 'user' | 'assistant';
 
 export type AgentApiContentPart =
