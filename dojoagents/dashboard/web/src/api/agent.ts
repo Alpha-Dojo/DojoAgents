@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse } from '../types/agent';
+import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -345,6 +345,37 @@ export async function streamAgentRunEvents(
 }
 
 const SESSION_API_PREFIX = '/api/v1/chat/sessions';
+
+export async function fetchAgentSessions(
+  limit = 50,
+  cursor?: string,
+): Promise<AgentServerSessionListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  const res = await fetch(`${SESSION_API_PREFIX}?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentServerSessionListResponse>;
+}
+
+export async function fetchAgentSessionMessages(
+  sessionId: string,
+  limit = 200,
+  offset = 0,
+): Promise<AgentServerSessionMessagesResponse> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const res = await fetch(
+    `${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/messages?${params.toString()}`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
+  return res.json() as Promise<AgentServerSessionMessagesResponse>;
+}
 
 export async function fetchSessionOutputs(sessionId: string): Promise<AgentSessionOutputsResponse> {
   const res = await fetch(`${SESSION_API_PREFIX}/${encodeURIComponent(sessionId)}/outputs`, {
