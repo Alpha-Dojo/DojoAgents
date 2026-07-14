@@ -15,6 +15,7 @@ from strands.types.exceptions import SessionException
 from strands.types.session import SessionMessage
 
 from dojoagents.agent.models import AgentResponse, ChatRequest
+from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.multimodal import strands_image_block_to_openai_part
 from dojoagents.agent.session_models import (
     DojoProjectedMessage,
@@ -373,6 +374,29 @@ class DojoAgentSessionManager:
         raw = message.to_message()
         openai_messages = _openai_messages_from_strands(raw)
         raw_openai = openai_messages[0] if openai_messages else {"role": str(raw.get("role") or ""), "content": _text_from_content(raw.get("content"))}
+        presenter = ToolResultPresenterRegistry()
+        tool_results: list[dict[str, Any]] = []
+        for projected in openai_messages:
+            if projected.get("role") != "tool":
+                continue
+            tool_name = str(projected.get("name") or "unknown")
+            normalized = presenter.normalize(
+                tool_name,
+                {"content": str(projected.get("content") or "")},
+            )
+            projected_data = normalized.get("data")
+            if isinstance(projected_data, list):
+                projected_data = {"items": projected_data}
+            tool_results.append(
+                {
+                    "call_id": str(projected.get("tool_call_id") or ""),
+                    "tool": tool_name,
+                    "content": str(normalized.get("content") or ""),
+                    "data": projected_data,
+                    "viz_blocks": list(normalized.get("viz_blocks") or []),
+                    "truncated": bool(normalized.get("truncated", False)),
+                }
+            )
         return DojoProjectedMessage(
             message_id=message.message_id,
             role=str(raw_openai.get("role") or raw.get("role") or ""),
@@ -382,6 +406,7 @@ class DojoAgentSessionManager:
             raw=raw_openai,
             raw_strands=raw,
             openai_messages=openai_messages,
+            tool_results=tool_results,
         )
 
     def _summary_for(self, session_id: str) -> DojoSessionSummary:
@@ -451,6 +476,55 @@ class DojoAgentSessionManager:
 
     async def get_messages(self, session_id: str, **kwargs: Any) -> DojoSessionMessagesResult:
         return self.get_messages_sync(session_id, **kwargs)
+
+    def get_turns_sync(self, session_id: str) -> list[dict[str, Any]]:
+        path = self._turns_path(session_id)
+        if not path.is_file():
+            return []
+        turns: list[dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        LOGGER.exception(
+                            "Failed to decode session turn %s line %s",
+                            session_id,
+                            line_number,
+                        )
+                        continue
+                    if isinstance(row, dict):
+                        tool_trace = row.get("tool_trace")
+                        if isinstance(tool_trace, list):
+                            presenter = ToolResultPresenterRegistry()
+                            hydrated_trace: list[Any] = []
+                            for raw_trace in tool_trace:
+                                if not isinstance(raw_trace, dict) or raw_trace.get("viz_blocks"):
+                                    hydrated_trace.append(raw_trace)
+                                    continue
+                                trace = dict(raw_trace)
+                                normalized = presenter.normalize(
+                                    str(trace.get("tool") or "unknown"),
+                                    {
+                                        "content": str(trace.get("content") or ""),
+                                        "data": trace.get("data"),
+                                        "truncated": bool(trace.get("truncated", False)),
+                                    },
+                                )
+                                trace["data"] = normalized.get("data")
+                                trace["viz_blocks"] = list(normalized.get("viz_blocks") or [])
+                                hydrated_trace.append(trace)
+                            row["tool_trace"] = hydrated_trace
+                        turns.append(row)
+        except OSError:
+            LOGGER.exception("Failed to read session turns: %s", path)
+        return turns
+
+    async def get_turns(self, session_id: str) -> list[dict[str, Any]]:
+        return self.get_turns_sync(session_id)
 
     def archive_session_sync(self, session_id: str) -> bool:
         if self.get_session_sync(session_id) is None:

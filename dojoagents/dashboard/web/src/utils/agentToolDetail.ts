@@ -30,6 +30,16 @@ export function getExecuteCodeResultContent(
   return content;
 }
 
+export function getExpandableToolResultContent(
+  tool: string,
+  content: string | null | undefined,
+  showServerHistoryResult = false,
+): string | null {
+  if (tool !== 'execute_code' && !showServerHistoryResult) return null;
+  if (typeof content !== 'string' || !content.trim()) return null;
+  return content;
+}
+
 function previewValues(values: string[], limit = 4): string {
   const items = values.map((value) => value.trim()).filter(Boolean);
   if (items.length === 0) return '';

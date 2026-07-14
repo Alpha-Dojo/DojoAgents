@@ -5,7 +5,7 @@ import type { AgentVizBlock } from '../../types/agentViz';
 import { agentToolLabel } from '../../utils/agentToolLabels';
 import {
   formatToolArguments,
-  getExecuteCodeResultContent,
+  getExpandableToolResultContent,
   getExecuteCodeSource,
 } from '../../utils/agentToolDetail';
 import { parseSessionOutputFilesFromToolData } from '../../utils/sessionOutputFiles';
@@ -21,12 +21,14 @@ function ToolStepDetails({
   blocks,
   expanded,
   resultContent,
+  tool,
   summary,
 }: {
   code?: string | null;
   blocks: AgentVizBlock[];
   expanded: boolean;
   resultContent?: string | null;
+  tool: string;
   summary?: string | null;
 }) {
   const { t, locale } = useTranslation();
@@ -56,7 +58,9 @@ function ToolStepDetails({
         {resultContent ? (
           <div className="dojo-agent-tool-activity__output-panel">
             <p className="dojo-agent-tool-activity__output-head">
-              {locale === 'zh' ? '脚本执行结果' : 'Execution output'}
+              {tool === 'execute_code'
+                ? locale === 'zh' ? '脚本执行结果' : 'Execution output'
+                : locale === 'zh' ? '工具返回结果' : 'Tool result'}
             </p>
             <pre className="dojo-agent-tool-activity__output-block">
               <code>{resultContent}</code>
@@ -83,7 +87,11 @@ export function AgentToolStep({ item, sessionId = null }: AgentToolStepProps) {
   const argDetail =
     item.arguments != null ? formatToolArguments(item.tool, item.arguments, uiLocale) : null;
   const codeSource = getExecuteCodeSource(item.tool, item.arguments);
-  const resultContent = getExecuteCodeResultContent(item.tool, item.resultContent);
+  const resultContent = getExpandableToolResultContent(
+    item.tool,
+    item.resultContent,
+    item.showRawResultContent === true,
+  );
   const resultDetail = item.resultSummary ?? null;
   const vizBlocks = item.vizBlocks ?? [];
   const outputFiles =
@@ -177,6 +185,7 @@ export function AgentToolStep({ item, sessionId = null }: AgentToolStepProps) {
         blocks={vizBlocks}
         expanded={expanded}
         resultContent={item.status === 'done' ? resultContent : null}
+        tool={item.tool}
         summary={item.status === 'done' ? resultDetail : null}
       />
     </div>

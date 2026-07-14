@@ -63,6 +63,77 @@ def test_session_manager_lists_messages_and_exports(tmp_path):
     assert (export_dir / "transcripts" / "sess-1.md").exists()
 
 
+def test_session_manager_rebuilds_tool_result_viz_blocks_for_history(tmp_path):
+    manager = DojoAgentSessionManager(root=tmp_path / "sessions")
+    manager.for_strands("sess-viz", agent_id="dojo-agent")
+    manager.repository.create_message(
+        "sess-viz",
+        "dojo-agent",
+        SessionMessage.from_message(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "status": "success",
+                            "toolUseId": "call-list",
+                            "name": "portfolio_read_list",
+                            "content": [
+                                {
+                                    "text": '[{"id":"p-1","name":"Core","kind":"manual","pinned":true}]'
+                                }
+                            ],
+                        }
+                    }
+                ],
+            },
+            0,
+        ),
+    )
+
+    projected = manager.get_messages_sync("sess-viz").messages[0]
+
+    assert projected.role == "tool"
+    assert projected.tool_results[0]["call_id"] == "call-list"
+    assert projected.tool_results[0]["data"]["items"][0]["id"] == "p-1"
+    assert projected.tool_results[0]["viz_blocks"]
+    assert projected.tool_results[0]["viz_blocks"][0]["source_tool"] == "portfolio_read_list"
+
+
+def test_session_manager_rebuilds_missing_turn_trace_viz_blocks(tmp_path):
+    manager = DojoAgentSessionManager(root=tmp_path / "sessions")
+    turns_path = manager._turns_path("sess-trace")
+    turns_path.parent.mkdir(parents=True, exist_ok=True)
+    turns_path.write_text(
+        json.dumps(
+            {
+                "turn_id": "turn-1",
+                "events": [],
+                "tool_trace": [
+                    {
+                        "call_id": "call-detail",
+                        "tool": "portfolio_read_list",
+                        "ok": True,
+                        "data": {
+                            "items": [
+                                {"id": "p-1", "name": "Core", "kind": "manual", "pinned": True}
+                            ]
+                        },
+                        "viz_blocks": [],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    turns = manager.get_turns_sync("sess-trace")
+
+    assert turns[0]["tool_trace"][0]["viz_blocks"]
+    assert turns[0]["tool_trace"][0]["viz_blocks"][0]["source_tool"] == "portfolio_read_list"
+
+
 def test_session_manager_exports_one_session_by_id(tmp_path):
     manager = DojoAgentSessionManager(root=tmp_path / "sessions")
     repo = manager.repository

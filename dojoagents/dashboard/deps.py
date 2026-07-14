@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from fastapi import Request
 
@@ -129,3 +129,19 @@ def get_forex_store(request: Request = None):
     if registry is not None:
         return getattr(registry, "forex_store", None)
     return getattr(stores, "forex_store", None)
+
+
+def get_session_manager(request: Request) -> Any:
+    runtime = getattr(request.app.state, "runtime", None)
+    if runtime is None:
+        raise RuntimeError("runtime is not initialized")
+    sessions = getattr(runtime, "sessions", None)
+    if sessions is None:
+        raise RuntimeError("session manager is not initialized")
+    return sessions
+
+
+def get_chat_session_service(request: Request) -> Any:
+    from dojoagents.dashboard.services.chat_session_service import ChatSessionService
+
+    return ChatSessionService(get_session_manager(request))

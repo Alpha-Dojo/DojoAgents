@@ -7,7 +7,14 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { AGENT_SESSIONS_STORAGE_KEY } from './agentStorage';
-import type { AgentChatMessage, AgentSession, AgentSessionStore } from '../types/agent';
+import type {
+  AgentChatMessage,
+  AgentServerSessionMessage,
+  AgentServerSessionSummary,
+  AgentServerSessionTurn,
+  AgentSession,
+  AgentSessionStore,
+} from '../types/agent';
 import {
   hydrateAgentSessionStore,
   getAgentStorageStatus,
@@ -23,6 +30,11 @@ import {
   writeSessionStore,
 } from './agentStoragePolicy';
 import { createRandomId } from '../utils/randomId';
+import { fetchAgentSessionMessages, fetchAgentSessions } from '../api/agent';
+import {
+  appendMissingServerSessions,
+  serverMessagesToAgentMessages,
+} from './agentServerSessions';
 
 export { AGENT_SESSIONS_STORAGE_KEY, AGENT_DRAFT_STORAGE_KEY } from './agentStorage';
 
@@ -134,6 +146,30 @@ export function useAgentSessions() {
     void syncAgentSessionStore(store);
   }, [indexedDbHydrated, store]);
 
+  useEffect(() => {
+    if (!indexedDbHydrated) return;
+    let cancelled = false;
+    void (async () => {
+      const serverSessions: AgentServerSessionSummary[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await fetchAgentSessions(50, cursor);
+        serverSessions.push(...result.sessions);
+        cursor = result.next_cursor ?? undefined;
+      } while (cursor);
+      if (cancelled) return;
+      setStore((current) => ({
+        ...current,
+        sessions: appendMissingServerSessions(current.sessions, serverSessions),
+      }));
+    })().catch(() => {
+      // Local sessions remain fully usable when the server list is unavailable.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [indexedDbHydrated]);
+
   const activeSession = useMemo(
     () => store.sessions.find((session) => session.id === store.activeSessionId) ?? null,
     [store.activeSessionId, store.sessions],
@@ -167,6 +203,47 @@ export function useAgentSessions() {
       return { ...prev, activeSessionId: sessionId };
     });
   }, [markMutation]);
+
+  const hydrateSessionMessages = useCallback(async (sessionId: string) => {
+    const session = store.sessions.find((item) => item.id === sessionId);
+    if (
+      !session ||
+      session.source !== 'server' ||
+      (session.messagesHydrated !== false && session.activityHydrationVersion === 7)
+    ) return;
+    const serverMessages: AgentServerSessionMessage[] = [];
+    let turns: AgentServerSessionTurn[] = [];
+    let offset: number | undefined = 0;
+    do {
+      const response = await fetchAgentSessionMessages(sessionId, 200, offset);
+      if (response.turns?.length) turns = response.turns;
+      serverMessages.push(...response.messages);
+      offset = response.next_offset ?? undefined;
+    } while (offset !== undefined);
+    const hydratedMessages = serverMessagesToAgentMessages({
+      session_id: sessionId,
+      agent_id: '',
+      messages: serverMessages,
+      next_offset: null,
+      turns,
+    });
+    markMutation();
+    setStore((current) => ({
+      ...current,
+      sessions: current.sessions.map((item) =>
+        item.id === sessionId
+          ? {
+              ...item,
+              messages: hydratedMessages,
+              messagesHydrated: true,
+              activityHydrated: true,
+              activityHydrationVersion: 7,
+              revision: (item.revision ?? 0) + 1,
+            }
+          : item,
+      ),
+    }));
+  }, [markMutation, store.sessions]);
 
   const ensureActiveSession = useCallback(
     (modelId: string) => {
@@ -235,6 +312,7 @@ export function useAgentSessions() {
     activeSession,
     createSession,
     selectSession,
+    hydrateSessionMessages,
     ensureActiveSession,
     replaceSessionMessages,
     deleteSession,
