@@ -375,6 +375,7 @@ export const enMessages: MessageTree = {
     sectorPeLevel: 'Sector level',
     peRatio: 'PE',
     revenueTitle: 'Revenue & Earnings Trend',
+    revenueFiscalNaturalDiff: ' (CY−FY={quarters}Q)',
     revenue: 'Revenue',
     netProfit: 'Net Profit',
     revenueWithCurrency: 'Revenue ({currency})',

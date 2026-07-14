@@ -8,11 +8,6 @@ import type {
 export const REVENUE_CHART_YOY_BASELINE_START = '2022-01-01';
 export const REVENUE_CHART_DISPLAY_FROM_YEAR = 2024;
 
-/** When disclosure follows std_report_date within this window, fiscal quarter already aligns with natural calendar. */
-const SHORT_DISCLOSURE_LAG_DAYS = 45;
-/** Typical calendar-quarter length for inferring fiscal→natural shift from disclosure lag. */
-const CALENDAR_QUARTER_DAYS = 90;
-
 type ComparableQuarter = 'q1' | 'q2' | 'q3' | 'q4';
 
 const REVENUE_CHART_DISPLAY_FROM_QUARTER: ComparableQuarter = 'q1';
@@ -42,14 +37,32 @@ const STD_REPORT_DATE_TO_HK_KIND: Record<string, HkPeriodKind> = {
   '12-31': 'annual',
 };
 
-/** Disclosure date (natural calendar); std_report_date is fiscal period-end only. */
-export function extractReportDate(row: StockFinIndicatorRow): string {
-  const raw = row.report_date || row.std_report_date || '';
-  const text = String(raw).trim();
+function isoDateOnly(raw: string | null | undefined): string {
+  const text = String(raw ?? '').trim();
   if (!text) return '';
   if (text.includes('T')) return text.split('T', 1)[0] ?? text;
   if (text.includes(' ')) return text.split(' ', 1)[0] ?? text;
   return text.slice(0, 10);
+}
+
+/**
+ * Sort / legacy date: prefer actual period-end (report_date), then vendor calendarized std.
+ */
+export function extractReportDate(row: StockFinIndicatorRow): string {
+  return isoDateOnly(row.report_date) || isoDateOnly(row.std_report_date);
+}
+
+/** Actual fiscal period-end date. */
+export function extractPeriodEndDate(row: StockFinIndicatorRow): string {
+  return isoDateOnly(row.report_date) || isoDateOnly(row.std_report_date);
+}
+
+/**
+ * Filing / publication date for earnings-season natural-quarter mapping.
+ * Prefers public_date; falls back to report_date only when public_date is absent (e.g. HK).
+ */
+export function extractDisclosureDate(row: StockFinIndicatorRow): string {
+  return isoDateOnly(row.public_date) || isoDateOnly(row.report_date);
 }
 
 function periodLabel(row: StockFinIndicatorRow): string {
@@ -89,23 +102,13 @@ const QUARTER_SUFFIX: Record<ComparableQuarter, string> = {
 
 const UNIFIED_AXIS_LABEL_RE = /^\d{2}Q[1-4]$/;
 
-/** Disclosure / filing date (report_date only; not fiscal period-end). */
-export function extractDisclosureDate(row: StockFinIndicatorRow): string {
-  const raw = row.report_date || '';
-  const text = String(raw).trim();
-  if (!text) return '';
-  if (text.includes('T')) return text.split('T', 1)[0] ?? text;
-  if (text.includes(' ')) return text.split(' ', 1)[0] ?? text;
-  return text.slice(0, 10);
-}
-
-/** Unified revenue-chart axis label: natural-calendar quarter (fiscal period + series offset). */
+/** Unified revenue-chart axis label from the filing period (report_period_name). */
 export function unifiedFinPeriodAxisLabel(
   row: StockFinIndicatorRow,
-  market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _market?: MarketCode | string | null,
+  _seriesOffset?: number,
 ): string {
-  const meta = naturalCalendarPeriod(row, market, seriesOffset);
+  const meta = reportFiscalPeriod(row);
   if (meta) {
     return `${meta.fiscalYear.slice(2)}${QUARTER_SUFFIX[meta.quarter]}`;
   }
@@ -146,20 +149,20 @@ const QUARTER_ORDER: Record<ComparableQuarter, number> = {
 
 function calendarPeriodFromRow(
   row: StockFinIndicatorRow,
-  market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _market?: MarketCode | string | null,
+  _seriesOffset?: number,
 ): CalendarPeriod | null {
-  return naturalCalendarPeriod(row, market, seriesOffset);
+  return reportFiscalPeriod(row);
 }
 
 function sortFinRows(
   items: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _seriesOffset?: number,
 ): StockFinIndicatorRow[] {
   return [...items].sort((a, b) => {
-    const ma = revenueComparablePeriod(a, market, seriesOffset);
-    const mb = revenueComparablePeriod(b, market, seriesOffset);
+    const ma = revenueComparablePeriod(a, market);
+    const mb = revenueComparablePeriod(b, market);
     if (ma && mb) {
       if (ma.fiscalYear !== mb.fiscalYear) return ma.fiscalYear.localeCompare(mb.fiscalYear);
       const byQuarter = QUARTER_ORDER[ma.quarter] - QUARTER_ORDER[mb.quarter];
@@ -187,21 +190,21 @@ function toNumber(value: number | null | undefined, fallback = 0): number {
   return value;
 }
 
-/** Fiscal period-end date when present (not used for natural-calendar axis). */
+/** Fiscal period-end date when present (vendor calendarized label date). */
 function extractStdReportDate(row: StockFinIndicatorRow): string {
-  const raw = row.std_report_date || '';
-  const text = String(raw).trim();
-  if (!text) return '';
-  if (text.includes('T')) return text.split('T', 1)[0] ?? text;
-  if (text.includes(' ')) return text.split(' ', 1)[0] ?? text;
-  return text.slice(0, 10);
+  return isoDateOnly(row.std_report_date);
 }
 
 type CalendarPeriod = { fiscalYear: string; quarter: ComparableQuarter };
 
 const CALENDAR_QUARTER_BY_MONTH_INDEX: ComparableQuarter[] = ['q1', 'q2', 'q3', 'q4'];
 
-/** Natural-calendar quarter from any ISO date (month-based; supports non month-end disclosure). */
+/** Short post-period gap: fiscal label already aligns with natural calendar. */
+const SHORT_PERIOD_LAG_DAYS = 45;
+/** Days per quarter when converting period-end vs vendor-calendarized std gap into Q diff. */
+const CALENDAR_QUARTER_DAYS = 90;
+
+/** Calendar quarter that contains an ISO date (Jan–Mar = Q1 … Oct–Dec = Q4). */
 function calendarQuarterFromIsoDate(date: string): CalendarPeriod | null {
   if (date.length < 7) return null;
   const year = date.slice(0, 4);
@@ -209,6 +212,18 @@ function calendarQuarterFromIsoDate(date: string): CalendarPeriod | null {
   if (!Number.isFinite(month) || month < 1 || month > 12) return null;
   const quarter = CALENDAR_QUARTER_BY_MONTH_INDEX[Math.floor((month - 1) / 3)];
   return { fiscalYear: year, quarter };
+}
+
+/**
+ * Natural quarter for an Apr/May/Jun period signal: always Q1 of that year.
+ * (Reports associated with Apr–Jun land on natural Q1 — never Q2.)
+ */
+function naturalQuarterForAprToJunSignal(date: string): CalendarPeriod | null {
+  if (date.length < 7) return null;
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 4 || month > 6) return null;
+  return { fiscalYear: String(year), quarter: 'q1' };
 }
 
 function fiscalPeriodFromReport(row: StockFinIndicatorRow): CalendarPeriod | null {
@@ -223,47 +238,58 @@ function daysBetweenIsoDates(start: string, end: string): number | null {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
-function disclosureMinusFiscalQuarterOffset(
-  row: StockFinIndicatorRow,
-  fiscal: CalendarPeriod,
-): number {
-  const natural = calendarQuarterFromIsoDate(extractDisclosureDate(row));
-  if (!natural) return 0;
-  return (
-    quarterToIndex(natural.fiscalYear, natural.quarter) -
-    quarterToIndex(fiscal.fiscalYear, fiscal.quarter)
-  );
-}
-
 /**
- * Per-row gap from fiscal quarter (report_period_name) to natural calendar quarter.
- * Short post-period disclosure (NVDA): 0. Long lag (BABA/HK/SNDK): ~ceil(lag / quarter).
- * Pre-period disclosure (AAPL): disclosure quarter gap (typically -1).
+ * Per-row (natural − fiscal) from period-end vs report_period_name.
+ *
+ * - Prefer report_date as actual fiscal period-end (not public_date).
+ * - When period-end is before vendor std_report_date (AAPL / ADBE style):
+ *   Apr–Jun → natural Q1; otherwise containment calendar quarter.
+ * - When period-end is after std: short lag → 0; else floor(lagDays / 90)
+ *   (floor, not round — May FYE ~151d → 1Q, June FYE ~181d → 2Q).
  */
 function detectFiscalToNaturalOffset(row: StockFinIndicatorRow): number {
   const fiscal = fiscalPeriodFromReport(row);
   if (!fiscal) return 0;
 
-  const disclosure = extractDisclosureDate(row);
+  const periodEnd = extractPeriodEndDate(row);
+  if (periodEnd.length < 10) return 0;
+
   const stdDate = extractStdReportDate(row);
-
-  if (disclosure && stdDate && disclosure < stdDate) {
-    return disclosureMinusFiscalQuarterOffset(row, fiscal);
+  if (stdDate.length >= 10 && periodEnd < stdDate) {
+    const aprJun = naturalQuarterForAprToJunSignal(periodEnd);
+    const natural = aprJun ?? calendarQuarterFromIsoDate(periodEnd);
+    if (!natural) return 0;
+    return (
+      quarterToIndex(natural.fiscalYear, natural.quarter) -
+      quarterToIndex(fiscal.fiscalYear, fiscal.quarter)
+    );
   }
 
-  const lagDays = stdDate && disclosure ? daysBetweenIsoDates(stdDate, disclosure) : null;
-  if (lagDays != null && lagDays >= 0 && lagDays <= SHORT_DISCLOSURE_LAG_DAYS) {
-    return 0;
+  const lagDays = stdDate.length >= 10 ? daysBetweenIsoDates(stdDate, periodEnd) : null;
+  if (lagDays == null) {
+    const aprJun = naturalQuarterForAprToJunSignal(periodEnd);
+    const natural = aprJun ?? calendarQuarterFromIsoDate(periodEnd);
+    if (!natural) return 0;
+    return (
+      quarterToIndex(natural.fiscalYear, natural.quarter) -
+      quarterToIndex(fiscal.fiscalYear, fiscal.quarter)
+    );
   }
 
-  if (lagDays != null && lagDays > SHORT_DISCLOSURE_LAG_DAYS) {
-    return Math.max(1, Math.round(lagDays / CALENDAR_QUARTER_DAYS));
-  }
-
-  return disclosureMinusFiscalQuarterOffset(row, fiscal);
+  if (lagDays <= SHORT_PERIOD_LAG_DAYS) return 0;
+  return Math.max(1, Math.floor(lagDays / CALENDAR_QUARTER_DAYS));
 }
 
-/** Series-level fiscal→natural offset: mode of per-row gaps across fin history. */
+function sortRowsByPeriodEnd(rows: StockFinIndicatorRow[]): StockFinIndicatorRow[] {
+  return [...rows].sort((a, b) => {
+    const da = extractPeriodEndDate(a) || extractStdReportDate(a);
+    const db = extractPeriodEndDate(b) || extractStdReportDate(b);
+    if (da !== db) return da.localeCompare(db);
+    return periodLabel(a).localeCompare(periodLabel(b));
+  });
+}
+
+/** Series-level offset: mode of per-row diffs (unchanged approach). */
 export function resolveFiscalToNaturalOffset(rows: StockFinIndicatorRow[]): number {
   const counts = new Map<number, number>();
   for (const row of rows) {
@@ -282,21 +308,30 @@ export function resolveFiscalToNaturalOffset(rows: StockFinIndicatorRow[]): numb
 }
 
 /**
- * Natural-calendar quarter for chart axis / YoY / filtering.
- * Primary: fiscal report_period_name shifted by series-level fiscal→natural offset.
- * Fallback: std_report_date or disclosure date calendar quarter.
+ * Title badge (自然年 − 财年): prefer the latest period's optimized diff so
+ * 「最新财年 + diff」 matches the newest bar; fall back to series mode.
  */
-function naturalCalendarPeriod(
-  row: StockFinIndicatorRow,
-  _market?: MarketCode | string | null,
-  seriesOffset?: number,
-): CalendarPeriod | null {
+export function resolveNaturalMinusFiscalQuarters(
+  rows: StockFinIndicatorRow[],
+): number | null {
+  if (!rows.length) return null;
+
+  const sorted = sortRowsByPeriodEnd(rows);
+  const latest = sorted[sorted.length - 1];
+  const latestOffset = detectFiscalToNaturalOffset(latest);
+  if (latestOffset !== 0) return latestOffset;
+
+  const mode = resolveFiscalToNaturalOffset(rows);
+  return mode === 0 ? null : mode;
+}
+
+/**
+ * Filing / fiscal quarter for chart axis, YoY, and sorting.
+ * Uses report_period_name as-is (no fiscal→natural shift).
+ */
+function reportFiscalPeriod(row: StockFinIndicatorRow): CalendarPeriod | null {
   const fiscal = fiscalPeriodFromReport(row);
-  if (fiscal) {
-    const offset =
-      seriesOffset !== undefined ? seriesOffset : detectFiscalToNaturalOffset(row);
-    return shiftCalendarPeriod(fiscal, offset);
-  }
+  if (fiscal) return fiscal;
 
   const fromStd = calendarQuarterFromIsoDate(extractStdReportDate(row));
   if (fromStd) return fromStd;
@@ -340,17 +375,6 @@ function quarterToIndex(year: string, quarter: ComparableQuarter): number {
   return Number(year) * 4 + order[quarter];
 }
 
-function indexToQuarter(index: number): CalendarPeriod {
-  const quarters: ComparableQuarter[] = ['q1', 'q2', 'q3', 'q4'];
-  const normalized = ((index % 4) + 4) % 4;
-  const year = Math.floor(index / 4);
-  return { fiscalYear: String(year), quarter: quarters[normalized] };
-}
-
-function shiftCalendarPeriod(base: CalendarPeriod, quarterOffset: number): CalendarPeriod {
-  return indexToQuarter(quarterToIndex(base.fiscalYear, base.quarter) + quarterOffset);
-}
-
 /** HK accumulate rows: period kind from report_period_name, not calendar_* fields. */
 function hkReportPeriodKind(row: StockFinIndicatorRow): { fiscalYear: string; kind: HkPeriodKind } | null {
   const name = row.report_period_name?.trim() ?? '';
@@ -374,10 +398,10 @@ function hkPeriodKind(row: StockFinIndicatorRow): { fiscalYear: string; kind: Hk
 
 function revenueComparablePeriod(
   row: StockFinIndicatorRow,
-  market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _market?: MarketCode | string | null,
+  _seriesOffset?: number,
 ): CalendarPeriod | null {
-  return naturalCalendarPeriod(row, market, seriesOffset);
+  return reportFiscalPeriod(row);
 }
 
 function todayIsoUtc(): string {
@@ -398,33 +422,23 @@ export function isDisclosedFinRow(row: StockFinIndicatorRow): boolean {
 function computeSameQuarterRevenueYoY(
   rows: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _seriesOffset?: number,
 ): Map<string, number | null> {
-  const normalizedMarket = market?.toLowerCase?.() ?? market;
-  const filterCumulativeLike = normalizedMarket === 'hk';
-
-  const peerRevenues: number[] = [];
-  for (const row of rows) {
-    const revenue = row.total_operating_revenue;
-    if (revenue != null && !Number.isNaN(revenue) && revenue > 0) {
-      peerRevenues.push(revenue);
-    }
-  }
-
+  // Same fiscal quarter only (e.g. 25Q4 vs 24Q4). HK accumulate rows are
+  // de-accumulated upstream; do not gate YoY on revenue magnitude heuristics.
   const revenueByQuarter = new Map<string, number>();
   for (const row of rows) {
-    const meta = revenueComparablePeriod(row, market, seriesOffset);
+    const meta = revenueComparablePeriod(row, market);
     if (!meta) continue;
     const revenue = row.total_operating_revenue;
     if (revenue == null || Number.isNaN(revenue)) continue;
-    if (filterCumulativeLike && looksLikeHkCumulativeQuarterRevenue(revenue, peerRevenues)) continue;
     revenueByQuarter.set(`${meta.fiscalYear}:${meta.quarter}`, revenue);
   }
 
   const yoyByLabel = new Map<string, number | null>();
   for (const row of rows) {
     const label = periodLabel(row);
-    const meta = revenueComparablePeriod(row, market, seriesOffset);
+    const meta = revenueComparablePeriod(row, market);
     if (!meta) {
       yoyByLabel.set(label, null);
       continue;
@@ -433,13 +447,7 @@ function computeSameQuarterRevenueYoY(
     const prevYear = String(Number(meta.fiscalYear) - 1);
     const prevRevenue = revenueByQuarter.get(`${prevYear}:${meta.quarter}`);
     const currentRevenue = row.total_operating_revenue;
-    if (
-      prevRevenue == null ||
-      prevRevenue === 0 ||
-      currentRevenue == null ||
-      (filterCumulativeLike &&
-        looksLikeHkCumulativeQuarterRevenue(currentRevenue, peerRevenues))
-    ) {
+    if (prevRevenue == null || prevRevenue === 0 || currentRevenue == null) {
       yoyByLabel.set(label, null);
       continue;
     }
@@ -488,13 +496,6 @@ function medianHkAnnualSingleQuarterRatio(
 function scaleMetric(value: number | null | undefined, ratio: number): number | null {
   if (value == null) return null;
   return value * ratio;
-}
-
-function looksLikeHkCumulativeQuarterRevenue(revenue: number, peerRevenues: number[]): boolean {
-  if (peerRevenues.length === 0) return false;
-  const sorted = [...peerRevenues].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  return median > 0 && revenue > median * 2.5;
 }
 
 export function deaccumulateHkFinRows(items: StockFinIndicatorRow[]): StockFinIndicatorRow[] {
@@ -592,15 +593,143 @@ function pseudoPercentile(value: number, max: number): number {
 function filterRowsForRevenueDisplay(
   rows: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
-  seriesOffset?: number,
+  _seriesOffset?: number,
 ): StockFinIndicatorRow[] {
   const minIndex = quarterToIndex(String(REVENUE_CHART_DISPLAY_FROM_YEAR), REVENUE_CHART_DISPLAY_FROM_QUARTER);
   return rows.filter((row) => {
     if (!isDisclosedFinRow(row)) return false;
-    const meta = revenueComparablePeriod(row, market, seriesOffset);
+    const meta = revenueComparablePeriod(row, market);
     if (!meta) return false;
     return quarterToIndex(meta.fiscalYear, meta.quarter) >= minIndex;
   });
+}
+
+/**
+ * Quality score for collapsing duplicate IPO / vendor rows that share one fiscal quarter.
+ * Prefers name↔std↔period-end consistency and 季报 over 年报 when both map to Q4.
+ */
+function finRowQualityScore(row: StockFinIndicatorRow): number {
+  let score = 0;
+  const name = row.report_period_name?.trim() ?? '';
+  const fiscal = fiscalPeriodFromName(row);
+  const periodEnd = extractPeriodEndDate(row);
+  const std = extractStdReportDate(row);
+
+  const isAnnualOnly = /年报/.test(name) && !/第四季报|四季度/.test(name);
+  const isQuarterlyFiling = /第?[一二三四]季报|中报|四季度/.test(name);
+  if (isQuarterlyFiling && !isAnnualOnly) score += 30;
+  else if (isAnnualOnly) score += 10;
+
+  if (fiscal && periodEnd.length >= 10) {
+    if (periodEnd.slice(0, 4) === fiscal.fiscalYear) score += 50;
+    else score -= 40;
+    const peCal = calendarQuarterFromIsoDate(periodEnd);
+    if (peCal && peCal.quarter === fiscal.quarter) score += 20;
+  }
+
+  if (fiscal && std.length >= 10) {
+    if (std.slice(0, 4) === fiscal.fiscalYear) score += 50;
+    else score -= 80;
+    const stdCal = calendarQuarterFromIsoDate(std);
+    if (stdCal && stdCal.quarter === fiscal.quarter) score += 20;
+  }
+
+  if (std.length >= 10 && periodEnd.length >= 10) {
+    if (std === periodEnd) score += 40;
+    else {
+      const lag = Math.abs(daysBetweenIsoDates(std, periodEnd) ?? 9_999);
+      if (lag <= SHORT_PERIOD_LAG_DAYS) score += 20;
+      else if (lag > 370) score -= 100;
+    }
+  }
+
+  if (row.total_operating_revenue != null && Number.isFinite(row.total_operating_revenue)) {
+    score += 5;
+  }
+
+  return score;
+}
+
+function preferFinRow(a: StockFinIndicatorRow, b: StockFinIndicatorRow): StockFinIndicatorRow {
+  const scoreA = finRowQualityScore(a);
+  const scoreB = finRowQualityScore(b);
+  if (scoreA !== scoreB) return scoreA > scoreB ? a : b;
+
+  const dateA = extractDisclosureDate(a) || extractPeriodEndDate(a);
+  const dateB = extractDisclosureDate(b) || extractPeriodEndDate(b);
+  if (dateA !== dateB) return dateA >= dateB ? a : b;
+
+  return a;
+}
+
+function metricFingerprint(row: StockFinIndicatorRow): string | null {
+  const revenue = row.total_operating_revenue;
+  const profit = row.net_profit_attr_parent;
+  if (revenue == null || !Number.isFinite(revenue)) return null;
+  if (profit == null || !Number.isFinite(profit)) return null;
+  return `${revenue}|${profit}`;
+}
+
+/** True when name / std / period-end years disagree (IPO vendor cross-label pattern). */
+function isCrossLabeledSuspect(row: StockFinIndicatorRow): boolean {
+  const fiscal = fiscalPeriodFromName(row);
+  if (!fiscal) return false;
+  const periodEnd = extractPeriodEndDate(row);
+  const std = extractStdReportDate(row);
+  if (std.length >= 10 && std.slice(0, 4) !== fiscal.fiscalYear) return true;
+  if (periodEnd.length >= 10 && periodEnd.slice(0, 4) !== fiscal.fiscalYear) return true;
+  if (std.length >= 10 && periodEnd.length >= 10) {
+    const lag = Math.abs(daysBetweenIsoDates(std, periodEnd) ?? 0);
+    if (lag > 370) return true;
+  }
+  return false;
+}
+
+/**
+ * Collapse one API row per comparable fiscal quarter for the revenue chart.
+ * Also drops cross-labeled clones that reuse the same revenue+profit under another year label.
+ */
+export function dedupeFinRowsByComparableQuarter(
+  items: StockFinIndicatorRow[],
+  market?: MarketCode | string | null,
+): StockFinIndicatorRow[] {
+  const byQuarter = new Map<number, StockFinIndicatorRow>();
+  for (const row of items) {
+    const meta = revenueComparablePeriod(row, market);
+    if (!meta) continue;
+    const index = quarterToIndex(meta.fiscalYear, meta.quarter);
+    const existing = byQuarter.get(index);
+    byQuarter.set(index, existing ? preferFinRow(existing, row) : row);
+  }
+
+  const byFingerprint = new Map<string, StockFinIndicatorRow[]>();
+  const withoutFingerprint: StockFinIndicatorRow[] = [];
+  for (const row of byQuarter.values()) {
+    const fingerprint = metricFingerprint(row);
+    if (!fingerprint) {
+      withoutFingerprint.push(row);
+      continue;
+    }
+    const group = byFingerprint.get(fingerprint) ?? [];
+    group.push(row);
+    byFingerprint.set(fingerprint, group);
+  }
+
+  const result: StockFinIndicatorRow[] = [...withoutFingerprint];
+  for (const group of byFingerprint.values()) {
+    if (group.length === 1) {
+      result.push(group[0]);
+      continue;
+    }
+    // Identical metrics under two labels: collapse only when cross-labeling is suspected.
+    if (group.some(isCrossLabeledSuspect)) {
+      result.push(group.reduce((best, row) => preferFinRow(best, row)));
+      continue;
+    }
+    result.push(...group);
+  }
+
+  return result;
 }
 
 export function mapFinIndicatorsToFinancials(
@@ -608,17 +737,19 @@ export function mapFinIndicatorsToFinancials(
   market?: MarketCode | string | null,
 ): EntityFinancialYear[] {
   const normalizedMarket = market?.toLowerCase?.() ?? market;
+  // Drop IPO / vendor duplicate periods before HK de-accumulation so dirty std
+  // dates do not poison previous-period lookups.
+  const deduped = dedupeFinRowsByComparableQuarter(items, market);
   // HK accumulate rows are de-accumulated here only (API returns raw cumulative data).
   const sourceItems =
-    normalizedMarket === 'hk' ? deaccumulateHkFinRows(items) : items;
-  const seriesOffset = resolveFiscalToNaturalOffset(sourceItems);
-  const sorted = sortFinRows(sourceItems, market, seriesOffset);
-  const yoyByLabel = computeSameQuarterRevenueYoY(sorted, market, seriesOffset);
-  const slice = filterRowsForRevenueDisplay(sorted, market, seriesOffset);
+    normalizedMarket === 'hk' ? deaccumulateHkFinRows(deduped) : deduped;
+  const sorted = sortFinRows(sourceItems, market);
+  const yoyByLabel = computeSameQuarterRevenueYoY(sorted, market);
+  const slice = filterRowsForRevenueDisplay(sorted, market);
 
   return slice.map((row) => {
     const label = periodLabel(row);
-    const axisLabel = unifiedFinPeriodAxisLabel(row, market, seriesOffset);
+    const axisLabel = unifiedFinPeriodAxisLabel(row, market);
     return {
       year: axisLabel,
       reportDate: extractDisclosureDate(row) || extractReportDate(row),
@@ -680,16 +811,13 @@ export function resolveRollingTtmNetProfit(
   rows: StockFinIndicatorRow[],
   market?: MarketCode | string | null,
 ): number | null {
-  const seriesOffset = resolveFiscalToNaturalOffset(rows);
-  const quarterlyRows = rows.filter(
-    (row) => calendarPeriodFromRow(row, market, seriesOffset) != null,
-  );
-  const sorted = [...sortFinRows(quarterlyRows, market, seriesOffset)].reverse();
+  const quarterlyRows = rows.filter((row) => calendarPeriodFromRow(row, market) != null);
+  const sorted = [...sortFinRows(quarterlyRows, market)].reverse();
   const seen = new Set<number>();
   let sum = 0;
   let count = 0;
   for (const row of sorted) {
-    const period = calendarPeriodFromRow(row, market, seriesOffset);
+    const period = calendarPeriodFromRow(row, market);
     if (!period) continue;
     const index = quarterToIndex(period.fiscalYear, period.quarter);
     if (seen.has(index)) continue;
