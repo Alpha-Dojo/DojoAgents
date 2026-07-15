@@ -88,6 +88,7 @@ interface DojoAgentPanelProps {
   interactive?: boolean;
   sourceTab: AppTab;
   onClose: () => void;
+  onSettingsOpen: () => void;
 }
 
 function formatSessionTime(timestamp: number): string {
@@ -324,11 +325,12 @@ export function DojoAgentPanel({
   interactive = false,
   sourceTab,
   onClose,
+  onSettingsOpen,
 }: DojoAgentPanelProps) {
   const { t, locale } = useTranslation();
   const { width: panelWidth, resizing, onResizeStart } = useAgentPanelWidth();
   const { width: historyWidth, resizing: historyResizing, onResizeStart: onHistoryResizeStart } = useAgentHistoryWidth();
-  const { selectedModelId, agentReady, selectedModel, setSelectedModelId } =
+  const { selectedModelId, selectedModel, setSelectedModelId } =
     useAgentModel();
   const {
     sessionsHydrated,
@@ -937,6 +939,11 @@ export function DojoAgentPanel({
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Let IMEs consume Enter (and other keys) while confirming composed text.
+    // Some browsers report keyCode 229 around the composition boundary.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+      return;
+    }
     if (commandPaletteOpen && event.key === "Escape") {
       event.preventDefault();
       setInput("");
@@ -1528,11 +1535,6 @@ export function DojoAgentPanel({
               onSelect={executeStatusCommand}
             />
           ) : null}
-          {!agentReady && (
-            <p className="dojo-agent-panel__hint">
-              {t("agent.apiNotConfigured")}
-            </p>
-          )}
           {panelError && (
             <p className="dojo-agent-panel__error">{panelError}</p>
           )}
@@ -1571,7 +1573,10 @@ export function DojoAgentPanel({
           />
           <div className="dojo-agent-panel__composer-bar">
             <div className="dojo-agent-panel__composer-left">
-              <AgentModelSwitcher variant="composer" />
+              <AgentModelSwitcher
+                variant="composer"
+                onConfigureModel={onSettingsOpen}
+              />
               <DojoButton
                 variant="secondary"
                 size="xs"

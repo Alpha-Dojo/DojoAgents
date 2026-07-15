@@ -88,6 +88,7 @@ export const zhMessages = {
   agentModel: {
     label: '模型',
     loading: '加载中…',
+    configure: '配置大模型',
     comingSoon: '即将上线',
   },
   agent: {
