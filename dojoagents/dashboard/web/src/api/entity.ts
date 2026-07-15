@@ -296,6 +296,8 @@ function mapFinIndicatorRow(raw: Record<string, unknown>): StockFinIndicatorRow 
     symbol: String(raw.symbol ?? ''),
     report_date: raw.report_date != null ? String(raw.report_date) : null,
     std_report_date: raw.std_report_date != null ? String(raw.std_report_date) : null,
+    public_date: raw.public_date != null ? String(raw.public_date) : null,
+    fiscal_year_end: raw.fiscal_year_end != null ? String(raw.fiscal_year_end) : null,
     report_type: raw.report_type != null ? String(raw.report_type) : null,
     report_period_name: raw.report_period_name != null ? String(raw.report_period_name) : null,
     season_label: raw.season_label != null ? String(raw.season_label) : null,

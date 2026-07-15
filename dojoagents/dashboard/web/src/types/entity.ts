@@ -32,8 +32,14 @@ export interface EntityTickerSearchItem {
 /** Raw financial indicator row from /dojo-core/ticker/fin-indicators */
 export interface StockFinIndicatorRow {
   symbol: string;
+  /** Actual fiscal period-end date from the vendor. */
   report_date?: string | null;
+  /** Vendor calendarized quarter-end aligned to report_period_name (often Mar/Jun/Sep/Dec). */
   std_report_date?: string | null;
+  /** Filing / publication date when present (preferred disclosure date). */
+  public_date?: string | null;
+  /** Company fiscal year-end, e.g. "5-31" or "3-31". */
+  fiscal_year_end?: string | null;
   report_type?: string | null;
   report_period_name?: string | null;
   season_label?: string | null;

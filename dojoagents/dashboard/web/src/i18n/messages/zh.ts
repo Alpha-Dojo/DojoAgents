@@ -389,6 +389,7 @@ export const zhMessages = {
     sectorPeLevel: '板块层级',
     peRatio: 'PE',
     revenueTitle: '营收与盈利趋势',
+    revenueFiscalNaturalDiff: '（自然年-财年={quarters}Q）',
     revenue: '营业收入',
     netProfit: '净利润',
     revenueWithCurrency: '营业收入（{currency}）',
