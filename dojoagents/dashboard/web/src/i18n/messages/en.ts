@@ -90,6 +90,7 @@ export const enMessages: MessageTree = {
   },
   agentModel: {
     label: 'Model',
+    configure: 'Configure model',
     loading: 'Loading…',
     comingSoon: 'Coming soon',
   },

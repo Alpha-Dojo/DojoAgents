@@ -26,6 +26,16 @@
   background: rgba(30, 58, 95, 0.35);
 }
 
+.model-menu__trigger--configure {
+  color: var(--color-warning, #f5b942);
+  background: rgba(245, 185, 66, 0.08);
+}
+
+.model-menu__trigger--configure:hover:not(:disabled) {
+  color: var(--color-warning, #f5b942);
+  background: rgba(245, 185, 66, 0.14);
+}
+
 .model-menu__trigger:disabled {
   cursor: wait;
   opacity: 0.7;

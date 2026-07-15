@@ -41,9 +41,25 @@ function ChevronIcon() {
   );
 }
 
-export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'composer' | 'header' }) {
+interface AgentModelSwitcherProps {
+  variant?: 'composer' | 'header';
+  onConfigureModel?: () => void;
+}
+
+export function AgentModelSwitcher({
+  variant = 'composer',
+  onConfigureModel,
+}: AgentModelSwitcherProps) {
   const { t } = useTranslation();
-  const { models, selectedModel, selectedModelId, loading, saving, setSelectedModelId } = useAgentModel();
+  const {
+    models,
+    selectedModel,
+    selectedModelId,
+    agentReady,
+    loading,
+    saving,
+    setSelectedModelId,
+  } = useAgentModel();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -61,26 +77,44 @@ export function AgentModelSwitcher({ variant = 'composer' }: { variant?: 'compos
   }, [open]);
 
   const disabled = loading || saving;
+  const needsConfiguration =
+    !loading && (!agentReady || !models.some((model) => model.available));
   const label = loading
     ? t('agentModel.loading')
     : saving
       ? 'Saving model...'
-    : (selectedModel?.label ?? t('agentModel.label'));
+      : needsConfiguration
+        ? t('agentModel.configure')
+        : (selectedModel?.label ?? t('agentModel.label'));
+
+  const handleTriggerClick = () => {
+    if (needsConfiguration && onConfigureModel) {
+      setOpen(false);
+      onConfigureModel();
+      return;
+    }
+    setOpen((prev) => !prev);
+  };
 
   return (
     <div className={`model-menu model-menu--${variant}`} ref={rootRef}>
       <button
         type="button"
-        className={`model-menu__trigger base-select ${open ? 'model-menu__trigger--open' : ''}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={t('agentModel.label')}
+        className={[
+          'model-menu__trigger',
+          'base-select',
+          open ? 'model-menu__trigger--open' : '',
+          needsConfiguration ? 'model-menu__trigger--configure' : '',
+        ].filter(Boolean).join(' ')}
+        aria-haspopup={needsConfiguration ? 'dialog' : 'listbox'}
+        aria-expanded={needsConfiguration ? undefined : open}
+        aria-label={needsConfiguration ? t('agentModel.configure') : t('agentModel.label')}
         disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={handleTriggerClick}
       >
         <SparkIcon />
         <span className="model-menu__value">{label}</span>
-        <ChevronIcon />
+        {!needsConfiguration ? <ChevronIcon /> : null}
       </button>
       {open && (
         <ul className="model-menu__dropdown" role="listbox" aria-label={t('agentModel.label')}>
