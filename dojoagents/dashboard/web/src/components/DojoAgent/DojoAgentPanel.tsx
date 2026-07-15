@@ -937,6 +937,11 @@ export function DojoAgentPanel({
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Let IMEs consume Enter (and other keys) while confirming composed text.
+    // Some browsers report keyCode 229 around the composition boundary.
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+      return;
+    }
     if (commandPaletteOpen && event.key === "Escape") {
       event.preventDefault();
       setInput("");
