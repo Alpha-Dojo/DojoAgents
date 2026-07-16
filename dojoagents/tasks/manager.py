@@ -15,6 +15,7 @@ from dojoagents.tasks.models import (
     TaskContract,
     TaskSpec,
 )
+from dojoagents.tasks.preflight import parse_pipeline_preflight
 
 
 def _artifact_specs(raw_items: Any) -> list[TaskArtifactSpec]:
@@ -76,6 +77,7 @@ def _parse_pipeline(raw: dict[str, Any]) -> PipelineSpec:
         id=str(raw.get("id") or ""),
         name=str(raw.get("name") or ""),
         steps=steps,
+        preflight=parse_pipeline_preflight(raw.get("preflight")),
     )
 
 

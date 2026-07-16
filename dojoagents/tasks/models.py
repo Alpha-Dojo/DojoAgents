@@ -44,10 +44,18 @@ class PipelineStep:
 
 
 @dataclass(frozen=True)
+class PipelinePreflight:
+    """Optional gates evaluated before a pipeline run starts."""
+
+    require_any_trading_market: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PipelineSpec:
     id: str
     name: str = ""
     steps: list[PipelineStep] = field(default_factory=list)
+    preflight: PipelinePreflight | None = None
 
 
 @dataclass

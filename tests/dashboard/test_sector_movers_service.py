@@ -50,7 +50,7 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
                 "level3_id": "1",
                 "daily_return_pct": 3.0,
                 "total_market_cap": 300.0,
-                "member_count": 2,
+                "member_count": 5,
             },
             {
                 "market": "us",
@@ -70,7 +70,7 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
                 "level3_id": "3",
                 "daily_return_pct": -2.0,
                 "total_market_cap": 200.0,
-                "member_count": 2,
+                "member_count": 5,
             },
         ]
     )

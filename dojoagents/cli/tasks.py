@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from dojo.client.async_client import AsyncDojo
@@ -20,7 +21,13 @@ from dojoagents.dashboard.services.stock_quote_filter import configure_ticker_ma
 from dojoagents.dashboard.tools import register_dashboard_domain_tools
 from dojoagents.logging import LOGGER, configure_logging
 from dojoagents.tasks.activator import TaskActivationError
+from dojoagents.tasks.artifacts import resolve_dated_filename
+from dojoagents.tasks.manager import TaskPromptManager
+from dojoagents.tasks.models import TaskArtifactSpec, TaskSpec
+from dojoagents.tasks.output_paths import resolve_task_output_file
+from dojoagents.tasks.preflight import evaluate_pipeline_preflight
 from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
+from dojoagents.tasks.schema_validator import TaskOutputValidator
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -33,6 +40,11 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
     run.add_argument("--pipeline", required=True, help="Pipeline id, e.g. daily-market-events")
     run.add_argument("--date", required=True, help="Trading date (YYYY-MM-DD)")
     run.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
+    run.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass pipeline preflight gates (e.g. trading-day check)",
+    )
     run.add_argument(
         "--local",
         action="store_true",
@@ -49,6 +61,24 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
         help="Skip DojoSDK offline preload in --local mode",
     )
 
+    evaluate = tasks_sub.add_parser(
+        "eval",
+        help="Validate a task output artifact against its contract schema",
+    )
+    evaluate.add_argument("--task", required=True, help="Task id, e.g. event-trigger")
+    evaluate.add_argument("--date", required=True, help="Trading date (YYYY-MM-DD)")
+    evaluate.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
+    evaluate.add_argument(
+        "--artifact",
+        default="",
+        help="Optional base artifact filename (default: validate all required outputs)",
+    )
+    evaluate.add_argument(
+        "--output-root",
+        default="",
+        help="Override tasks.output_root from config",
+    )
+
 
 def _validate_trading_date(raw: str) -> str:
     text = str(raw or "").strip()
@@ -60,6 +90,20 @@ def _validate_trading_date(raw: str) -> str:
 def _sanitize_session_token(raw: str) -> str:
     token = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(raw or "").strip()).strip("-")
     return token or "pipeline"
+
+
+def _builtin_task_roots() -> tuple[Path, Path]:
+    package_root = Path(__file__).resolve().parent.parent
+    return package_root / "tasks" / "built_in", package_root / "tasks" / "pipelines"
+
+
+def load_task_manager(config_path: str) -> TaskPromptManager:
+    store = ConfigStore(config_path)
+    configure_logging(store.snapshot().logging)
+    config = store.snapshot()
+    built_in_tasks, built_in_pipelines = _builtin_task_roots()
+    task_dirs = [built_in_tasks, *[Path(path).expanduser() for path in config.tasks.dirs]]
+    return TaskPromptManager(task_dirs=task_dirs, pipeline_dirs=[built_in_pipelines])
 
 
 def _metadata_exit_code(metadata: dict[str, Any] | None) -> int:
@@ -263,12 +307,95 @@ async def _run_pipeline_task_remote(args: argparse.Namespace, *, pipeline_id: st
     return exit_code
 
 
+def _select_eval_artifacts(task: TaskSpec, artifact_filter: str) -> list[TaskArtifactSpec]:
+    outputs = list(task.contract.outputs)
+    wanted = str(artifact_filter or "").strip()
+    if not wanted:
+        return [item for item in outputs if item.required]
+    matched = [item for item in outputs if item.filename == wanted or Path(item.filename).name == wanted]
+    if not matched:
+        available = ", ".join(item.filename for item in outputs) or "(none)"
+        raise TaskActivationError(f"Unknown artifact {wanted!r} for task {task.contract.id}. Available: {available}.")
+    return matched
+
+
+def eval_task_output(args: argparse.Namespace) -> int:
+    store = ConfigStore(args.config)
+    configure_logging(store.snapshot().logging)
+    config = store.snapshot()
+    if not config.tasks.enabled:
+        raise TaskActivationError("tasks.enabled is false in config; enable tasks to use the CLI.")
+
+    trading_date = _validate_trading_date(args.date)
+    task_id = str(args.task or "").strip()
+    if not task_id:
+        raise TaskActivationError("Missing required --task")
+
+    manager = load_task_manager(args.config)
+    task = manager.get_task(task_id)
+    if task is None:
+        available = ", ".join(manager.list_tasks()) or "(none)"
+        raise TaskActivationError(f"Unknown task: {task_id}. Available: {available}.")
+
+    output_root = str(args.output_root or "").strip() or config.tasks.output_root
+    params = {"trading_date": trading_date}
+    validator = TaskOutputValidator(manager)
+    artifacts = _select_eval_artifacts(task, str(args.artifact or ""))
+    if not artifacts:
+        raise TaskActivationError(f"Task {task_id} has no required output artifacts to eval.")
+
+    total_issues = 0
+    for artifact in artifacts:
+        filename = resolve_dated_filename(artifact.filename, params)
+        try:
+            path = resolve_task_output_file(output_root, task.contract.id, filename)
+        except ValueError as exc:
+            LOGGER.error("%s", exc)
+            total_issues += 1
+            continue
+        if not path.is_file():
+            LOGGER.error("Missing output file: %s", path)
+            total_issues += 1
+            continue
+        issues = validator.validate_artifact(task=task, artifact=artifact, path=path)
+        if issues:
+            total_issues += len(issues)
+            LOGGER.error("Eval failed for %s (%d issue(s)):", path, len(issues))
+            for issue in issues:
+                LOGGER.error("  - %s", issue)
+            continue
+        LOGGER.info("Eval passed: %s", path)
+
+    if total_issues:
+        LOGGER.error("Task eval failed with %d issue(s)", total_issues)
+        return 1
+    LOGGER.info("Task eval passed for %s date=%s", task_id, trading_date)
+    return 0
+
+
 async def run_pipeline_task(args: argparse.Namespace) -> int:
     pipeline_id = str(args.pipeline or "").strip()
     if not pipeline_id:
         raise TaskActivationError("Missing required --pipeline")
 
     trading_date = _validate_trading_date(args.date)
+    manager = load_task_manager(args.config)
+    pipeline = manager.get_pipeline(pipeline_id)
+    if pipeline is None:
+        available = ", ".join(manager.list_pipelines()) or "(none)"
+        raise TaskActivationError(f"Unknown pipeline: {pipeline_id}. Available: {available}.")
+
+    preflight = evaluate_pipeline_preflight(
+        pipeline,
+        trading_date=trading_date,
+        force=bool(getattr(args, "force", False)),
+    )
+    if preflight.action == "skip":
+        LOGGER.info("%s", preflight.reason)
+        return 0
+    if preflight.open_markets:
+        LOGGER.info("Preflight ok: %s", preflight.reason)
+
     if bool(args.local):
         return await _run_pipeline_task_local(args, pipeline_id=pipeline_id, trading_date=trading_date)
     return await _run_pipeline_task_remote(args, pipeline_id=pipeline_id, trading_date=trading_date)
@@ -279,6 +406,12 @@ async def run_tasks_command(args: argparse.Namespace) -> int:
         try:
             return await run_pipeline_task(args)
         except (TaskActivationError, DashboardTaskClientError) as exc:
+            LOGGER.error("%s", exc)
+            return 1
+    if args.tasks_command == "eval":
+        try:
+            return eval_task_output(args)
+        except TaskActivationError as exc:
             LOGGER.error("%s", exc)
             return 1
     return 2

@@ -61,7 +61,7 @@ def test_sector_movers_tool_description_documents_window_and_ranking() -> None:
 
     spec = registry.get("get_sector_movers")
     assert spec is not None
-    assert "member_count<2" in spec.description
+    assert "member_count<5" in spec.description
     assert "level1_id" in spec.description
     assert "start_date" in spec.parameters["properties"]
     assert spec.parameters["properties"]["limit"]["description"]

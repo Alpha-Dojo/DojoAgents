@@ -19,6 +19,7 @@ import type {
   MarketStats,
   SectorItem,
 } from '../types/market';
+import type { MarketDynamicsResponse } from '../types/marketDynamics';
 import { MARKET_CODE, MARKET_FLAG_IMAGE } from '../utils/marketDisplay';
 import { findSectorPathByLinkKey, selectionFromPath } from '../utils/sectorTaxonomy';
 import { fetchSectorConstituents, fetchSectorTaxonomy } from './sector';
@@ -86,19 +87,75 @@ async function fetchRawMarketOverview(): Promise<MarketOverviewResponse | null> 
 async function fetchSectorMovers(options: {
   sectorLimit: number;
   days?: number;
+  startDate?: string;
+  endDate?: string;
   minCapByMarket?: Partial<Record<MarketCode, number>>;
+  includeMembers?: boolean;
 }): Promise<SectorMoversResponse | null> {
   try {
     const params = new URLSearchParams({ limit: String(options.sectorLimit) });
-    if (options.days != null) params.set('days', String(options.days));
+    if (options.startDate && options.endDate) {
+      params.set('start_date', options.startDate);
+      params.set('end_date', options.endDate);
+    } else if (options.days != null) {
+      params.set('days', String(options.days));
+    }
     const caps = options.minCapByMarket ?? {};
     if (caps.us && caps.us > 0) params.set('min_cap_us', String(caps.us));
     if (caps.cn && caps.cn > 0) params.set('min_cap_cn', String(caps.cn));
     if (caps.hk && caps.hk > 0) params.set('min_cap_hk', String(caps.hk));
+    if (options.includeMembers === false) params.set('include_members', 'false');
     return await fetchJson<SectorMoversResponse>(`${API_PREFIX}/market/sector-movers?${params}`);
   } catch {
     return null;
   }
+}
+
+/** Daily sector movers for Market Discovery treemap (gainers + losers per market). */
+export async function fetchDailySectorDiscovery(options: {
+  sectorLimit?: number;
+  days?: number;
+  asOfDate?: string;
+  minCapByMarket?: Partial<Record<MarketCode, number>>;
+} = {}): Promise<Partial<Record<MarketCode, { gainers: SectorItem[]; losers: SectorItem[] }>>> {
+  const sectorLimit = options.sectorLimit ?? 10;
+  const asOfDate = options.asOfDate?.trim() || undefined;
+  const sectors = await fetchSectorMovers({
+    sectorLimit,
+    days: asOfDate ? undefined : (options.days ?? 1),
+    startDate: asOfDate,
+    endDate: asOfDate,
+    minCapByMarket: options.minCapByMarket,
+    includeMembers: false,
+  });
+  const result: Partial<Record<MarketCode, { gainers: SectorItem[]; losers: SectorItem[] }>> = {};
+  if (!sectors?.markets) return result;
+
+  for (const market of MARKET_CODES) {
+    const payload = sectors.markets[market];
+    if (!payload) continue;
+    const peers = [...(payload.gainers ?? []), ...(payload.losers ?? [])];
+    result[market] = {
+      gainers: (payload.gainers ?? []).map((item) => mapSectorMoverItem(item, peers)),
+      losers: (payload.losers ?? []).map((item) => mapSectorMoverItem(item, peers)),
+    };
+  }
+  return result;
+}
+
+export async function fetchMarketDynamics(options: {
+  limit?: number;
+  startDate?: string;
+  endDate?: string;
+} = {}): Promise<MarketDynamicsResponse> {
+  const params = new URLSearchParams();
+  if (options.limit != null) params.set('limit', String(options.limit));
+  if (options.startDate) params.set('start_date', options.startDate);
+  if (options.endDate) params.set('end_date', options.endDate);
+  const qs = params.toString();
+  return fetchJson<MarketDynamicsResponse>(
+    `${API_PREFIX}/market/dynamics${qs ? `?${qs}` : ''}`,
+  );
 }
 
 export async function fetchBenchmarkCatalog(): Promise<BenchmarkCatalogResponse> {
@@ -174,25 +231,74 @@ export const MARKET_COLUMNS: { code: MarketCode; flagSrc: string; label: string 
   { code: 'hk', flagSrc: MARKET_FLAG_IMAGE.hk, label: MARKET_CODE.hk },
 ];
 
-export async function fetchMarketOverview(
-  query: MarketOverviewQuery = {},
-): Promise<MarketOverview> {
-  const sectorLimit = query.sector_limit ?? 5;
-  const days = query.days ?? 1;
-  const minCapByMarket = query.min_cap_by_market;
-  const [overview, sectors] = await Promise.all([
-    fetchRawMarketOverview(),
-    fetchSectorMovers({ sectorLimit, days, minCapByMarket }),
-  ]);
-
+/** Benchmarks + market stats for hero; gainers/losers empty until mesh movers attach. */
+export async function fetchMarketOverview(): Promise<MarketOverview> {
+  const overview = await fetchRawMarketOverview();
   const markets = Object.fromEntries(
-    MARKET_CODES.map((code) => [code, buildMarketColumn(code, overview, sectors)]),
+    MARKET_CODES.map((code) => [code, buildMarketColumn(code, overview, null)]),
   ) as Record<MarketCode, MarketColumn>;
 
   return {
     as_of: overview?.as_of ?? overview?.window_end ?? new Date().toISOString().slice(0, 10),
     markets,
   };
+}
+
+export type MarketMeshMoversByCode = Record<
+  MarketCode,
+  { gainers: SectorItem[]; losers: SectorItem[] }
+>;
+
+/** Sector gainers/losers for the Mesh “行业板块涨跌幅” tab (includes top_members). */
+export async function fetchMarketMeshMovers(
+  query: MarketOverviewQuery = {},
+): Promise<MarketMeshMoversByCode> {
+  const sectorLimit = query.sector_limit ?? 5;
+  const days = query.days ?? 1;
+  const sectors = await fetchSectorMovers({
+    sectorLimit,
+    days,
+    minCapByMarket: query.min_cap_by_market,
+  });
+
+  const empty = { gainers: [] as SectorItem[], losers: [] as SectorItem[] };
+  const result = Object.fromEntries(
+    MARKET_CODES.map((code) => [code, { ...empty }]),
+  ) as MarketMeshMoversByCode;
+
+  if (!sectors?.markets) return result;
+
+  for (const code of MARKET_CODES) {
+    const payload = sectors.markets[code];
+    if (!payload) continue;
+    const peers = [...(payload.gainers ?? []), ...(payload.losers ?? [])];
+    result[code] = {
+      gainers: (payload.gainers ?? []).map((item) => mapSectorMoverItem(item, peers)),
+      losers: (payload.losers ?? []).map((item) => mapSectorMoverItem(item, peers)),
+    };
+  }
+  return result;
+}
+
+export function mergeMeshMoversIntoOverview(
+  overview: MarketOverview,
+  movers: MarketMeshMoversByCode,
+): MarketOverview {
+  const markets = Object.fromEntries(
+    MARKET_CODES.map((code) => {
+      const column = overview.markets[code] ?? emptyMarketColumn(code);
+      const sector = movers[code];
+      return [
+        code,
+        {
+          ...column,
+          gainers: sector?.gainers ?? [],
+          losers: sector?.losers ?? [],
+        },
+      ];
+    }),
+  ) as Record<MarketCode, MarketColumn>;
+  return { ...overview, markets };
 }
 
 async function fetchSectorAnalysisForPath(

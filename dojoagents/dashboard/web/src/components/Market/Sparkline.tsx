@@ -20,10 +20,37 @@ interface SparklineProps {
 }
 
 const MIN_VISIBLE_BARS = 12;
+/** Cap SVG vertices — hover/zoom still use full kline indices. */
+const MAX_SPARKLINE_POINTS = 96;
 const W = 400;
 const H = 64;
 const PAD_X = 8;
 const PAD_Y = 8;
+
+function downsampleIndices(start: number, end: number, maxPoints: number): number[] {
+  const count = end - start + 1;
+  if (count <= 0) return [];
+  if (count <= maxPoints) {
+    return Array.from({ length: count }, (_, i) => start + i);
+  }
+  const last = maxPoints - 1;
+  const out: number[] = [];
+  for (let i = 0; i <= last; i += 1) {
+    out.push(start + Math.round((i / last) * (count - 1)));
+  }
+  return out;
+}
+
+function minMax(values: number[]): { min: number; max: number } {
+  let min = values[0] ?? 0;
+  let max = min;
+  for (let i = 1; i < values.length; i += 1) {
+    const v = values[i];
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -195,26 +222,25 @@ export function Sparkline({
     return () => el.removeEventListener('wheel', handleWheel);
   }, [applyViewport, totalBars, viewEnd, viewStart, windowSize]);
 
-  const visibleIndices = useMemo(() => {
+  const drawIndices = useMemo(() => {
     if (totalBars < 2) return [];
-    return Array.from({ length: viewEnd - viewStart + 1 }, (_, i) => viewStart + i);
+    return downsampleIndices(viewStart, viewEnd, MAX_SPARKLINE_POINTS);
   }, [totalBars, viewEnd, viewStart]);
 
-  const visibleCloses = useMemo(
-    () => visibleIndices.map((i) => displayKline[i].close),
-    [displayKline, visibleIndices],
+  const drawCloses = useMemo(
+    () => drawIndices.map((i) => displayKline[i].close),
+    [displayKline, drawIndices],
   );
 
   if (totalBars < 2) return null;
 
-  const min = Math.min(...visibleCloses);
-  const max = Math.max(...visibleCloses);
+  const { min, max } = minMax(drawCloses);
   const range = max - min || 1;
 
-  const coords = visibleCloses.map((p, i) => {
-    const x = PAD_X + (i / (visibleCloses.length - 1)) * (W - PAD_X * 2);
+  const coords = drawCloses.map((p, i) => {
+    const x = PAD_X + (i / (drawCloses.length - 1)) * (W - PAD_X * 2);
     const y = PAD_Y + (1 - (p - min) / range) * (H - PAD_Y * 2);
-    return { x, y, globalIndex: visibleIndices[i] };
+    return { x, y, globalIndex: drawIndices[i] };
   });
 
   const linePoints = coords.map((c) => `${c.x},${c.y}`).join(' ');
@@ -246,9 +272,9 @@ export function Sparkline({
   const displayChangeUp = displayChange >= 0;
   const stroke = positive ? 'var(--green)' : 'var(--red)';
 
-  const axisStartIndex = visibleIndices[0];
-  const axisEndIndex = visibleIndices[visibleIndices.length - 1];
-  const axisMidIndex = visibleIndices[Math.floor((visibleIndices.length - 1) / 2)];
+  const axisStartIndex = drawIndices[0];
+  const axisEndIndex = drawIndices[drawIndices.length - 1];
+  const axisMidIndex = drawIndices[Math.floor((drawIndices.length - 1) / 2)];
   const axisStartDate = windowStart ?? resolveKlineBarDate(displayKline, axisStartIndex);
   const axisEndDate = windowEnd ?? resolveKlineBarDate(displayKline, axisEndIndex);
   const startYear = axisStartDate.slice(0, 4);
@@ -257,7 +283,7 @@ export function Sparkline({
 
   const axisTicks = [
     { date: axisStartDate, align: 'start' as const, local: 0 },
-    ...(visibleIndices.length > 2
+    ...(drawIndices.length > 2
       ? [{
           date: resolveKlineBarDate(displayKline, axisMidIndex),
           align: 'center' as const,

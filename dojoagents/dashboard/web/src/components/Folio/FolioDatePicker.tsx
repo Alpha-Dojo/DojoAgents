@@ -1,7 +1,7 @@
 import { ConfigProvider, DatePicker, theme } from 'antd';
 import enUS from 'antd/es/date-picker/locale/en_US';
 import zhCN from 'antd/es/date-picker/locale/zh_CN';
-import dayjs from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { useTranslation } from '../../hooks/useTranslation';
 
@@ -39,6 +39,8 @@ interface FolioDatePickerProps {
   className: string;
   disabled?: boolean;
   title?: string;
+  ariaLabel?: string;
+  disabledDate?: (current: Dayjs) => boolean;
   onChange: (value: string) => void;
 }
 
@@ -49,6 +51,8 @@ export function FolioDatePicker({
   className,
   disabled = false,
   title,
+  ariaLabel,
+  disabledDate,
   onChange,
 }: FolioDatePickerProps) {
   const { locale, t } = useTranslation();
@@ -63,10 +67,11 @@ export function FolioDatePicker({
         maxDate={dayjs(maxDate, ISO_DATE_FORMAT)}
         format={ISO_DATE_FORMAT}
         locale={locale === 'zh' ? zhCN : enUS}
-        aria-label={t('folio.colOpenDate')}
+        aria-label={ariaLabel ?? t('folio.colOpenDate')}
         disabled={disabled}
         title={title}
         allowClear={false}
+        disabledDate={disabledDate}
         onChange={(date) => onChange(date?.format(ISO_DATE_FORMAT) ?? '')}
       />
     </ConfigProvider>

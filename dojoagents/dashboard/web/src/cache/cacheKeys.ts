@@ -20,11 +20,15 @@ export const cacheKeys = {
     `sector-scope-performance-all:${selectionKey(selection)}`,
   sectorConstituents: (selection: SectorPathSelection, scope: SectorLevelKey) =>
     `sector-constituents:v3:${selectionKey(selection)}:${scope}`,
-  marketOverview: (
-    sectorLimit: number,
-    days: number,
-    minCapKey: string,
-  ) => `dojo-mesh-overview:v2:${sectorLimit}:${days}:${minCapKey}`,
+  /** Index / benchmark hero payload (no sector movers). */
+  marketBenchmarks: () => 'market-benchmarks:v1',
+  /** Mesh tab gainers/losers (with top_members). */
+  marketMeshMovers: (sectorLimit: number, days: number, minCapKey: string) =>
+    `market-mesh-movers:v1:${sectorLimit}:${days}:${minCapKey}`,
+  marketDailyDiscovery: (sectorLimit: number, minCapKey: string, asOfDate = '') =>
+    `market-daily-discovery:v5:${sectorLimit}:${minCapKey}:${asOfDate || 'latest'}`,
+  marketDynamics: (startDate: string, endDate: string, limit = 5000) =>
+    `market-dynamics:v2:${startDate}:${endDate}:${limit}`,
   coreTickerQuote: (market: string | undefined, ticker: string) =>
     `core-ticker-quote:${tickerKey(market, ticker)}`,
   coreTickerKline: (market: string | undefined, ticker: string, interval: string) =>

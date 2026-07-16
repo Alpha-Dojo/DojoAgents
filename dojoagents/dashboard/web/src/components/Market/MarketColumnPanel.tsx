@@ -12,6 +12,7 @@ interface MarketColumnPanelProps {
   label: string;
   column: MarketColumn;
   sectorDays?: number;
+  sectorsLoading?: boolean;
   chartWindowStart?: string;
   chartWindowEnd?: string;
   crossMarketLink: CrossMarketLink | null;
@@ -32,6 +33,7 @@ export function MarketColumnPanel({
   label,
   column,
   sectorDays = 1,
+  sectorsLoading = false,
   chartWindowStart,
   chartWindowEnd,
   crossMarketLink,
@@ -91,7 +93,7 @@ export function MarketColumnPanel({
         />
       ) : null}
       {showSectors ? (
-        <div className="mesh-market-column__sectors">
+        <div className="mesh-market-column__sectors" aria-busy={sectorsLoading}>
           <SectorBlock
             market={market}
             variant="gain"
@@ -99,6 +101,7 @@ export function MarketColumnPanel({
             title={t('sector.gainers')}
             subtitle={sectorSubtitle}
             rows={gainerRows}
+            loading={sectorsLoading}
             scrollToLinkKey={scrollToLinkKey}
             onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
             onSectorJump={(sector) => onSectorJump?.(sector, market)}
@@ -111,6 +114,7 @@ export function MarketColumnPanel({
             title={t('sector.losers')}
             subtitle={sectorSubtitle}
             rows={loserRows}
+            loading={sectorsLoading}
             scrollToLinkKey={scrollToLinkKey}
             onSectorSelect={(sector) => onSectorSelect?.(sector, market)}
             onSectorJump={(sector) => onSectorJump?.(sector, market)}

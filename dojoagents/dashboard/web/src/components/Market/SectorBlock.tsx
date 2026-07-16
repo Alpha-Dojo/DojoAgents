@@ -13,6 +13,7 @@ interface SectorBlockProps {
   title: string;
   subtitle?: string;
   rows: OrderedSectorRow[];
+  loading?: boolean;
   scrollToLinkKey?: string | null;
   onSectorSelect?: (sector: SectorItem) => void;
   onSectorJump?: (sector: SectorItem) => void;
@@ -26,6 +27,7 @@ export function SectorBlock({
   title,
   subtitle,
   rows,
+  loading = false,
   scrollToLinkKey,
   onSectorSelect,
   onSectorJump,
@@ -96,7 +98,11 @@ export function SectorBlock({
         })}
         {rows.length === 0 ? (
           <p className="mesh-sector-block__empty">
-            {variant === 'gain' ? t('sector.emptyGainers') : t('sector.emptyLosers')}
+            {loading
+              ? t('marketPage.loading')
+              : variant === 'gain'
+                ? t('sector.emptyGainers')
+                : t('sector.emptyLosers')}
           </p>
         ) : null}
       </div>

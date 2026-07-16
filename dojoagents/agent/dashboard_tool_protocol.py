@@ -69,7 +69,7 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 
 - Returns L3 sector gainers/losers per market; default `limit=5` each side.
 - `change_percent` = sector total return over the window (from precomputed daily data).
-- Rankings exclude `member_count<2`; single-stock L3 sectors are omitted from rankings only.
+- Rankings exclude `member_count<5`; thin eligible-constituent L3 baskets are omitted from rankings only.
 - Each row has `level1_id`, `level2_id`, `level3_id` — copy into `filter_sector_constituents` / `get_sector_analysis`.
 - Optional floor: `min_cap_us`, `min_cap_cn` (CN/sh), `min_cap_hk` on total sector cap.
 
