@@ -9,13 +9,17 @@ export const MIN_SECTOR_LIMIT = 1;
 export const MAX_SECTOR_LIMIT = 20;
 export const DEFAULT_SECTOR_LIMIT = 5;
 
+/** Default sector total-market-cap floor in 亿 (local currency). */
+export const DEFAULT_MIN_CAP_YI = 200;
+
 /** One 亿 = 1e8 in each market's local currency (CNY / USD / HKD). */
 export const MIN_CAP_YI = 1e8;
 
 /** 10 亿 = 1 billion (B) in EN display. */
 export const YI_PER_BILLION = 10;
 
-const STORAGE_KEY = 'alphadojo-mesh-sector-filters';
+/** Bumped when default filter values change so stale localStorage is refreshed. */
+const STORAGE_KEY = 'alphadojo-mesh-sector-filters:v2';
 
 export interface MeshSectorFilterState {
   /** Lookback window in trading days (1–90). */
@@ -28,7 +32,7 @@ export interface MeshSectorFilterState {
 
 export const DEFAULT_MESH_SECTOR_FILTERS: MeshSectorFilterState = {
   days: 1,
-  minCapYi: 0,
+  minCapYi: DEFAULT_MIN_CAP_YI,
   sectorLimit: DEFAULT_SECTOR_LIMIT,
 };
 

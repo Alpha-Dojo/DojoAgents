@@ -505,7 +505,7 @@ def register_dashboard_domain_tools(
                 "Ranked top gaining/losing L3 sectors by weighted sector return over a window. "
                 "Each item includes level1_id, level2_id, level3_id — copy verbatim into "
                 "filter_sector_constituents or get_sector_analysis. "
-                "Ranking excludes sectors with member_count<2 (single-constituent L3 leaves are omitted). "
+                "Ranking excludes sectors with member_count<5 (eligible-constituent basket too small). "
                 "Window — pick ONE mode: "
                 "(A) `days` = latest N trading days (default 1, max 90); "
                 "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "

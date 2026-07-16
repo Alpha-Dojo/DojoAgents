@@ -47,8 +47,13 @@ export const zhMessages = {
       '我们正在扩展全球市场覆盖，后续将陆续接入更多交易所与区域市场。如有优先需求，欢迎通过 DojoAgent 反馈。',
     comingSoonDismiss: '知道了',
     sectorMoversTitle: '行业板块涨跌榜',
+    dailyDiscoveryTitle: '每日市场发现',
+    sectorPanelTabs: '市场板块视图',
+    discoveryLoading: '加载每日市场发现…',
+    discoveryLoadFailed: '加载每日市场发现失败',
+    discoveryNoData: '暂无板块涨跌数据',
     sectorDaysHintBody: '按成分股市值加权，回溯统计周期个交易日计算板块涨跌幅。',
-    sectorMinCapHintBody: '板块总市值低于该值不参与排名。',
+    sectorMinCapHintBody: '板块总市值低于该值不参与排名；每日市场发现与行业板块涨跌榜共用此门槛。',
     sectorLimitHintBody: '领涨领跌板块各展示前 N 名。',
     sectorDaysLabel: '统计周期',
     sectorDaysPreset: '快捷',
@@ -58,6 +63,54 @@ export const zhMessages = {
     sectorLimitLabel: '展示数量',
     sectorLimitDecrease: '减少展示数量',
     sectorLimitIncrease: '增加展示数量',
+    eventCategoryLabel: '事件类别',
+    eventCategoryAll: '全部',
+    eventCategoryHintBody: '按事件类别筛选核心事件时间轴；默认展示全部跨市场事件。',
+    eventTimeLabel: '行情时点',
+    eventTimeHintBody:
+      '选择任意日期：按该日重绘板块 Treemap，并加载前后核心事件时间轴。',
+    eventTimelineTitle: '核心事件时间轴',
+    eventTimelineMeta: '共 {count} 条',
+    eventTimelineDates: '事件日期轴',
+    eventTimelineEmpty: '暂无匹配的核心事件',
+    eventTimelineLoading: '加载核心事件…',
+    eventTimelineLoadFailed: '加载核心事件失败',
+    eventTimelineCollapse: '收起',
+    eventSourceShort: '来源',
+    eventSectorImpacts: '板块影响',
+    jumpToSector: '跳转到板块发现',
+  },
+  eventCategory: {
+    geo_military: '地缘军事',
+    geo_election: '地缘选举',
+    geo_sanction: '地缘制裁',
+    macro_data: '宏观数据',
+    macro_central_bank: '央行政策',
+    macro_fx_bond: '汇率债券',
+    corporate_earnings: '企业财报',
+    corporate_ma: '企业并购',
+    industry_regulation: '行业监管',
+    industry_supply: '行业供给',
+    industry_price: '行业价格',
+    industry_tech: '行业科技',
+    market_structure: '市场结构',
+    institutional_view: '机构观点',
+    black_swan: '黑天鹅',
+  },
+  eventSurprise: {
+    expected: '符合预期',
+    slight: '小幅超预期',
+    significant: '显著超预期',
+  },
+  eventDirection: {
+    Positive: '利好',
+    Negative: '利空',
+    Divergent: '分化',
+  },
+  eventMarket: {
+    us: '美股',
+    cn: 'A股',
+    hk: '港股',
   },
   header: {
     agent: 'Agent',
@@ -752,6 +805,10 @@ export type MessageTree = {
   sector: Record<keyof typeof zhMessages.sector, string>;
   market: Record<keyof typeof zhMessages.market, string>;
   marketPage: Record<keyof typeof zhMessages.marketPage, string>;
+  eventCategory: Record<keyof typeof zhMessages.eventCategory, string>;
+  eventSurprise: Record<keyof typeof zhMessages.eventSurprise, string>;
+  eventDirection: Record<keyof typeof zhMessages.eventDirection, string>;
+  eventMarket: Record<keyof typeof zhMessages.eventMarket, string>;
   header: Record<keyof typeof zhMessages.header, string>;
   settings: Record<keyof typeof zhMessages.settings, string>;
   agentModel: Record<keyof typeof zhMessages.agentModel, string>;

@@ -8,10 +8,10 @@ from dojoagents.dashboard.services.sector_movers_ranking import (
 )
 
 
-def test_sector_eligible_requires_multiple_members() -> None:
-    assert MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING == 2
-    assert sector_eligible_for_movers_ranking(member_count=1) is False
-    assert sector_eligible_for_movers_ranking(member_count=2) is True
+def test_sector_eligible_requires_multi_member_basket() -> None:
+    assert MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING == 5
+    assert sector_eligible_for_movers_ranking(member_count=4) is False
+    assert sector_eligible_for_movers_ranking(member_count=5) is True
 
 
 def test_sector_eligible_respects_total_market_cap_floor() -> None:
@@ -32,7 +32,9 @@ def test_sector_eligible_respects_total_market_cap_floor() -> None:
     [
         (0, False),
         (1, False),
-        (2, True),
+        (2, False),
+        (4, False),
+        (5, True),
         (10, True),
     ],
 )

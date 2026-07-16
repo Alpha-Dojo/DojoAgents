@@ -48,7 +48,7 @@ def test_sector_movers_hint_exposes_side_list_table() -> None:
     assert "rank" in hint["row_fields"]
     assert "name_zh" in hint["row_fields"]
     assert "change_percent" in hint["row_fields"]
-    assert "member_count<2" in hint["usage_notes"]
+    assert "member_count<5" in hint["usage_notes"]
 
 
 def test_tabular_tools_get_table_spec() -> None:

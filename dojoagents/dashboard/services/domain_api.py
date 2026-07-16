@@ -1102,6 +1102,7 @@ async def build_sector_movers(
     min_cap_by_market: Optional[dict[str, float]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    include_members: bool = True,
 ) -> SectorMoversResponse:
     service = getattr(registry, "sector_movers_service", None)
     if service is not None:
@@ -1113,6 +1114,7 @@ async def build_sector_movers(
             min_cap_by_market=min_cap_by_market,
             start_date=start_date,
             end_date=end_date,
+            include_members=include_members,
         )
     return await asyncio.to_thread(
         _build_sector_movers_fallback_sync,
@@ -1123,6 +1125,7 @@ async def build_sector_movers(
         min_cap_by_market,
         start_date,
         end_date,
+        include_members,
     )
 
 
@@ -1227,6 +1230,7 @@ def _build_sector_movers_fallback_sync(
     min_cap_by_market: Optional[dict[str, float]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    include_members: bool = True,
 ) -> SectorMoversResponse:
     min_cap_by_market = min_cap_by_market or {}
     window = registry.sector_precomputed_store.resolve_window_bounds(
@@ -1258,6 +1262,32 @@ def _build_sector_movers_fallback_sync(
                 total_market_cap=total_market_cap,
                 min_total_market_cap=threshold,
             ):
+                continue
+
+            path = registry.sector_store.find_resolved_path(
+                s["level1_id"],
+                s["level2_id"],
+                s["level3_id"],
+            )
+            if path is None:
+                continue
+
+            if not include_members:
+                items.append(
+                    SectorMoverItem(
+                        level1_id=str(s["level1_id"]),
+                        level2_id=str(s["level2_id"]),
+                        level3_id=str(s["level3_id"]),
+                        concept_code=concept_code_for(internal_market, path.level3_zh, path.level3_en, "L3"),
+                        name=BilingualText(zh=path.level3_zh, en=path.level3_en),
+                        change_percent=round(finite_float(s.get("daily_return_pct")), 2),
+                        avg_market_cap=(finite_float(total_market_cap) / member_count) if member_count else 0.0,
+                        total_market_cap=finite_float(total_market_cap),
+                        sample_tickers=[],
+                        member_count=member_count,
+                        top_members=[],
+                    )
+                )
                 continue
 
             # Fetch components using get_sector_constituents
@@ -1294,14 +1324,6 @@ def _build_sector_movers_fallback_sync(
 
             sorted_members = sorted(members, key=lambda item: item["change_percent"], reverse=True)
             top_by_abs = sorted(members, key=lambda item: abs(item["change_percent"]), reverse=True)[:3]
-
-            path = registry.sector_store.find_resolved_path(
-                s["level1_id"],
-                s["level2_id"],
-                s["level3_id"],
-            )
-            if path is None:
-                continue
 
             item = SectorMoverItem(
                 level1_id=str(s["level1_id"]),

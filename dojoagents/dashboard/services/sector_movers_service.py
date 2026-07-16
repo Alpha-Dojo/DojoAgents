@@ -84,6 +84,7 @@ class SectorMoversService:
         min_cap_by_market: Optional[dict[str, float]] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        include_members: bool = True,
     ) -> SectorMoversResponse:
         window = self.sector_precomputed_store.resolve_window_bounds(
             resolve_market_analysis_window(
@@ -95,7 +96,7 @@ class SectorMoversService:
         )
         min_cap_by_market = min_cap_by_market or {}
         requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
-        ticker_lookup = self._ticker_lookup(window)
+        ticker_lookup = self._ticker_lookup(window) if include_members else {}
         payload: dict[str, MarketSectorMovers] = {}
 
         for internal_market in requested_markets:
@@ -118,8 +119,22 @@ class SectorMoversService:
             )[:limit]
 
             payload[to_native_market_code(internal_market) or internal_market] = MarketSectorMovers(
-                gainers=[self._build_source_sector_item(candidate, ticker_lookup) for candidate in gainers],
-                losers=[self._build_source_sector_item(candidate, ticker_lookup) for candidate in losers],
+                gainers=[
+                    self._build_source_sector_item(
+                        candidate,
+                        ticker_lookup,
+                        include_members=include_members,
+                    )
+                    for candidate in gainers
+                ],
+                losers=[
+                    self._build_source_sector_item(
+                        candidate,
+                        ticker_lookup,
+                        include_members=include_members,
+                    )
+                    for candidate in losers
+                ],
             )
 
         return SectorMoversResponse(
@@ -279,8 +294,26 @@ class SectorMoversService:
         self,
         candidate: _SectorCandidate,
         ticker_lookup: dict[tuple[str, str], dict],
+        *,
+        include_members: bool = True,
     ) -> SectorMoverItem:
+        if not include_members:
+            return SectorMoverItem(
+                level1_id=candidate.level1_id,
+                level2_id=candidate.level2_id,
+                level3_id=candidate.level3_id,
+                concept_code=candidate.concept_code,
+                name=candidate.name,
+                change_percent=candidate.change_percent,
+                avg_market_cap=candidate.avg_market_cap,
+                total_market_cap=candidate.total_market_cap,
+                member_count=candidate.member_count,
+                sample_tickers=[],
+                top_members=[],
+            )
+
         item = self._build_sector_item(candidate, ticker_lookup)
+        assert item is not None
         top_members = [
             SectorMoverMember(
                 ticker=member.ticker,
