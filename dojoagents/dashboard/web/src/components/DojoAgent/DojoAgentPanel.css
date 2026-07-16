@@ -1600,7 +1600,7 @@
 }
 
 .dojo-agent-tool-activity__row--error {
-  color: #fca5a5;
+  color: #797e84;
 }
 
 .dojo-agent-tool-activity__icon {
@@ -1620,12 +1620,36 @@
   animation: dojo-agent-spin 0.8s linear infinite;
 }
 
-.dojo-agent-tool-activity__icon--done,
-.dojo-agent-tool-activity__icon--error {
+.dojo-agent-tool-activity__icon--done {
   background: currentColor;
   mask-position: center;
   mask-repeat: no-repeat;
   mask-size: contain;
+}
+
+.dojo-agent-tool-activity__icon--error {
+  position: relative;
+}
+
+.dojo-agent-tool-activity__icon--error::before {
+  position: absolute;
+  inset: 1px;
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  content: '';
+}
+
+.dojo-agent-tool-activity__icon--error::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 1px;
+  background: currentColor;
+  border-radius: 1px;
+  content: '';
+  transform: translate(-50%, -50%);
 }
 .dojo-agent-tool-activity__meta {
   flex-shrink: 0;
