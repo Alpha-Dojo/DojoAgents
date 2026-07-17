@@ -86,7 +86,9 @@ export function MarketSectorMoversBar({
   const [minCapText, setMinCapText] = useState(() => minCapDisplayFromYi(minCapYi, locale));
   const [limitText, setLimitText] = useState(String(sectorLimit));
   const [daysMenuOpen, setDaysMenuOpen] = useState(false);
+  const [eventCategoryMenuOpen, setEventCategoryMenuOpen] = useState(false);
   const daysWrapRef = useRef<HTMLDivElement>(null);
+  const eventCategoryWrapRef = useRef<HTMLDivElement>(null);
   const showMoversOnlyFilters = activeTab === 'movers';
   const showDiscoveryFilters = activeTab === 'discovery';
 
@@ -103,7 +105,9 @@ export function MarketSectorMoversBar({
   }, [sectorLimit]);
 
   const closeDaysMenu = useCallback(() => setDaysMenuOpen(false), []);
+  const closeEventCategoryMenu = useCallback(() => setEventCategoryMenuOpen(false), []);
   useClickOutside(daysWrapRef, closeDaysMenu);
+  useClickOutside(eventCategoryWrapRef, closeEventCategoryMenu);
 
   const commitDays = useCallback(() => {
     const next = clampSectorDays(parseInt(daysText, 10));
@@ -297,19 +301,55 @@ export function MarketSectorMoversBar({
               {t('marketPage.eventCategoryLabel')}
             </span>
             <div className="mesh-sector-movers-bar__control">
-              <select
-                className="mesh-sector-movers-bar__select mesh-sector-movers-bar__select--category"
-                value={eventCategory}
-                aria-label={categoryHint}
-                onChange={(event) => onEventCategoryChange(event.target.value)}
+              <div
+                ref={eventCategoryWrapRef}
+                className={`mesh-sector-movers-bar__combo mesh-sector-movers-bar__category-combo${
+                  eventCategoryMenuOpen ? ' is-open' : ''
+                }`}
               >
-                <option value="all">{t('marketPage.eventCategoryAll')}</option>
-                {EVENT_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {t(categoryLabelKey(category))}
-                  </option>
-                ))}
-              </select>
+                <button
+                  type="button"
+                  className="mesh-sector-movers-bar__category-trigger"
+                  aria-label={categoryHint}
+                  aria-expanded={eventCategoryMenuOpen}
+                  aria-haspopup="listbox"
+                  onClick={() => setEventCategoryMenuOpen((open) => !open)}
+                >
+                  {eventCategory === 'all'
+                    ? t('marketPage.eventCategoryAll')
+                    : t(categoryLabelKey(eventCategory))}
+                </button>
+                <span className="mesh-sector-movers-bar__combo-chevron" aria-hidden="true" />
+                {eventCategoryMenuOpen ? (
+                  <ul className="mesh-sector-movers-bar__menu mesh-sector-movers-bar__menu--category" role="listbox">
+                    {[
+                      { value: 'all', label: t('marketPage.eventCategoryAll') },
+                      ...EVENT_CATEGORIES.map((category) => ({
+                        value: category,
+                        label: t(categoryLabelKey(category)),
+                      })),
+                    ].map((option) => (
+                      <li key={option.value} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={eventCategory === option.value}
+                          className={`mesh-sector-movers-bar__menu-item${
+                            eventCategory === option.value ? ' is-active' : ''
+                          }`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            onEventCategoryChange(option.value);
+                            setEventCategoryMenuOpen(false);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             </div>
           </div>
         ) : null}

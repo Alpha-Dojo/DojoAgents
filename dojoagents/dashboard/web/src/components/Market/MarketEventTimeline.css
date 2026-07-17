@@ -102,7 +102,6 @@
   overflow-y: hidden;
   padding: 4px 4px 8px;
   scroll-behavior: auto;
-  scrollbar-width: thin;
 }
 
 .event-timeline__item {

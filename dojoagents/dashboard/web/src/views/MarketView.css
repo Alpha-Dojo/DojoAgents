@@ -716,7 +716,9 @@
   flex-direction: row;
   align-items: stretch;
   gap: 16px;
-  flex: 0 0 auto;
+  /* Daily Discovery is the desktop workspace. Let it absorb spare viewport
+     height after the fixed market summary, controls, and event timeline. */
+  flex: 1 1 280px;
   min-height: 280px;
   min-width: 0;
 }
@@ -737,6 +739,7 @@
 }
 
 .mesh-market-column-wrap--discovery {
+  display: flex;
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
@@ -744,6 +747,7 @@
 
 .mesh-sector-treemap {
   width: 100%;
+  flex: 1 1 auto;
   min-height: 280px;
   display: flex;
   flex-direction: column;
@@ -771,7 +775,11 @@
 .mesh-sector-treemap__canvas {
   display: block;
   width: 100%;
-  height: 280px;
+  /* The desktop treemap is the expandable canvas. Its measured height is fed
+     back into the D3 layout, so the tiles and labels render at native size. */
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   border: none;
   background: transparent;
 }
@@ -779,12 +787,14 @@
 .mesh-sector-treemap__label {
   fill: rgb(255 255 255 / 94%);
   font-weight: 600;
+  text-rendering: geometricPrecision;
   pointer-events: none;
 }
 
 .mesh-sector-treemap__pct {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-weight: 700;
+  text-rendering: geometricPrecision;
   pointer-events: none;
 }
 
@@ -827,7 +837,8 @@
   display: inline-flex;
 }
 
-.mesh-sector-movers-bar__combo.is-open .mesh-sector-movers-bar__input {
+.mesh-sector-movers-bar__combo.is-open .mesh-sector-movers-bar__input,
+.mesh-sector-movers-bar__combo.is-open .mesh-sector-movers-bar__category-trigger {
   border-color: var(--color-accent-primary);
 }
 
@@ -878,6 +889,14 @@
   box-shadow: 0 10px 28px rgb(0 0 0 / 36%);
 }
 
+.mesh-sector-movers-bar__menu--category {
+  min-width: 116px;
+  max-height: min(240px, calc(100dvh - 96px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .mesh-sector-movers-bar__menu-item {
   display: block;
   width: 100%;
@@ -920,6 +939,30 @@
   text-align: center;
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+.mesh-sector-movers-bar__category-trigger {
+  width: 106px;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mesh-sector-movers-bar__category-trigger:hover {
+  border-color: var(--green);
+}
+
+.mesh-sector-movers-bar__category-trigger:focus-visible {
+  outline: none;
+  border-color: var(--green);
 }
 
 .mesh-sector-movers-bar__combo .mesh-sector-movers-bar__input {
