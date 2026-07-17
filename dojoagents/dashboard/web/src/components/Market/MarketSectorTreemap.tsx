@@ -3,7 +3,6 @@ import { useTranslation } from '../../hooks/useTranslation';
 import type { MarketCode, SectorItem } from '../../types/market';
 import { MARKET_CODE } from '../../utils/marketDisplay';
 import {
-  TREEMAP_HEIGHT,
   abbreviateLabel,
   formatPct,
   layoutSingleMarketTreemap,
@@ -93,7 +92,7 @@ export const MarketSectorTreemap = memo(function MarketSectorTreemap({
 }: MarketSectorTreemapProps) {
   const { t, text } = useTranslation();
   const containerRef = useRef<HTMLElement>(null);
-  const [layoutWidth, setLayoutWidth] = useState(0);
+  const [layoutSize, setLayoutSize] = useState({ width: 0, height: 0 });
   const clipId = `mesh-treemap-clip-${market}`;
   const showLoading = loading && moves.length === 0;
   const showError = Boolean(error) && moves.length === 0 && !loading;
@@ -104,14 +103,19 @@ export const MarketSectorTreemap = memo(function MarketSectorTreemap({
     const element = containerRef.current;
     if (!element) return;
 
-    const updateWidth = () => {
+    const updateSize = () => {
       const width = Math.floor(element.clientWidth);
-      if (width > 0) setLayoutWidth(width);
+      const height = Math.floor(element.clientHeight);
+      if (width > 0 && height > 0) {
+        setLayoutSize((current) =>
+          current.width === width && current.height === height ? current : { width, height },
+        );
+      }
     };
 
-    updateWidth();
-    const frame = requestAnimationFrame(updateWidth);
-    const observer = new ResizeObserver(updateWidth);
+    updateSize();
+    const frame = requestAnimationFrame(updateSize);
+    const observer = new ResizeObserver(updateSize);
     observer.observe(element);
     return () => {
       cancelAnimationFrame(frame);
@@ -120,9 +124,9 @@ export const MarketSectorTreemap = memo(function MarketSectorTreemap({
   }, []);
 
   const layout = useMemo(() => {
-    if (layoutWidth <= 0) return null;
-    return layoutSingleMarketTreemap(moves, market, layoutWidth, TREEMAP_HEIGHT);
-  }, [layoutWidth, market, moves]);
+    if (layoutSize.width <= 0 || layoutSize.height <= 0) return null;
+    return layoutSingleMarketTreemap(moves, market, layoutSize.width, layoutSize.height);
+  }, [layoutSize, market, moves]);
 
   let body: ReactNode = null;
   if (showLoading) {
@@ -138,7 +142,7 @@ export const MarketSectorTreemap = memo(function MarketSectorTreemap({
         ) : null}
       </>
     );
-  } else if (layoutWidth > 0 && layout && layout.rects.length === 0) {
+  } else if (layoutSize.width > 0 && layout && layout.rects.length === 0) {
     body = <p className="mesh-sector-treemap__status">{t('marketPage.discoveryNoData')}</p>;
   } else if (layout && layout.rects.length > 0) {
     body = (
