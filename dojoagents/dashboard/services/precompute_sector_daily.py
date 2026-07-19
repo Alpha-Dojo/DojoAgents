@@ -15,6 +15,7 @@ import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.sector_return_coverage import sector_day_return_coverage_ok
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
 from dojoagents.dashboard.services.stock_sector_store import MARKETS, StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
@@ -312,10 +313,16 @@ def _build_index_rows(
             continue
         effective_weight_sum = float(sum(weight for _, weight in available))
         if effective_weight_sum == 0:
-            print(f"Warning: effective_weight_sum is zero for {trade_date}, {scope}, {market}, {path.level1_id}, {path.level2_id}, {path.level3_id}")
-            daily_return_pct = 0
-        else:
-            daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
+            continue
+        # Sparse sessions (few names / little cap) are data gaps, not sector prints.
+        if not sector_day_return_coverage_ok(
+            member_count=member_count,
+            member_count_with_return=len(available),
+            total_market_cap=total_market_cap,
+            effective_weight_sum=effective_weight_sum,
+        ):
+            continue
+        daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
         index_level *= 1 + daily_return_pct / 100.0
         rows.append(
             {
