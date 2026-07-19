@@ -52,6 +52,8 @@ interface MarketOverviewResponse {
 
 interface SectorMoversResponse {
   days: number;
+  window_start?: string | null;
+  window_end?: string | null;
   markets: Partial<
     Record<
       MarketCode,
@@ -109,6 +111,20 @@ async function fetchSectorMovers(options: {
   } catch {
     return null;
   }
+}
+
+/**
+ * Latest trade date available in sector-movers precompute (行业板块涨跌榜).
+ * Prefer this over market overview `as_of` for Discovery date defaults.
+ */
+export async function fetchSectorMoversLatestDate(): Promise<string | null> {
+  const sectors = await fetchSectorMovers({
+    sectorLimit: 1,
+    days: 1,
+    includeMembers: false,
+  });
+  const end = String(sectors?.window_end || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : null;
 }
 
 /** Daily sector movers for Market Discovery treemap (gainers + losers per market). */

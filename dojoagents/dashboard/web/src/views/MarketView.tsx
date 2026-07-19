@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchCrossMarketSectors, MARKET_COLUMNS } from "../api/market";
+import {
+  fetchCrossMarketSectors,
+  fetchSectorMoversLatestDate,
+  MARKET_COLUMNS,
+} from "../api/market";
 import { AddMarketSlot } from "../components/Market/AddMarketSlot";
 import { DraggableMarketColumn } from "../components/Market/DraggableMarketColumn";
 import { useDailySectorDiscovery } from "../hooks/useDailySectorDiscovery";
@@ -20,6 +24,9 @@ import {
 import { saveSectorJumpContext } from "../navigation/sectorContext";
 import { openEntityTicker } from "../navigation/openEntityTicker";
 import { clearPersistedSectorViewState } from "../cache/sectorViewState";
+import { cacheKeys } from "../cache/cacheKeys";
+import { fetchCached, getCached } from "../cache/queryCache";
+import { useMarketDataCacheEpoch } from "../hooks/useMarketDataCacheEpoch";
 import {
   MarketSectorMoversBar,
   type MarketSectorTabId,
@@ -72,6 +79,11 @@ export function MarketView({
   const [sectorTab, setSectorTab] = useState<MarketSectorTabId>("discovery");
   const [eventCategory, setEventCategory] = useState<string>("all");
   const [discoveryDate, setDiscoveryDate] = useState<string>("");
+  const cacheEpoch = useMarketDataCacheEpoch();
+  const moversAsOfKey = cacheKeys.marketSectorMoversAsOf();
+  const [latestMoversDate, setLatestMoversDate] = useState<string>(
+    () => toCalendarDate(getCached<string>(moversAsOfKey)),
+  );
   const { data, loading, sectorsLoading, error, reload } = useMarketOverview(
     sectorFilters,
     { loadMeshMovers: sectorTab === "movers" },
@@ -79,7 +91,6 @@ export function MarketView({
   const {
     events: dynamicsEvents,
     datasetStart,
-    datasetEnd,
     loading: dynamicsLoading,
     loadingMore: dynamicsLoadingMore,
     error: dynamicsError,
@@ -90,12 +101,35 @@ export function MarketView({
     loadMoreAfter,
   } = useMarketDynamics({ centerDate: discoveryDate });
 
-  /** Latest market session used for default treemap / as-of. */
-  const latestTradingDay = useMemo(() => {
-    const fromOverview = toCalendarDate(data?.as_of);
-    if (fromOverview) return fromOverview;
-    return toCalendarDate(datasetEnd);
-  }, [data?.as_of, datasetEnd]);
+  useEffect(() => {
+    let cancelled = false;
+    const cached = toCalendarDate(getCached<string>(moversAsOfKey));
+    if (cached) setLatestMoversDate(cached);
+
+    fetchCached(moversAsOfKey, async () => {
+      const date = await fetchSectorMoversLatestDate();
+      return date || "";
+    })
+      .then((date) => {
+        if (!cancelled) setLatestMoversDate(toCalendarDate(date));
+      })
+      .catch(() => {
+        if (!cancelled && !cached) setLatestMoversDate("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [moversAsOfKey, cacheEpoch]);
+
+  /**
+   * Discovery defaults to sector-movers precompute latest day
+   * (行业板块涨跌榜), not market overview `as_of` which can be ahead of precompute.
+   */
+  const latestTradingDay = useMemo(
+    () => toCalendarDate(latestMoversDate),
+    [latestMoversDate],
+  );
 
   const discoveryMinDate = useMemo(() => {
     const start = toCalendarDate(datasetStart);
@@ -104,11 +138,7 @@ export function MarketView({
     return addCalendarDays(latestTradingDay, -365) || latestTradingDay;
   }, [datasetStart, latestTradingDay]);
 
-  const discoveryMaxDate = useMemo(() => {
-    const candidates = [latestTradingDay, toCalendarDate(datasetEnd)].filter(Boolean);
-    if (candidates.length === 0) return '';
-    return candidates.reduce((a, b) => (a >= b ? a : b));
-  }, [latestTradingDay, datasetEnd]);
+  const discoveryMaxDate = latestTradingDay;
 
   useEffect(() => {
     if (!latestTradingDay) return;

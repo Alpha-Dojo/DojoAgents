@@ -71,9 +71,9 @@ export const enMessages: MessageTree = {
     eventCategoryAll: 'All',
     eventCategoryHintBody:
       'Filter the core event timeline by category. Defaults to all cross-market events.',
-    eventTimeLabel: 'As-of',
+    eventTimeLabel: 'Market time',
     eventTimeHintBody:
-      'Pick any date to redraw the sector treemap and load nearby core events.',
+      'Pick any date to redraw the sector treemap and load nearby core events. Defaults to the latest Sector Movers day with data.',
     eventTimelineTitle: 'Core Event Timeline',
     eventTimelineMeta: '{count} events',
     eventTimelineDates: 'Event date axis',
