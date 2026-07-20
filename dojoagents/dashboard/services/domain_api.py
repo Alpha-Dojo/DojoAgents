@@ -898,6 +898,7 @@ async def search_company_ticker(
         q,
         market=internal_market,
         limit=limit,
+        require_market_cap_eligible=False,
     )
     mapped = [_model_dict(item) | {"market": _normalize_native_market(item.market) or item.market} for item in items]
     return CompanyTickerSearchResponse(query=q.strip(), items=mapped)

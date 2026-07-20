@@ -23,6 +23,9 @@ from dojoagents.dashboard.services.domain_api import (
     search_company_ticker,
 )
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
+from dojoagents.dashboard.services.sector_movers_ranking import (
+    DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
+)
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 
 
@@ -76,6 +79,19 @@ def _optional_float_arg(args: dict[str, Any], key: str) -> float | None:
     if value is None or value == "":
         return None
     return float(value)
+
+
+def _resolve_sector_movers_min_cap_by_market(args: dict[str, Any]) -> dict[str, float] | None:
+    """Omit → UI default 200亿; explicit 0 → no floor; >0 → that floor."""
+    resolved: dict[str, float] = {}
+    for arg_key, market in (("min_cap_us", "us"), ("min_cap_cn", "sh"), ("min_cap_hk", "hk")):
+        if arg_key not in args or args[arg_key] is None or args[arg_key] == "":
+            resolved[market] = DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP
+            continue
+        value = float(args[arg_key])
+        if value > 0:
+            resolved[market] = value
+    return resolved or None
 
 
 def _resolve_price_window_args(
@@ -246,16 +262,7 @@ def register_dashboard_domain_tools(
             days=_int_arg(args, "days", 1),
             limit=_int_arg(args, "limit", 5),
             market=_optional_str_arg(args, "market"),
-            min_cap_by_market={
-                key: value
-                for key, value in {
-                    "us": _optional_float_arg(args, "min_cap_us"),
-                    "sh": _optional_float_arg(args, "min_cap_cn"),
-                    "hk": _optional_float_arg(args, "min_cap_hk"),
-                }.items()
-                if value is not None and value > 0
-            }
-            or None,
+            min_cap_by_market=_resolve_sector_movers_min_cap_by_market(args),
             start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
             end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
         )
@@ -505,7 +512,8 @@ def register_dashboard_domain_tools(
                 "Ranked top gaining/losing L3 sectors by weighted sector return over a window. "
                 "Each item includes level1_id, level2_id, level3_id — copy verbatim into "
                 "filter_sector_constituents or get_sector_analysis. "
-                "Ranking excludes sectors with member_count<5 (eligible-constituent basket too small). "
+                "Ranking excludes sectors with member_count<5 (eligible constituents above ~10亿 "
+                "ticker floor; basket too small). "
                 "Window — pick ONE mode: "
                 "(A) `days` = latest N trading days (default 1, max 90); "
                 "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "
@@ -514,7 +522,8 @@ def register_dashboard_domain_tools(
                 "(from precomputed daily sector returns). "
                 "Response: `window_mode`, `window_start`, `window_end`, and "
                 "`markets.{market}.gainers[]` / `losers[]` with change_percent, member_count, taxonomy ids. "
-                "Optional per-market min total cap: min_cap_us, min_cap_cn (maps to sh), min_cap_hk."
+                "Default per-market min total sector cap is 200亿 (2e10), matching the Market UI; "
+                "override with min_cap_us / min_cap_cn (maps to sh) / min_cap_hk, or pass 0 to disable."
             ),
             parameters={
                 "type": "object",
@@ -549,17 +558,26 @@ def register_dashboard_domain_tools(
                     "min_cap_us": {
                         "type": "number",
                         "minimum": 0,
-                        "description": "Optional minimum total sector market cap (USD) for US ranking.",
+                        "description": (
+                            "Min total sector market cap (USD) for US ranking. "
+                            "Default 2e10 (200亿) when omitted; 0 disables the floor."
+                        ),
                     },
                     "min_cap_cn": {
                         "type": "number",
                         "minimum": 0,
-                        "description": "Optional minimum total sector market cap (CNY) for CN/sh ranking.",
+                        "description": (
+                            "Min total sector market cap (CNY) for CN/sh ranking. "
+                            "Default 2e10 (200亿) when omitted; 0 disables the floor."
+                        ),
                     },
                     "min_cap_hk": {
                         "type": "number",
                         "minimum": 0,
-                        "description": "Optional minimum total sector market cap (HKD) for HK ranking.",
+                        "description": (
+                            "Min total sector market cap (HKD) for HK ranking. "
+                            "Default 2e10 (200亿) when omitted; 0 disables the floor."
+                        ),
                     },
                 },
             },
