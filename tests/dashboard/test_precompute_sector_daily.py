@@ -85,7 +85,10 @@ class StubDojoClient:
 
 
 @pytest.mark.asyncio
-async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path: Path) -> None:
+async def test_build_sector_precomputed_publishes_market_aware_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DOJO_HF_OFFLINE", "true")
     path = ResolvedSectorPath(
         level1_id="L1",
         level2_id="L2",
@@ -115,11 +118,12 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
             volume=10,
             amount=10,
             avg_price=121,
-            market_cap=1000,
+            market_cap=2e9,
             total_shares=10,
             turn_rate=1,
             pe=20,
             pb=2,
+            dividend_yield=0,
         ),
     )
     upload_client = StubDojoClient()
@@ -153,3 +157,55 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
     store.reload(out_dir)
     assert store.available() is True
     assert store.get_sector_constituents("L1", "L2", "L3", market="cn")[0]["market"] == "sh"
+
+
+@pytest.mark.asyncio
+async def test_build_sector_precomputed_excludes_below_ticker_cap_floor(tmp_path: Path) -> None:
+    path = ResolvedSectorPath(
+        level1_id="L1",
+        level2_id="L2",
+        level3_id="L3",
+        level1_zh="一级",
+        level1_en="Level1",
+        level2_zh="二级",
+        level2_en="Level2",
+        level3_zh="三级",
+        level3_en="Level3",
+    )
+    assignment = SectorAssignment(ticker="TINY", market="us", role="primary", path=path)
+    stock = Stock(
+        ticker="TINY",
+        market="us",
+        short_name="TINY",
+        stock_quote=StockQuote(
+            ticker="TINY",
+            name="TINY",
+            last_price=10,
+            pre_close=9,
+            open=10,
+            high=10,
+            low=10,
+            change=1,
+            change_percent=10,
+            volume=10,
+            amount=10,
+            avg_price=10,
+            market_cap=5e8,  # below ~10亿 ticker floor
+            total_shares=10,
+            turn_rate=1,
+            pe=20,
+            pb=2,
+            dividend_yield=0,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="No eligible constituents"):
+        await build_sector_precomputed(
+            data_root=tmp_path,
+            sector_store=StubSectorStore(path),
+            stock_sector_store=StubStockSectorStore(assignment),
+            stock_store=StubStockStore(stock),
+            kline_store=StubKlineStore(),
+            start_date="2025-01-02",
+            upload_client=StubDojoClient(),
+        )

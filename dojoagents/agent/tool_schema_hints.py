@@ -91,7 +91,8 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             "Window rules match get_market_overview (days OR start_date+end_date). "
             "tool_meta(res): window_mode, window_start, window_end, days. "
             "Default table sectors: gainers/losers per market with side+rank columns. "
-            "change_percent = sector total return over window. Rankings skip member_count<5. "
+            "change_percent = sector total return over window. Rankings skip member_count<5 "
+            "and default to 200亿 (2e10) total-sector cap floor (pass min_cap_*=0 to disable). "
             "Copy level1_id/level2_id/level3_id into filter_sector_constituents or get_sector_analysis."
         ),
     },

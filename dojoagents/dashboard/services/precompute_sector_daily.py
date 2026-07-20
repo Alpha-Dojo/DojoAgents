@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
+from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_return_coverage import sector_day_return_coverage_ok
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
@@ -145,6 +146,7 @@ async def prepare_sector_precompute_input(
                 "missing_stock": 0,
                 "missing_quote": 0,
                 "non_positive_cap": 0,
+                "below_ticker_cap_floor": 0,
                 "missing_kline": 0,
             }
             for market in MARKETS
@@ -183,6 +185,9 @@ async def prepare_sector_precompute_input(
                         continue
                     if stock.stock_quote.market_cap <= 0:
                         stats["markets"][assignment.market]["non_positive_cap"] += 1
+                        continue
+                    if not stock_passes_ticker_market_cap_min(stock):
+                        stats["markets"][assignment.market]["below_ticker_cap_floor"] += 1
                         continue
                     if not await checker.is_eligible(stock):
                         stats["markets"][assignment.market]["missing_kline"] += 1

@@ -69,16 +69,17 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 
 - Returns L3 sector gainers/losers per market; default `limit=5` each side.
 - `change_percent` = sector total return over the window (from precomputed daily data).
-- Rankings exclude `member_count<5`; thin eligible-constituent L3 baskets are omitted from rankings only.
+- Rankings exclude `member_count<5` (members are constituents above the ~10亿 ticker floor).
 - Each row has `level1_id`, `level2_id`, `level3_id` — copy into `filter_sector_constituents` / `get_sector_analysis`.
-- Optional floor: `min_cap_us`, `min_cap_cn` (CN/sh), `min_cap_hk` on total sector cap.
+- Default total-sector cap floor: `min_cap_us` / `min_cap_cn` / `min_cap_hk` = **200亿 (2e10)** when omitted (same as Market UI). Pass `0` to disable; pass an explicit value to override.
 
 **Examples:**
 
 - 近一周大盘: `get_market_overview({"days": 5})`
 - 年初至今区间: `get_market_overview({"start_date": "2026-01-01", "end_date": "2026-07-07"})`
-- 本周领涨板块: `get_sector_movers({"days": 5, "limit": 10})`
+- 本周领涨板块: `get_sector_movers({"days": 5, "limit": 10})`  # uses default 200亿 sector floor
 - 指定区间领跌: `get_sector_movers({"start_date": "2026-01-01", "end_date": "2026-03-31", "market": "us"})`
+- 关闭市值门槛: `get_sector_movers({"days": 1, "min_cap_us": 0, "min_cap_cn": 0, "min_cap_hk": 0})`
 
 **Do NOT** pass only one of `start_date` / `end_date`. **Do NOT** use `screen_market_stocks` when the user asked for sector/industry rankings.
 
@@ -87,7 +88,7 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 Server defaults (do NOT re-specify unless overriding user intent):
 
 - **Hard exclude** (always): delisted, no quote, `market_cap≤0`, zero session volume/amount/turnover.
-- **Default min market cap**: ~10B per market when `min_market_cap` is omitted (same as sector tools).
+- **Default min market cap**: ~10亿 per ticker when `min_market_cap` is omitted (ticker floor; distinct from sector-movers' 200亿 *total sector* floor).
 - **Mover ranking**: `sort_by=change_percent` or `return_pct` ranks by `change × log(market_cap)` (highest significance first; `sort_order` ignored for these fields).
 
 **When to override `min_market_cap` / `max_market_cap`:**
