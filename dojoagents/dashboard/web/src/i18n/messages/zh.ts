@@ -66,9 +66,9 @@ export const zhMessages = {
     eventCategoryLabel: '事件类别',
     eventCategoryAll: '全部',
     eventCategoryHintBody: '按事件类别筛选核心事件时间轴；默认展示全部跨市场事件。',
-    eventTimeLabel: '行情时点',
+    eventTimeLabel: '行情时间',
     eventTimeHintBody:
-      '选择任意日期：按该日重绘板块 Treemap，并加载前后核心事件时间轴。',
+      '选择任意日期：按该日重绘板块 Treemap，并加载前后核心事件时间轴。默认对齐行业板块涨跌榜最新可用日。',
     eventTimelineTitle: '核心事件时间轴',
     eventTimelineMeta: '共 {count} 条',
     eventTimelineDates: '事件日期轴',

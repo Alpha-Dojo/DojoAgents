@@ -27,6 +27,8 @@ export const cacheKeys = {
     `market-mesh-movers:v1:${sectorLimit}:${days}:${minCapKey}`,
   marketDailyDiscovery: (sectorLimit: number, minCapKey: string, asOfDate = '') =>
     `market-daily-discovery:v5:${sectorLimit}:${minCapKey}:${asOfDate || 'latest'}`,
+  /** Latest precomputed trade date for sector movers / discovery treemap. */
+  marketSectorMoversAsOf: () => 'market-sector-movers-as-of:v1',
   marketDynamics: (startDate: string, endDate: string, limit = 5000) =>
     `market-dynamics:v2:${startDate}:${endDate}:${limit}`,
   coreTickerQuote: (market: string | undefined, ticker: string) =>
