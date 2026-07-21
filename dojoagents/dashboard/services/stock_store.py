@@ -109,6 +109,17 @@ class StockStore:
     def _normalize_ticker(ticker: str) -> str:
         return ticker.strip().upper()
 
+    @classmethod
+    def _dedupe_stocks(cls, stocks: List[Stock]) -> List[Stock]:
+        """Keep one row per ticker; prefer an entry that already has a quote."""
+        ordered: dict[str, Stock] = {}
+        for stock in stocks:
+            key = cls._normalize_ticker(stock.ticker)
+            existing = ordered.get(key)
+            if existing is None or stock.stock_quote is not None:
+                ordered[key] = stock
+        return list(ordered.values())
+
     async def load(self) -> None:
         self.by_market = {market: [] for market in MARKETS}
         self.by_ticker = {}
@@ -118,7 +129,9 @@ class StockStore:
         for market in MARKETS:
             # 1. Fetch stock list
             result = await self.gateway.stocks(market=market)
-            candidates = [Stock(**item) for item in result.data if isinstance(item, dict)]
+            candidates = self._dedupe_stocks(
+                [Stock(**item) for item in result.data if isinstance(item, dict)]
+            )
 
             if candidates:
                 tickers = [s.ticker for s in candidates]
@@ -137,7 +150,9 @@ class StockStore:
             for stock in stocks:
                 normalized_ticker = self._normalize_ticker(stock.ticker)
                 self.by_ticker[self._key(market, normalized_ticker)] = stock.model_copy(update={"ticker": normalized_ticker, "market": market})
-                self._markets_by_ticker.setdefault(normalized_ticker, []).append(market)
+                markets = self._markets_by_ticker.setdefault(normalized_ticker, [])
+                if market not in markets:
+                    markets.append(market)
 
             total_loaded += len(stocks)
             LOGGER.debug(f"[StockStore][{market}] loaded={len(stocks)}")

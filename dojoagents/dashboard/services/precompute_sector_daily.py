@@ -14,7 +14,9 @@ from typing import Any
 import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
+from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.sector_return_coverage import sector_day_return_coverage_ok
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
 from dojoagents.dashboard.services.stock_sector_store import MARKETS, StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
@@ -144,6 +146,7 @@ async def prepare_sector_precompute_input(
                 "missing_stock": 0,
                 "missing_quote": 0,
                 "non_positive_cap": 0,
+                "below_ticker_cap_floor": 0,
                 "missing_kline": 0,
             }
             for market in MARKETS
@@ -182,6 +185,9 @@ async def prepare_sector_precompute_input(
                         continue
                     if stock.stock_quote.market_cap <= 0:
                         stats["markets"][assignment.market]["non_positive_cap"] += 1
+                        continue
+                    if not stock_passes_ticker_market_cap_min(stock):
+                        stats["markets"][assignment.market]["below_ticker_cap_floor"] += 1
                         continue
                     if not await checker.is_eligible(stock):
                         stats["markets"][assignment.market]["missing_kline"] += 1
@@ -312,10 +318,16 @@ def _build_index_rows(
             continue
         effective_weight_sum = float(sum(weight for _, weight in available))
         if effective_weight_sum == 0:
-            print(f"Warning: effective_weight_sum is zero for {trade_date}, {scope}, {market}, {path.level1_id}, {path.level2_id}, {path.level3_id}")
-            daily_return_pct = 0
-        else:
-            daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
+            continue
+        # Sparse sessions (few names / little cap) are data gaps, not sector prints.
+        if not sector_day_return_coverage_ok(
+            member_count=member_count,
+            member_count_with_return=len(available),
+            total_market_cap=total_market_cap,
+            effective_weight_sum=effective_weight_sum,
+        ):
+            continue
+        daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
         index_level *= 1 + daily_return_pct / 100.0
         rows.append(
             {

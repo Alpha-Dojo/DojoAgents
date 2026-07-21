@@ -1,5 +1,7 @@
 id: daily-market-events
 name: 每日市场异动事件流水线
+preflight:
+  require_any_trading_market: [us, cn, hk]
 steps:
   - task: sector-attribution
     on_success: continue

@@ -121,6 +121,7 @@ export default function App() {
                   interactive={!agentPinned}
                   sourceTab={tab}
                   onClose={handleAgentClose}
+                  onSettingsOpen={() => setSettingsOpen(true)}
                 />
             </main>
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.schemas.stock import Stock
+from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 
 RECENT_VOLUME_LOOKBACK = 20
 
@@ -25,10 +26,13 @@ async def is_sector_constituent_eligible(
     stock: Stock | None,
     kline_store: KlineStore,
 ) -> bool:
-    """Sector index constituents must have daily klines and recent trading volume."""
+    """Sector index constituents must clear the ticker cap floor, have klines, and trade."""
     if stock is None or stock.stock_quote is None:
         return False
     if stock.stock_quote.market_cap <= 0:
+        return False
+    # Same ~10亿 floor as constituent lists / performance curves.
+    if not stock_passes_ticker_market_cap_min(stock):
         return False
 
     response = await kline_store.get_or_fetch_kline(

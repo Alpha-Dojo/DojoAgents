@@ -16,6 +16,12 @@ from dojoagents.dashboard.services.precompute_sector_daily import (
     SECTOR_DAILY_FILE,
     TICKER_DAILY_FILE,
 )
+from dojoagents.dashboard.services.sector_return_coverage import (
+    clip_frame_to_market_as_of,
+    filter_usable_sector_daily_rows,
+    resolve_market_as_of_by_market,
+    restrict_frame_to_market_as_of_exact,
+)
 from dojoagents.logging import LOGGER
 
 
@@ -199,7 +205,7 @@ class SectorPrecomputedStore:
         return sanitize_records(df[mask])
 
     def get_sector_movers(self, date: str) -> list[dict]:
-        df = self._load_sector_daily()
+        df = filter_usable_sector_daily_rows(self._load_sector_daily())
         if df.empty:
             return []
         target_date = date or str(df["trade_date"].max())
@@ -211,7 +217,13 @@ class SectorPrecomputedStore:
         )
 
     def get_sector_movers_window_frame_for_window(self, window: MarketAnalysisWindow) -> pd.DataFrame:
-        df = self._load_sector_daily()
+        df = filter_usable_sector_daily_rows(self._load_sector_daily())
+        if df.empty:
+            return pd.DataFrame()
+        # Align sector prints to each market's complete as-of session.
+        as_of_by_market = resolve_market_as_of_by_market(self._load_ticker_daily())
+        if as_of_by_market:
+            df = clip_frame_to_market_as_of(df, as_of_by_market)
         if df.empty:
             return pd.DataFrame()
         cache_key = window.cache_key()
@@ -240,7 +252,10 @@ class SectorPrecomputedStore:
         return computed
 
     def resolve_window_bounds(self, window: MarketAnalysisWindow) -> MarketAnalysisWindow:
-        df = self._load_sector_daily()
+        df = filter_usable_sector_daily_rows(self._load_sector_daily())
+        as_of_by_market = resolve_market_as_of_by_market(self._load_ticker_daily())
+        if as_of_by_market and not df.empty:
+            df = clip_frame_to_market_as_of(df, as_of_by_market)
         if df.empty or "trade_date" not in df.columns:
             return resolve_window_bounds_from_trade_dates(window, [])
         trade_dates = [str(item) for item in df["trade_date"].tolist()]
@@ -268,6 +283,20 @@ class SectorPrecomputedStore:
 
     def get_ticker_daily_window_frame_for_window(self, window: MarketAnalysisWindow) -> pd.DataFrame:
         df = self._load_ticker_daily()
+        if df.empty:
+            return pd.DataFrame()
+        as_of_by_market = resolve_market_as_of_by_market(df)
+        if as_of_by_market:
+            # Drop trailing partial sessions, then for 1D use the exact as-of day only.
+            df = clip_frame_to_market_as_of(df, as_of_by_market)
+            if window.mode != "date_range" and window.days <= 1:
+                df = restrict_frame_to_market_as_of_exact(df, as_of_by_market)
+            elif window.mode == "date_range" and window.start_date and window.end_date:
+                if str(window.start_date) == str(window.end_date):
+                    df = restrict_frame_to_market_as_of_exact(
+                        df,
+                        {market: str(window.end_date) for market in as_of_by_market},
+                    )
         if df.empty:
             return pd.DataFrame()
         cache_key = window.cache_key()

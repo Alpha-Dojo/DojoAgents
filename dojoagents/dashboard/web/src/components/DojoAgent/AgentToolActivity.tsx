@@ -11,7 +11,6 @@ import {
 import { parseSessionOutputFilesFromToolData } from '../../utils/sessionOutputFiles';
 import { localizeAgentVizBlocks } from '../../utils/agentVizI18n';
 import doneIcon from '../../assets/svg/done.svg';
-import errorIcon from '../../assets/svg/error.svg';
 import { ChevronIcon } from '../Folio/FolioSidebarIcons';
 import { AgentSessionOutputFile } from './AgentSessionOutputFile';
 import { AgentVizBlockView } from './viz/AgentVizPanel';
@@ -102,8 +101,7 @@ export function AgentToolStep({ item, sessionId = null }: AgentToolStepProps) {
     Boolean(codeSource) ||
     Boolean(resultContent) ||
     (item.status !== 'running' && (vizBlocks.length > 0 || Boolean(resultDetail)));
-  const statusIcon =
-    item.status === 'done' ? doneIcon : item.status === 'error' ? errorIcon : null;
+  const statusIcon = item.status === 'done' ? doneIcon : null;
   const expandTitle = expanded
     ? locale === 'zh'
       ? '收起代码和结果'

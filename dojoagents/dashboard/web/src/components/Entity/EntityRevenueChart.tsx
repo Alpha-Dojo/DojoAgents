@@ -15,6 +15,8 @@ interface EntityRevenueChartProps {
   financials: EntityFinancialYear[];
   loading?: boolean;
   market?: MarketCode | null;
+  /** Natural − fiscal quarter gap; omit / null when charts already align. */
+  naturalMinusFiscalQuarters?: number | null;
 }
 
 const YOY_W = 520;
@@ -40,8 +42,19 @@ export function EntityRevenueChart({
   financials,
   loading = false,
   market = null,
+  naturalMinusFiscalQuarters = null,
 }: EntityRevenueChartProps) {
   const { t, locale } = useTranslation();
+
+  const title = useMemo(() => {
+    const base = t('entityPage.revenueTitle');
+    if (naturalMinusFiscalQuarters == null || naturalMinusFiscalQuarters === 0) {
+      return base;
+    }
+    return `${base}${t('entityPage.revenueFiscalNaturalDiff', {
+      quarters: String(naturalMinusFiscalQuarters),
+    })}`;
+  }, [naturalMinusFiscalQuarters, t]);
 
   const currencyLabel = useMemo(() => {
     if (!market) return null;
@@ -97,7 +110,7 @@ export function EntityRevenueChart({
 
   return (
     <EntityCard
-      title={t('entityPage.revenueTitle')}
+      title={title}
       className="entity-card--revenue"
       actions={
         <div className="core-revenue__legend core-revenue__legend--inline">

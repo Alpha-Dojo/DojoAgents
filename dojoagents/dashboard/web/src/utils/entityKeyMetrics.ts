@@ -96,7 +96,7 @@ export function buildEntityKeyMetrics(input: {
   market?: MarketCode | null;
   currency?: string | null;
   peLossLabel?: string;
-  /** Snapshot fields not always present in quarterly fin indicators (e.g. CN A-shares). */
+  /** Live quote fields for market cap / shares / turnover (preferred over fin snapshots). */
   quoteDetail?: Pick<
     CoreTickerQuoteResponse,
     'market_cap' | 'total_shares' | 'pb' | 'turn_rate' | 'volume' | 'dividend_yield' | 'pe'
@@ -108,16 +108,13 @@ export function buildEntityKeyMetrics(input: {
   const latestBar = input.klineBars.at(-1) ?? null;
   const lastClose = latestBar && latestBar.close > 0 ? latestBar.close : null;
 
+  // Live valuation only — never prefer quarterly fin total_market_cap / hksk_market_cap.
   const marketCap =
-    isValidNumber(latestRawFin?.total_market_cap)
-      ? latestRawFin.total_market_cap
-      : isValidNumber(latestRawFin?.hksk_market_cap)
-        ? latestRawFin.hksk_market_cap
-        : isValidNumber(input.quoteDetail?.market_cap)
-          ? input.quoteDetail.market_cap
-          : isValidNumber(input.quoteDetail?.total_shares) && lastClose != null
-            ? input.quoteDetail.total_shares * lastClose
-            : null;
+    isValidNumber(input.quoteDetail?.market_cap)
+      ? input.quoteDetail.market_cap
+      : isValidNumber(input.quoteDetail?.total_shares) && lastClose != null
+        ? input.quoteDetail.total_shares * lastClose
+        : null;
   const totalShares =
     isValidNumber(input.quoteDetail?.total_shares)
       ? input.quoteDetail.total_shares

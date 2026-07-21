@@ -34,6 +34,7 @@ import {
 } from '../utils/entitySectorOptions';
 import {
   mapFinIndicatorsToFinancials,
+  resolveNaturalMinusFiscalQuarters,
 } from '../utils/entityFinIndicators';
 import { buildEntityKeyMetrics, isEntityTtmPeLoss } from '../utils/entityKeyMetrics';
 import { mapStockEventsToEntityItems } from '../utils/entityStockEvents';
@@ -342,6 +343,11 @@ export function EntityView({ onNavigateTab }: EntityViewProps) {
     );
   }, [finIndicators?.items, finIndicators?.market]);
 
+  const naturalMinusFiscalQuarters = useMemo(
+    () => resolveNaturalMinusFiscalQuarters(finIndicators?.items ?? []),
+    [finIndicators?.items],
+  );
+
   const chartEvents = useMemo(
     () => buildEarningsEventsFromFinIndicators(finIndicators?.items ?? []),
     [finIndicators?.items],
@@ -425,6 +431,7 @@ export function EntityView({ onNavigateTab }: EntityViewProps) {
           financials={financials}
           loading={finIndicatorsLoading}
           market={finIndicators?.market ?? ctx?.market ?? null}
+          naturalMinusFiscalQuarters={naturalMinusFiscalQuarters}
         />
         <EntityIncomeDistributionPanel
           distributions={incomeDistributions}

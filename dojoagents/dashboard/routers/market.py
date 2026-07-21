@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from dojoagents.dashboard.deps import get_financial_registry
 from dojoagents.dashboard.schemas.domain_api import (
+    MarketDynamicsResponse,
     MarketOverviewResponse,
     SectorMoversResponse,
     StockScreenResponse,
@@ -15,6 +16,7 @@ from dojoagents.dashboard.services.domain_api import (
     build_sector_movers,
     build_stock_screen,
 )
+from dojoagents.dashboard.services.market_dynamics_service import build_market_dynamics
 
 router = APIRouter(prefix="/market", tags=["macro-market"])
 
@@ -59,6 +61,10 @@ async def market_sector_movers(
     min_cap_us: Optional[float] = Query(None, ge=0),
     min_cap_cn: Optional[float] = Query(None, ge=0),
     min_cap_hk: Optional[float] = Query(None, ge=0),
+    include_members: bool = Query(
+        True,
+        description="Include top_members / sample tickers (false for treemap/discovery)",
+    ),
     registry=Depends(get_financial_registry),
 ) -> SectorMoversResponse:
     try:
@@ -74,9 +80,47 @@ async def market_sector_movers(
             },
             start_date=start_date,
             end_date=end_date,
+            include_members=include_members,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/dynamics",
+    response_model=MarketDynamicsResponse,
+    operation_id="get_market_dynamics",
+    summary="Cross-market event timeline from Dojo analysis.market_dynamics",
+)
+async def market_dynamics(
+    limit: int = Query(5000, ge=1, le=10000),
+    start_date: Optional[str] = Query(
+        None,
+        description="YYYY-MM-DD inclusive lower bound (filtered server-side)",
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="YYYY-MM-DD inclusive upper bound (filtered server-side)",
+    ),
+    registry=Depends(get_financial_registry),
+) -> MarketDynamicsResponse:
+    client = registry.client
+    if client is None:
+        raise HTTPException(status_code=503, detail="Dojo client is not initialized")
+    if (start_date and not end_date) or (end_date and not start_date):
+        raise HTTPException(
+            status_code=400,
+            detail="start_date and end_date must be provided together",
+        )
+    try:
+        return await build_market_dynamics(
+            client,
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load market dynamics: {exc}") from exc
 
 
 @router.get(

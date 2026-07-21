@@ -3,15 +3,20 @@ from __future__ import annotations
 import pytest
 
 from dojoagents.dashboard.services.sector_movers_ranking import (
+    DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
     MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING,
     sector_eligible_for_movers_ranking,
 )
 
 
-def test_sector_eligible_requires_multiple_members() -> None:
-    assert MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING == 2
-    assert sector_eligible_for_movers_ranking(member_count=1) is False
-    assert sector_eligible_for_movers_ranking(member_count=2) is True
+def test_default_sector_movers_min_total_cap_matches_ui_200yi() -> None:
+    assert DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP == 200 * 1e8
+
+
+def test_sector_eligible_requires_multi_member_basket() -> None:
+    assert MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING == 5
+    assert sector_eligible_for_movers_ranking(member_count=4) is False
+    assert sector_eligible_for_movers_ranking(member_count=5) is True
 
 
 def test_sector_eligible_respects_total_market_cap_floor() -> None:
@@ -32,7 +37,9 @@ def test_sector_eligible_respects_total_market_cap_floor() -> None:
     [
         (0, False),
         (1, False),
-        (2, True),
+        (2, False),
+        (4, False),
+        (5, True),
         (10, True),
     ],
 )

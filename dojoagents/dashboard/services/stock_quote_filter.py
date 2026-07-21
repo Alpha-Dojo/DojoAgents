@@ -7,7 +7,8 @@ from dojoagents.dashboard.schemas.stock import Stock
 MARKETS = ("sh", "hk", "us")
 
 # Minimum ticker market_cap from stock_quote; tickers at or below are excluded
-# from sector change weighting and kline fetch (sectors themselves are not filtered).
+# from sector precompute weighting / member_count, constituent lists, and
+# performance curves (sector *total-cap* ranking floors are separate).
 DEFAULT_TICKER_MARKET_CAP_MIN_BY_MARKET: dict[str, float] = {
     "sh": 1e9,  # 10 亿
     "us": 1e9,  # 10 亿

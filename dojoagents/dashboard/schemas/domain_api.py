@@ -189,6 +189,42 @@ class SectorMoversResponse(BaseModel):
         return {**data, "markets": normalized}
 
 
+class MarketDynamicsSectorImpact(BaseModel):
+    sector_id: str
+    sector_name: BilingualText = Field(default_factory=BilingualText)
+    affected_markets: List[str] = Field(default_factory=list)
+    direction: str = "Divergent"
+    reason: str = ""
+
+
+class MarketDynamicsSummary(BaseModel):
+    headline: BilingualText = Field(default_factory=BilingualText)
+    content: BilingualText = Field(default_factory=BilingualText)
+    source: BilingualText = Field(default_factory=BilingualText)
+    category: str = "market_structure"
+    surprise: str = "expected"
+
+
+class MarketDynamicsEvent(BaseModel):
+    id: str
+    event_time: str
+    trading_date: str = ""
+    event_summary: MarketDynamicsSummary
+    sector_impacts: List[MarketDynamicsSectorImpact] = Field(default_factory=list)
+
+
+class MarketDynamicsResponse(BaseModel):
+    total_num: int = 0
+    events: List[MarketDynamicsEvent] = Field(default_factory=list)
+    window_start: str = ""
+    window_end: str = ""
+    dataset_start: str = ""
+    dataset_end: str = ""
+    has_more_before: bool = False
+    has_more_after: bool = False
+    trading_dates: List[str] = Field(default_factory=list)
+
+
 class StockScreenItem(BaseModel):
     ticker: str
     market: str

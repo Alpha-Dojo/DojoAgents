@@ -83,6 +83,7 @@ def search_core_tickers(
     level2_id: Optional[str] = None,
     level3_id: Optional[str] = None,
     limit: int = DEFAULT_LIMIT,
+    require_market_cap_eligible: bool = True,
 ) -> List[CoreTickerSearchItem]:
     """Search quoted tickers by ticker symbol or display name (zh/en)."""
     needle = query.strip()
@@ -105,12 +106,15 @@ def search_core_tickers(
         if scope_tickers is not None and not scope_tickers:
             return []
 
-    ranked: list[tuple[int, float, CoreTickerSearchItem]] = []
+    # (score, market_order, -market_cap, ticker, item); keep best row per market+ticker.
+    best_by_key: dict[tuple[str, str], tuple[int, int, float, str, CoreTickerSearchItem]] = {}
     for market_code in active_markets:
         for stock in stock_store.list_market(market_code):
             if scope_tickers is not None and stock.ticker not in scope_tickers:
                 continue
-            if not stock_store.is_ticker_market_cap_eligible(stock.ticker):
+            if require_market_cap_eligible and not stock_store.is_ticker_market_cap_eligible(
+                stock.ticker
+            ):
                 continue
             quote = stock.stock_quote
             if quote is None:
@@ -121,21 +125,24 @@ def search_core_tickers(
                 continue
 
             names = _stock_bilingual_name(stock)
+            ticker = stock.ticker.strip().upper()
             item = CoreTickerSearchItem(
-                ticker=stock.ticker,
+                ticker=ticker,
                 market=stock.market,
                 name=BilingualText(zh=names.zh, en=names.en),
                 market_cap=quote.market_cap,
             )
-            ranked.append(
-                (
-                    score,
-                    MARKET_ORDER.get(stock.market, 99),
-                    -(quote.market_cap or 0.0),
-                    stock.ticker,
-                    item,
-                )
+            row = (
+                score,
+                MARKET_ORDER.get(stock.market, 99),
+                -(quote.market_cap or 0.0),
+                ticker,
+                item,
             )
+            key = (stock.market, ticker)
+            prev = best_by_key.get(key)
+            if prev is None or row[:4] < prev[:4]:
+                best_by_key[key] = row
 
-    ranked.sort(key=lambda row: (row[0], row[1], row[2], row[3]))
+    ranked = sorted(best_by_key.values(), key=lambda row: (row[0], row[1], row[2], row[3]))
     return [item for _, _, _, _, item in ranked[:limit]]

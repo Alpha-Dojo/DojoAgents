@@ -24,6 +24,7 @@ def test_tasks_run_cli_parser() -> None:
     assert args.pipeline == "daily-market-events"
     assert args.date == "2026-06-01"
     assert args.local is False
+    assert args.force is False
     assert args.dashboard_url == ""
 
 
@@ -40,6 +41,32 @@ def test_tasks_run_local_flag() -> None:
         ]
     )
     assert args.local is True
+
+
+def test_tasks_eval_cli_parser() -> None:
+    args = build_parser().parse_args(
+        ["tasks", "eval", "--task", "event-trigger", "--date", "2026-07-13"]
+    )
+    assert args.tasks_command == "eval"
+    assert args.task == "event-trigger"
+    assert args.date == "2026-07-13"
+    assert args.artifact == ""
+    assert args.output_root == ""
+
+
+def test_tasks_run_force_flag() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-07-12",
+            "--force",
+        ]
+    )
+    assert args.force is True
 
 
 @pytest.mark.parametrize(
@@ -97,6 +124,45 @@ async def test_tasks_run_remote_invokes_dashboard_client() -> None:
     assert kwargs["pipeline_id"] == "daily-market-events"
     assert kwargs["trading_date"] == "2026-06-01"
     assert kwargs["session_id"] == "cli-task-daily-market-events-2026-06-01"
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_skips_non_trading_day_before_remote() -> None:
+    args = build_parser().parse_args(
+        ["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-07-12"]
+    )
+    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+        code = await run_tasks_command(args)
+
+    assert code == 0
+    remote.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-07-12",
+            "--force",
+        ]
+    )
+    fake_record = {
+        "run_id": "run-1",
+        "status": "done",
+        "metadata": {"pipeline_completed": True},
+        "content": "done",
+    }
+    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+        remote.return_value = fake_record
+        code = await run_tasks_command(args)
+
+    assert code == 0
+    remote.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -184,3 +250,56 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
             code = await run_tasks_command(args)
 
     assert code == 1
+
+
+def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
+    from dojoagents.cli.tasks import eval_task_output
+
+    output_root = tmp_path / "outputs"
+    task_dir = output_root / "event-trigger"
+    task_dir.mkdir(parents=True)
+    path = task_dir / "market_event_triggers_2026-07-13.jsonl"
+    path.write_text(
+        '{"event_time":"2026-07-13T12:00:00Z","event_summary":{"headline":{"zh":"测试标题","en":"Test headline"},'
+        '"category":"macro_data","source":{"zh":"来源","en":"Source"},'
+        '"content":{"zh":"内容","en":"Content"},"surprise":"expected"},'
+        '"sector_impacts":[{"sector_id":"1/2/3","sector_name":{"zh":"板块","en":"Sector"},'
+        '"affected_markets":["us"],"direction":"Positive","reason":"up 3%"}]}\n',
+        encoding="utf-8",
+    )
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "eval",
+            "--task",
+            "event-trigger",
+            "--date",
+            "2026-07-13",
+            "--output-root",
+            str(output_root),
+        ]
+    )
+    assert eval_task_output(args) == 0
+
+
+def test_tasks_eval_fails_on_invalid_jsonl(tmp_path) -> None:
+    from dojoagents.cli.tasks import eval_task_output
+
+    output_root = tmp_path / "outputs"
+    task_dir = output_root / "event-trigger"
+    task_dir.mkdir(parents=True)
+    path = task_dir / "market_event_triggers_2026-07-13.jsonl"
+    path.write_text("not-json\n", encoding="utf-8")
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "eval",
+            "--task",
+            "event-trigger",
+            "--date",
+            "2026-07-13",
+            "--output-root",
+            str(output_root),
+        ]
+    )
+    assert eval_task_output(args) == 1
