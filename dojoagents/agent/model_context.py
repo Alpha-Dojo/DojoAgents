@@ -282,11 +282,16 @@ class ModelContextRegistry:
                 }
         self._save_cache_file()
 
-    def _match_openrouter_info(self, infos: list[ModelContextInfo], provider_cfg: LLMProviderConfig) -> ModelContextInfo | None:
-        author, slug = _openrouter_lookup_parts(provider_cfg)
+    def _match_openrouter_info(self, infos: list[ModelContextInfo], provider_cfg: LLMProviderConfig, provider_name: str) -> ModelContextInfo | None:
+        if provider_name == "model-router":
+            author = None
+            slug = provider_cfg.model.split("/")[-1] if provider_cfg.model else None
+        else:
+            author, slug = _openrouter_lookup_parts(provider_cfg)
+
         if not slug:
             return None
-        expected_author = _normalize_match_part(author)
+        expected_author = _normalize_match_part(author) if author else None
         expected_slug = _normalize_match_part(slug)
         for info in infos:
             if _normalize_match_part(info.slug) != expected_slug:
@@ -296,19 +301,28 @@ class ModelContextRegistry:
             return info
         return None
 
-    async def _retrieve_openrouter_info(self, provider_cfg: LLMProviderConfig) -> ModelContextInfo | None:
-        if not provider_cfg.model or not _should_lookup_openrouter_info(provider_cfg):
+    async def _retrieve_openrouter_info(self, provider_cfg: LLMProviderConfig, provider_name: str) -> ModelContextInfo | None:
+        if provider_name == "model-router":
+            should_lookup = True
+        else:
+            should_lookup = _should_lookup_openrouter_info(provider_cfg)
+
+        if not provider_cfg.model or not should_lookup:
             return None
+
         cached_models = self._read_openrouter_models_cache()
-        if cached_models is not None:
-            return self._match_openrouter_info(cached_models, provider_cfg)
-        headers: dict[str, str] = {}
-        if provider_cfg.api_key:
-            headers["Authorization"] = f"Bearer {provider_cfg.api_key}"
+        if cached_models:
+            match = self._match_openrouter_info(cached_models, provider_cfg, provider_name)
+            if match:
+                return match
+
         try:
             import httpx
 
             url = "https://openrouter.ai/api/v1/models"
+            headers: dict[str, str] = {}
+            if provider_cfg.api_key:
+                headers["Authorization"] = f"Bearer {provider_cfg.api_key}"
             async with httpx.AsyncClient(timeout=10.0) as http:
                 response = await http.get(url, headers=headers)
                 response.raise_for_status()
@@ -320,7 +334,7 @@ class ModelContextRegistry:
             if not infos:
                 return None
             self._write_openrouter_models_cache(infos)
-            return self._match_openrouter_info(infos, provider_cfg)
+            return self._match_openrouter_info(infos, provider_cfg, provider_name)
         except Exception:
             LOGGER.debug("OpenRouter model list lookup failed for %s", provider_cfg.model, exc_info=True)
             return None
@@ -339,7 +353,7 @@ class ModelContextRegistry:
         provider_cfg: LLMProviderConfig,
     ) -> ModelContextInfo:
         model_id = provider_cfg.model
-        openrouter_info = await self._retrieve_openrouter_info(provider_cfg)
+        openrouter_info = await self._retrieve_openrouter_info(provider_cfg, provider_name)
         if provider_cfg.context_window and provider_cfg.context_window > 0:
             override = int(provider_cfg.context_window)
             if not model_id:

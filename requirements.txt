@@ -23,3 +23,4 @@ pypdf>=5.0.0,<7
 dojosdk>=0.1.8
 portalocker
 ddgs
+exchange-calendars

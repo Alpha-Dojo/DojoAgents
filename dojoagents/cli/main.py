@@ -1,9 +1,10 @@
 from __future__ import annotations
+
+from pathlib import Path
 from dojoagents.logging import LOGGER
 
 import argparse
 import asyncio
-from pathlib import Path
 
 import uvicorn
 
