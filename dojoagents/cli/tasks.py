@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
 import os
 import re
 from pathlib import Path
@@ -38,7 +40,7 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
 
     run = tasks_sub.add_parser("run", help="Run a task pipeline for one trading date")
     run.add_argument("--pipeline", required=True, help="Pipeline id, e.g. daily-market-events")
-    run.add_argument("--date", required=True, help="Trading date (YYYY-MM-DD)")
+    run.add_argument("--date", help="Trading date (YYYY-MM-DD), defaults to today")
     run.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
     run.add_argument(
         "--force",
@@ -59,6 +61,22 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
         "--no-preload",
         action="store_true",
         help="Skip DojoSDK offline preload in --local mode",
+    )
+    run.add_argument(
+        "--force-rerun",
+        action="store_true",
+        help="Run pipeline even if output file already exists",
+    )
+    run.add_argument(
+        "--skip-upload",
+        action="store_true",
+        help="Skip uploading the output file",
+    )
+    run.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Maximum number of retries if pipeline execution fails (default: 3)",
     )
 
     evaluate = tasks_sub.add_parser(
@@ -378,7 +396,8 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
     if not pipeline_id:
         raise TaskActivationError("Missing required --pipeline")
 
-    trading_date = _validate_trading_date(args.date)
+    raw_date = args.date or datetime.date.today().isoformat()
+    trading_date = _validate_trading_date(raw_date)
     manager = load_task_manager(args.config)
     pipeline = manager.get_pipeline(pipeline_id)
     if pipeline is None:
@@ -396,9 +415,92 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
     if preflight.open_markets:
         LOGGER.info("Preflight ok: %s", preflight.reason)
 
-    if bool(args.local):
-        return await _run_pipeline_task_local(args, pipeline_id=pipeline_id, trading_date=trading_date)
-    return await _run_pipeline_task_remote(args, pipeline_id=pipeline_id, trading_date=trading_date)
+    store = ConfigStore(args.config)
+    config = store.snapshot()
+
+    if not getattr(args, "force_rerun", False) and pipeline_id == "daily-market-events":
+        output_root = Path(config.tasks.output_root).expanduser()
+        file_path = output_root / "event-trigger" / f"market_event_triggers_{trading_date}.jsonl"
+        if file_path.is_file():
+            LOGGER.info("Task output %s already exists. Skipping pipeline execution.", file_path)
+            if not getattr(args, "skip_upload", False):
+                await _upload_daily_market_events(args.config, trading_date)
+            return 0
+
+    max_retries = getattr(args, "max_retries", 3)
+    exit_code = 1
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            if bool(args.local):
+                exit_code = await _run_pipeline_task_local(args, pipeline_id=pipeline_id, trading_date=trading_date)
+            else:
+                exit_code = await _run_pipeline_task_remote(args, pipeline_id=pipeline_id, trading_date=trading_date)
+        except Exception as exc:
+            LOGGER.error("Exception during pipeline %s execution on attempt %d: %s", pipeline_id, attempt, exc)
+            exit_code = 1
+
+        if exit_code == 0:
+            break
+
+        if attempt < max_retries:
+            LOGGER.warning("Pipeline %s failed on attempt %d of %d. Retrying...", pipeline_id, attempt, max_retries)
+        else:
+            LOGGER.error("Pipeline %s failed after %d attempts.", pipeline_id, max_retries)
+
+    if exit_code == 0 and pipeline_id == "daily-market-events":
+        if not getattr(args, "skip_upload", False):
+            await _upload_daily_market_events(args.config, trading_date)
+    else:
+        LOGGER.error(f"Pipeline execution failed: exit_code: {exit_code}")
+    return exit_code
+
+
+async def _upload_daily_market_events(config_path: str, trading_date: str) -> None:
+    store = ConfigStore(config_path)
+    config = store.snapshot()
+
+    output_root = Path(config.tasks.output_root).expanduser()
+    file_path = output_root / "event-trigger" / f"market_event_triggers_{trading_date}.jsonl"
+    if not file_path.is_file():
+        LOGGER.error("Cannot upload events: %s not found", file_path)
+        return
+
+    items = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    parsed = json.loads(line)
+                    if isinstance(parsed, list):
+                        items.extend(parsed)
+                    elif isinstance(parsed, dict):
+                        items.append(parsed)
+    except Exception as exc:
+        LOGGER.error("Error reading market event output file %s: %s", file_path, exc)
+        return
+
+    if not items:
+        LOGGER.info("No market events to upload.")
+        return
+
+    sdk_cfg = config.dojosdk
+    client_kwargs = {
+        "api_key": sdk_cfg.api_key if sdk_cfg else None,
+        "base_url": sdk_cfg.base_url if sdk_cfg else None,
+        "timeout": sdk_cfg.timeout if sdk_cfg else 60.0,
+        "max_retries": sdk_cfg.max_retries if sdk_cfg else 1,
+    }
+    client = AsyncDojo(**{key: value for key, value in client_kwargs.items() if value is not None})
+    try:
+        LOGGER.info("Uploading %d market events to DojoSDK...", len(items))
+        for item in items:
+            await client.analysis.create_market_dynamics(**item)
+        LOGGER.info("Successfully uploaded market events.")
+    except Exception as exc:
+        LOGGER.error("Failed to upload market events: %s", exc)
+    finally:
+        await _close_dojo_client(client)
 
 
 async def run_tasks_command(args: argparse.Namespace) -> int:
