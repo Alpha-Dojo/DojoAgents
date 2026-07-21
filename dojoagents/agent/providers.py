@@ -139,9 +139,10 @@ class StaticLLMProvider:
 class OpenAICompatibleProvider:
     name = "openai"
 
-    def __init__(self, *, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(self, *, api_key: str | None = None, base_url: str | None = None, author: str | None = None) -> None:
         self.api_key = api_key
         self.base_url = base_url
+        self.author = author
 
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
@@ -178,9 +179,14 @@ class OpenAICompatibleProvider:
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+
+        actual_model = model
+        if self.name == "model-router" and self.author and not model.startswith(f"{self.author}/"):
+            actual_model = f"{self.author}/{model}"
+
         try:
             create_kwargs: dict[str, Any] = {
-                "model": model,
+                "model": actual_model,
                 "messages": messages,
                 "tools": [{"type": "function", "function": tool} for tool in tools] or None,
                 "stream": stream,
