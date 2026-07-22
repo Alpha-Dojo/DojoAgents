@@ -437,3 +437,37 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     board = store.list_advice_board(market="us", horizon="short", limit=10)
     assert board
     assert board[0]["short_rank"] == 1
+
+
+@pytest.mark.asyncio
+async def test_build_theme_state_reads_phase_a_from_explicit_dir_and_uploads_output(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "phase-a"
+    source_dir = _write_phase_a(source_root)
+    output_dir = tmp_path / "published" / PRECOMPUTE_DIR
+
+    class UploadClient:
+        def __init__(self) -> None:
+            self.uploads: list[tuple[str, str]] = []
+
+        async def upload_dataset(self, dataset_name: str, path: str) -> None:
+            self.uploads.append((dataset_name, path))
+
+    client = UploadClient()
+    manifest = await build_theme_state_precomputed(
+        data_root=tmp_path,
+        source_dir=source_dir,
+        out_dir=output_dir,
+        upload_client=client,
+        skip_fundamentals=True,
+        skip_volume_enrich=True,
+    )
+
+    assert Path(manifest["source_dir"]) == source_dir
+    assert Path(manifest["published_dir"]) == output_dir
+    assert manifest["uploaded_dataset"] == PRECOMPUTE_DIR
+    assert client.uploads == [(PRECOMPUTE_DIR, str(output_dir))]
+    assert (output_dir / CONSTITUENTS_FILE).exists()
+    assert (output_dir / THEME_STATE_DAILY_FILE).exists()
+    assert json.loads((source_dir / PHASE_A_MANIFEST).read_text(encoding="utf-8"))["schema_version"] == "3"
