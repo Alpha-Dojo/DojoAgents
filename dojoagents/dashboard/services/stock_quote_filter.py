@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+from typing import Any
+
+import pandas as pd
 
 from dojoagents.dashboard.schemas.stock import Stock
 
@@ -24,6 +27,33 @@ def configure_ticker_market_cap_mins(*, sh: float, us: float, hk: float) -> None
     _CAP_MINS = {"sh": float(sh), "us": float(us), "hk": float(hk)}
 
 
+def apply_configured_ticker_market_cap_mins(config_path: str | None = None) -> dict[str, float]:
+    """Load floors from agents.yaml (or defaults) and apply process-wide.
+
+    Used by precompute CLIs so publish uses the same thresholds as the dashboard.
+    """
+    financial: Any
+    try:
+        from dojoagents.config.loader import ConfigStore
+
+        store = ConfigStore(config_path or "~/.dojo/agents.yaml")
+        financial = store.snapshot().dashboard.financial
+    except Exception:
+        from dojoagents.config.models import FinancialDashboardConfig
+
+        financial = FinancialDashboardConfig()
+    configure_ticker_market_cap_mins(
+        sh=float(financial.ticker_market_cap_min_sh),
+        us=float(financial.ticker_market_cap_min_us),
+        hk=float(financial.ticker_market_cap_min_hk),
+    )
+    return dict(_CAP_MINS)
+
+
+def ticker_cap_mins_snapshot() -> dict[str, float]:
+    return dict(_CAP_MINS)
+
+
 def ticker_market_cap_min(market: str) -> float | None:
     return _CAP_MINS.get(market.lower())
 
@@ -34,6 +64,32 @@ def passes_ticker_market_cap_min(market: str, market_cap: float) -> bool:
     if threshold is None:
         return True
     return market_cap > threshold
+
+
+def filter_constituents_frame_by_ticker_cap_min(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only constituent rows whose stored market_cap clears the ticker floor.
+
+    Used at Phase A publish validation, Phase B load, and store reload so compute
+    and display share one universe even if a stale snapshot still contains micros.
+    """
+    if df.empty or "market_cap" not in df.columns or "market" not in df.columns:
+        return df
+    caps = pd.to_numeric(df["market_cap"], errors="coerce")
+    markets = df["market"].astype(str).str.lower()
+    keep = pd.Series(False, index=df.index, dtype=bool)
+    known = pd.Series(False, index=df.index, dtype=bool)
+    for market, threshold in _CAP_MINS.items():
+        mask = markets == market
+        known |= mask
+        if threshold is None:
+            keep |= mask
+            continue
+        keep |= mask & caps.notna() & (caps > float(threshold))
+    # Unknown market codes keep prior behavior of passes_ticker_market_cap_min (no floor).
+    keep |= ~known
+    if bool(keep.all()):
+        return df
+    return df.loc[keep].reset_index(drop=True)
 
 
 def stock_has_quote_volume(stock: Stock) -> bool:

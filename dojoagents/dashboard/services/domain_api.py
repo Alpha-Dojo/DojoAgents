@@ -75,6 +75,7 @@ from dojoagents.dashboard.services.market_sector_lead import (
 )
 from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
 from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
+from dojoagents.dashboard.services.sector_leader_concentration import compute_leader_concentration
 from dojoagents.dashboard.services.market_stats import compute_market_stats
 from dojoagents.dashboard.services.portfolio_service import DEFAULT_BENCHMARKS
 from dojoagents.dashboard.services.sector_constituents import MARKETS
@@ -1325,6 +1326,11 @@ def _build_sector_movers_fallback_sync(
 
             sorted_members = sorted(members, key=lambda item: item["change_percent"], reverse=True)
             top_by_abs = sorted(members, key=lambda item: abs(item["change_percent"]), reverse=True)[:3]
+            sector_change = round(finite_float(s.get("daily_return_pct")), 2)
+            leader = compute_leader_concentration(
+                [(m["ticker"], m.get("market_cap"), m.get("change_percent")) for m in members],
+                sector_change,
+            )
 
             item = SectorMoverItem(
                 level1_id=str(s["level1_id"]),
@@ -1332,12 +1338,18 @@ def _build_sector_movers_fallback_sync(
                 level3_id=str(s["level3_id"]),
                 concept_code=concept_code_for(internal_market, path.level3_zh, path.level3_en, "L3"),
                 name=BilingualText(zh=path.level3_zh, en=path.level3_en),
-                change_percent=round(finite_float(s.get("daily_return_pct")), 2),
+                change_percent=sector_change,
                 avg_market_cap=(finite_float(total_market_cap) / s.get("member_count", 1)) if s.get("member_count") else 0.0,
                 total_market_cap=finite_float(total_market_cap),
                 sample_tickers=[m["ticker"] for m in top_by_abs],
                 member_count=s.get("member_count", 0),
                 top_members=[_sector_member(member) for member in sorted_members[:MAX_SECTOR_MEMBERS]],
+                leader_ticker=leader.leader_ticker if leader else None,
+                leader_weight_pct=round(leader.leader_weight_pct, 2) if leader else None,
+                leader_return_pct=round(leader.leader_return_pct, 2) if leader else None,
+                leader_contribution_pct=round(leader.leader_contribution_pct, 2) if leader else None,
+                leader_concentration_pct=round(leader.leader_concentration_pct, 2) if leader else None,
+                leader_concentration_tier=leader.leader_concentration_tier if leader else None,
             )
             items.append(item)
 

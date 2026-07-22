@@ -22,6 +22,7 @@ from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.dashboard.services.theme_state_precomputed_store import ThemeStatePrecomputedStore
 from dojoagents.logging import LOGGER
 
 PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
@@ -37,6 +38,7 @@ PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
         "portfolio_store",
         "portfolio_service",
         "sector_precomputed_store",
+        "theme_state_precomputed_store",
     ),
     ("kline_store",),
 )
@@ -63,6 +65,7 @@ class FinancialDomainRegistry:
         self.portfolio_service: Optional[PortfolioService] = None
         self.dojo_sphere_service: Optional[DojoSphereService] = None
         self.sector_precomputed_store: Optional[SectorPrecomputedStore] = None
+        self.theme_state_precomputed_store: Optional[ThemeStatePrecomputedStore] = None
         self.sector_movers_service: Optional[SectorMoversService] = None
 
     async def init_and_load_all(
@@ -107,6 +110,7 @@ class FinancialDomainRegistry:
             SectorMetricsStore(data_root, schema_version=1),
         )
         self.sector_precomputed_store = SectorPrecomputedStore(self.data_root)
+        self.theme_state_precomputed_store = ThemeStatePrecomputedStore(self.data_root)
         self.kline_store.sector_precomputed_store = self.sector_precomputed_store
         self.sector_movers_service = SectorMoversService(
             sector_store=self.sector_store,
@@ -206,6 +210,9 @@ class FinancialDomainRegistry:
         if self.sector_precomputed_store is not None:
             self.sector_precomputed_store.clear_cache()
             self.sector_precomputed_store.reload()
+        if self.theme_state_precomputed_store is not None:
+            self.theme_state_precomputed_store.clear_cache()
+            self.theme_state_precomputed_store.reload()
         for store_name in ("stock_store", "benchmark_store"):
             store = getattr(self, store_name, None)
             if store is not None and hasattr(store, "load"):
@@ -233,6 +240,7 @@ class FinancialDomainRegistry:
             "portfolio_service",
             "dojo_sphere_service",
             "sector_precomputed_store",
+            "theme_state_precomputed_store",
             "sector_movers_service",
         ):
             setattr(self, name, None)

@@ -27,8 +27,43 @@ from dojoagents.dashboard.services.market_sector_lead import (
 from dojoagents.dashboard.services.domain_utils import finite_float, normalize_market_code, sanitize_mapping, to_native_market_code
 from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
 from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
+from dojoagents.dashboard.services.sector_leader_concentration import compute_leader_concentration
 
 MARKETS = ("sh", "hk", "us")
+
+
+def _leader_fields_from_members(
+    members: list,
+    sector_return_pct: float,
+) -> dict[str, float | str | None]:
+    payload = compute_leader_concentration(
+        [
+            (
+                str(getattr(member, "ticker", "") or ""),
+                getattr(member, "market_cap", None),
+                getattr(member, "change_percent", None),
+            )
+            for member in members
+        ],
+        sector_return_pct,
+    )
+    if payload is None:
+        return {
+            "leader_ticker": None,
+            "leader_weight_pct": None,
+            "leader_return_pct": None,
+            "leader_contribution_pct": None,
+            "leader_concentration_pct": None,
+            "leader_concentration_tier": None,
+        }
+    return {
+        "leader_ticker": payload.leader_ticker,
+        "leader_weight_pct": round(payload.leader_weight_pct, 2),
+        "leader_return_pct": round(payload.leader_return_pct, 2),
+        "leader_contribution_pct": round(payload.leader_contribution_pct, 2),
+        "leader_concentration_pct": round(payload.leader_concentration_pct, 2),
+        "leader_concentration_tier": payload.leader_concentration_tier,
+    }
 
 
 def _filter_ranking_candidates(
@@ -297,6 +332,7 @@ class SectorMoversService:
         *,
         include_members: bool = True,
     ) -> SectorMoverItem:
+        empty_leader = _leader_fields_from_members([], candidate.change_percent)
         if not include_members:
             return SectorMoverItem(
                 level1_id=candidate.level1_id,
@@ -310,6 +346,7 @@ class SectorMoversService:
                 member_count=candidate.member_count,
                 sample_tickers=[],
                 top_members=[],
+                **empty_leader,
             )
 
         item = self._build_sector_item(candidate, ticker_lookup)
@@ -324,6 +361,7 @@ class SectorMoversService:
             )
             for member in item.members
         ]
+        leader = _leader_fields_from_members(item.members, candidate.change_percent)
         return SectorMoverItem(
             level1_id=candidate.level1_id,
             level2_id=candidate.level2_id,
@@ -336,4 +374,5 @@ class SectorMoversService:
             member_count=item.member_count,
             sample_tickers=item.sample_tickers,
             top_members=top_members,
+            **leader,
         )

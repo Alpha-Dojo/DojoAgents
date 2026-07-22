@@ -22,6 +22,7 @@ from dojoagents.dashboard.services.sector_return_coverage import (
     resolve_market_as_of_by_market,
     restrict_frame_to_market_as_of_exact,
 )
+from dojoagents.dashboard.services.stock_quote_filter import filter_constituents_frame_by_ticker_cap_min
 from dojoagents.logging import LOGGER
 
 
@@ -78,8 +79,10 @@ class SectorPrecomputedStore:
 
         target_dir = Path(dataset_dir).expanduser().resolve() if dataset_dir else self.dataset_dir
 
+        # Only sync from HuggingFace for the default dataset root. An explicit
+        # dataset_dir is a local publish/staging path and must not be overwritten.
         offline_only = os.environ.get("DOJO_HF_OFFLINE", "false").lower() in ("1", "true", "yes")
-        if not offline_only:
+        if dataset_dir is None and not offline_only:
             try:
                 LOGGER.debug("Syncing dojo_sector_precomputed dataset from HuggingFace to %s...", target_dir)
                 download_dataset("dojo_sector_precomputed", target_dir)
@@ -386,11 +389,19 @@ class SectorPrecomputedStore:
     def _normalize_constituents_frame(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        normalized = df
+        normalized = df.copy()
         for col in ("market", "ticker", "level1_id", "level2_id", "level3_id"):
             if col in normalized.columns:
                 normalized[col] = normalized[col].astype(str)
-        return normalized
+        filtered = filter_constituents_frame_by_ticker_cap_min(normalized)
+        dropped = len(normalized) - len(filtered)
+        if dropped:
+            LOGGER.warning(
+                "Dropped %s sector constituents at/below ticker market-cap floor on reload "
+                "(stale snapshot or misconfigured publish).",
+                dropped,
+            )
+        return filtered
 
     @staticmethod
     def _normalize_sector_daily_frame(df: pd.DataFrame) -> pd.DataFrame:

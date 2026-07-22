@@ -61,3 +61,8 @@ source/
 
 # debug
 out/
+
+# Generated AlphaPI web JSON for theme-state (~200MB)
+dojo_theme_state_precomputed/web/
+dojo_sector_precomputed/web_discovery/
+dojo_sector_precomputed/web_theme/

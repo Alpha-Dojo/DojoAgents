@@ -155,7 +155,22 @@ class StockStore:
                     markets.append(market)
 
             total_loaded += len(stocks)
-            LOGGER.debug(f"[StockStore][{market}] loaded={len(stocks)}")
+            with_quote = sum(1 for stock in stocks if stock.stock_quote is not None)
+            if stocks and with_quote == 0:
+                LOGGER.error(
+                    "[StockStore][%s] loaded %s stocks but 0 quotes — market-cap/sector features will be empty",
+                    market,
+                    len(stocks),
+                )
+            elif stocks and with_quote / len(stocks) < 0.1:
+                LOGGER.warning(
+                    "[StockStore][%s] quote coverage is low: %s/%s",
+                    market,
+                    with_quote,
+                    len(stocks),
+                )
+            else:
+                LOGGER.debug(f"[StockStore][{market}] loaded={len(stocks)} quotes={with_quote}")
 
         if total_loaded == 0:
             LOGGER.info("Warning: stock preload loaded 0 stocks.")
