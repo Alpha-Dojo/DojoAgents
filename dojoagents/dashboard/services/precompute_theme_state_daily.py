@@ -65,17 +65,13 @@ from dojoagents.dashboard.services.theme_state_metrics import (
     VOLUME_LOOKBACK_DAYS,
     VOLUME_MULTIPLIER,
     aggregate_fundamentals_lite,
-    compute_breadth_for_day,
     dedupe_universe_members,
     extract_quarter_metrics,
     list_report_period_keys,
     nan_or,
-    risk_adjusted,
     role_counts,
     rotation_score_frame,
-    streak_days,
     window_return_pct,
-    window_volatility_pct,
 )
 from dojoagents.logging import LOGGER
 
@@ -232,8 +228,12 @@ def phase_a_dir(data_root: Path) -> Path:
     return data_root.expanduser().resolve() / PHASE_A_DIR
 
 
-def load_phase_a_snapshot(data_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    root = phase_a_dir(data_root)
+def load_phase_a_snapshot(
+    data_root: Path,
+    *,
+    source_dir: Path | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    root = source_dir.expanduser().resolve() if source_dir is not None else phase_a_dir(data_root)
     manifest_path = root / PHASE_A_MANIFEST_FILE
     if not manifest_path.exists():
         raise FileNotFoundError(f"Phase A manifest missing: {manifest_path}")
@@ -268,8 +268,7 @@ def load_phase_a_snapshot(data_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
     dropped = before - len(constituents)
     if dropped:
         LOGGER.warning(
-            "Phase B dropped %s Phase A constituents at/below ticker market-cap floor "
-            "(rebuild Phase A to permanently purge them).",
+            "Phase B dropped %s Phase A constituents at/below ticker market-cap floor " "(rebuild Phase A to permanently purge them).",
             dropped,
         )
         if not ticker_daily.empty and {"market", "ticker"}.issubset(ticker_daily.columns):
@@ -306,10 +305,7 @@ def _ensure_volume_column(ticker_daily: pd.DataFrame) -> pd.DataFrame:
 
 
 def _build_market_cap_lookup(constituents: pd.DataFrame) -> dict[tuple[str, str], float]:
-    deduped = (
-        constituents.sort_values(["market", "ticker", "role"])
-        .drop_duplicates(subset=["market", "ticker"], keep="first")
-    )
+    deduped = constituents.sort_values(["market", "ticker", "role"]).drop_duplicates(subset=["market", "ticker"], keep="first")
     out: dict[tuple[str, str], float] = {}
     for row in deduped.itertuples(index=False):
         cap = float(getattr(row, "market_cap", 0.0) or 0.0)
@@ -326,10 +322,7 @@ def _market_daily_returns_from_tickers(
         return pd.DataFrame(columns=MARKET_BENCHMARK_DAILY_COLUMNS)
 
     frame = ticker_daily.copy()
-    frame["market_cap"] = [
-        float(cap_lookup.get((str(m), str(t)), 0.0) or 0.0)
-        for m, t in zip(frame["market"], frame["ticker"])
-    ]
+    frame["market_cap"] = [float(cap_lookup.get((str(m), str(t)), 0.0) or 0.0) for m, t in zip(frame["market"], frame["ticker"])]
     frame = frame[(frame["market_cap"] > 0) & frame["daily_return_pct"].notna()]
     if frame.empty:
         return pd.DataFrame(columns=MARKET_BENCHMARK_DAILY_COLUMNS)
@@ -387,9 +380,7 @@ def _apply_rs_ranks(theme_df: pd.DataFrame) -> pd.DataFrame:
 
     eligible_5d = theme_df["row_status"].isin(["ok", "partial"]) & theme_df["relative_strength_5d"].notna()
     if bool(eligible_5d.any()):
-        theme_df.loc[eligible_5d, "rs_rank_universe_size"] = (
-            theme_df.loc[eligible_5d].groupby(["trade_date", "market"], sort=False)["level3_id"].transform("size")
-        )
+        theme_df.loc[eligible_5d, "rs_rank_universe_size"] = theme_df.loc[eligible_5d].groupby(["trade_date", "market"], sort=False)["level3_id"].transform("size")
         ordered_5d = theme_df.loc[eligible_5d].sort_values(
             ["trade_date", "market", "relative_strength_5d", "level3_id"],
             ascending=[True, True, False, True],
@@ -428,10 +419,7 @@ def _apply_rs_ranks(theme_df: pd.DataFrame) -> pd.DataFrame:
 def _apply_confirmation(theme_df: pd.DataFrame) -> pd.DataFrame:
     theme_df = theme_df.copy()
     # One representative return per (trade_date, link_key, market)
-    reps = (
-        theme_df.sort_values(["trade_date", "link_key", "market", "level3_id"])
-        .drop_duplicates(subset=["trade_date", "link_key", "market"], keep="first")
-    )
+    reps = theme_df.sort_values(["trade_date", "link_key", "market", "level3_id"]).drop_duplicates(subset=["trade_date", "link_key", "market"], keep="first")
     conf_rows: list[dict[str, Any]] = []
     for (trade_date, link_key), group in reps.groupby(["trade_date", "link_key"], sort=False):
         available: list[str] = []
@@ -540,9 +528,7 @@ def compute_theme_state_frames(
     sector_daily: pd.DataFrame,
     link_key_by_level3: dict[str, str],
     benchmark_daily: pd.DataFrame | None = None,
-    fundamentals_by_theme: (
-        dict[tuple[str, str, str, str], list[dict[str, Any]] | dict[str, Any]] | None
-    ) = None,
+    fundamentals_by_theme: dict[tuple[str, str, str, str], list[dict[str, Any]] | dict[str, Any]] | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -573,27 +559,17 @@ def compute_theme_state_frames(
         raise ValueError("No L3 sector_daily rows available for theme-state precompute.")
 
     sector_l3 = sector_l3.sort_values(["market", "level1_id", "level2_id", "level3_id", "trade_date"])
-    bench_lookup = {
-        (str(row.market), str(row.trade_date)): row
-        for row in benchmark_daily.itertuples(index=False)
-    }
+    bench_lookup = {(str(row.market), str(row.trade_date)): row for row in benchmark_daily.itertuples(index=False)}
 
     # Precompute market panels + rolling helpers once.
     ticker_panels: dict[str, dict[str, Any]] = {}
     for market, market_td in ticker_daily.groupby("market", sort=True):
-        ret_pivot = (
-            market_td.pivot_table(index="trade_date", columns="ticker", values="daily_return_pct", aggfunc="last")
-            .sort_index()
-        )
+        ret_pivot = market_td.pivot_table(index="trade_date", columns="ticker", values="daily_return_pct", aggfunc="last").sort_index()
         close_pivot = (
-            market_td.pivot_table(index="trade_date", columns="ticker", values="close", aggfunc="last")
-            .sort_index()
-            .reindex(index=ret_pivot.index, columns=ret_pivot.columns)
+            market_td.pivot_table(index="trade_date", columns="ticker", values="close", aggfunc="last").sort_index().reindex(index=ret_pivot.index, columns=ret_pivot.columns)
         )
         vol_pivot = (
-            market_td.pivot_table(index="trade_date", columns="ticker", values="volume", aggfunc="last")
-            .sort_index()
-            .reindex(index=ret_pivot.index, columns=ret_pivot.columns)
+            market_td.pivot_table(index="trade_date", columns="ticker", values="volume", aggfunc="last").sort_index().reindex(index=ret_pivot.index, columns=ret_pivot.columns)
         )
         ticker_panels[str(market)] = {
             "ret": ret_pivot,
@@ -608,9 +584,7 @@ def compute_theme_state_frames(
     path_cols = ["level1_id", "level2_id", "level3_id"]
     empty_fin = _default_fin_payload()
 
-    for (market, level1_id, level2_id, level3_id), members in constituents.groupby(
-        ["market", *path_cols], sort=True
-    ):
+    for (market, level1_id, level2_id, level3_id), members in constituents.groupby(["market", *path_cols], sort=True):
         market_s = str(market)
         panel = ticker_panels.get(market_s)
         if panel is None:
@@ -625,10 +599,7 @@ def compute_theme_state_frames(
         link_key = link_key_by_level3.get(str(level3_id), slugify(str(level3_id)))
 
         theme_sector = sector_l3[
-            (sector_l3["market"] == market_s)
-            & (sector_l3["level1_id"] == str(level1_id))
-            & (sector_l3["level2_id"] == str(level2_id))
-            & (sector_l3["level3_id"] == str(level3_id))
+            (sector_l3["market"] == market_s) & (sector_l3["level1_id"] == str(level1_id)) & (sector_l3["level2_id"] == str(level2_id)) & (sector_l3["level3_id"] == str(level3_id))
         ]
         if theme_sector.empty:
             continue
@@ -670,22 +641,11 @@ def compute_theme_state_frames(
         volume_pct = (volume_exp.sum(axis=1) / volume_sample * 100.0).where(volume_sample > 0)
         new_highs_pct = (new_highs.sum(axis=1) / high_sample * 100.0).where(high_sample > 0)
         component_count = advancers_pct.notna().astype(int) + volume_pct.notna().astype(int) + new_highs_pct.notna().astype(int)
-        breadth_score = (
-            advancers_pct.fillna(0) + volume_pct.fillna(0) + new_highs_pct.fillna(0)
-        ) / component_count.replace(0, np.nan)
+        breadth_score = (advancers_pct.fillna(0) + volume_pct.fillna(0) + new_highs_pct.fillna(0)) / component_count.replace(0, np.nan)
 
-        fin_payload = dict(
-            _latest_fundamentals_payload(
-                (fundamentals_by_theme or {}).get(
-                    (market_s, str(level1_id), str(level2_id), str(level3_id))
-                )
-            )
-            or empty_fin
-        )
+        fin_payload = dict(_latest_fundamentals_payload((fundamentals_by_theme or {}).get((market_s, str(level1_id), str(level2_id), str(level3_id)))) or empty_fin)
         if fin_payload.get("fin_status") == "ok" and eligible_count > 0:
-            fin_payload["fin_coverage_ratio"] = nan_or(
-                float(fin_payload.get("fin_sample_count") or 0) / eligible_count
-            )
+            fin_payload["fin_coverage_ratio"] = nan_or(float(fin_payload.get("fin_sample_count") or 0) / eligible_count)
 
         n = len(dates)
         part = pd.DataFrame(
@@ -805,10 +765,7 @@ def compute_theme_state_frames(
     fundamentals_rows: list[dict[str, Any]] = []
     computed_at = datetime.now(timezone.utc).isoformat()
     eligible_by_theme = {
-        (str(m), str(l1), str(l2), str(l3)): role_counts(group)[0]
-        for (m, l1, l2, l3), group in constituents.groupby(
-            ["market", "level1_id", "level2_id", "level3_id"], sort=False
-        )
+        (str(m), str(l1), str(l2), str(l3)): role_counts(group)[0] for (m, l1, l2, l3), group in constituents.groupby(["market", "level1_id", "level2_id", "level3_id"], sort=False)
     }
     if fundamentals_by_theme:
         for (market, l1, l2, l3), payloads in fundamentals_by_theme.items():
@@ -822,50 +779,32 @@ def compute_theme_state_frames(
                         "level2_id": l2,
                         "level3_id": l3,
                         "link_key": link_key_by_level3.get(l3, slugify(l3)),
-                        "report_period_key": payload.get("report_period_key")
-                        or payload.get("fin_report_period")
-                        or "",
+                        "report_period_key": payload.get("report_period_key") or payload.get("fin_report_period") or "",
                         "fin_status": payload.get("fin_status", "insufficient_fundamentals"),
                         "fin_report_period": payload.get("fin_report_period", ""),
                         "fin_prior_year_period": payload.get("fin_prior_year_period", ""),
                         "fin_sample_count": int(payload.get("fin_sample_count") or 0),
                         "fin_coverage_ratio": payload.get("fin_coverage_ratio", float("nan")),
                         "industry_revenue": payload.get("industry_revenue", float("nan")),
-                        "industry_revenue_prior_year": payload.get(
-                            "industry_revenue_prior_year", float("nan")
-                        ),
-                        "industry_revenue_yoy_pct": payload.get(
-                            "industry_revenue_yoy_pct", float("nan")
-                        ),
-                        "industry_revenue_yoy_prior_pct": payload.get(
-                            "industry_revenue_yoy_prior_pct", float("nan")
-                        ),
-                        "industry_revenue_accel_pp": payload.get(
-                            "industry_revenue_accel_pp", float("nan")
-                        ),
+                        "industry_revenue_prior_year": payload.get("industry_revenue_prior_year", float("nan")),
+                        "industry_revenue_yoy_pct": payload.get("industry_revenue_yoy_pct", float("nan")),
+                        "industry_revenue_yoy_prior_pct": payload.get("industry_revenue_yoy_prior_pct", float("nan")),
+                        "industry_revenue_accel_pp": payload.get("industry_revenue_accel_pp", float("nan")),
                         "revenue_improvers_count": int(payload.get("revenue_improvers_count") or 0),
                         "revenue_improvers_pct": payload.get("revenue_improvers_pct", float("nan")),
                         "industry_net_profit": payload.get("industry_net_profit", float("nan")),
-                        "industry_net_profit_yoy_pct": payload.get(
-                            "industry_net_profit_yoy_pct", float("nan")
-                        ),
+                        "industry_net_profit_yoy_pct": payload.get("industry_net_profit_yoy_pct", float("nan")),
                         "profit_improvers_count": int(payload.get("profit_improvers_count") or 0),
                         "profit_improvers_pct": payload.get("profit_improvers_pct", float("nan")),
                         "industry_net_margin_pct": payload.get("industry_net_margin_pct", float("nan")),
-                        "industry_net_margin_change_pp": payload.get(
-                            "industry_net_margin_change_pp", float("nan")
-                        ),
+                        "industry_net_margin_change_pp": payload.get("industry_net_margin_change_pp", float("nan")),
                         "stage_hint": payload.get("stage_hint", ""),
                         "stage_hint_rule": payload.get("stage_hint_rule", STAGE_HINT_RULE),
                         "eligible_count": int(eligible_by_theme.get((market, l1, l2, l3), 0)),
                         "computed_at": computed_at,
                     }
                 )
-    fundamentals_df = (
-        pd.DataFrame(fundamentals_rows)[FUNDAMENTALS_PERIOD_COLUMNS]
-        if fundamentals_rows
-        else pd.DataFrame(columns=FUNDAMENTALS_PERIOD_COLUMNS)
-    )
+    fundamentals_df = pd.DataFrame(fundamentals_rows)[FUNDAMENTALS_PERIOD_COLUMNS] if fundamentals_rows else pd.DataFrame(columns=FUNDAMENTALS_PERIOD_COLUMNS)
     benchmark_out = benchmark_daily[MARKET_BENCHMARK_DAILY_COLUMNS].copy()
     return theme_df, benchmark_out, fundamentals_df
 
@@ -905,10 +844,7 @@ async def _enrich_ticker_volumes_from_kline(
         return _ensure_volume_column(ticker_daily)
 
     frame = ticker_daily.copy()
-    frame["volume"] = [
-        volume_map.get((str(m), str(t), str(d)), float("nan"))
-        for m, t, d in zip(frame["market"], frame["ticker"], frame["trade_date"])
-    ]
+    frame["volume"] = [volume_map.get((str(m), str(t), str(d)), float("nan")) for m, t, d in zip(frame["market"], frame["ticker"], frame["trade_date"])]
     return frame
 
 
@@ -951,10 +887,7 @@ async def _build_fundamentals_by_theme(
     if fin_store is None or constituents.empty:
         return {}
 
-    universe = (
-        constituents.sort_values(["market", "ticker", "role"])
-        .drop_duplicates(subset=["market", "ticker"], keep="first")
-    )
+    universe = constituents.sort_values(["market", "ticker", "role"]).drop_duplicates(subset=["market", "ticker"], keep="first")
     pairs = [(str(r.market), str(r.ticker)) for r in universe.itertuples(index=False)]
     sem = asyncio.Semaphore(concurrency)
     ticker_quarters: dict[tuple[str, str], dict[str, dict[str, float]]] = {}
@@ -979,15 +912,9 @@ async def _build_fundamentals_by_theme(
             on_progress("fundamentals", min(idx + len(chunk), total), total)
 
     out: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
-    for (market, l1, l2, l3), members in constituents.groupby(
-        ["market", "level1_id", "level2_id", "level3_id"], sort=True
-    ):
+    for (market, l1, l2, l3), members in constituents.groupby(["market", "level1_id", "level2_id", "level3_id"], sort=True):
         deduped = dedupe_universe_members(members)
-        per_ticker = {
-            str(ticker): ticker_quarters[(str(market), str(ticker))]
-            for ticker in deduped["ticker"].tolist()
-            if (str(market), str(ticker)) in ticker_quarters
-        }
+        per_ticker = {str(ticker): ticker_quarters[(str(market), str(ticker))] for ticker in deduped["ticker"].tolist() if (str(market), str(ticker)) in ticker_quarters}
         period_keys = list_report_period_keys(per_ticker, max_periods=MAX_FUNDAMENTAL_PERIODS)
         payloads: list[dict[str, Any]] = []
         if not period_keys:
@@ -996,9 +923,7 @@ async def _build_fundamentals_by_theme(
             for period_key in period_keys:
                 payload = aggregate_fundamentals_lite(per_ticker, report_period_key=period_key)
                 if payload.get("fin_status") == "ok" and len(deduped):
-                    payload["fin_coverage_ratio"] = nan_or(
-                        float(payload.get("fin_sample_count") or 0) / float(len(deduped))
-                    )
+                    payload["fin_coverage_ratio"] = nan_or(float(payload.get("fin_sample_count") or 0) / float(len(deduped)))
                 payloads.append(payload)
         out[(str(market), str(l1), str(l2), str(l3))] = payloads
     return out
@@ -1034,16 +959,12 @@ def validate_theme_state_frames(
         raise ValueError("fundamentals_period schema mismatch.")
     if theme_df.duplicated(subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]).any():
         raise ValueError("theme_state_daily contains duplicate keys.")
-    if fundamentals_df.duplicated(
-        subset=["market", "scope", "level1_id", "level2_id", "level3_id", "report_period_key"]
-    ).any():
+    if fundamentals_df.duplicated(subset=["market", "scope", "level1_id", "level2_id", "level3_id", "report_period_key"]).any():
         raise ValueError("fundamentals_period contains duplicate theme/period keys.")
     if horizon_df is not None:
         if list(horizon_df.columns) != SECTOR_HORIZON_METRICS_COLUMNS:
             raise ValueError("sector_horizon_metrics schema mismatch.")
-        if horizon_df.duplicated(
-            subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]
-        ).any():
+        if horizon_df.duplicated(subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]).any():
             raise ValueError("sector_horizon_metrics contains duplicate keys.")
     if alpha_df is not None:
         if list(alpha_df.columns) != SECTOR_ALPHA_FACTORS_COLUMNS:
@@ -1103,10 +1024,7 @@ def compute_and_stage_theme_state(
     ticker_alpha_df.to_parquet(ticker_alpha_path, index=False)
 
     generated_at = datetime.now(timezone.utc).isoformat()
-    latest = {
-        str(market): str(group["trade_date"].max())
-        for market, group in theme_df.groupby("market")
-    }
+    latest = {str(market): str(group["trade_date"].max()) for market, group in theme_df.groupby("market")}
     phase_a_files = {
         name: {
             "rows": int((phase_a_manifest.get("files") or {}).get(name, {}).get("rows") or 0),
@@ -1129,8 +1047,7 @@ def compute_and_stage_theme_state(
             "stats": phase_a_manifest.get("stats") or {},
         },
         "theme_state_rules_version": THEME_STATE_RULES_VERSION,
-        "window_start": start_date
-        or str(phase_a_manifest.get("window_start") or theme_df["trade_date"].min()),
+        "window_start": start_date or str(phase_a_manifest.get("window_start") or theme_df["trade_date"].min()),
         "window_end": end_date or str(theme_df["trade_date"].max()),
         "latest_trade_date_by_market": latest,
         "theme_state_daily_rows": int(len(theme_df)),
@@ -1194,9 +1111,7 @@ def compute_and_stage_theme_state(
             },
         },
     }
-    (staging_dir / MANIFEST_FILE).write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    (staging_dir / MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest, staging_dir
 
 
@@ -1215,6 +1130,7 @@ def publish_staged_theme_state(staging_dir: Path, out_dir: Path) -> Path:
 async def build_theme_state_precomputed(
     data_root: Path,
     *,
+    source_dir: Path | None = None,
     sector_store: Any | None = None,
     kline_store: Any | None = None,
     benchmark_store: Any | None = None,
@@ -1231,18 +1147,19 @@ async def build_theme_state_precomputed(
     """Enrich ``dojo_sector_precomputed`` with theme-state, horizon, and sector/ticker alpha factors."""
     data_root = data_root.expanduser().resolve()
     out_dir = (out_dir or (data_root / PHASE_A_DIR)).resolve()
-    phase_a_source_dir = data_root / PHASE_A_DIR
+    phase_a_source_dir = source_dir.expanduser().resolve() if source_dir is not None else data_root / PHASE_A_DIR
 
     if on_progress is not None:
         on_progress("load_phase_a", 0, 1)
-    constituents, ticker_daily, sector_daily, phase_a_manifest = load_phase_a_snapshot(data_root)
+    constituents, ticker_daily, sector_daily, phase_a_manifest = load_phase_a_snapshot(
+        data_root,
+        source_dir=phase_a_source_dir,
+    )
     if on_progress is not None:
         on_progress("load_phase_a", 1, 1)
 
     if not skip_volume_enrich:
-        ticker_daily = await _enrich_ticker_volumes_from_kline(
-            ticker_daily, kline_store, on_progress=on_progress
-        )
+        ticker_daily = await _enrich_ticker_volumes_from_kline(ticker_daily, kline_store, on_progress=on_progress)
     else:
         ticker_daily = _ensure_volume_column(ticker_daily)
 
@@ -1351,6 +1268,7 @@ async def build_theme_state_precomputed(
     published_dir = await asyncio.to_thread(publish_staged_theme_state, staging_dir, out_dir)
     if on_progress is not None:
         on_progress("publish", 1, 1)
+    manifest["source_dir"] = str(phase_a_source_dir)
     manifest["published_dir"] = str(published_dir)
 
     if upload_client is not None:
