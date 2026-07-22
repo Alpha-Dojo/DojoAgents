@@ -102,12 +102,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     theme_state = sub.add_parser(
         "precompute-sector-theme-state",
-        help=(
-            "Enrich dojo_sector_precomputed with theme-state, horizon metrics, "
-            "health radar, and short/mid advice scores"
-        ),
+        help=("Enrich dojo_sector_precomputed with theme-state, horizon metrics, " "health radar, and short/mid advice scores"),
     )
     theme_state.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
+    theme_state.add_argument(
+        "--input-dir",
+        type=Path,
+        default=None,
+        help="Directory produced by precompute-sector (default: <data-root>/dojo_sector_precomputed)",
+    )
+    theme_state.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Unified snapshot directory (default: <data-root>/dojo_sector_precomputed)",
+    )
     theme_state.add_argument("--start-date", default=None, help="Optional first trade date to include")
     theme_state.add_argument("--end-date", default=None, help="Optional last trade date to include")
     theme_state.add_argument(
