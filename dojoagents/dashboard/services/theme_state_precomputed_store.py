@@ -1,4 +1,4 @@
-"""Load and query theme-state / horizon tables from unified sector precompute."""
+"""Load and query theme-state / horizon / alpha-factor tables from unified sector precompute."""
 
 from __future__ import annotations
 
@@ -9,12 +9,9 @@ from typing import Any, Optional
 import pandas as pd
 
 from dojoagents.config.loader import FinancialDashboardConfig
+from dojoagents.dashboard.services.precompute_sector_alpha_factors import SECTOR_ALPHA_FACTORS_FILE
 from dojoagents.dashboard.services.precompute_sector_daily import PRECOMPUTE_DIR
 from dojoagents.dashboard.services.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
-from dojoagents.dashboard.services.precompute_sector_radar_advice import (
-    SECTOR_ADVICE_DAILY_FILE,
-    SECTOR_HEALTH_RADAR_FILE,
-)
 from dojoagents.dashboard.services.precompute_theme_state_daily import (
     FUNDAMENTALS_PERIOD_FILE,
     MANIFEST_FILE,
@@ -22,6 +19,7 @@ from dojoagents.dashboard.services.precompute_theme_state_daily import (
     THEME_STATE_DAILY_FILE,
     THEME_STATE_DIR,
 )
+from dojoagents.dashboard.services.precompute_ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
 from dojoagents.logging import LOGGER
 
 
@@ -34,8 +32,8 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df: Optional[pd.DataFrame] = None
         self._fundamentals_df: Optional[pd.DataFrame] = None
         self._horizon_df: Optional[pd.DataFrame] = None
-        self._radar_df: Optional[pd.DataFrame] = None
-        self._advice_df: Optional[pd.DataFrame] = None
+        self._alpha_df: Optional[pd.DataFrame] = None
+        self._ticker_alpha_df: Optional[pd.DataFrame] = None
         self._manifest: dict[str, Any] | None = None
         self._last_error: str | None = None
 
@@ -56,8 +54,8 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df = None
         self._fundamentals_df = None
         self._horizon_df = None
-        self._radar_df = None
-        self._advice_df = None
+        self._alpha_df = None
+        self._ticker_alpha_df = None
         self._manifest = None
 
     async def load(self) -> None:
@@ -81,8 +79,8 @@ class ThemeStatePrecomputedStore:
             benchmark_path = target_dir / MARKET_BENCHMARK_DAILY_FILE
             fundamentals_path = target_dir / FUNDAMENTALS_PERIOD_FILE
             horizon_path = target_dir / SECTOR_HORIZON_METRICS_FILE
-            radar_path = target_dir / SECTOR_HEALTH_RADAR_FILE
-            advice_path = target_dir / SECTOR_ADVICE_DAILY_FILE
+            alpha_path = target_dir / SECTOR_ALPHA_FACTORS_FILE
+            ticker_alpha_path = target_dir / TICKER_ALPHA_FACTORS_FILE
             benchmark_df = (
                 pd.read_parquet(benchmark_path) if benchmark_path.exists() else pd.DataFrame()
             )
@@ -90,8 +88,10 @@ class ThemeStatePrecomputedStore:
                 pd.read_parquet(fundamentals_path) if fundamentals_path.exists() else pd.DataFrame()
             )
             horizon_df = pd.read_parquet(horizon_path) if horizon_path.exists() else pd.DataFrame()
-            radar_df = pd.read_parquet(radar_path) if radar_path.exists() else pd.DataFrame()
-            advice_df = pd.read_parquet(advice_path) if advice_path.exists() else pd.DataFrame()
+            alpha_df = pd.read_parquet(alpha_path) if alpha_path.exists() else pd.DataFrame()
+            ticker_alpha_df = (
+                pd.read_parquet(ticker_alpha_path) if ticker_alpha_path.exists() else pd.DataFrame()
+            )
             manifest = (
                 json.loads(manifest_path.read_text(encoding="utf-8"))
                 if manifest_path.exists()
@@ -103,8 +103,8 @@ class ThemeStatePrecomputedStore:
             self.clear_cache()
             return
 
-        for frame in (theme_df, benchmark_df, fundamentals_df, horizon_df, radar_df, advice_df):
-            for col in ("market", "trade_date", "level1_id", "level2_id", "level3_id", "link_key", "scope"):
+        for frame in (theme_df, benchmark_df, fundamentals_df, horizon_df, alpha_df, ticker_alpha_df):
+            for col in ("market", "trade_date", "ticker", "level1_id", "level2_id", "level3_id", "link_key", "scope"):
                 if col in frame.columns:
                     frame[col] = frame[col].astype(str)
 
@@ -113,14 +113,42 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df = benchmark_df
         self._fundamentals_df = fundamentals_df
         self._horizon_df = horizon_df
-        self._radar_df = radar_df
-        self._advice_df = advice_df
+        self._alpha_df = alpha_df
+        self._ticker_alpha_df = ticker_alpha_df
         self._manifest = manifest
         self._last_error = None
 
     @property
     def manifest(self) -> dict[str, Any] | None:
         return self._manifest
+
+    def _latest_keyed_row(
+        self,
+        frame: pd.DataFrame | None,
+        *,
+        level1_id: str,
+        level2_id: str,
+        level3_id: str,
+        market: str,
+        as_of: str | None = None,
+    ) -> dict[str, Any] | None:
+        if frame is None or frame.empty:
+            return None
+        mask = (
+            (frame["level1_id"] == str(level1_id))
+            & (frame["level2_id"] == str(level2_id))
+            & (frame["level3_id"] == str(level3_id))
+            & (frame["market"] == str(market))
+        )
+        subset = frame.loc[mask]
+        if subset.empty:
+            return None
+        if as_of:
+            subset = subset[subset["trade_date"] <= as_of]
+            if subset.empty:
+                return None
+        row = subset.sort_values("trade_date").iloc[-1]
+        return {str(k): (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
 
     def get_theme_state(
         self,
@@ -131,24 +159,14 @@ class ThemeStatePrecomputedStore:
         market: str,
         as_of: str | None = None,
     ) -> dict[str, Any] | None:
-        if self._theme_df is None or self._theme_df.empty:
-            return None
-        frame = self._theme_df
-        mask = (
-            (frame["level1_id"] == str(level1_id))
-            & (frame["level2_id"] == str(level2_id))
-            & (frame["level3_id"] == str(level3_id))
-            & (frame["market"] == str(market))
+        return self._latest_keyed_row(
+            self._theme_df,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            market=market,
+            as_of=as_of,
         )
-        subset = frame.loc[mask]
-        if subset.empty:
-            return None
-        if as_of:
-            subset = subset[subset["trade_date"] <= as_of]
-            if subset.empty:
-                return None
-        row = subset.sort_values("trade_date").iloc[-1]
-        return {str(k): (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
 
     def get_horizon_metrics(
         self,
@@ -159,15 +177,44 @@ class ThemeStatePrecomputedStore:
         market: str,
         as_of: str | None = None,
     ) -> dict[str, Any] | None:
-        if self._horizon_df is None or self._horizon_df.empty:
-            return None
-        frame = self._horizon_df
-        mask = (
-            (frame["level1_id"] == str(level1_id))
-            & (frame["level2_id"] == str(level2_id))
-            & (frame["level3_id"] == str(level3_id))
-            & (frame["market"] == str(market))
+        return self._latest_keyed_row(
+            self._horizon_df,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            market=market,
+            as_of=as_of,
         )
+
+    def get_alpha_factors(
+        self,
+        *,
+        level1_id: str,
+        level2_id: str,
+        level3_id: str,
+        market: str,
+        as_of: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._latest_keyed_row(
+            self._alpha_df,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            market=market,
+            as_of=as_of,
+        )
+
+    def get_ticker_alpha_factors(
+        self,
+        *,
+        ticker: str,
+        market: str,
+        as_of: str | None = None,
+    ) -> dict[str, Any] | None:
+        frame = self._ticker_alpha_df
+        if frame is None or frame.empty:
+            return None
+        mask = (frame["ticker"] == str(ticker)) & (frame["market"] == str(market))
         subset = frame.loc[mask]
         if subset.empty:
             return None
@@ -177,6 +224,34 @@ class ThemeStatePrecomputedStore:
                 return None
         row = subset.sort_values("trade_date").iloc[-1]
         return {str(k): (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+
+    def list_ticker_alpha_board(
+        self,
+        *,
+        market: str,
+        factor: str = "s_rs_20d",
+        as_of: str | None = None,
+        limit: int = 50,
+        ascending: bool = False,
+        level3_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Rank tickers by a single alpha factor on ``as_of`` (default latest)."""
+        if self._ticker_alpha_df is None or self._ticker_alpha_df.empty:
+            return []
+        if factor not in self._ticker_alpha_df.columns:
+            return []
+        frame = self._ticker_alpha_df[self._ticker_alpha_df["market"] == str(market)]
+        if level3_id:
+            frame = frame[frame["level3_id"] == str(level3_id)]
+        if frame.empty:
+            return []
+        trade_date = as_of or str(frame["trade_date"].max())
+        day = frame[frame["trade_date"] == trade_date].copy()
+        day = day[pd.to_numeric(day[factor], errors="coerce").notna()]
+        day = day.sort_values([factor, "ticker"], ascending=[ascending, True])
+        if limit > 0:
+            day = day.head(limit)
+        return [{str(k): (None if pd.isna(v) else v) for k, v in row.items()} for row in day.to_dict(orient="records")]
 
     def list_fundamentals_periods(
         self,
@@ -236,90 +311,27 @@ class ThemeStatePrecomputedStore:
             day = day.head(limit)
         return [{str(k): (None if pd.isna(v) else v) for k, v in row.items()} for row in day.to_dict(orient="records")]
 
-    def _latest_keyed_row(
-        self,
-        frame: pd.DataFrame | None,
-        *,
-        level1_id: str,
-        level2_id: str,
-        level3_id: str,
-        market: str,
-        as_of: str | None = None,
-    ) -> dict[str, Any] | None:
-        if frame is None or frame.empty:
-            return None
-        mask = (
-            (frame["level1_id"] == str(level1_id))
-            & (frame["level2_id"] == str(level2_id))
-            & (frame["level3_id"] == str(level3_id))
-            & (frame["market"] == str(market))
-        )
-        subset = frame.loc[mask]
-        if subset.empty:
-            return None
-        if as_of:
-            subset = subset[subset["trade_date"] <= as_of]
-            if subset.empty:
-                return None
-        row = subset.sort_values("trade_date").iloc[-1]
-        return {str(k): (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
-
-    def get_health_radar(
-        self,
-        *,
-        level1_id: str,
-        level2_id: str,
-        level3_id: str,
-        market: str,
-        as_of: str | None = None,
-    ) -> dict[str, Any] | None:
-        return self._latest_keyed_row(
-            self._radar_df,
-            level1_id=level1_id,
-            level2_id=level2_id,
-            level3_id=level3_id,
-            market=market,
-            as_of=as_of,
-        )
-
-    def get_advice(
-        self,
-        *,
-        level1_id: str,
-        level2_id: str,
-        level3_id: str,
-        market: str,
-        as_of: str | None = None,
-    ) -> dict[str, Any] | None:
-        return self._latest_keyed_row(
-            self._advice_df,
-            level1_id=level1_id,
-            level2_id=level2_id,
-            level3_id=level3_id,
-            market=market,
-            as_of=as_of,
-        )
-
-    def list_advice_board(
+    def list_alpha_board(
         self,
         *,
         market: str,
-        horizon: str = "short",
+        factor: str = "s_rs_rotation",
         as_of: str | None = None,
         limit: int = 50,
+        ascending: bool = False,
     ) -> list[dict[str, Any]]:
-        if self._advice_df is None or self._advice_df.empty:
+        """Rank L3 themes by a single alpha factor on ``as_of`` (default latest)."""
+        if self._alpha_df is None or self._alpha_df.empty:
             return []
-        frame = self._advice_df[self._advice_df["market"] == str(market)]
+        if factor not in self._alpha_df.columns:
+            return []
+        frame = self._alpha_df[self._alpha_df["market"] == str(market)]
         if frame.empty:
             return []
         trade_date = as_of or str(frame["trade_date"].max())
         day = frame[frame["trade_date"] == trade_date].copy()
-        rank_col = "mid_rank" if str(horizon).lower() == "mid" else "short_rank"
-        score_col = "mid_score" if str(horizon).lower() == "mid" else "short_score"
-        if rank_col not in day.columns:
-            return []
-        day = day[day[rank_col] > 0].sort_values([rank_col, score_col], ascending=[True, False])
+        day = day[pd.to_numeric(day[factor], errors="coerce").notna()]
+        day = day.sort_values([factor, "level3_id"], ascending=[ascending, True])
         if limit > 0:
             day = day.head(limit)
         return [{str(k): (None if pd.isna(v) else v) for k, v in row.items()} for row in day.to_dict(orient="records")]

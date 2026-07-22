@@ -30,18 +30,21 @@ from dojoagents.dashboard.services.precompute_sector_horizon import (
     SECTOR_HORIZON_METRICS_FILE,
     compute_sector_horizon_metrics_frame,
 )
-from dojoagents.dashboard.services.precompute_sector_radar_advice import (
-    MID_ADVICE_RULE,
-    MID_SCORE_WEIGHTS,
-    RADAR_AXIS_WEIGHTS,
-    RADAR_RULE,
-    SECTOR_ADVICE_DAILY_COLUMNS,
-    SECTOR_ADVICE_DAILY_FILE,
-    SECTOR_HEALTH_RADAR_COLUMNS,
-    SECTOR_HEALTH_RADAR_FILE,
-    SHORT_ADVICE_RULE,
-    SHORT_SCORE_WEIGHTS,
-    compute_sector_radar_advice_frames,
+from dojoagents.dashboard.services.precompute_sector_alpha_factors import (
+    ALPHA_FACTORS_RULE,
+    RESEARCH_ONLY_LEAKAGE_RISK,
+    SECTOR_ALPHA_FACTORS_COLUMNS,
+    SECTOR_ALPHA_FACTORS_FILE,
+    compute_sector_alpha_factors_frame,
+    factor_dictionary,
+)
+from dojoagents.dashboard.services.precompute_ticker_alpha_factors import (
+    RESEARCH_ONLY_LEAKAGE_RISK as TICKER_RESEARCH_ONLY_LEAKAGE_RISK,
+    TICKER_ALPHA_FACTORS_COLUMNS,
+    TICKER_ALPHA_FACTORS_FILE,
+    TICKER_ALPHA_FACTORS_RULE,
+    compute_ticker_alpha_factors_frame,
+    ticker_factor_dictionary,
 )
 from dojoagents.dashboard.services.stock_quote_filter import (
     filter_constituents_frame_by_ticker_cap_min,
@@ -84,10 +87,10 @@ THEME_STATE_DAILY_FILE = "theme_state_daily.parquet"
 MARKET_BENCHMARK_DAILY_FILE = "market_benchmark_daily.parquet"
 FUNDAMENTALS_PERIOD_FILE = "fundamentals_period.parquet"
 MANIFEST_FILE = "manifest.json"
-# Unified bundle schema inside dojo_sector_precomputed (Phase A + theme + horizon + radar/advice).
-SCHEMA_VERSION = "5"
+# Unified bundle schema inside dojo_sector_precomputed (Phase A + theme + horizon + alpha factors).
+SCHEMA_VERSION = "7"
 THEME_STATE_RULES_VERSION = "2"
-SUPPORTED_PHASE_A_SCHEMA_VERSIONS = frozenset({"3", "4", "5"})
+SUPPORTED_PHASE_A_SCHEMA_VERSIONS = frozenset({"3", "4", "5", "6", "7"})
 PHASE_A_BASE_FILES = (CONSTITUENTS_FILE, TICKER_DAILY_FILE, SECTOR_DAILY_FILE)
 
 THEME_STATE_DAILY_COLUMNS = [
@@ -239,7 +242,7 @@ def load_phase_a_snapshot(data_root: Path) -> tuple[pd.DataFrame, pd.DataFrame, 
     if schema not in SUPPORTED_PHASE_A_SCHEMA_VERSIONS:
         raise ValueError(f"Unsupported Phase A schema_version={schema!r}; supported={sorted(SUPPORTED_PHASE_A_SCHEMA_VERSIONS)}")
     # Unified schema 4/5 embeds original Phase A metadata under phase_a.
-    if schema in {"4", "5"} and isinstance(manifest.get("phase_a"), dict):
+    if schema in {"4", "5", "6", "7"} and isinstance(manifest.get("phase_a"), dict):
         nested = dict(manifest.get("phase_a") or {})
         nested.setdefault("schema_version", nested.get("schema_version") or schema)
         nested.setdefault("files", (manifest.get("files") or {}))
@@ -1020,8 +1023,8 @@ def validate_theme_state_frames(
     benchmark_df: pd.DataFrame,
     fundamentals_df: pd.DataFrame,
     horizon_df: pd.DataFrame | None = None,
-    radar_df: pd.DataFrame | None = None,
-    advice_df: pd.DataFrame | None = None,
+    alpha_df: pd.DataFrame | None = None,
+    ticker_alpha_df: pd.DataFrame | None = None,
 ) -> None:
     if list(theme_df.columns) != THEME_STATE_DAILY_COLUMNS:
         raise ValueError("theme_state_daily schema mismatch.")
@@ -1042,20 +1045,18 @@ def validate_theme_state_frames(
             subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]
         ).any():
             raise ValueError("sector_horizon_metrics contains duplicate keys.")
-    if radar_df is not None:
-        if list(radar_df.columns) != SECTOR_HEALTH_RADAR_COLUMNS:
-            raise ValueError("sector_health_radar schema mismatch.")
-        if radar_df.duplicated(
+    if alpha_df is not None:
+        if list(alpha_df.columns) != SECTOR_ALPHA_FACTORS_COLUMNS:
+            raise ValueError("sector_alpha_factors_daily schema mismatch.")
+        if alpha_df.duplicated(
             subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]
         ).any():
-            raise ValueError("sector_health_radar contains duplicate keys.")
-    if advice_df is not None:
-        if list(advice_df.columns) != SECTOR_ADVICE_DAILY_COLUMNS:
-            raise ValueError("sector_advice_daily schema mismatch.")
-        if advice_df.duplicated(
-            subset=["trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"]
-        ).any():
-            raise ValueError("sector_advice_daily contains duplicate keys.")
+            raise ValueError("sector_alpha_factors_daily contains duplicate keys.")
+    if ticker_alpha_df is not None:
+        if list(ticker_alpha_df.columns) != TICKER_ALPHA_FACTORS_COLUMNS:
+            raise ValueError("ticker_alpha_factors_daily schema mismatch.")
+        if ticker_alpha_df.duplicated(subset=["trade_date", "market", "ticker"]).any():
+            raise ValueError("ticker_alpha_factors_daily contains duplicate keys.")
 
 
 def compute_and_stage_theme_state(
@@ -1064,17 +1065,17 @@ def compute_and_stage_theme_state(
     benchmark_df: pd.DataFrame,
     fundamentals_df: pd.DataFrame,
     horizon_df: pd.DataFrame,
-    radar_df: pd.DataFrame,
-    advice_df: pd.DataFrame,
+    alpha_df: pd.DataFrame,
+    ticker_alpha_df: pd.DataFrame,
     out_dir: Path,
     phase_a_dir: Path,
     phase_a_manifest: dict[str, Any],
     start_date: str | None,
     end_date: str | None,
 ) -> tuple[dict[str, Any], Path]:
-    """Stage a unified bundle: Phase A base files + theme/horizon/radar/advice into ``out_dir``."""
+    """Stage unified bundle: Phase A + theme/horizon/sector+ticker alpha factors."""
     validate_theme_state_frames(
-        theme_df, benchmark_df, fundamentals_df, horizon_df, radar_df, advice_df
+        theme_df, benchmark_df, fundamentals_df, horizon_df, alpha_df, ticker_alpha_df
     )
     for name in PHASE_A_BASE_FILES:
         if not (phase_a_dir / name).exists():
@@ -1085,7 +1086,6 @@ def compute_and_stage_theme_state(
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # Preserve Phase A artifacts in the same published dataset.
     for name in PHASE_A_BASE_FILES:
         shutil.copy2(phase_a_dir / name, staging_dir / name)
 
@@ -1093,14 +1093,14 @@ def compute_and_stage_theme_state(
     bench_path = staging_dir / MARKET_BENCHMARK_DAILY_FILE
     fin_path = staging_dir / FUNDAMENTALS_PERIOD_FILE
     horizon_path = staging_dir / SECTOR_HORIZON_METRICS_FILE
-    radar_path = staging_dir / SECTOR_HEALTH_RADAR_FILE
-    advice_path = staging_dir / SECTOR_ADVICE_DAILY_FILE
+    alpha_path = staging_dir / SECTOR_ALPHA_FACTORS_FILE
+    ticker_alpha_path = staging_dir / TICKER_ALPHA_FACTORS_FILE
     theme_df.to_parquet(theme_path, index=False)
     benchmark_df.to_parquet(bench_path, index=False)
     fundamentals_df.to_parquet(fin_path, index=False)
     horizon_df.to_parquet(horizon_path, index=False)
-    radar_df.to_parquet(radar_path, index=False)
-    advice_df.to_parquet(advice_path, index=False)
+    alpha_df.to_parquet(alpha_path, index=False)
+    ticker_alpha_df.to_parquet(ticker_alpha_path, index=False)
 
     generated_at = datetime.now(timezone.utc).isoformat()
     latest = {
@@ -1136,15 +1136,17 @@ def compute_and_stage_theme_state(
         "theme_state_daily_rows": int(len(theme_df)),
         "fundamentals_period_rows": int(len(fundamentals_df)),
         "sector_horizon_metrics_rows": int(len(horizon_df)),
-        "sector_health_radar_rows": int(len(radar_df)),
-        "sector_advice_daily_rows": int(len(advice_df)),
-        "scoring": {
-            "radar_rule": RADAR_RULE,
-            "short_advice_rule": SHORT_ADVICE_RULE,
-            "mid_advice_rule": MID_ADVICE_RULE,
-            "radar_weights": dict(RADAR_AXIS_WEIGHTS),
-            "short_score_weights": dict(SHORT_SCORE_WEIGHTS),
-            "mid_score_weights": dict(MID_SCORE_WEIGHTS),
+        "sector_alpha_factors_daily_rows": int(len(alpha_df)),
+        "ticker_alpha_factors_daily_rows": int(len(ticker_alpha_df)),
+        "alpha_factors": {
+            "rule": ALPHA_FACTORS_RULE,
+            "research_only_leakage_risk": sorted(RESEARCH_ONLY_LEAKAGE_RISK),
+            "dictionary": factor_dictionary(),
+        },
+        "ticker_alpha_factors": {
+            "rule": TICKER_ALPHA_FACTORS_RULE,
+            "research_only_leakage_risk": sorted(TICKER_RESEARCH_ONLY_LEAKAGE_RISK),
+            "dictionary": ticker_factor_dictionary(),
         },
         "rules": {
             "role_filter": ROLE_FILTER,
@@ -1182,13 +1184,13 @@ def compute_and_stage_theme_state(
                 "rows": len(horizon_df),
                 "sha256": _file_sha256(horizon_path),
             },
-            SECTOR_HEALTH_RADAR_FILE: {
-                "rows": len(radar_df),
-                "sha256": _file_sha256(radar_path),
+            SECTOR_ALPHA_FACTORS_FILE: {
+                "rows": len(alpha_df),
+                "sha256": _file_sha256(alpha_path),
             },
-            SECTOR_ADVICE_DAILY_FILE: {
-                "rows": len(advice_df),
-                "sha256": _file_sha256(advice_path),
+            TICKER_ALPHA_FACTORS_FILE: {
+                "rows": len(ticker_alpha_df),
+                "sha256": _file_sha256(ticker_alpha_path),
             },
         },
     }
@@ -1226,7 +1228,7 @@ async def build_theme_state_precomputed(
     skip_volume_enrich: bool = False,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    """Enrich ``dojo_sector_precomputed`` with theme-state, horizon, radar, and advice."""
+    """Enrich ``dojo_sector_precomputed`` with theme-state, horizon, and sector/ticker alpha factors."""
     data_root = data_root.expanduser().resolve()
     out_dir = (out_dir or (data_root / PHASE_A_DIR)).resolve()
     phase_a_source_dir = data_root / PHASE_A_DIR
@@ -1260,9 +1262,27 @@ async def build_theme_state_precomputed(
             fin_store=fin_store,
             on_progress=on_progress,
         )
+    else:
+        # Reuse previously published fundamentals_period (avoid wiping on skip).
+        existing_fin = out_dir / FUNDAMENTALS_PERIOD_FILE
+        if existing_fin.exists():
+            existing_fin_df = await asyncio.to_thread(pd.read_parquet, existing_fin)
+            for row in existing_fin_df.to_dict(orient="records"):
+                key = (
+                    str(row.get("market") or ""),
+                    str(row.get("level1_id") or ""),
+                    str(row.get("level2_id") or ""),
+                    str(row.get("level3_id") or ""),
+                )
+                fundamentals_by_theme.setdefault(key, []).append(row)
+            LOGGER.info(
+                "Reused %s fundamentals_period rows from %s (skip_fundamentals)",
+                len(existing_fin_df),
+                existing_fin,
+            )
 
     if on_progress is not None:
-        on_progress("compute", 0, 3)
+        on_progress("compute", 0, 4)
     theme_df, benchmark_df, fundamentals_df = await asyncio.to_thread(
         compute_theme_state_frames,
         constituents=constituents,
@@ -1275,7 +1295,7 @@ async def build_theme_state_precomputed(
         end_date=end_date,
     )
     if on_progress is not None:
-        on_progress("compute", 1, 3)
+        on_progress("compute", 1, 4)
 
     horizon_source = sector_daily
     if start_date:
@@ -1290,15 +1310,28 @@ async def build_theme_state_precomputed(
         link_key_by_level3=link_key_by_level3,
     )
     if on_progress is not None:
-        on_progress("compute", 2, 3)
+        on_progress("compute", 2, 4)
 
-    radar_df, advice_df = await asyncio.to_thread(
-        compute_sector_radar_advice_frames,
+    alpha_df = await asyncio.to_thread(
+        compute_sector_alpha_factors_frame,
         theme_state_daily=theme_df,
         sector_horizon_metrics=horizon_df,
+        constituents=constituents,
+        ticker_daily=ticker_daily,
+        sector_daily=sector_daily,
     )
     if on_progress is not None:
-        on_progress("compute", 3, 3)
+        on_progress("compute", 3, 4)
+
+    ticker_alpha_df = await asyncio.to_thread(
+        compute_ticker_alpha_factors_frame,
+        ticker_daily=ticker_daily,
+        constituents=constituents,
+        benchmark_daily=benchmark_df,
+        sector_daily=sector_daily,
+    )
+    if on_progress is not None:
+        on_progress("compute", 4, 4)
         on_progress("publish", 0, 1)
 
     manifest, staging_dir = await asyncio.to_thread(
@@ -1307,8 +1340,8 @@ async def build_theme_state_precomputed(
         benchmark_df=benchmark_df,
         fundamentals_df=fundamentals_df,
         horizon_df=horizon_df,
-        radar_df=radar_df,
-        advice_df=advice_df,
+        alpha_df=alpha_df,
+        ticker_alpha_df=ticker_alpha_df,
         out_dir=out_dir,
         phase_a_dir=phase_a_source_dir,
         phase_a_manifest=phase_a_manifest,
