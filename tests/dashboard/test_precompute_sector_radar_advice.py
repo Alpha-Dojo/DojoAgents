@@ -55,7 +55,7 @@ def test_compute_radar_and_advice_separates_short_mid() -> None:
                 "relative_strength_20d": 8.0,
                 "rotation_rank": 1,
                 "rs_rank_universe_size": 2,
-                "confirmation_score": 1.0,
+                "confirmation_score": 100.0,
                 "industry_revenue_yoy_pct": 5.0,
                 "industry_net_profit_yoy_pct": 4.0,
                 "revenue_improvers_pct": 55.0,
@@ -169,5 +169,79 @@ def test_compute_radar_and_advice_separates_short_mid() -> None:
 
     radar = radar_df.set_index("level3_id")
     assert math.isfinite(float(radar.loc["A", "overall_score"]))
+    assert 0.0 <= float(radar.loc["A", "overall_score"]) <= 100.0
+    assert 0.0 <= float(radar.loc["A", "score_relative_strength"]) <= 100.0
+    assert 0.0 <= float(radar.loc["B", "score_relative_strength"]) <= 100.0
     assert radar.loc["A", "score_relative_strength"] >= radar.loc["B", "score_relative_strength"]
     assert radar.loc["B", "score_fundamental_trend"] >= radar.loc["A", "score_fundamental_trend"]
+
+
+def test_confirmation_score_already_percent_not_rescaled() -> None:
+    """theme_state writes confirmation as 0–100; radar must not multiply by 100 again."""
+    theme = pd.DataFrame(
+        [
+            {
+                "trade_date": "2026-07-20",
+                "market": "sh",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "X",
+                "link_key": "theme-x",
+                "eligible_count": 10,
+                "row_status": "ok",
+                "breadth_score": 50.0,
+                "volume_expansion_pct": 50.0,
+                "new_highs_pct": 10.0,
+                "return_5d_pct": 1.0,
+                "return_20d_pct": 2.0,
+                "risk_adjusted_20d": 0.2,
+                "up_streak_days": 1,
+                "down_streak_days": 0,
+                "volatility_20d_pct": 15.0,
+                "relative_strength_20d": 1.0,
+                "rotation_rank": 1,
+                "rs_rank_universe_size": 2,
+                "confirmation_score": 100.0,
+                "industry_revenue_yoy_pct": 10.0,
+                "industry_net_profit_yoy_pct": 10.0,
+                "revenue_improvers_pct": 50.0,
+                "stage_hint": "stable",
+                "fin_status": "ok",
+            },
+            {
+                "trade_date": "2026-07-20",
+                "market": "sh",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "Y",
+                "link_key": "theme-y",
+                "eligible_count": 10,
+                "row_status": "ok",
+                "breadth_score": 40.0,
+                "volume_expansion_pct": 40.0,
+                "new_highs_pct": 5.0,
+                "return_5d_pct": 0.5,
+                "return_20d_pct": 1.0,
+                "risk_adjusted_20d": 0.1,
+                "up_streak_days": 0,
+                "down_streak_days": 1,
+                "volatility_20d_pct": 18.0,
+                "relative_strength_20d": 0.5,
+                "rotation_rank": 2,
+                "rs_rank_universe_size": 2,
+                "confirmation_score": 50.0,
+                "industry_revenue_yoy_pct": 8.0,
+                "industry_net_profit_yoy_pct": 8.0,
+                "revenue_improvers_pct": 40.0,
+                "stage_hint": "stable",
+                "fin_status": "ok",
+            },
+        ]
+    )
+    radar_df, _ = compute_sector_radar_advice_frames(theme_state_daily=theme, sector_horizon_metrics=None)
+    row = radar_df.set_index("level3_id").loc["X"]
+    assert float(row["raw_confirmation_score"]) == pytest.approx(100.0)
+    assert float(row["score_relative_strength"]) <= 100.0
+    assert float(row["overall_score"]) <= 100.0

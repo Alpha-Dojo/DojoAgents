@@ -426,7 +426,9 @@ def _score_group(group: pd.DataFrame) -> pd.DataFrame:
         val_safety.append(score)
     val_series = pd.Series(val_safety, index=g.index, dtype=float)
 
-    conf = pd.to_numeric(g.get("confirmation_score", pd.Series(np.nan, index=g.index)), errors="coerce") * 100.0
+    # theme_state confirmation_score is already 0–100 (ups/available*100).
+    conf = pd.to_numeric(g.get("confirmation_score", pd.Series(np.nan, index=g.index)), errors="coerce")
+    conf = conf.clip(lower=0.0, upper=100.0)
 
     radar_rows: list[dict[str, Any]] = []
     advice_rows: list[dict[str, Any]] = []
