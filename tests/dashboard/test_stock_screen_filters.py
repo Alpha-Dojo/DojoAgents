@@ -11,6 +11,7 @@ from dojoagents.dashboard.services.stock_quote_filter import (
     change_significance_score,
     configure_ticker_market_cap_mins,
     effective_min_market_cap,
+    filter_constituents_frame_by_ticker_cap_min,
     passes_market_cap_floor,
     stock_passes_market_screen_hard_filters,
 )
@@ -115,6 +116,82 @@ def test_passes_market_cap_floor_uses_strict_greater_than() -> None:
     assert passes_market_cap_floor("us", 2e9, min_market_cap=None) is True
     assert passes_market_cap_floor("us", 1e9, min_market_cap=None) is False
     assert passes_market_cap_floor("us", 5e8, min_market_cap=0) is True
+
+
+def test_filter_constituents_frame_by_ticker_cap_min() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [
+            {"market": "us", "ticker": "BIG", "market_cap": 2e9},
+            {"market": "us", "ticker": "TINY", "market_cap": 5e8},
+            {"market": "us", "ticker": "EDGE", "market_cap": 1e9},
+            {"market": "hk", "ticker": "OK", "market_cap": 1.5e9},
+        ]
+    )
+    filtered = filter_constituents_frame_by_ticker_cap_min(frame)
+    assert list(filtered["ticker"]) == ["BIG", "OK"]
+
+
+def test_sector_precomputed_store_drops_below_floor_on_reload(tmp_path, monkeypatch) -> None:
+    import json
+
+    import pandas as pd
+
+    from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
+
+    monkeypatch.setenv("DOJO_HF_OFFLINE", "1")
+
+    dataset = tmp_path / "dojo_sector_precomputed"
+    dataset.mkdir()
+    constituents = pd.DataFrame(
+        [
+            {
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "3",
+                "market": "us",
+                "ticker": "BIG",
+                "role": "primary",
+                "market_cap": 2e9,
+                "pe": 10.0,
+            },
+            {
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "3",
+                "market": "us",
+                "ticker": "TINY",
+                "role": "primary",
+                "market_cap": 1e8,
+                "pe": 10.0,
+            },
+        ]
+    )
+    empty_daily = pd.DataFrame(
+        columns=[
+            "trade_date",
+            "market",
+            "scope",
+            "level1_id",
+            "level2_id",
+            "level3_id",
+            "index_level",
+            "daily_return_pct",
+            "member_count",
+            "coverage_ratio",
+        ]
+    )
+    empty_ticker = pd.DataFrame(columns=["market", "ticker", "trade_date", "close", "daily_return_pct", "market_cap"])
+    constituents.to_parquet(dataset / "constituents.parquet", index=False)
+    empty_daily.to_parquet(dataset / "sector_daily.parquet", index=False)
+    empty_ticker.to_parquet(dataset / "ticker_daily.parquet", index=False)
+    (dataset / "manifest.json").write_text(json.dumps({"schema_version": "3"}), encoding="utf-8")
+
+    store = SectorPrecomputedStore(tmp_path)
+    store.reload(dataset)
+    rows = store.get_sector_constituents_exact("1", "2", "3", market="us")
+    assert [row["ticker"] for row in rows] == ["BIG"]
 
 
 def test_change_significance_score_prefers_larger_caps_at_same_move() -> None:

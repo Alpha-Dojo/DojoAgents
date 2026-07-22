@@ -50,6 +50,22 @@ def extract_report_date(row: dict) -> str:
         return text[:10]
 
 
+def extract_period_end_date(row: dict) -> str:
+    """Actual fiscal period-end date (prefer report_date over vendor std calendarization)."""
+    raw = row.get("report_date") or row.get("period_end") or row.get("std_report_date") or ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    elif " " in text:
+        text = text.split(" ", 1)[0]
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return text[:10]
+
+
 def sort_fin_rows(rows: List[dict]) -> List[dict]:
     return sorted(rows, key=lambda row: (extract_report_date(row), str(row.get("report_period_name") or "")))
 
@@ -265,6 +281,35 @@ def comparable_quarter_key(row: dict) -> Optional[Tuple[str, str]]:
         if quarter:
             return report_date[:4], quarter
     return None
+
+
+def calendar_quarter_from_iso_date(iso_date: str) -> Optional[Tuple[str, str]]:
+    """Map an ISO date to the natural calendar quarter that contains it."""
+    text = str(iso_date or "").strip()
+    if len(text) < 7:
+        return None
+    year = text[:4]
+    try:
+        month = int(text[5:7])
+    except ValueError:
+        return None
+    if month < 1 or month > 12:
+        return None
+    quarter = COMPARABLE_QUARTERS[(month - 1) // 3]
+    return year, quarter
+
+
+def natural_comparable_quarter_key(row: dict) -> Optional[Tuple[str, str]]:
+    """Return (year, q1|q2|q3|q4) in natural calendar space for cross-ticker alignment.
+
+    Fiscal report labels (e.g. APD ``2026年第二季报``) are remapped using the actual
+    period-end date so they align with calendar-year peers (PLUG ``2026年一季报``).
+    """
+    period_end = extract_period_end_date(row)
+    natural = calendar_quarter_from_iso_date(period_end)
+    if natural is not None:
+        return natural
+    return comparable_quarter_key(row)
 
 
 def prepare_single_quarter_rows(rows: List[dict], market: str) -> List[dict]:

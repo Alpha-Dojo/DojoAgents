@@ -147,6 +147,16 @@ class SectorMoverItem(BaseModel):
     member_count: int = 0
     sample_tickers: List[str] = Field(default_factory=list)
     top_members: List[SectorMoverMember] = Field(default_factory=list)
+    # Leader concentration: top contributor share of sector return (may exceed 100%).
+    leader_ticker: Optional[str] = None
+    leader_weight_pct: Optional[float] = None
+    leader_return_pct: Optional[float] = None
+    leader_contribution_pct: Optional[float] = None
+    leader_concentration_pct: Optional[float] = None
+    leader_concentration_tier: Optional[str] = Field(
+        default=None,
+        description="extreme (>80%) | moderate (50-80%) | healthy (<50%), by abs(concentration)",
+    )
 
 
 class MarketSectorMovers(BaseModel):

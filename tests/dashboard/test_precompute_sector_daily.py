@@ -11,6 +11,7 @@ from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineRe
 from dojoagents.dashboard.services.precompute_sector_daily import (
     MANIFEST_FILE,
     build_sector_precomputed,
+    validate_precompute_market_coverage,
 )
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
@@ -199,7 +200,7 @@ async def test_build_sector_precomputed_excludes_below_ticker_cap_floor(tmp_path
         ),
     )
 
-    with pytest.raises(ValueError, match="No eligible constituents"):
+    with pytest.raises(ValueError, match="0 eligible constituents"):
         await build_sector_precomputed(
             data_root=tmp_path,
             sector_store=StubSectorStore(path),
@@ -209,3 +210,36 @@ async def test_build_sector_precomputed_excludes_below_ticker_cap_floor(tmp_path
             start_date="2025-01-02",
             upload_client=StubDojoClient(),
         )
+
+
+def test_validate_precompute_market_coverage_rejects_dropped_market() -> None:
+    with pytest.raises(ValueError, match="Market 'us'.*0 eligible constituents"):
+        validate_precompute_market_coverage(
+            {
+                "markets": {
+                    "us": {
+                        "candidate_assignments": 100,
+                        "eligible_constituents": 0,
+                        "missing_quote": 99,
+                        "missing_stock": 1,
+                    },
+                    "sh": {
+                        "candidate_assignments": 50,
+                        "eligible_constituents": 40,
+                        "missing_quote": 0,
+                        "missing_stock": 0,
+                    },
+                }
+            }
+        )
+
+
+def test_validate_precompute_market_coverage_allows_healthy_markets() -> None:
+    validate_precompute_market_coverage(
+        {
+            "markets": {
+                "us": {"candidate_assignments": 100, "eligible_constituents": 80, "missing_quote": 10},
+                "sh": {"candidate_assignments": 50, "eligible_constituents": 50, "missing_quote": 0},
+            }
+        }
+    )

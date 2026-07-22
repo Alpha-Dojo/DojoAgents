@@ -23,6 +23,12 @@ export const enMessages: MessageTree = {
     noSectorInMarket: 'No matching sector in this market',
     sortByCap: 'Sort by market cap',
     sortByChange: 'Sort by change',
+    leaderConcentration: 'Leader contrib. {pct}%',
+    leaderConcentrationTier: {
+      extreme: 'Extreme',
+      moderate: 'Moderate',
+      healthy: 'Healthy',
+    },
   },
   market: {
     listedCount: 'Listed',

@@ -84,6 +84,39 @@ def build_parser() -> argparse.ArgumentParser:
     precompute.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
     precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
     precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
+    precompute.add_argument(
+        "--with-theme-state",
+        action="store_true",
+        help="After Phase A, enrich with theme-state, horizon, radar, and short/mid advice",
+    )
+    precompute.add_argument(
+        "--skip-fundamentals",
+        action="store_true",
+        help="When used with --with-theme-state, skip fundamentals_lite fetch",
+    )
+    precompute.add_argument(
+        "--skip-volume-enrich",
+        action="store_true",
+        help="When used with --with-theme-state, skip kline volume enrichment",
+    )
+
+    theme_state = sub.add_parser(
+        "precompute-sector-theme-state",
+        help=(
+            "Enrich dojo_sector_precomputed with theme-state, horizon metrics, "
+            "health radar, and short/mid advice scores"
+        ),
+    )
+    theme_state.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
+    theme_state.add_argument("--start-date", default=None, help="Optional first trade date to include")
+    theme_state.add_argument("--end-date", default=None, help="Optional last trade date to include")
+    theme_state.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload unified snapshot to dojo_sector_precomputed",
+    )
+    theme_state.add_argument("--skip-fundamentals", action="store_true", help="Skip fundamentals_lite aggregation")
+    theme_state.add_argument("--skip-volume-enrich", action="store_true", help="Skip kline volume enrichment for breadth")
 
     from dojoagents.cli.tasks import add_tasks_parser
 
@@ -226,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
         from dojoagents.cli.precompute_sector import run_precompute_sector
 
         return asyncio.run(run_precompute_sector(args))
+    if args.command == "precompute-sector-theme-state":
+        from dojoagents.cli.precompute_sector_theme_state import run_precompute_sector_theme_state
+
+        return asyncio.run(run_precompute_sector_theme_state(args))
     if args.command == "tasks":
         from dojoagents.cli.tasks import run_tasks_command
 

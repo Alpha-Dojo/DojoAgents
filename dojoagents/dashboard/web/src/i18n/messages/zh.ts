@@ -21,6 +21,12 @@ export const zhMessages = {
     noSectorInMarket: '该市场暂无此板块',
     sortByCap: '按市值排序',
     sortByChange: '按涨跌幅排序',
+    leaderConcentration: '龙头贡献 {pct}%',
+    leaderConcentrationTier: {
+      extreme: '极度集中',
+      moderate: '中等集中',
+      healthy: '健康分散',
+    },
   },
   market: {
     listedCount: '上市公司数',
@@ -802,7 +808,11 @@ export const zhMessages = {
 } as const;
 
 export type MessageTree = {
-  sector: Record<keyof typeof zhMessages.sector, string>;
+  sector: {
+    [K in keyof typeof zhMessages.sector]: typeof zhMessages.sector[K] extends string
+      ? string
+      : Record<string, string>;
+  };
   market: Record<keyof typeof zhMessages.market, string>;
   marketPage: Record<keyof typeof zhMessages.marketPage, string>;
   eventCategory: Record<keyof typeof zhMessages.eventCategory, string>;
