@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.agent.presenters import ToolResultPresenterRegistry
+from dojoagents.harnesses.built_in.financial.presenters.legacy_registry import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall
-from dojoagents.tools.dojo_sdk_tool import DojoSDKToolManager
-from dojoagents.tools.agent_viz import build_viz_blocks, get_agent_viz_specs
+from dojoagents.harnesses.built_in.financial.tools.sdk_runtime import (
+    DojoSDKToolManager,
+)
+from dojoagents.harnesses.built_in.financial.tools.visualization_engine import (
+    build_viz_blocks,
+    get_agent_viz_specs,
+)
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -421,7 +426,7 @@ def test_presenter_ignores_auto_viz_failures(monkeypatch: pytest.MonkeyPatch) ->
     def boom(*args, **kwargs):
         raise RuntimeError("mapper broke")
 
-    monkeypatch.setattr("dojoagents.agent.presenters.build_viz_blocks", boom)
+    monkeypatch.setattr("dojoagents.harnesses.built_in.financial.presenters.legacy_registry.build_viz_blocks", boom)
     normalized = ToolResultPresenterRegistry().normalize(
         "dojo.sdk.stock.current_quote",
         {"data": {"symbol": "AAPL", "last_price": 200}},

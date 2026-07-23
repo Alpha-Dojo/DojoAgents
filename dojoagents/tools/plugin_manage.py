@@ -11,6 +11,7 @@ from dojoagents.plugins.registry import DojoPluginRegistry
 
 LOGGER = logging.getLogger("dojoagents.tools.plugin_manage")
 
+
 class PluginListTool:
     def __init__(self, plugin_registry: DojoPluginRegistry) -> None:
         self.plugin_registry = plugin_registry
@@ -23,7 +24,7 @@ class PluginListTool:
                 "type": "object",
                 "properties": {},
             },
-            handler=self.handle_call
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -31,23 +32,23 @@ class PluginListTool:
         try:
             plugins_data = []
             for manifest in self.plugin_registry._manifests.values():
-                plugins_data.append({
-                    "name": manifest.name,
-                    "version": manifest.version,
-                    "description": manifest.description,
-                    "source": manifest.source,
-                    "is_claude": manifest.is_claude,
-                    "provides_tools": manifest.provides_tools,
-                    "provides_hooks": manifest.provides_hooks,
-                    "path": manifest.path,
-                })
-            return {
-                "content": json.dumps(plugins_data, indent=2, ensure_ascii=False),
-                "metadata": {"ok": True}
-            }
+                plugins_data.append(
+                    {
+                        "name": manifest.name,
+                        "version": manifest.version,
+                        "description": manifest.description,
+                        "source": manifest.source,
+                        "is_claude": manifest.is_claude,
+                        "provides_tools": manifest.provides_tools,
+                        "provides_hooks": manifest.provides_hooks,
+                        "path": manifest.path,
+                    }
+                )
+            return {"content": json.dumps(plugins_data, indent=2, ensure_ascii=False), "metadata": {"ok": True}}
         except Exception as e:
             LOGGER.error(f"Failed to list plugins: {e}", exc_info=True)
             return {"content": f"Failed to list plugins: {e}", "metadata": {"ok": False}}
+
 
 class PluginDeleteTool:
     def __init__(self, plugin_registry: DojoPluginRegistry) -> None:
@@ -57,17 +58,8 @@ class PluginDeleteTool:
         return ToolSpec(
             name="delete_plugin",
             description="Delete a plugin by its name. Only user-installed plugins can be deleted.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "The exact name of the plugin to delete."
-                    }
-                },
-                "required": ["name"]
-            },
-            handler=self.handle_call
+            parameters={"type": "object", "properties": {"name": {"type": "string", "description": "The exact name of the plugin to delete."}}, "required": ["name"]},
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -96,10 +88,7 @@ class PluginDeleteTool:
                 plugin_path.relative_to(user_plugins_root)
             except ValueError:
                 LOGGER.warning(f"Security Alert: Blocked attempt to delete out-of-bounds plugin directory: {plugin_path}")
-                return {
-                    "content": f"Security Error: Plugin path '{plugin_path}' is outside the authorized user plugins directory.",
-                    "metadata": {"ok": False}
-                }
+                return {"content": f"Security Error: Plugin path '{plugin_path}' is outside the authorized user plugins directory.", "metadata": {"ok": False}}
 
             if not plugin_path.exists():
                 return {"content": f"Plugin directory '{plugin_path}' does not exist.", "metadata": {"ok": False}}
@@ -111,10 +100,7 @@ class PluginDeleteTool:
             # Hot-reload the plugin registry to remove the plugin from memory
             self.plugin_registry.discover_and_load(force=True)
 
-            return {
-                "content": f"Plugin '{name}' deleted successfully and registry reloaded.",
-                "metadata": {"ok": True}
-            }
+            return {"content": f"Plugin '{name}' deleted successfully and registry reloaded.", "metadata": {"ok": True}}
         except Exception as e:
             LOGGER.error(f"Failed to delete plugin '{name}': {e}", exc_info=True)
             return {"content": f"Failed to delete plugin '{name}': {e}", "metadata": {"ok": False}}

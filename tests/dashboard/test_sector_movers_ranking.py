@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.sector_movers_ranking import (
+from dojoagents.harnesses.built_in.financial.services.sector_movers_ranking import (
     DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
     MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING,
     sector_eligible_for_movers_ranking,
@@ -20,16 +20,22 @@ def test_sector_eligible_requires_multi_member_basket() -> None:
 
 
 def test_sector_eligible_respects_total_market_cap_floor() -> None:
-    assert sector_eligible_for_movers_ranking(
-        member_count=5,
-        total_market_cap=50.0,
-        min_total_market_cap=100.0,
-    ) is False
-    assert sector_eligible_for_movers_ranking(
-        member_count=5,
-        total_market_cap=150.0,
-        min_total_market_cap=100.0,
-    ) is True
+    assert (
+        sector_eligible_for_movers_ranking(
+            member_count=5,
+            total_market_cap=50.0,
+            min_total_market_cap=100.0,
+        )
+        is False
+    )
+    assert (
+        sector_eligible_for_movers_ranking(
+            member_count=5,
+            total_market_cap=150.0,
+            min_total_market_cap=100.0,
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(

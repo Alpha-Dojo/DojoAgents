@@ -16,7 +16,7 @@ class ChatRequest:
     session_id: str = ""
     channel: str = "cli"
     # Compatibility payload retained until every surface uses ``context``.
-    # Core intentionally does not import the financial QuantContext type.
+    # Core intentionally does not import a Harness-owned request-context type.
     quant: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
     principal: SessionPrincipal | None = None

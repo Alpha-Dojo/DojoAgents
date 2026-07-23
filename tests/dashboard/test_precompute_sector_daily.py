@@ -6,16 +6,16 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_daily import (
     MANIFEST_FILE,
     build_sector_precomputed,
     validate_precompute_market_coverage,
 )
-from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
-from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
-from dojoagents.dashboard.services.stock_sector_store import SectorAssignment
+from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.harnesses.built_in.financial.services.sector_store import ResolvedSectorPath
+from dojoagents.harnesses.built_in.financial.services.stock_sector_store import SectorAssignment
 
 
 class StubSectorStore:
@@ -86,9 +86,7 @@ class StubDojoClient:
 
 
 @pytest.mark.asyncio
-async def test_build_sector_precomputed_publishes_market_aware_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOJO_HF_OFFLINE", "true")
     path = ResolvedSectorPath(
         level1_id="L1",

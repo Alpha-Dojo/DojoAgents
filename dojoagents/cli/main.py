@@ -13,20 +13,28 @@ from dojoagents.agent.runtime import Runtime
 from dojoagents.cli.gateway_setup import configure_gateway_adapters
 from dojoagents.dashboard.server import create_app as create_dashboard_app
 from dojoagents.gateway.server import create_runner_app as create_gateway_app
-from dojoagents.quant.context import QuantContext
 from dojoagents.sessions.models import SessionPrincipal
 
 
-def build_parser() -> argparse.ArgumentParser:
+def _configured_cli_surface():
+    from dojoagents.config.loader import ConfigStore
+
+    runtime = Runtime.compose(ConfigStore(), host="cli")
+    try:
+        return runtime.surface("cli")
+    except KeyError:
+        return None
+
+
+def build_parser(cli_surface=None) -> argparse.ArgumentParser:
+    if cli_surface is None:
+        cli_surface = _configured_cli_surface()
     parser = argparse.ArgumentParser(prog="dojoagents")
     sub = parser.add_subparsers(dest="command", required=True)
 
     chat = sub.add_parser("chat")
     chat.add_argument("message", nargs="?", default="")
     chat.add_argument("--profile", default="default")
-    chat.add_argument("--market", choices=["stock", "crypto"])
-    chat.add_argument("--symbols", default="")
-    chat.add_argument("--timeframe", default="1d")
 
     dashboard = sub.add_parser("dashboard")
     dashboard.add_argument("--host", default="127.0.0.1")
@@ -91,69 +99,21 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
     _ = mcp_sub.add_parser("serve")
 
-    precompute = sub.add_parser("precompute-sector", help="Precompute sector daily metrics and returns")
-    precompute.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
-    precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
-    precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
-    precompute.add_argument(
-        "--with-theme-state",
-        action="store_true",
-        help="After Phase A, enrich with theme-state, horizon, radar, and short/mid advice",
-    )
-    precompute.add_argument(
-        "--skip-fundamentals",
-        action="store_true",
-        help="When used with --with-theme-state, skip fundamentals_lite fetch",
-    )
-    precompute.add_argument(
-        "--skip-volume-enrich",
-        action="store_true",
-        help="When used with --with-theme-state, skip kline volume enrichment",
-    )
-
-    theme_state = sub.add_parser(
-        "precompute-sector-theme-state",
-        help=("Enrich dojo_sector_precomputed with theme-state, horizon metrics, " "health radar, and short/mid advice scores"),
-    )
-    theme_state.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
-    theme_state.add_argument(
-        "--input-dir",
-        type=Path,
-        default=None,
-        help="Directory produced by precompute-sector (default: <data-root>/dojo_sector_precomputed)",
-    )
-    theme_state.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help="Unified snapshot directory (default: <data-root>/dojo_sector_precomputed)",
-    )
-    theme_state.add_argument("--start-date", default=None, help="Optional first trade date to include")
-    theme_state.add_argument("--end-date", default=None, help="Optional last trade date to include")
-    theme_state.add_argument(
-        "--upload",
-        action="store_true",
-        help="Upload unified snapshot to dojo_sector_precomputed",
-    )
-    theme_state.add_argument("--skip-fundamentals", action="store_true", help="Skip fundamentals_lite aggregation")
-    theme_state.add_argument("--skip-volume-enrich", action="store_true", help="Skip kline volume enrichment for breadth")
-
-    from dojoagents.cli.tasks import add_tasks_parser
-
-    add_tasks_parser(sub)
+    configure_surface = getattr(cli_surface, "configure_parser", None)
+    if callable(configure_surface):
+        configure_surface(sub, chat)
 
     return parser
 
 
-async def _run_chat(args: argparse.Namespace) -> int:
+async def _run_chat(args: argparse.Namespace, cli_surface=None) -> int:
     runtime = Runtime.from_default_config()
-    quant = None
-    if args.market and args.symbols:
-        quant = QuantContext(
-            market=args.market,
-            symbols=[symbol.strip() for symbol in args.symbols.split(",") if symbol.strip()],
-            timeframe=args.timeframe,
-        )
+    context_factory = getattr(
+        cli_surface,
+        "request_context_from_args",
+        None,
+    )
+    quant = context_factory(args) if callable(context_factory) else None
     response = await runtime.agent.run(
         ChatRequest(
             principal=SessionPrincipal("local"),
@@ -244,14 +204,15 @@ async def _run_canonical_sessions(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    cli_surface = _configured_cli_surface()
     try:
-        args = build_parser().parse_args(argv)
+        args = build_parser(cli_surface).parse_args(argv)
     except SystemExit as exc:
         if argv is not None:
             return int(exc.code)
         raise
     if args.command == "chat":
-        return asyncio.run(_run_chat(args))
+        return asyncio.run(_run_chat(args, cli_surface))
     if args.command == "dashboard":
         runtime = Runtime.from_default_config()
         uvicorn.run(create_dashboard_app(runtime), host=args.host, port=args.port)
@@ -319,18 +280,11 @@ def main(argv: list[str] | None = None) -> int:
 
             run_server()
             return 0
-    if args.command == "precompute-sector":
-        from dojoagents.cli.precompute_sector import run_precompute_sector
-
-        return asyncio.run(run_precompute_sector(args))
-    if args.command == "precompute-sector-theme-state":
-        from dojoagents.cli.precompute_sector_theme_state import run_precompute_sector_theme_state
-
-        return asyncio.run(run_precompute_sector_theme_state(args))
-    if args.command == "tasks":
-        from dojoagents.cli.tasks import run_tasks_command
-
-        return asyncio.run(run_tasks_command(args))
+    surface_handler = getattr(cli_surface, "run_command", None)
+    if callable(surface_handler):
+        result = asyncio.run(surface_handler(args))
+        if result is not None:
+            return result
     return 2
 
 

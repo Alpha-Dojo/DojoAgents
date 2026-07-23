@@ -5,13 +5,13 @@ import math
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_sector_horizon import (
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_horizon import (
     SECTOR_HORIZON_METRICS_COLUMNS,
     compute_sector_horizon_metrics_frame,
     max_drawdown_pct,
     summarize_multi_quarter_fundamentals,
 )
-from dojoagents.dashboard.services.theme_state_metrics import list_report_period_keys
+from dojoagents.harnesses.built_in.financial.services.theme_state_metrics import list_report_period_keys
 
 
 def test_max_drawdown_pct() -> None:

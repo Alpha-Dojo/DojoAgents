@@ -6,11 +6,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import (
+from dojoagents.tools.artifacts import (
+    ToolResultArtifactAdapter,
     ToolResultArtifactStore,
-    extract_viz_payload_from_content,
-    get_tool_artifact_schema_hint,
-    get_viz_hint_for_payload,
 )
 from dojoagents.logging import get_logger
 from dojoagents.tools.dojo_tools_stub import (
@@ -171,6 +169,7 @@ def _build_execute_code_data(session_output_files: list[dict[str, Any]]) -> dict
     data.update(session_output_files[-1])
     return data
 
+
 if sys.platform == "win32":
     import dojoagents.tools.af_unix_asyncio_compat as af_unix_asyncio_compat
 
@@ -187,12 +186,14 @@ class AsyncCodeExecutionRPC:
         *,
         max_tool_calls: int = 20,
         artifact_store: ToolResultArtifactStore | None = None,
+        artifact_adapter: ToolResultArtifactAdapter | None = None,
         agent_session_id: str = "",
     ):
         self.socket_path = socket_path
         self.tool_registry = tool_registry
         self.max_tool_calls = max_tool_calls
         self.artifact_store = artifact_store
+        self.artifact_adapter = artifact_adapter
         self.agent_session_id = agent_session_id
         self.server = None
         self.tool_call_counter = 0
@@ -241,21 +242,16 @@ class AsyncCodeExecutionRPC:
                 "data": None,
                 "error": f"Tool result artifact not found for call_id={call_id}",
             }
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            extracted = extract_viz_payload_from_content(str(payload.get("content") or ""))
-            if extracted is not None:
-                data = extracted
-        viz_hint = get_viz_hint_for_payload(data if isinstance(data, dict) else None)
-        return {
+        response = {
             "ok": True,
             "content": payload.get("content", ""),
-            "data": data,
+            "data": payload.get("data"),
             "tool_name": str(payload.get("tool_name") or ""),
-            "schema_hint": get_tool_artifact_schema_hint(str(payload.get("tool_name") or "")),
-            "viz_hint": viz_hint,
             "error": None,
         }
+        if self.artifact_adapter is not None:
+            response = self.artifact_adapter.enrich_loaded_payload(response)
+        return response
 
     def _list_tool_results(self) -> dict[str, Any]:
         if self.artifact_store is None or not self.agent_session_id:
@@ -323,6 +319,7 @@ async def handle_code_execution(
     *,
     max_tool_calls: int = 20,
     artifact_store: ToolResultArtifactStore | None = None,
+    artifact_adapter: ToolResultArtifactAdapter | None = None,
     agent_session_id: str = "",
     sessions_root: str | Path = "",
 ) -> dict:
@@ -335,6 +332,7 @@ async def handle_code_execution(
         tool_registry,
         max_tool_calls=max_tool_calls,
         artifact_store=artifact_store,
+        artifact_adapter=artifact_adapter,
         agent_session_id=agent_session_id,
     )
     await rpc_server.start()
@@ -364,7 +362,7 @@ async def handle_code_execution(
     if agent_session_id:
         env["DOJO_SESSION_ID"] = agent_session_id
         if sessions_root:
-            from dojoagents.dashboard.services.session_inputs import resolve_session_input_dir
+            from dojoagents.sessions.paths import resolve_session_input_dir
             from dojoagents.tools.session_file_tool import resolve_session_output_dir
 
             sessions_root_path = Path(sessions_root).expanduser().resolve()
@@ -420,6 +418,7 @@ def get_code_execution_spec(
     policy: SandboxPolicy,
     *,
     artifact_store: ToolResultArtifactStore | None = None,
+    artifact_adapter: ToolResultArtifactAdapter | None = None,
     max_tool_calls: int = 20,
     sessions_root: str | Path = "",
 ) -> ToolSpec:
@@ -431,6 +430,7 @@ def get_code_execution_spec(
             policy,
             max_tool_calls=max_tool_calls,
             artifact_store=artifact_store,
+            artifact_adapter=artifact_adapter,
             agent_session_id=session_id,
             sessions_root=sessions_root,
         )
@@ -446,10 +446,10 @@ def get_code_execution_spec(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
             "pd/np/dojo_tools are pre-imported. "
             "Canonical pattern after load_tool_result(call_id): "
-            "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='benchmarks', columns=[...])`. "
+            "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
             "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
-            "Multi-market same tool: `dojo_tools.tool_concat([res_cn, res_hk])`. "
-            "Join two tools: `dojo_tools.tool_merge(res_a, res_b)`. "
+            "Combine compatible results: `dojo_tools.tool_concat([res_a, res_b])`. "
+            "Join two tools: `dojo_tools.tool_merge(res_a, res_b, on=['id'])`. "
             "Metadata scalars: `dojo_tools.tool_meta(res)` (NOT res.get('as_of')). "
             "Discover columns: `dojo_tools.tool_columns(res[, table])`. "
             f"Live fetch: dojo_tools RPC helpers (e.g. {sample_tools}). "

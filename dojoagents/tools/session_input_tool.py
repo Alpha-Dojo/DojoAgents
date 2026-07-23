@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dojoagents.dashboard.services.session_input_ingest import read_session_input_slice
-from dojoagents.dashboard.services.session_inputs import resolve_session_input_file
+from dojoagents.tools.session_input_ingest import read_session_input_slice
+from dojoagents.sessions.paths import resolve_session_input_file
 from dojoagents.tools.process_registry import active_session_id, active_session_principal
 from dojoagents.tools.registry import ToolSpec
 

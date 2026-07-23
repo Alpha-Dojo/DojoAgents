@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from dojoagents.dashboard.services.forex_store import ForexStore
+from dojoagents.harnesses.built_in.financial.services.forex_store import ForexStore
 
 
 @pytest.mark.asyncio

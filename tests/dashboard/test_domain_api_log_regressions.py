@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.dashboard.schemas.dojo_core import CoreTickerSearchItem
-from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
-import dojoagents.dashboard.services.domain_api as domain_api
+from dojoagents.harnesses.built_in.financial.contracts.dojo_core import CoreTickerSearchItem
+from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import BilingualText
+import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
 
 
 @pytest.mark.asyncio
@@ -65,9 +65,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_supports_date_range_window() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")),
         stock_store=SimpleNamespace(
             get=lambda market, ticker: SimpleNamespace(
                 ticker=ticker,
@@ -117,9 +115,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_excludes_single_member_sectors() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")),
         stock_store=SimpleNamespace(get=lambda *_args, **_kwargs: None),
         sector_precomputed_store=SimpleNamespace(
             resolve_window_bounds=lambda window: window,

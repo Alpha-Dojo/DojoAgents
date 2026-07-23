@@ -6,7 +6,7 @@ import pytest
 
 from dojoagents.agent.models import AgentResponse
 from dojoagents.cli.main import build_parser
-from dojoagents.cli.tasks import (
+from dojoagents.harnesses.built_in.financial.surfaces.cli_tasks import (
     _metadata_exit_code,
     _response_exit_code,
     _run_status_exit_code,
@@ -16,9 +16,7 @@ from dojoagents.cli.tasks import (
 
 def test_tasks_run_cli_parser() -> None:
     parser = build_parser()
-    args = parser.parse_args(
-        ["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"]
-    )
+    args = parser.parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
     assert args.command == "tasks"
     assert args.tasks_command == "run"
     assert args.pipeline == "daily-market-events"
@@ -44,9 +42,7 @@ def test_tasks_run_local_flag() -> None:
 
 
 def test_tasks_eval_cli_parser() -> None:
-    args = build_parser().parse_args(
-        ["tasks", "eval", "--task", "event-trigger", "--date", "2026-07-13"]
-    )
+    args = build_parser().parse_args(["tasks", "eval", "--task", "event-trigger", "--date", "2026-07-13"])
     assert args.tasks_command == "eval"
     assert args.task == "event-trigger"
     assert args.date == "2026-07-13"
@@ -104,9 +100,7 @@ def test_run_status_exit_code(status: str, metadata: dict, expected: int) -> Non
 
 @pytest.mark.asyncio
 async def test_tasks_run_remote_invokes_dashboard_client() -> None:
-    args = build_parser().parse_args(
-        ["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"]
-    )
+    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
     fake_record = {
         "run_id": "run-1",
         "status": "done",
@@ -114,7 +108,7 @@ async def test_tasks_run_remote_invokes_dashboard_client() -> None:
         "content": "done",
     }
 
-    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
         remote.return_value = fake_record
         code = await run_tasks_command(args)
 
@@ -128,10 +122,8 @@ async def test_tasks_run_remote_invokes_dashboard_client() -> None:
 
 @pytest.mark.asyncio
 async def test_tasks_run_skips_non_trading_day_before_remote() -> None:
-    args = build_parser().parse_args(
-        ["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-07-12"]
-    )
-    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-07-12"])
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
         code = await run_tasks_command(args)
 
     assert code == 0
@@ -157,7 +149,7 @@ async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
         "metadata": {"pipeline_completed": True},
         "content": "done",
     }
-    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
         remote.return_value = fake_record
         code = await run_tasks_command(args)
 
@@ -167,9 +159,7 @@ async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
 
 @pytest.mark.asyncio
 async def test_tasks_run_remote_returns_nonzero_on_validation_failure() -> None:
-    args = build_parser().parse_args(
-        ["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"]
-    )
+    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
     fake_record = {
         "run_id": "run-1",
         "status": "done",
@@ -177,7 +167,7 @@ async def test_tasks_run_remote_returns_nonzero_on_validation_failure() -> None:
         "content": "failed",
     }
 
-    with patch("dojoagents.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
         remote.return_value = fake_record
         code = await run_tasks_command(args)
 
@@ -203,13 +193,13 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
         metadata={"pipeline_completed": True},
     )
 
-    with patch("dojoagents.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
         runtime = AsyncMock()
         runtime.task_manager = MagicMock()
         runtime.task_manager.get_pipeline.return_value = object()
         runtime.agent.run = AsyncMock()
         prepare.return_value = (runtime, AsyncMock(), AsyncMock())
-        with patch("dojoagents.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock) as run_tasks:
+        with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_agent_with_tasks", new_callable=AsyncMock) as run_tasks:
             run_tasks.return_value = fake_response
             code = await run_tasks_command(args)
 
@@ -240,12 +230,12 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
         metadata={"pipeline_validation_errors": ["Missing required output: foo.json"]},
     )
 
-    with patch("dojoagents.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+    with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
         runtime = AsyncMock()
         runtime.task_manager = MagicMock()
         runtime.task_manager.get_pipeline.return_value = object()
         prepare.return_value = (runtime, AsyncMock(), AsyncMock())
-        with patch("dojoagents.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock) as run_tasks:
+        with patch("dojoagents.harnesses.built_in.financial.surfaces.cli_tasks.run_agent_with_tasks", new_callable=AsyncMock) as run_tasks:
             run_tasks.return_value = fake_response
             code = await run_tasks_command(args)
 
@@ -253,7 +243,7 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
 
 
 def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
-    from dojoagents.cli.tasks import eval_task_output
+    from dojoagents.harnesses.built_in.financial.surfaces.cli_tasks import eval_task_output
 
     output_root = tmp_path / "outputs"
     task_dir = output_root / "event-trigger"
@@ -283,7 +273,7 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
 
 
 def test_tasks_eval_fails_on_invalid_jsonl(tmp_path) -> None:
-    from dojoagents.cli.tasks import eval_task_output
+    from dojoagents.harnesses.built_in.financial.surfaces.cli_tasks import eval_task_output
 
     output_root = tmp_path / "outputs"
     task_dir = output_root / "event-trigger"

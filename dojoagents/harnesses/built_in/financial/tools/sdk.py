@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dojoagents.tools.dojo_sdk_tool import DojoSDKToolManager, OFFLINE_TOOL_BINDINGS
+from .sdk_runtime import DojoSDKToolManager, OFFLINE_TOOL_BINDINGS
 from dojoagents.tools.registry import ToolSpec
 
 SDK_TOOL_NAMES = tuple(sorted(binding.name for binding in OFFLINE_TOOL_BINDINGS.values()))

@@ -16,6 +16,9 @@ from dojoagents.tools.sandbox import SandboxPolicy
 
 def _make_loop(*, llm, registry, harnesses):
     from dojoagents.agent.loop import AgentLoop
+    from dojoagents.harnesses.built_in.financial.compat import (
+        FinancialLegacyBehavior,
+    )
 
     return AgentLoop(
         llm_provider=llm,
@@ -31,6 +34,7 @@ def _make_loop(*, llm, registry, harnesses):
             max_iterations=6,
         ),
         task_harnesses=harnesses,
+        legacy_behavior=FinancialLegacyBehavior(),
     )
 
 
@@ -48,8 +52,8 @@ def _make_request(message: str = "", *, dashboard_tab: str | None = None) -> Cha
 
 
 def test_portfolio_harness_repairs_missing_portfolio_id():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     request = _make_request(dashboard_tab="folio")
@@ -82,7 +86,7 @@ def test_portfolio_harness_repairs_missing_portfolio_id():
 
 @pytest.mark.asyncio
 async def test_portfolio_harness_emits_eval_hint_and_blocks_incomplete_completion():
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     async def create_portfolio(args):
         return {
@@ -126,7 +130,7 @@ async def test_portfolio_harness_emits_eval_hint_and_blocks_incomplete_completio
 
 @pytest.mark.asyncio
 async def test_portfolio_harness_allows_completion_after_eval_submit():
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     async def create_portfolio(args):
         return {
@@ -224,8 +228,8 @@ async def test_portfolio_harness_allows_completion_after_eval_submit():
 
 
 def test_portfolio_harness_blocks_when_eval_candidate_count_not_met():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -264,8 +268,8 @@ def test_portfolio_harness_blocks_when_eval_candidate_count_not_met():
 
 
 def test_portfolio_harness_blocks_delete_tool_during_build():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -287,8 +291,8 @@ def test_portfolio_harness_blocks_delete_tool_during_build():
 
 
 def test_portfolio_harness_rejects_delete_during_create_task():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -334,8 +338,8 @@ def test_portfolio_harness_rejects_delete_during_create_task():
 
 
 def test_portfolio_harness_blocks_second_create_during_build():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -358,8 +362,8 @@ def test_portfolio_harness_blocks_second_create_during_build():
 
 
 def test_portfolio_harness_flags_multiple_creates_in_one_run():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -410,8 +414,8 @@ def test_portfolio_harness_flags_multiple_creates_in_one_run():
 
 
 def test_portfolio_harness_requires_agent_kind_on_create():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -450,8 +454,8 @@ def test_portfolio_harness_requires_agent_kind_on_create():
 
 
 def test_portfolio_harness_completes_delete_without_read_detail():
-    from dojoagents.agent.harness import HarnessLoopState
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_make_request(dashboard_tab="folio"))
@@ -486,7 +490,7 @@ def test_portfolio_harness_completes_delete_without_read_detail():
 
 @pytest.mark.asyncio
 async def test_portfolio_harness_allows_completion_after_delete():
-    from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 
     async def delete_portfolio(args):
         return {

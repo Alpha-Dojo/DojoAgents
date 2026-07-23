@@ -4,17 +4,19 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from dojoagents.dashboard import deps
-from dojoagents.dashboard.routers.dojo_folio import router
-from dojoagents.dashboard.schemas.portfolio import UpdatePortfolioRequest
-from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.portfolio_service import (
+from dojoagents.harnesses.built_in.financial.surfaces import (
+    dashboard_dependencies as deps,
+)
+from dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.dojo_folio import router
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import UpdatePortfolioRequest
+from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_service import (
     PortfolioService,
     PortfolioValidationError,
 )
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
-from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
+from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 

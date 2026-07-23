@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall, ToolResult
 from dojoagents.agent.providers import StaticLLMProvider
-from dojoagents.agent.turn_intent import (
+from dojoagents.harnesses.built_in.financial.policies.turn_intent import (
     TurnIntentResult,
     build_turn_intent_anchor,
     build_turn_intent_anchor_async,
@@ -64,15 +64,7 @@ def test_turn_intent_anchor_continuation_resumes_prior_task() -> None:
 @pytest.mark.asyncio
 async def test_classify_turn_intent_uses_llm() -> None:
     provider = StaticLLMProvider(
-        [
-            LLMResult(
-                content=(
-                    '{"continue_unfinished": true, '
-                    '"prior_task_summary": "构建半导体行业上下游关系图谱", '
-                    '"last_turn_status": "tools_only_no_deliverable"}'
-                )
-            )
-        ]
+        [LLMResult(content=('{"continue_unfinished": true, ' '"prior_task_summary": "构建半导体行业上下游关系图谱", ' '"last_turn_status": "tools_only_no_deliverable"}'))]
     )
     request = _request(
         "继续执行前述任务",
@@ -89,17 +81,7 @@ async def test_classify_turn_intent_uses_llm() -> None:
 
 @pytest.mark.asyncio
 async def test_build_turn_intent_anchor_async() -> None:
-    provider = StaticLLMProvider(
-        [
-            LLMResult(
-                content=(
-                    '{"continue_unfinished": false, '
-                    '"prior_task_summary": "", '
-                    '"last_turn_status": "complete"}'
-                )
-            )
-        ]
-    )
+    provider = StaticLLMProvider([LLMResult(content=('{"continue_unfinished": false, ' '"prior_task_summary": "", ' '"last_turn_status": "complete"}'))])
     anchor, intent = await build_turn_intent_anchor_async(
         _request(
             "帮我分析全球AI大模型概念组合",
@@ -139,12 +121,8 @@ def test_portfolio_harness_matches_after_write_tool() -> None:
 def test_portfolio_harness_blocks_create_during_analysis_run() -> None:
     harness = PortfolioTaskHarness()
     state = HarnessLoopState(request=_request("分析候选池"))
-    state.tool_results.append(
-        ToolResult(call_id="c1", name="portfolio_read_search", ok=True, data={"items": []})
-    )
-    state.tool_results.append(
-        ToolResult(call_id="c2", name="portfolio_read_detail", ok=True, data={"id": "p-1"})
-    )
+    state.tool_results.append(ToolResult(call_id="c1", name="portfolio_read_search", ok=True, data={"items": []}))
+    state.tool_results.append(ToolResult(call_id="c2", name="portfolio_read_detail", ok=True, data={"id": "p-1"}))
     blocked = harness.block_tool_call(
         ToolCall(id="c3", name="portfolio_write_create", arguments={"name": "New"}),
         state,

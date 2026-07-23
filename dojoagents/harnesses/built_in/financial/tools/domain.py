@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from dojoagents.dashboard.tools.domain_tools import register_dashboard_domain_tools
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
+from .domain_runtime import register_dashboard_domain_tools
 
 DOMAIN_TOOL_NAMES = (
     "search_company_ticker",

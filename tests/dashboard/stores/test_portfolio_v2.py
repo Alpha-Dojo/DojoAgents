@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dojoagents.dashboard.schemas.portfolio import (
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import (
     PortfolioHoldingView,
     PortfolioSummary,
     UpdatePortfolioRequest,
 )
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
 
 
 def test_portfolio_v2_schema_exposes_new_summary_and_holding_fields() -> None:
@@ -121,7 +121,7 @@ def test_store_remove_candidate_uses_lock_and_returns_none_when_missing(tmp_path
 
 
 def test_expected_portfolio_candidate_count_parses_chinese_request() -> None:
-    from dojoagents.agent.harnesses.portfolio_eval import (
+    from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_eval import (
         PortfolioEvalSubmission,
         verify_eval_submission,
     )

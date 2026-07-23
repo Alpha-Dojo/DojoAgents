@@ -5,10 +5,10 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
-from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
-from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
-from dojoagents.dashboard.services.market_sector_lead import compute_market_sector_lead
+from dojoagents.harnesses.built_in.financial.services.market_window import MarketAnalysisWindow
+from dojoagents.harnesses.built_in.financial.services.sector_movers_service import SectorMoversService
+from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.harnesses.built_in.financial.services.market_sector_lead import compute_market_sector_lead
 
 
 def test_ticker_window_results_are_cached_per_day(monkeypatch) -> None:

@@ -1,7 +1,10 @@
 """Dashboard visualization prompt contributor."""
 
-from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
-from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
+from .canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+from ..policies.visualization_rules import (
+    build_viz_policy_catalog,
+    build_viz_policy_turn_anchor,
+)
 
 
 def visualization_prompt(context) -> str:

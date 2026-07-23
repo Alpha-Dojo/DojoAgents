@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import inspect
 import json
 import os
@@ -11,27 +10,9 @@ from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from dojo.client.async_client import AsyncDojo
-
-from dojoagents.dashboard.routers import (
-    dojo_core,
-    dojo_folio,
-    dojo_mesh,
-    dojo_sphere,
-    chat_sessions,
-    market,
-    markets,
-    portfolio,
-    sector,
-    sectors,
-    ticker,
-    utility,
-)
+from dojoagents.dashboard.routers import chat_sessions
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
-from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
-
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -52,8 +33,6 @@ from dojoagents.dashboard.sse import (
 )
 from dojoagents.dashboard.auth import get_session_principal
 from dojoagents.sessions.models import SessionPrincipal
-from dojoagents.quant.context import QuantContext
-from dojoagents.config.models import FinancialDashboardConfig
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.providers import OpenAICompatibleProvider
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
@@ -151,10 +130,18 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
     return provider_cfg.model
 
 
-def _chat_request(payload: dict[str, Any]) -> ChatRequest:
+def _decode_request_context(surface: Any, value: Any) -> Any:
+    decoder = getattr(surface, "decode_request_context", None)
+    return decoder(value) if callable(decoder) else value
+
+
+def _chat_request(
+    payload: dict[str, Any],
+    *,
+    surface: Any = None,
+) -> ChatRequest:
     quant = payload.get("quant")
-    if isinstance(quant, dict):
-        quant = QuantContext(**quant)
+    quant = _decode_request_context(surface, quant)
     return ChatRequest(
         message=payload["message"],
         user_id=payload["user_id"],
@@ -188,7 +175,11 @@ def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str,
     return normalized
 
 
-def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str, Any]]:
+def _completion_request(
+    payload: dict[str, Any],
+    *,
+    surface: Any = None,
+) -> tuple[ChatRequest, dict[str, Any]]:
     """Parse payload into (ChatRequest, extra_info) with dual-format detection.
 
     Returns a tuple of (ChatRequest, info_dict) where info_dict contains:
@@ -237,8 +228,7 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         event_format = str(metadata.get("event_format") or "openai.v1")
         locale = str(metadata.get("locale") or payload.get("locale") or "zh")
 
-        quant_data = metadata.get("quant")
-        quant = QuantContext(**quant_data) if isinstance(quant_data, dict) else None
+        quant = _decode_request_context(surface, metadata.get("quant"))
         metadata["history"] = messages[:last_user_index]
         metadata["user_content"] = last_user_content
         metadata["locale"] = locale
@@ -255,21 +245,10 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         return req, {"stream": stream, "model": model, "messages": messages, "event_format": event_format}
     else:
         # Legacy format
-        req = _chat_request(payload)
+        req = _chat_request(payload, surface=surface)
         req.metadata.setdefault("locale", payload.get("locale", "zh"))
         req.metadata.setdefault("event_format", "openai.v1")
         return req, {"stream": False, "model": "default", "messages": [{"role": "user", "content": req.message}], "event_format": "openai.v1"}
-
-
-async def _close_dojo_client(client: Any) -> None:
-    close = getattr(client, "aclose", None)
-    if callable(close):
-        await close()
-        return
-    http_client = getattr(client, "_client", None)
-    close = getattr(http_client, "aclose", None)
-    if callable(close):
-        await close()
 
 
 async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
@@ -299,139 +278,46 @@ async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink 
 def create_app(  # noqa: C901
     runtime: Any,
     *,
-    dojo_client_factory=AsyncDojo,
-    store_registry: Any | None = None,
-    dashboard_data_root: Path | None = None,
+    dashboard_surface: Any | None = None,
 ) -> FastAPI:
-    dashboard_surface = None
-    try:
-        dashboard_surface = runtime.surface("dashboard")
-    except (AttributeError, KeyError, RuntimeError):
-        dashboard_surface = None
-    harness_managed = dashboard_surface is not None and getattr(runtime, "state", None) == "ready"
-    if harness_managed:
-        registry = dashboard_surface.registry
-    elif store_registry is not None:
-        registry = store_registry
-    else:
-        registry = __import__(
-            "dojoagents.dashboard.services.financial_registry",
-            fromlist=["FinancialDomainRegistry"],
-        ).FinancialDomainRegistry()
-    if not harness_managed and hasattr(runtime, "agent") and hasattr(runtime.agent, "tool_executor"):
-        dashboard_tools = __import__(
-            "dojoagents.dashboard.tools",
-            fromlist=["register_dashboard_domain_tools", "register_dashboard_portfolio_tools"],
-        )
-        dashboard_tools.register_dashboard_domain_tools(runtime.agent.tool_executor.registry, registry)
-        dashboard_tools.register_dashboard_portfolio_tools(runtime.agent.tool_executor.registry, registry)
-
-    store = getattr(runtime, "config_store", None)
-    if store:
-        snapshot = store.snapshot()
-        sdk_cfg = getattr(snapshot, "dojosdk", None)
-        offline_mode = getattr(snapshot, "offline_mode", True)
-        financial_cfg = snapshot.dashboard.financial
-    else:
-        sdk_cfg = None
-        offline_mode = True
-        financial_cfg = FinancialDashboardConfig()
-
-    from dojoagents.dashboard.services.stock_quote_filter import configure_ticker_market_cap_mins
-
-    configure_ticker_market_cap_mins(
-        sh=financial_cfg.ticker_market_cap_min_sh,
-        us=financial_cfg.ticker_market_cap_min_us,
-        hk=financial_cfg.ticker_market_cap_min_hk,
+    if dashboard_surface is None:
+        try:
+            dashboard_surface = runtime.surface("dashboard")
+        except (AttributeError, KeyError, RuntimeError):
+            dashboard_surface = None
+    configure_surface = getattr(
+        dashboard_surface,
+        "configure_runtime",
+        None,
     )
-
-    sdk_cache_dir = financial_cfg.sdk_cache_path
-    os.environ["DOJO_CACHE_DIR"] = str(sdk_cache_dir)
-    resolved_data_root = (dashboard_data_root or financial_cfg.dashboard_data_path).expanduser()
-
-    if offline_mode:
-        os.environ["DOJO_ONLINE"] = "0"
+    if callable(configure_surface):
+        configure_surface(runtime)
+    store = getattr(runtime, "config_store", None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if harness_managed:
-            from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
+        from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
 
-            app.state.config_store = getattr(runtime, "config_store", None)
-            app.state.financial_registry = registry
-            app.state.agent_run_manager = AgentRunManager()
-            app.state.principal_provider = LegacyLocalPrincipalProvider()
+        app.state.config_store = getattr(runtime, "config_store", None)
+        app.state.agent_run_manager = AgentRunManager()
+        app.state.principal_provider = LegacyLocalPrincipalProvider()
+        surface_lifespan = getattr(dashboard_surface, "lifespan", None)
+        if not callable(surface_lifespan):
             yield
             return
-        kwargs = {
-            "api_key": sdk_cfg.api_key if sdk_cfg else None,
-            "base_url": sdk_cfg.base_url if sdk_cfg else None,
-            "timeout": sdk_cfg.timeout if sdk_cfg else 60.0,
-            "max_retries": sdk_cfg.max_retries if sdk_cfg else 1,
-        }
-        client = dojo_client_factory(**kwargs)
-        refresh_task = None
-        try:
-            if hasattr(client, "preload_offline_data"):
-                LOGGER.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
-                await client.preload_offline_data()
-                LOGGER.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
-
-            LOGGER.info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
-            await registry.init_and_load_all(
-                client,
-                data_root=resolved_data_root,
-                preload=True,
-            )
-            LOGGER.info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
-            refresh_store = RefreshStateStore(resolved_data_root / "runtime")
-            await refresh_store.set_last_refresh_date_async("preload_offline_data", datetime.date.today())
-            app.state.market_data_revision = refresh_store.get_market_data_revision()
-            app.state.dojo_client = client
-            app.state.config_store = getattr(runtime, "config_store", None)
-            app.state.financial_registry = registry
-            app.state.agent_run_manager = AgentRunManager()
-            from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
-
-            app.state.principal_provider = LegacyLocalPrincipalProvider()
-
-            # Start background refresh loop
-            refresh_task = asyncio.create_task(
-                start_refresh_loop(runtime_dir=resolved_data_root / "runtime", registry=registry),
-            )
-
+        async with surface_lifespan(app, runtime):
             yield
-        finally:
-            if refresh_task:
-                refresh_task.cancel()
-                try:
-                    await refresh_task
-                except asyncio.CancelledError:
-                    pass
-            await _close_dojo_client(client)
-            reset = getattr(registry, "reset", None)
-            if callable(reset):
-                reset()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
     app.state.runtime = runtime
     app.state.config_store = store
-    app.state.financial_registry = registry
     from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
 
     app.state.principal_provider = LegacyLocalPrincipalProvider()
 
-    app.include_router(utility.router, prefix="/api/v1")
-    app.include_router(market.router, prefix="/api/v1")
-    app.include_router(sector.router, prefix="/api/v1")
-    app.include_router(ticker.router, prefix="/api/v1")
-    app.include_router(portfolio.router, prefix="/api/v1")
-    app.include_router(dojo_core.router, prefix="/api/v1")
-    app.include_router(dojo_folio.router, prefix="/api/v1")
-    app.include_router(dojo_mesh.router, prefix="/api/v1")
-    app.include_router(dojo_sphere.router, prefix="/api/v1")
-    app.include_router(markets.router, prefix="/api/v1")
-    app.include_router(sectors.router, prefix="/api/v1")
+    if dashboard_surface is not None:
+        for router in dashboard_surface.routers():
+            app.include_router(router, prefix="/api/v1")
     app.include_router(chat_sessions.router, prefix="/api/v1")
 
     app.add_middleware(
@@ -527,7 +413,10 @@ def create_app(  # noqa: C901
     @app.post("/api/chat")
     async def chat(payload: dict[str, Any]) -> Any:
         try:
-            req, info = _completion_request(payload)
+            req, info = _completion_request(
+                payload,
+                surface=dashboard_surface,
+            )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
         is_stream = info["stream"]
@@ -621,7 +510,10 @@ def create_app(  # noqa: C901
         principal: SessionPrincipal = Depends(get_session_principal),
     ) -> Any:
         try:
-            req, info = _completion_request(payload)
+            req, info = _completion_request(
+                payload,
+                surface=dashboard_surface,
+            )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
         req = replace(req, principal=principal, user_id=principal.user_id)

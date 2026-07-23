@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+from .legacy.portfolio import PortfolioTaskHarness
 from dojoagents.harnesses.decisions import CompletionDecision, ToolControlDecision
 
 from ..state import _legacy_state, financial_turn_state

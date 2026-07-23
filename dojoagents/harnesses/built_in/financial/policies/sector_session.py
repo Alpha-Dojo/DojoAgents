@@ -1,4 +1,4 @@
-from dojoagents.agent.sector_session import (
+from .sector_context import (
     record_sector_search_in_invocation,
     repair_sector_tool_arguments,
 )

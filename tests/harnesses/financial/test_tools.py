@@ -4,8 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.dashboard.tools.domain_tools import register_dashboard_domain_tools
-from dojoagents.dashboard.tools.portfolio_tools import register_dashboard_portfolio_tools
+from dojoagents.harnesses.built_in.financial.tools.domain_runtime import (
+    register_dashboard_domain_tools,
+)
+from dojoagents.harnesses.built_in.financial.tools.portfolio_runtime import (
+    register_dashboard_portfolio_tools,
+)
 from dojoagents.harnesses.built_in.financial.tools import get_domain_tool_specs, get_portfolio_tool_specs
 from dojoagents.tools.registry import ToolRegistry
 

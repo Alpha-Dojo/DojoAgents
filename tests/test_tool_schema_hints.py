@@ -4,17 +4,18 @@ import json
 
 import pytest
 
-from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message, get_tool_artifact_schema_hint
-from dojoagents.agent.tool_schema_hints import (
+from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+    build_financial_artifact_pointer as build_artifact_pointer_message,
+)
+from dojoagents.harnesses.built_in.financial.presenters.schema_hints import (
     TOOL_NAME_ALIASES,
     infer_schema_hint_from_model,
     get_tool_schema_hint,
 )
-from dojoagents.dashboard.schemas.domain_api import (
+from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
     MarketOverviewResponse,
     SectorMoversResponse,
     StockScreenResponse,
-    TickerFinancialsResponseV1,
     TickerPriceTrendsResponseV1,
 )
 from dojoagents.tools.dojo_tools_runtime import (
@@ -23,7 +24,6 @@ from dojoagents.tools.dojo_tools_runtime import (
     tool_pick,
     tool_table,
 )
-from dojoagents.tools.dojo_tools_stub import build_dojo_tools_stub_code
 
 
 def test_market_overview_hint_exposes_table_specs() -> None:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.services.dojo_core_search import search_core_tickers
-from dojoagents.dashboard.services.stock_quote_filter import (
+from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
+from dojoagents.harnesses.built_in.financial.services.dojo_core_search import search_core_tickers
+from dojoagents.harnesses.built_in.financial.services.stock_quote_filter import (
     configure_ticker_market_cap_mins,
     stock_passes_ticker_market_cap_min,
 )

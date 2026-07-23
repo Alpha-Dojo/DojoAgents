@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar
-from dojoagents.dashboard.services.domain_api import _resolve_kline_symbol, build_ticker_price_trends_v1
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar
+from dojoagents.harnesses.built_in.financial.services.domain_api import _resolve_kline_symbol, build_ticker_price_trends_v1
 
 
 class KlineStore:
@@ -213,7 +213,7 @@ async def test_price_trends_pe_band_matches_kline_date_window(monkeypatch) -> No
         return None
 
     monkeypatch.setattr(
-        "dojoagents.dashboard.services.domain_api.resolve_core_ticker_pe_band",
+        "dojoagents.harnesses.built_in.financial.services.domain_api.resolve_core_ticker_pe_band",
         fake_pe_band,
     )
 
@@ -301,7 +301,7 @@ async def test_price_trends_returns_kline_even_when_financials_fail() -> None:
 
 @pytest.mark.asyncio
 async def test_price_trends_single_day_falls_back_to_wide_window() -> None:
-    from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+    from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse
 
     all_bars = [
         StockKlineBar(symbol="AAPL", bar_time="2026-02-20", open=130, high=135, low=128, close=132),

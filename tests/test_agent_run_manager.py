@@ -86,9 +86,10 @@ class FakeRuntime:
         from pathlib import Path
 
         repo_root = Path(__file__).resolve().parents[1]
+        financial = repo_root / "dojoagents" / "harnesses" / "built_in" / "financial"
         self.task_manager = TaskPromptManager(
-            task_dirs=[repo_root / "dojoagents" / "tasks" / "built_in"],
-            pipeline_dirs=[repo_root / "dojoagents" / "tasks" / "pipelines"],
+            task_dirs=[financial / "tasks" / "definitions"],
+            pipeline_dirs=[financial / "pipelines" / "definitions"],
         )
         self.task_activator = TaskActivator(
             manager=self.task_manager,

@@ -1,6 +1,6 @@
 """Registration point for generic visualization tools used by FinancialHarness."""
 
-from dojoagents.tools.agent_viz import get_agent_viz_specs
+from .visualization_engine import get_agent_viz_specs
 
 VISUALIZATION_TOOL_NAMES = ("agent_viz_build", "agent_viz_kinds")
 

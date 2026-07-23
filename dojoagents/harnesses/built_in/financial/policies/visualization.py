@@ -1,4 +1,4 @@
-from dojoagents.agent.viz_policy import build_viz_policy_context, check_agent_viz_build
+from .visualization_rules import build_viz_policy_context, check_agent_viz_build
 from dojoagents.harnesses.decisions import CompletionDecision, ToolControlDecision
 
 

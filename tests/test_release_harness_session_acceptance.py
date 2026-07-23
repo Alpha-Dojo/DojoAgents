@@ -54,6 +54,6 @@ def test_external_sql_gate_is_explicit_and_optional_in_core():
 
 def test_packaging_includes_harness_task_and_skill_assets():
     metadata = Path("pyproject.toml").read_text(encoding="utf-8")
-    assert '"tasks/built_in/**/*"' in metadata
-    assert '"tasks/pipelines/*.yaml"' in metadata
+    assert '"harnesses/built_in/financial/tasks/definitions/**/*"' in metadata
+    assert '"harnesses/built_in/financial/pipelines/definitions/*.yaml"' in metadata
     assert '"skills/built_in/**/*"' in metadata

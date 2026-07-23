@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
-from dojoagents.agent.harnesses.portfolio_eval import PortfolioEvalSubmission, verify_eval_submission
-from dojoagents.agent.harnesses.portfolio_task_intent import (
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_eval import PortfolioEvalSubmission, verify_eval_submission
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_task_intent import (
     classify_portfolio_task,
     is_liquidation_intent,
     order_side_trace,

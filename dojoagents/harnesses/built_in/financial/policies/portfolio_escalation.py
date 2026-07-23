@@ -1,4 +1,4 @@
-from dojoagents.agent.escalation import find_user_input_escalation
+from dojoagents.tools.escalation import find_user_input_escalation
 from dojoagents.harnesses.decisions import CompletionDecision, ToolControlDecision
 
 

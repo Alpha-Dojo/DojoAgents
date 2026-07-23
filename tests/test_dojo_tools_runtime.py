@@ -4,10 +4,10 @@ import io
 import json
 from contextlib import redirect_stdout
 
-import pytest
-
-from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message
-from dojoagents.agent.tool_schema_hints import get_tool_schema_hint
+from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+    build_financial_artifact_pointer as build_artifact_pointer_message,
+)
+from dojoagents.harnesses.built_in.financial.presenters.schema_hints import get_tool_schema_hint
 from dojoagents.tools.dojo_tools_runtime import (
     format_execute_code_error_hint,
     tool_columns,
@@ -17,7 +17,6 @@ from dojoagents.tools.dojo_tools_runtime import (
     tool_meta,
     tool_pick,
     tool_print,
-    tool_table,
 )
 
 
@@ -125,7 +124,7 @@ def test_sector_movers_tool_print() -> None:
 
 
 def test_format_execute_code_error_hint_appends_column_guidance() -> None:
-    tb = 'KeyError: "[\'name_zh\'] not in index"'
+    tb = "KeyError: \"['name_zh'] not in index\""
     code = "df = dojo_tools.tool_df(res)\nprint(df[['name_zh']])"
     enriched = format_execute_code_error_hint(tb, code)
     assert "execute_code hints" in enriched
@@ -253,7 +252,7 @@ def test_tool_merge_joins_constituents_and_financials() -> None:
         "data": {"items": [{"ticker": "AAPL", "market": "us", "window_change_percent": 5.2}]},
         "schema_hint": const_hint,
     }
-    merged = tool_merge(res_a, res_b)
+    merged = tool_merge(res_a, res_b, on=["ticker", "market"])
     assert merged.iloc[0]["ticker"] == "AAPL"
     assert merged.iloc[0]["pe"] == 30
     assert merged.iloc[0]["window_change_percent"] == 5.2

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dojoagents.agent.models import ToolCall
-from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
+from dojoagents.harnesses.built_in.financial.policies.portfolio_tool_repair import merge_remove_holding_tool_calls
 
 
 def test_merge_remove_holding_tool_calls_noop_for_single_remove() -> None:

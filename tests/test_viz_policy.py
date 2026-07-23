@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.agent.viz_policy import (
+from dojoagents.harnesses.built_in.financial.policies.visualization_rules import (
     VizPolicyContext,
     VizPolicyMatch,
     build_viz_policy_catalog,
@@ -74,9 +74,7 @@ def test_allows_optional_for_read_only_analysis() -> None:
         channel="dashboard",
         user_message="分析组合",
         locale="zh",
-        tool_results=(
-            ToolResult(call_id="d1", name="portfolio_read_detail", ok=True, data={"id": "p-1"}),
-        ),
+        tool_results=(ToolResult(call_id="d1", name="portfolio_read_detail", ok=True, data={"id": "p-1"}),),
     )
     decision = check_agent_viz_build(ctx)
     assert not decision.block_agent_viz_build
@@ -112,7 +110,9 @@ def test_turn_anchor_for_transactional_message() -> None:
 
 
 def test_custom_rule_can_forbid_new_scene() -> None:
-    from dojoagents.agent import viz_policy as viz_policy_module
+    from dojoagents.harnesses.built_in.financial.policies import (
+        visualization_rules as viz_policy_module,
+    )
 
     saved = list(viz_policy_module._extra_rules)
 

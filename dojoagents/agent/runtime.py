@@ -120,6 +120,7 @@ class Runtime:
     harness_runtime_context: Any | None = None
     lifecycle_manager: Any | None = None
     state: str = "legacy"
+    _legacy_surfaces: dict[str, Any] | None = None
 
     @classmethod
     def compose(cls, store: ConfigStore, *, host: str = "library") -> "Runtime":
@@ -241,7 +242,14 @@ class Runtime:
         """Resolve an adapter declared by this Runtime's bound Harness."""
 
         if self.capabilities is None:
-            raise KeyError(f"surface '{surface_id}' is unavailable on a legacy Runtime")
+            if self._legacy_surfaces is None:
+                self._legacy_surfaces = {}
+            if surface_id not in self._legacy_surfaces:
+                factory = getattr(self.harness, "legacy_surface", None)
+                if not callable(factory):
+                    raise KeyError(f"surface '{surface_id}' is unavailable on a legacy Runtime")
+                self._legacy_surfaces[surface_id] = factory(surface_id, self)
+            return self._legacy_surfaces[surface_id]
         for spec in self.capabilities.surfaces:
             if spec.component_id == surface_id:
                 return spec.adapter
@@ -257,6 +265,7 @@ class Runtime:
         from dojoagents.sessions.memory_sync import SessionMemorySyncWorker
         from dojoagents.skills.manager import SkillManager
         from dojoagents.tools.executor import ToolExecutor
+        from dojoagents.tools.artifacts import ToolResultArtifactStore
         from dojoagents.tools.mcp_tool import discover_and_register_mcp_tools
         from dojoagents.tools.registry import ToolRegistry, ToolSpec
 
@@ -388,9 +397,17 @@ class Runtime:
 
         agent_config = replace(self.config.agent, model=model or "unconfigured")
         memory_worker = SessionMemorySyncWorker(self.session_service, memory) if self.config.sessions.sync_memory else None
+        artifact_store = ToolResultArtifactStore(self.config.sessions.root)
+        artifact_adapter = self.capabilities.artifact_adapter.adapter if self.capabilities.artifact_adapter is not None else None
         self.agent = AgentLoop(
             llm_provider=llm_provider,
-            tool_executor=ToolExecutor(registry, sandbox, presenter_registry=None),
+            tool_executor=ToolExecutor(
+                registry,
+                sandbox,
+                artifact_store=artifact_store,
+                artifact_adapter=artifact_adapter,
+                presenter_registry=None,
+            ),
             skill_manager=skills,
             memory_manager=memory,
             extension_registry=self.extensions,
@@ -411,6 +428,29 @@ class Runtime:
     @classmethod
     def from_config_store(cls, store: ConfigStore) -> "Runtime":
         config = store.snapshot()
+        from dojoagents.harnesses.context import HarnessBuildContext
+        from dojoagents.harnesses.loader import HarnessLoader
+
+        config_path = Path(getattr(store, "path", Path.cwd() / "agents.yaml")).expanduser()
+        build_context = HarnessBuildContext(
+            config=config,
+            harness_config=config.harness.config,
+            config_dir=config_path.parent.resolve(),
+            workdir=Path.cwd().resolve(),
+            host="legacy",
+            logger=LOGGER,
+        )
+        loaded_harness = HarnessLoader().load(config.harness, context=build_context).harness
+        legacy_contribution_factory = getattr(
+            loaded_harness,
+            "legacy_runtime_contributions",
+            None,
+        )
+        if not callable(legacy_contribution_factory):
+            raise RuntimeError(
+                f"Harness '{loaded_harness.descriptor.id}' does not support the deprecated " "synchronous Runtime.from_config_store(); use await Runtime.create(...)"
+            )
+        legacy_contributions = legacy_contribution_factory(config)
         extensions = DojoExtensionRegistry()
         if "dojo_research" in config.dojo_extensions.enabled:
             extensions.register(DojoResearchExtension())
@@ -481,12 +521,13 @@ class Runtime:
             from dojoagents.tasks.pipeline import PipelineRunner
             from dojoagents.tasks.schema_validator import TaskOutputValidator
 
-            built_in_tasks = Path(__file__).parent.parent / "tasks" / "built_in"
-            built_in_pipelines = Path(__file__).parent.parent / "tasks" / "pipelines"
-            task_dirs = [built_in_tasks, *[Path(path).expanduser() for path in config.tasks.dirs]]
+            task_dirs = [
+                *legacy_contributions.task_directories,
+                *[Path(path).expanduser() for path in config.tasks.dirs],
+            ]
             task_manager = TaskPromptManager(
                 task_dirs=task_dirs,
-                pipeline_dirs=[built_in_pipelines],
+                pipeline_dirs=list(legacy_contributions.pipeline_directories),
             )
             task_activator = TaskActivator(
                 manager=task_manager,
@@ -507,10 +548,19 @@ class Runtime:
             )
 
         from dojoagents.tools.code_execution_tool import get_code_execution_spec
-        from dojoagents.agent.tool_result_artifacts import ToolResultArtifactStore
+        from dojoagents.tools.artifacts import ToolResultArtifactStore
 
         artifact_store = ToolResultArtifactStore(config.sessions.root)
-        tool_registry.register(get_code_execution_spec(tool_registry, policy, artifact_store=artifact_store, sessions_root=config.sessions.root))
+        artifact_adapter = legacy_contributions.artifact_adapter
+        tool_registry.register(
+            get_code_execution_spec(
+                tool_registry,
+                policy,
+                artifact_store=artifact_store,
+                artifact_adapter=artifact_adapter,
+                sessions_root=config.sessions.root,
+            )
+        )
 
         from dojoagents.tools.session_file_tool import get_write_session_file_spec
 
@@ -535,9 +585,7 @@ class Runtime:
 
         tool_registry.register(get_read_session_input_spec(config.sessions.root))
 
-        from dojoagents.tools.dojo_sdk_tool import get_dojo_sdk_specs
-
-        for spec in get_dojo_sdk_specs(config.dojosdk):
+        for spec in legacy_contributions.additional_tool_specs:
             tool_registry.register(spec)
 
         from dojoagents.tools.tools_list_tool import ToolsListTool
@@ -547,11 +595,6 @@ class Runtime:
         from dojoagents.tools.web_searcher import get_web_searcher_specs
 
         for spec in get_web_searcher_specs(config.tools.web):
-            tool_registry.register(spec)
-
-        from dojoagents.tools.agent_viz import get_agent_viz_specs
-
-        for spec in get_agent_viz_specs():
             tool_registry.register(spec)
 
         # Multi-Agent setup
@@ -652,38 +695,31 @@ class Runtime:
             enabled=config.sessions.enabled,
         )
 
-        import importlib
-
-        legacy_harnesses = importlib.import_module("dojoagents.agent.harnesses")
-        legacy_presenters = importlib.import_module("dojoagents.agent.presenters")
+        presenter_factory = legacy_contributions.presenter_factory
+        sessions.presenter_factory = presenter_factory
         agent = AgentLoop(
             llm_provider=provider,
             tool_executor=ToolExecutor(
                 tool_registry,
                 policy,
                 artifact_store=artifact_store,
-                presenter_registry=legacy_presenters.ToolResultPresenterRegistry(),
+                artifact_adapter=artifact_adapter,
+                presenter_registry=presenter_factory() if presenter_factory is not None else None,
             ),
             skill_manager=skill_manager,
             memory_manager=memory,
             extension_registry=extensions,
             config=config.agent,
             plan_activation_hook=plan_hook,
-            task_harnesses=[
-                legacy_harnesses.PortfolioTaskHarness(),
-                legacy_harnesses.ToolOrchestratedHarness(
-                    task_manager=task_manager,
-                    task_output_root=config.tasks.output_root,
-                ),
-                legacy_harnesses.ArtifactSynthesisHarness(
-                    task_manager=task_manager,
-                    task_output_root=config.tasks.output_root,
-                ),
-            ],
+            task_harnesses=legacy_contributions.build_task_harnesses(
+                task_manager,
+                config,
+            ),
             provider_config=provider_cfg,
             provider_state=provider_state,
             session_manager=sessions,
             task_manager=task_manager,
+            legacy_behavior=legacy_contributions.behavior,
         )
 
         # Wire pool runtime reference after agent creation
@@ -721,6 +757,7 @@ class Runtime:
             task_activator=task_activator,
             command_router=command_router,
             pipeline_runner=pipeline_runner,
+            harness=loaded_harness,
         )
 
     def for_profile(self, _profile: str) -> "Runtime":

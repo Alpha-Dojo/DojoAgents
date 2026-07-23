@@ -92,7 +92,10 @@ def test_completion_request_old_format_backward_compat():
 def test_completion_request_extracts_quant_from_metadata():
     """Quant context is extracted from metadata."""
     from dojoagents.dashboard.server import _completion_request
-    from dojoagents.quant.context import QuantContext
+    from dojoagents.harnesses.built_in.financial.context import FinancialContext
+    from dojoagents.harnesses.built_in.financial.surfaces.dashboard import (
+        FinancialDashboardSurface,
+    )
 
     payload = {
         "model": "gpt-4.1",
@@ -102,8 +105,11 @@ def test_completion_request_extracts_quant_from_metadata():
             "quant": {"market": "crypto", "symbols": ["BTC-USD"], "timeframe": "1d"},
         },
     }
-    req, info = _completion_request(payload)
-    assert isinstance(req.quant, QuantContext)
+    req, info = _completion_request(
+        payload,
+        surface=FinancialDashboardSurface.from_registry(object()),
+    )
+    assert isinstance(req.quant, FinancialContext)
     assert req.quant.market == "crypto"
     assert "BTC-USD" in req.quant.symbols
 

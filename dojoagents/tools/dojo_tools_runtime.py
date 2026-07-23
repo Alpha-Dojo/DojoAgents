@@ -11,22 +11,9 @@ _GENERIC_LIST_KEYS = (
     "results",
     "matches",
     "candidates",
-    "klines",
-    "bars",
-    "positions",
-    "holdings",
 )
 
-_SKIP_NESTED_ROW_KEYS = frozenset(
-    {
-        "next_call",
-        "get_sector_analysis_example",
-        "filter_sector_constituents_example",
-        "playbook",
-        "usage",
-        "id_resolution",
-    }
-)
+_SKIP_NESTED_ROW_KEYS = frozenset({"next_call", "playbook", "usage"})
 
 
 def tool_json(res: dict[str, Any]) -> Any:
@@ -131,10 +118,7 @@ def _generic_list_rows(data: Any, key: str | None = None) -> list[dict[str, Any]
         seen.add(candidate)
         rows = data.get(candidate)
         if isinstance(rows, list) and rows:
-            return [
-                _sanitize_display_row(row) if isinstance(row, dict) else {"value": row}
-                for row in rows
-            ]
+            return [_sanitize_display_row(row) if isinstance(row, dict) else {"value": row} for row in rows]
     return []
 
 
@@ -147,11 +131,8 @@ def flatten_by_spec(data: Any, spec: dict[str, Any]) -> list[dict[str, Any]]:
             for path in paths:
                 rows = data.get(path)
                 if isinstance(rows, list) and rows:
-                    return [
-                        _expand_bilingual(dict(row), expand) if isinstance(row, dict) else {"value": row}
-                        for row in rows
-                    ]
-            if spec.get("record_fallback") and data.get("ticker"):
+                    return [_expand_bilingual(dict(row), expand) if isinstance(row, dict) else {"value": row} for row in rows]
+            if spec.get("record_fallback") and data:
                 return [_expand_bilingual(dict(data), expand)]
         return []
 
@@ -162,10 +143,7 @@ def flatten_by_spec(data: Any, spec: dict[str, Any]) -> list[dict[str, Any]]:
     if typ == "list":
         if not isinstance(subtree, list):
             return []
-        sanitized = [
-            _sanitize_display_row(_expand_bilingual(dict(row), expand) if isinstance(row, dict) else {"value": row})
-            for row in subtree
-        ]
+        sanitized = [_sanitize_display_row(_expand_bilingual(dict(row), expand) if isinstance(row, dict) else {"value": row}) for row in subtree]
         return sanitized
 
     if typ == "dict_records":
@@ -202,7 +180,7 @@ def flatten_by_spec(data: Any, spec: dict[str, Any]) -> list[dict[str, Any]]:
     if typ == "dict_side_lists":
         if not isinstance(subtree, dict):
             return []
-        group_key = spec.get("group_key") or "market"
+        group_key = spec.get("group_key") or "group"
         side_column = spec.get("side_column") or "side"
         sides = spec.get("sides") or ["gainers", "losers"]
         rank_by = spec.get("rank_by") or [group_key, side_column]
@@ -238,14 +216,9 @@ def _resolve_table_rows(res: dict[str, Any], table: str | None = None) -> list[d
     if rows:
         return rows
     if hint:
-        raise KeyError(
-            f"no rows for table {table!r}; available tables: {', '.join(table_names(hint)) or '(none)'}"
-        )
+        raise KeyError(f"no rows for table {table!r}; available tables: {', '.join(table_names(hint)) or '(none)'}")
     keys = ", ".join(sorted(data.keys())) if isinstance(data, dict) else "n/a"
-    raise KeyError(
-        "no schema_hint and no generic list rows found; "
-        f"use dojo_tools.tool_json(res). payload keys: {keys}"
-    )
+    raise KeyError("no schema_hint and no generic list rows found; " f"use dojo_tools.tool_json(res). payload keys: {keys}")
 
 
 def tool_table(res: dict[str, Any], table: str | None = None) -> list[dict[str, Any]]:
@@ -269,11 +242,7 @@ def tool_meta(res: dict[str, Any]) -> dict[str, Any]:
     hint = _schema_hint(res)
     keys = hint.get("top_level_keys")
     if isinstance(keys, list) and keys:
-        return {
-            k: data[k]
-            for k in keys
-            if k in data and not isinstance(data[k], (list, dict))
-        }
+        return {k: data[k] for k in keys if k in data and not isinstance(data[k], (list, dict))}
     return {k: v for k, v in data.items() if not isinstance(v, (list, dict))}
 
 
@@ -326,10 +295,6 @@ def tool_pick(df: Any, columns: list[str] | None = None) -> Any:
     return df[cols] if cols else df
 
 
-def _normalize_market(value: Any) -> str:
-    return str(value or "").strip().lower()
-
-
 def tool_concat(
     results: list[dict[str, Any]],
     *,
@@ -349,10 +314,8 @@ def tool_concat(
     if not frames:
         return pd.DataFrame()
     out = pd.concat(frames, ignore_index=True, sort=False)
-    if "market" in out.columns:
-        out["market"] = out["market"].map(_normalize_market)
-    if dedupe and {"ticker", "market"}.issubset(out.columns):
-        out = out.drop_duplicates(subset=["ticker", "market"], keep="first")
+    if dedupe:
+        out = out.drop_duplicates(keep="first")
     return out
 
 
@@ -364,24 +327,14 @@ def tool_merge(
     table: str | None = None,
     how: str = "left",
 ) -> Any:
-    """Merge two tool results or DataFrames on ticker/market (or explicit keys)."""
+    """Merge two tool results or DataFrames using explicit join keys."""
     import pandas as pd
 
     ldf = tool_df(left, table) if isinstance(left, dict) else left
     rdf = tool_df(right, table) if isinstance(right, dict) else right
     keys = list(on or [])
     if not keys:
-        keys = [k for k in ("ticker", "market") if k in ldf.columns and k in rdf.columns]
-    if not keys:
-        raise KeyError(
-            "tool_merge: no shared keys; "
-            f"left={list(ldf.columns)} right={list(rdf.columns)}"
-        )
-    if "market" in keys:
-        ldf = ldf.copy()
-        rdf = rdf.copy()
-        ldf["market"] = ldf["market"].map(_normalize_market)
-        rdf["market"] = rdf["market"].map(_normalize_market)
+        raise KeyError("tool_merge: explicit 'on' keys are required; " f"left={list(ldf.columns)} right={list(rdf.columns)}")
     overlap = (set(ldf.columns) & set(rdf.columns)) - set(keys)
     rdf = rdf.drop(columns=[c for c in overlap if c in rdf.columns], errors="ignore")
     return pd.merge(ldf, rdf, on=keys, how=how)
@@ -441,7 +394,7 @@ def tool_rows(res: dict[str, Any], key: str | None = None) -> list[dict[str, Any
         candidates.append(hint_key)
     if isinstance(fallback_keys, list):
         candidates.extend(str(item) for item in fallback_keys if item)
-    candidates.extend(["klines", "bars", "items", "rows", "positions", "holdings", "candidates"])
+    candidates.extend(_GENERIC_LIST_KEYS)
     seen: set[str] = set()
     for candidate in candidates:
         if not candidate or candidate in seen:
@@ -455,10 +408,7 @@ def tool_rows(res: dict[str, Any], key: str | None = None) -> list[dict[str, Any
     if isinstance(nested, list):
         return nested
     keys = ", ".join(sorted(data.keys())) if isinstance(data, dict) else "n/a"
-    msg = (
-        "no tabular rows; use dojo_tools.tool_df(res) or tool_df(res, '<table>'). "
-        f"tables={table_names(hint) or 'n/a'}; payload keys: {keys}"
-    )
+    msg = "no tabular rows; use dojo_tools.tool_df(res) or tool_df(res, '<table>'). " f"tables={table_names(hint) or 'n/a'}; payload keys: {keys}"
     raise KeyError(msg)
 
 
@@ -476,14 +426,16 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
         )
     if "KeyError" in output and ("merge" in output.lower() or "_x" in output or "_y" in output):
         hints.append(
-            "HINT: multi-market constituents: df = dojo_tools.tool_concat([res_cn, res_hk]). "
-            "Join two tools: dojo_tools.tool_merge(res_a, res_b). "
+            "HINT: combine compatible result tables with "
+            "dojo_tools.tool_concat([res_a, res_b]). "
+            "Join two tables with dojo_tools.tool_merge(res_a, res_b, on=[...]). "
             "Avoid manual pd.merge — use tool_pick after merge for columns."
         )
     if "KeyError" in output and ("schema_hint" in output or "no generic list" in output):
         hints.append(
-            "HINT: search/guide payloads use dojo_tools.tool_print(res, table='items'). "
-            "Nested tree payloads (get_taxonomy_tree) are not tabular — use tool_json(res) or read artifact pointer."
+            "HINT: inspect available schema tables before calling "
+            "dojo_tools.tool_print(res, table='...'). Nested payloads may require "
+            "tool_json(res) instead of tabular conversion."
         )
     if "KeyError" in output and "load_tool_result" not in code and "tool_df" not in code and "tool_print" not in code:
         hints.append("HINT: load prior tool output with res = dojo_tools.load_tool_result(call_id).")

@@ -60,6 +60,8 @@ def test_financial_policy_order_is_fixed(tmp_path):
         "financial.portfolio-repair",
         "financial.sector-repair",
     ]
+    assert capabilities.artifact_adapter is not None
+    assert capabilities.artifact_adapter.component_id == "financial.artifacts"
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ import pytest
 from dojoagents.agent.models import ToolCall
 from dojoagents.agent.runtime import Runtime
 from dojoagents.config.models import DojoSDKConfig
-from dojoagents.tools.dojo_sdk_tool import (
+from dojoagents.harnesses.built_in.financial.tools.sdk_runtime import (
     DojoSDKToolManager,
     HF_REGISTRY,
     OFFLINE_TOOL_BINDINGS,
@@ -70,7 +70,7 @@ async def test_dojo_sdk_stock_kline_tool():
     )
     mock_get_kline = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_kline = mock_get_kline
 
@@ -107,7 +107,7 @@ async def test_dojo_sdk_stock_current_quote_tool():
     mock_response = CurrentQuoteResponse(symbol="AAPL", price=180.5, volume=50000.0)
     mock_get_quote = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_quote = mock_get_quote
 
@@ -202,7 +202,7 @@ async def test_dojo_sdk_stock_news_tool():
     mock_response = StockNewsResponse(symbol="TSLA", news=[{"title": "Tesla Announces Q2 Earnings"}])
     mock_get_news = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_news = mock_get_news
 
@@ -231,7 +231,7 @@ async def test_dojo_sdk_benchmark_catalog_tool():
     mock_response = BenchmarkCatalogResponse(total_num=1, data=[{"symbol": "SPX", "name": "S&P 500"}])
     mock_get_catalog = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.benchmark.get_catalog = mock_get_catalog
 
@@ -257,7 +257,7 @@ def test_dojo_sdk_config_injection():
         max_retries=3,
     )
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         manager = DojoSDKToolManager(config)
         _ = manager.client
 

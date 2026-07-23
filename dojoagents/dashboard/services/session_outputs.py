@@ -7,9 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import _validate_session_id
+from dojoagents.sessions.identifiers import validate_output_filename, validate_session_id
 from dojoagents.logging import LOGGER
-from dojoagents.tools.session_file_names import validate_output_filename
 from dojoagents.tools.session_file_tool import (
     resolve_session_output_dir,
 )
@@ -20,7 +19,7 @@ def resolve_session_output_file(
     session_id: str,
     filename: str,
 ) -> Path:
-    safe_session = _validate_session_id(session_id)
+    safe_session = validate_session_id(session_id)
     safe_name = validate_output_filename(filename)
     output_dir = resolve_session_output_dir(sessions_root, safe_session).resolve()
     target = (output_dir / safe_name).resolve()
@@ -33,7 +32,7 @@ def list_session_output_files(
     sessions_root: str | Path,
     session_id: str,
 ) -> dict[str, Any]:
-    safe_session = _validate_session_id(session_id)
+    safe_session = validate_session_id(session_id)
     output_dir = resolve_session_output_dir(sessions_root, safe_session)
     files: list[dict[str, Any]] = []
     if output_dir.is_dir():

@@ -4,7 +4,7 @@ import math
 
 import pandas as pd
 
-from dojoagents.dashboard.services.domain_utils import finite_float, sanitize_records
+from dojoagents.harnesses.built_in.financial.services.domain_utils import finite_float, sanitize_records
 
 
 def test_finite_float_replaces_nan_and_inf() -> None:

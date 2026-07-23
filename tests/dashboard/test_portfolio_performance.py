@@ -5,17 +5,19 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from dojoagents.dashboard.services.portfolio_performance import (
+from dojoagents.harnesses.built_in.financial.services.portfolio_performance import (
     build_market_performance,
     compute_risk_stats,
 )
-from dojoagents.dashboard.services.portfolio_service import PortfolioService
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
-from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse, ConstituentKlineBatchResponse
-from dojoagents.dashboard import deps
-from dojoagents.dashboard.routers.dojo_folio import router as folio_router
-from dojoagents.dashboard.schemas.portfolio import PortfolioDetail
+from dojoagents.harnesses.built_in.financial.services.portfolio_service import PortfolioService
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse, ConstituentKlineBatchResponse
+from dojoagents.harnesses.built_in.financial.surfaces import (
+    dashboard_dependencies as deps,
+)
+from dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.dojo_folio import router as folio_router
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import PortfolioDetail
 
 
 def test_risk_stats_are_deterministic_for_rebased_nav() -> None:
@@ -77,7 +79,7 @@ def test_risk_stats_forward_fill_preserves_drawdown_through_invalid_nav() -> Non
 
 
 def test_risk_stats_use_market_trading_calendar_for_sparse_nav() -> None:
-    from dojoagents.dashboard.services.market_trading_calendar import trading_days_for_market
+    from dojoagents.harnesses.built_in.financial.services.market_trading_calendar import trading_days_for_market
 
     trading_days = trading_days_for_market("us", "2026-01-02", "2026-01-06")
     stats = compute_risk_stats(

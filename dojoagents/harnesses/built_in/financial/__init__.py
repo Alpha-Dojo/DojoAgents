@@ -1,15 +1,37 @@
-from .config import FinancialHarnessConfig, FinancialSDKConfig, FinancialTasksConfig
-from .harness import FINANCIAL_SERVICE_ID, FinancialHarness, create_harness
-from .services import FinancialServiceContainer, FinancialServiceHealth, get_financial_service_container
+"""Built-in financial Harness public API.
 
-__all__ = [
-    "FINANCIAL_SERVICE_ID",
-    "FinancialHarness",
-    "FinancialHarnessConfig",
-    "FinancialSDKConfig",
-    "FinancialServiceContainer",
-    "FinancialServiceHealth",
-    "FinancialTasksConfig",
-    "create_harness",
-    "get_financial_service_container",
-]
+Exports are resolved lazily so importing one financial component does not
+eagerly construct the complete Harness dependency graph.
+"""
+
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "FINANCIAL_SERVICE_ID": (".harness", "FINANCIAL_SERVICE_ID"),
+    "FinancialHarness": (".harness", "FinancialHarness"),
+    "create_harness": (".harness", "create_harness"),
+    "FinancialHarnessConfig": (".config", "FinancialHarnessConfig"),
+    "FinancialSDKConfig": (".config", "FinancialSDKConfig"),
+    "FinancialTasksConfig": (".config", "FinancialTasksConfig"),
+    "FinancialServiceContainer": (".services", "FinancialServiceContainer"),
+    "FinancialServiceHealth": (".services", "FinancialServiceHealth"),
+    "get_financial_service_container": (
+        ".services",
+        "get_financial_service_container",
+    ),
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attribute = _EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    value = getattr(import_module(module_name, __name__), attribute)
+    globals()[name] = value
+    return value

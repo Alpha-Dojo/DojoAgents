@@ -15,6 +15,7 @@ from .capabilities import (
     PipelineSourceSpec,
     PromptContributorSpec,
     RequestContextCodecSpec,
+    ResultArtifactAdapterSpec,
     ResultPresenterSpec,
     ServiceSpec,
     SkillSourceSpec,
@@ -60,6 +61,7 @@ class HarnessBuilder:
         self._tool_transformers: dict[str, ToolTransformerSpec] = {}
         self._tool_authorizers: dict[str, ToolAuthorizerSpec] = {}
         self._presenters: dict[str, ResultPresenterSpec] = {}
+        self._artifact_adapter: ResultArtifactAdapterSpec | None = None
         self._flow_policies: dict[str, FlowPolicySpec] = {}
         self._tasks: dict[str, TaskSourceSpec] = {}
         self._pipelines: dict[str, PipelineSourceSpec] = {}
@@ -135,6 +137,12 @@ class HarnessBuilder:
                     self._conflict("exclusive presenter", sorted(overlap)[0], existing, spec)
         self._add(self._presenters, spec, "result presenter")
 
+    def set_result_artifact_adapter(self, spec: ResultArtifactAdapterSpec) -> None:
+        self._ensure_mutable()
+        if self._artifact_adapter is not None:
+            self._conflict("result artifact adapter", spec.component_id, self._artifact_adapter, spec)
+        self._artifact_adapter = spec
+
     def add_flow_policy(self, spec: FlowPolicySpec) -> None:
         self._add(self._flow_policies, spec, "flow policy")
 
@@ -176,7 +184,7 @@ class HarnessBuilder:
             self._surfaces,
         )
         values = tuple(item for collection in collections for item in collection.values())
-        return values + tuple(item for item in (self._identity, self._state_codec) if item is not None)
+        return values + tuple(item for item in (self._identity, self._state_codec, self._artifact_adapter) if item is not None)
 
     def _validate_dependencies(self) -> None:
         specs = self._all_specs()
@@ -220,6 +228,7 @@ class HarnessBuilder:
             tool_transformers=self._ordered(self._tool_transformers),
             tool_authorizers=self._ordered(self._tool_authorizers),
             presenters=self._ordered(self._presenters),
+            artifact_adapter=self._artifact_adapter,
             flow_policies=self._ordered(self._flow_policies),
             tasks=self._ordered(self._tasks),
             pipelines=self._ordered(self._pipelines),

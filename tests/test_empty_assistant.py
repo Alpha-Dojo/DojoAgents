@@ -11,7 +11,7 @@ from dojoagents.agent.empty_assistant import (
 )
 from dojoagents.agent.models import ChatRequest, LLMResult
 from dojoagents.agent.providers import StaticLLMProvider
-from dojoagents.agent.turn_intent import (
+from dojoagents.harnesses.built_in.financial.policies.turn_intent import (
     TurnIntentResult,
     build_turn_intent_anchor_async,
     format_unfinished_task_summary,

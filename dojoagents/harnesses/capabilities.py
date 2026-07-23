@@ -83,6 +83,11 @@ class ResultPresenterSpec(ComponentSpec):
 
 
 @dataclass(frozen=True)
+class ResultArtifactAdapterSpec(ComponentSpec):
+    adapter: Any = None
+
+
+@dataclass(frozen=True)
 class FlowPolicySpec(ComponentSpec):
     policy: Any = None
 
@@ -129,6 +134,7 @@ class HarnessCapabilities:
     tool_transformers: tuple[ToolTransformerSpec, ...] = ()
     tool_authorizers: tuple[ToolAuthorizerSpec, ...] = ()
     presenters: tuple[ResultPresenterSpec, ...] = ()
+    artifact_adapter: ResultArtifactAdapterSpec | None = None
     flow_policies: tuple[FlowPolicySpec, ...] = ()
     tasks: tuple[TaskSourceSpec, ...] = ()
     pipelines: tuple[PipelineSourceSpec, ...] = ()

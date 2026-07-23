@@ -4,37 +4,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import _validate_session_id
-from dojoagents.dashboard.services.file_store_base import _atomic_write_bytes
-from dojoagents.dashboard.services.session_input_ingest import (
+from dojoagents.sessions.identifiers import validate_output_filename, validate_session_id
+from dojoagents.sessions.paths import resolve_session_input_dir
+from dojoagents.sessions.atomic import _atomic_write_bytes
+from dojoagents.tools.session_input_ingest import (
     MAX_UPLOAD_BYTES,
     SUPPORTED_UPLOAD_EXTENSIONS,
     ingest_session_input_preview,
 )
 from dojoagents.dashboard.services.session_outputs import reveal_path_in_file_manager
-from dojoagents.tools.session_file_names import validate_output_filename
-
-SESSION_INPUT_SUBDIR = "inputs"
-
-
-def resolve_session_input_dir(sessions_root: str | Path, session_id: str) -> Path:
-    safe_session = _validate_session_id(session_id)
-    root = Path(sessions_root).expanduser().resolve()
-    return root / safe_session / SESSION_INPUT_SUBDIR
-
-
-def resolve_session_input_file(
-    sessions_root: str | Path,
-    session_id: str,
-    filename: str,
-) -> Path:
-    safe_session = _validate_session_id(session_id)
-    safe_name = validate_output_filename(filename)
-    input_dir = resolve_session_input_dir(sessions_root, safe_session).resolve()
-    target = (input_dir / safe_name).resolve()
-    if target.parent != input_dir:
-        raise ValueError(f"invalid input path for filename: {filename!r}")
-    return target
 
 
 def validate_upload_filename(filename: str) -> str:
@@ -78,7 +56,7 @@ def list_session_input_files(
     *,
     include_preview: bool = True,
 ) -> dict[str, Any]:
-    safe_session = _validate_session_id(session_id)
+    safe_session = validate_session_id(session_id)
     input_dir = resolve_session_input_dir(sessions_root, safe_session)
     files: list[dict[str, Any]] = []
     if input_dir.is_dir():
@@ -115,7 +93,7 @@ def list_session_input_files(
 
 
 def detect_kind_from_name(filename: str) -> str:
-    from dojoagents.dashboard.services.session_input_ingest import detect_session_input_kind
+    from dojoagents.tools.session_input_ingest import detect_session_input_kind
 
     return detect_session_input_kind(filename)
 

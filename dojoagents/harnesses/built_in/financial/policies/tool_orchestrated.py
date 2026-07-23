@@ -1,4 +1,4 @@
-from dojoagents.agent.harnesses.tool_orchestrated import ToolOrchestratedHarness
+from .legacy.tool_orchestrated import ToolOrchestratedHarness
 from dojoagents.harnesses.decisions import CompletionDecision, ToolControlDecision
 
 from ..state import _legacy_state

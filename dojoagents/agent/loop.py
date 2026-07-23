@@ -8,9 +8,7 @@ from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
-from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.temporal_context import build_temporal_context_block
-from dojoagents.agent.turn_intent import build_turn_intent_anchor_async
+from dojoagents.harnesses.components.task_flows import HarnessLoopState
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
     empty_assistant_user_message,
@@ -331,14 +329,9 @@ class DojoStrandsModelBridge(Model):
 
         try:
             if invocation_state is not None:
-                from dojoagents.agent.models import ChatRequest
-                from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
-                from dojoagents.agent.turn_completion import apply_turn_completion_after_model
-
-                request = invocation_state.get("_dojo_request")
-                if isinstance(request, ChatRequest) and request.channel == "dashboard":
-                    llm_result.tool_calls = merge_remove_holding_tool_calls(list(llm_result.tool_calls))
-                    apply_turn_completion_after_model(llm_result, invocation_state)
+                legacy_behavior = invocation_state.get("_dojo_legacy_behavior")
+                if legacy_behavior is not None:
+                    legacy_behavior.transform_model_result(llm_result, invocation_state)
 
             if not has_text_delta and llm_result.content:
                 yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
@@ -471,6 +464,7 @@ class AgentLoop:
         session_service: Any | None = None,
         harness_descriptor: Any | None = None,
         memory_sync_worker: Any | None = None,
+        legacy_behavior: Any | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -489,6 +483,7 @@ class AgentLoop:
         self.session_service = session_service
         self.harness_descriptor = harness_descriptor
         self.memory_sync_worker = memory_sync_worker
+        self.legacy_behavior = legacy_behavior
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -603,7 +598,13 @@ class AgentLoop:
         active_phase = ""
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
-        harness_state = HarnessLoopState(request=request)
+        state_factory = getattr(self.legacy_behavior, "state_factory", None)
+        if state_factory is None:
+            state_factory = next(
+                (candidate for candidate in (getattr(harness, "state_factory", None) for harness in self.task_harnesses) if candidate is not None),
+                HarnessLoopState,
+            )
+        harness_state = state_factory(request=request)
         from dojoagents.tools.process_registry import active_user_message, active_write_session_file_guard, WriteSessionFileGuardContext
 
         user_msg_token = active_user_message.set(str(request.message or ""))
@@ -708,41 +709,19 @@ class AgentLoop:
             )
 
         # 1. Build the system prompt. Harness-backed instances own the complete
-        # prompt graph; the legacy branch remains until FinancialHarness cutover.
+        # prompt graph; the compatibility branch remains for synchronous hosts.
         if self.harness_runtime is not None:
             prompt_blocks = await self.harness_runtime.before_turn(turn_context)
             blocks = [block.content for block in prompt_blocks if getattr(block, "content", "")]
+        elif self.legacy_behavior is not None:
+            blocks = await self.legacy_behavior.build_prompt_blocks(self, request, model_id)
         else:
             blocks = [
-                "You are DojoAgents, a full-market finance analysis agent.",
-                build_temporal_context_block(request.metadata),
+                "You are a helpful AI agent.",
                 self.skill_manager.prompt_block(platform=request.channel),
                 self.memory_manager.build_system_prompt(),
                 await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),
             ]
-            if request.quant is not None:
-                blocks.append(request.quant.prompt_block())
-                blocks.append(self.extension_registry.prompt_context(request.quant))
-            # Inject dashboard-specific structured visualization guidance.
-            if request.channel == "dashboard":
-                from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
-                from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
-                from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
-
-                blocks.append(DASHBOARD_VIZ_PROTOCOL)
-                blocks.append(DASHBOARD_TOOL_PROTOCOL)
-                locale = str(request.metadata.get("locale") or "en")
-                blocks.append(build_viz_policy_catalog(locale))
-                viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
-                if viz_turn_anchor:
-                    blocks.append(viz_turn_anchor)
-            if self.task_manager is not None:
-                task_block = self.task_manager.build_injection_block(request)
-                if task_block:
-                    blocks.append(task_block)
-            turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
-            if turn_anchor:
-                blocks.append(turn_anchor)
         write_guard_token = active_write_session_file_guard.set(
             WriteSessionFileGuardContext(
                 llm_provider=self.llm_provider,
@@ -988,14 +967,13 @@ class AgentLoop:
         invocation_state["_dojo_handle_context_length_exceeded"] = token_compression_hook.handle_context_length_exceeded
         hooks.append(HookProviderWrapper(token_compression_hook))
 
-        from dojoagents.agent.hooks.turn_completion import TurnCompletionHook
-
-        turn_completion_hook = TurnCompletionHook()
-        hooks.append(HookProviderWrapper(turn_completion_hook))
+        if self.legacy_behavior is not None:
+            hooks.append(HookProviderWrapper(self.legacy_behavior.create_hook()))
 
         invocation_state["_dojo_request"] = request
         invocation_state["_dojo_harness_state"] = harness_state
         invocation_state["_dojo_task_harnesses"] = self.task_harnesses
+        invocation_state["_dojo_legacy_behavior"] = self.legacy_behavior
 
         # Bridge plugin registry to strands Plugin
         plugin_bridge = plugin_registry.as_strands_plugin()
@@ -1037,12 +1015,7 @@ class AgentLoop:
                     return
                 tool_name = str(event.tool_use.get("name") or "")
                 args = event.tool_use.get("input") or {}
-                from dojoagents.agent.execute_code_guardrails import (
-                    EXECUTE_CODE_TOOL_NAMES,
-                    classify_execute_code,
-                    execute_code_guardrail_from_classification,
-                )
-                from dojoagents.agent.write_session_file_guardrails import (
+                from dojoagents.tools.write_authorization import (
                     active_task_metadata,
                     classify_write_session_file,
                     preview_write_content,
@@ -1050,7 +1023,7 @@ class AgentLoop:
                     write_session_file_guardrail_from_classification,
                 )
 
-                if tool_name in EXECUTE_CODE_TOOL_NAMES:
+                if tool_name in {"execute_code", "code_execution"}:
                     if active_task_metadata(request.metadata) is not None:
                         code_text = str(args.get("code") or "")
                         if any(
@@ -1073,28 +1046,18 @@ class AgentLoop:
                             blocked_res = toolguard_synthetic_result(decision)
                             event.cancel_tool = blocked_res["content"]
                             return
-                    if active_task_metadata(request.metadata) is None:
-                        classification = await classify_execute_code(
-                            str(args.get("code") or ""),
-                            request.message,
-                            self.llm_provider,
-                            model=model_id,
-                            request_metadata=request.metadata,
-                        )
-                        blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
+                    if active_task_metadata(request.metadata) is None and self.legacy_behavior is not None and callable(getattr(self.legacy_behavior, "authorize_tool", None)):
+                        scenario_decision = await self.legacy_behavior.authorize_tool(
+                            self,
+                            request,
                             tool_name,
-                            classification,
+                            dict(args),
+                            model_id,
                         )
-                        if blocked:
-                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+                        if scenario_decision is not None:
+                            from dojoagents.agent.guardrails import toolguard_synthetic_result
 
-                            decision = ToolGuardrailDecision(
-                                action="block",
-                                code=guardrail_code,
-                                message=block_message,
-                                tool_name=tool_name,
-                            )
-                            blocked_res = toolguard_synthetic_result(decision)
+                            blocked_res = toolguard_synthetic_result(scenario_decision)
                             event.cancel_tool = blocked_res["content"]
                             return
                 if tool_name == "write_session_file":
@@ -1135,11 +1098,9 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
-            if event.tool_use and self.harness_runtime is None:
-                from dojoagents.agent.sector_session import repair_sector_tool_arguments
-
+            if event.tool_use and self.legacy_behavior is not None:
                 tool_args = dict(event.tool_use.get("input") or {})
-                repaired_args = repair_sector_tool_arguments(
+                repaired_args = self.legacy_behavior.repair_tool_arguments(
                     str(event.tool_use.get("name") or ""),
                     tool_args,
                     invocation_state,
@@ -1238,10 +1199,8 @@ class AgentLoop:
                     "ok": matched_result.ok if matched_result is not None else not is_failed,
                 }
                 if matched_result is not None:
-                    if self.harness_runtime is None:
-                        from dojoagents.agent.sector_session import record_sector_search_in_invocation
-
-                        record_sector_search_in_invocation(invocation_state, matched_result)
+                    if self.legacy_behavior is not None:
+                        self.legacy_behavior.record_tool_result(invocation_state, matched_result)
                     trace_item.update(
                         {
                             "latency_ms": matched_result.latency_ms,

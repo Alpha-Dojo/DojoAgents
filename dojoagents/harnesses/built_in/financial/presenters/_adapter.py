@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.agent.presenters import ToolResultPresenterRegistry
+from .legacy_registry import ToolResultPresenterRegistry
 
 
 class FinancialResultPresenter:

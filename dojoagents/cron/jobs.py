@@ -9,7 +9,6 @@ from uuid import uuid4
 import yaml
 
 from dojoagents.agent.models import ChatRequest
-from dojoagents.quant.context import QuantContext
 from dojoagents.sessions.models import SessionPrincipal
 
 
@@ -21,7 +20,7 @@ class ScheduledJob:
     prompt: str
     enabled: bool = True
     profile: str = "default"
-    quant: QuantContext | None = None
+    quant: Any = None
     delivery: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     plan: bool = False
@@ -52,8 +51,6 @@ class ScheduledJob:
     @classmethod
     def from_record(cls, record: dict[str, Any]) -> "ScheduledJob":
         quant = record.get("quant")
-        if isinstance(quant, dict):
-            quant = QuantContext(**quant)
         owner = record.get("owner")
         if isinstance(owner, dict):
             owner = SessionPrincipal(

@@ -4,8 +4,10 @@ from unittest.mock import MagicMock
 
 from dojoagents.agent.runtime import Runtime
 from dojoagents.config.models import AgentsConfig
-from dojoagents.dashboard.tools import (
+from dojoagents.harnesses.built_in.financial.tools.domain_runtime import (
     register_dashboard_domain_tools,
+)
+from dojoagents.harnesses.built_in.financial.tools.portfolio_runtime import (
     register_dashboard_portfolio_tools,
 )
 from tests.test_runtime_multi_agent_plan import _make_store

@@ -20,9 +20,7 @@ async def _invoke_run_agent(
         signature = inspect.signature(run_agent)
     except (TypeError, ValueError):
         return await run_agent(request, event_sink=event_sink)
-    if "event_sink" in signature.parameters or any(
-        param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
-    ):
+    if "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()):
         return await run_agent(request, event_sink=event_sink)
     return await run_agent(request)
 

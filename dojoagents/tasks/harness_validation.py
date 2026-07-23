@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-from dojoagents.agent.harness import HarnessDecision, HarnessLoopState, TaskHarness
-from dojoagents.agent.models import ChatRequest, ToolCall, ToolResult
-from dojoagents.agent.write_session_file_guardrails import active_task_metadata
+from dojoagents.harnesses.components.task_flows import HarnessLoopState
+from dojoagents.agent.models import ToolResult
+from dojoagents.tools.write_authorization import active_task_metadata
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.models import ActiveTask, TaskArtifactSpec
 from dojoagents.tasks.output_validation import (
@@ -92,12 +91,5 @@ class TaskOutputHarnessMixin:
 def build_schema_recovery_prompt(*, filename: str, issues: list[str], locale: str) -> str:
     detail = "; ".join(issues[:3])
     if locale == "zh":
-        return (
-            f"任务产出未通过校验：{filename}。{detail} "
-            "请用 write_session_file 重新写入完整 schema 数据，禁止只写路径说明或占位 JSON。"
-        )
-    return (
-        f"Task output failed validation: {filename}. {detail} "
-        "Rewrite the full schema payload with write_session_file. "
-        "Do not write path notes or placeholder JSON."
-    )
+        return f"任务产出未通过校验：{filename}。{detail} " "请用 write_session_file 重新写入完整 schema 数据，禁止只写路径说明或占位 JSON。"
+    return f"Task output failed validation: {filename}. {detail} " "Rewrite the full schema payload with write_session_file. " "Do not write path notes or placeholder JSON."

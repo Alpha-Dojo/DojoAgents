@@ -4,18 +4,18 @@ import inspect
 
 import pytest
 
-import dojoagents.dashboard.services.kline_store as kline_store_module
-from dojoagents.dashboard.schemas.portfolio import CreatePortfolioRequest, PortfolioDetail
-from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse
-from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_sector import StockSectorLabel
-from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.portfolio_allocation import initial_shares_for_new_holding
-from dojoagents.dashboard.services.portfolio_service import PortfolioService
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
-from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
-from dojoagents.dashboard.services.stock_store import StockStore
+import dojoagents.harnesses.built_in.financial.services.kline_store as kline_store_module
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import CreatePortfolioRequest, PortfolioDetail
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import ConstituentKlineBatchResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
+from dojoagents.harnesses.built_in.financial.contracts.stock_sector import StockSectorLabel
+from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_allocation import initial_shares_for_new_holding
+from dojoagents.harnesses.built_in.financial.services.portfolio_service import PortfolioService
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.services.sector_store import ResolvedSectorPath
+from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
+from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 

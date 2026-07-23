@@ -6,19 +6,19 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE as PHASE_A_MANIFEST,
     PRECOMPUTE_DIR,
     SECTOR_DAILY_FILE,
     TICKER_DAILY_FILE,
 )
-from dojoagents.dashboard.services.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
-from dojoagents.dashboard.services.precompute_sector_radar_advice import (
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_radar_advice import (
     SECTOR_ADVICE_DAILY_FILE,
     SECTOR_HEALTH_RADAR_FILE,
 )
-from dojoagents.dashboard.services.precompute_theme_state_daily import (
+from dojoagents.harnesses.built_in.financial.pipelines.precompute_theme_state_daily import (
     FUNDAMENTALS_PERIOD_FILE,
     MANIFEST_FILE,
     MARKET_BENCHMARK_DAILY_FILE,
@@ -26,7 +26,7 @@ from dojoagents.dashboard.services.precompute_theme_state_daily import (
     build_theme_state_precomputed,
     compute_theme_state_frames,
 )
-from dojoagents.dashboard.services.theme_state_precomputed_store import ThemeStatePrecomputedStore
+from dojoagents.harnesses.built_in.financial.services.theme_state_precomputed_store import ThemeStatePrecomputedStore
 
 
 def _write_phase_a(tmp_path: Path) -> Path:

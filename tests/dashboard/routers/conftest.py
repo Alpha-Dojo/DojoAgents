@@ -5,45 +5,51 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from dojoagents.dashboard import deps
-from dojoagents.dashboard.routers import dojo_core, dojo_mesh, dojo_sphere
-import dojoagents.dashboard.routers.market as market_router
-import dojoagents.dashboard.routers.sector as sector_router
-import dojoagents.dashboard.routers.utility as utility_router
-from dojoagents.dashboard.schemas.benchmark import DojoMeshBenchmarksResponse
-from dojoagents.dashboard.schemas.dojo_core import (
+from dojoagents.harnesses.built_in.financial.surfaces import (
+    dashboard_dependencies as deps,
+)
+from dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers import (
+    dojo_core,
+    dojo_mesh,
+    dojo_sphere,
+)
+import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.market as market_router
+import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.sector as sector_router
+import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.utility as utility_router
+from dojoagents.harnesses.built_in.financial.contracts.benchmark import DojoMeshBenchmarksResponse
+from dojoagents.harnesses.built_in.financial.contracts.dojo_core import (
     CoreTickerPeBandResponse,
     CoreTickerQuoteResponse,
     CoreTickerSectorResponse,
 )
-from dojoagents.dashboard.schemas.dojo_mesh import (
+from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import (
     DojoMeshSectorsResponse,
 )
-from dojoagents.dashboard.schemas.dojo_sphere import (
+from dojoagents.harnesses.built_in.financial.contracts.dojo_sphere import (
     SectorConstituentsResponse,
     SectorPerformanceResponse,
     SectorScopeMetricsResponse,
 )
-from dojoagents.dashboard.schemas.market import MarketStats
-from dojoagents.dashboard.schemas.portfolio import (
+from dojoagents.harnesses.built_in.financial.contracts.market import MarketStats
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import (
     PortfolioDetail,
     PortfolioSearchResponse,
     PortfolioSummary,
 )
-from dojoagents.dashboard.schemas.sector import SectorTaxonomyDocumentResponse
-from dojoagents.dashboard.schemas.stock_event import CoreTickerEventsResponse
-from dojoagents.dashboard.schemas.stock_fin_indicators import CoreTickerFinIndicatorsResponse
-from dojoagents.dashboard.schemas.stock_income import CoreTickerIncomeResponse
-from dojoagents.dashboard.schemas.stock_kline import (
+from dojoagents.harnesses.built_in.financial.contracts.sector import SectorTaxonomyDocumentResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock_event import CoreTickerEventsResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock_fin_indicators import CoreTickerFinIndicatorsResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock_income import CoreTickerIncomeResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import (
     ConstituentKlineBatchResponse,
     ConstituentKlineStatsResponse,
     SectorConstituentKlineResponse,
     StockKlineResponse,
 )
-from dojoagents.dashboard.schemas.stock_news import CoreTickerNewsResponse
+from dojoagents.harnesses.built_in.financial.contracts.stock_news import CoreTickerNewsResponse
 from dojoagents.dashboard.server import create_app
-import dojoagents.dashboard.services.domain_api as domain_api
-from dojoagents.dashboard.schemas.domain_api import (
+import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
+from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
     CompanyTickerSearchResponse,
     MarketOverviewMarket,
     MarketOverviewResponse,
@@ -173,7 +179,6 @@ class PortfolioService:
 @pytest.fixture
 def financial_client(monkeypatch) -> TestClient:
     runtime = SimpleNamespace(config_store=None, agent=None, scheduler=None, extensions=None)
-    app = create_app(runtime)
     stock_store = StockStore()
     sector_store = SectorStore()
     kline_store = KlineStore()
@@ -192,6 +197,14 @@ def financial_client(monkeypatch) -> TestClient:
             metrics=lambda _key, compute: compute(),
             performance=lambda _key, compute: _sphere_performance_cache(compute),
         ),
+    )
+    from dojoagents.harnesses.built_in.financial.surfaces.dashboard import (
+        FinancialDashboardSurface,
+    )
+
+    app = create_app(
+        runtime,
+        dashboard_surface=FinancialDashboardSurface.from_registry(registry),
     )
 
     app.dependency_overrides.update(

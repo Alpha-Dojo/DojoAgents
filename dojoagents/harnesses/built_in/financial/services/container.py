@@ -11,9 +11,9 @@ from typing import Any, Callable
 
 from dojo.client.async_client import AsyncDojo
 
-from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
-from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop
+from dojoagents.harnesses.built_in.financial.services.constituent_kline_refresh_state import RefreshStateStore
+from dojoagents.harnesses.built_in.financial.services.financial_registry import FinancialDomainRegistry
+from dojoagents.harnesses.built_in.financial.services.market_refresh_jobs import start_refresh_loop
 
 from ..config import FinancialHarnessConfig
 

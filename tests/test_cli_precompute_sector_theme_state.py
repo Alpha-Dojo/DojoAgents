@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from dojoagents.cli.main import build_parser
-from dojoagents.cli import precompute_sector_theme_state as command
+from dojoagents.harnesses.built_in.financial.pipelines import (
+    cli_precompute_sector_theme_state as command,
+)
 
 
 def test_theme_state_parser_accepts_explicit_input_and_output_dirs(tmp_path: Path) -> None:

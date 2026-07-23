@@ -1,8 +1,5 @@
-"""Reusable task engine components; scenario sources live in Harness packages."""
+"""Reusable task-flow contracts; scenario implementations live in Harness packages."""
 
-from dojoagents.tasks.activator import TaskActivator
-from dojoagents.tasks.command_router import CommandRouter
-from dojoagents.tasks.manager import TaskPromptManager
-from dojoagents.tasks.pipeline import PipelineRunner
+from .legacy import HarnessDecision, HarnessLoopState, TaskHarness
 
-__all__ = ["CommandRouter", "PipelineRunner", "TaskActivator", "TaskPromptManager"]
+__all__ = ["HarnessDecision", "HarnessLoopState", "TaskHarness"]

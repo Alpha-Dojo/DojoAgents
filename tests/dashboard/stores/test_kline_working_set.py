@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
-from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
-from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
+from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
+from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
+from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 

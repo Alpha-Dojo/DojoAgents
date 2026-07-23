@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.theme_state_metrics import (
+from dojoagents.harnesses.built_in.financial.services.theme_state_metrics import (
     aggregate_fundamentals_lite,
     breadth_confirmation_multiplier,
     compute_breadth_for_day,
@@ -13,7 +13,7 @@ from dojoagents.dashboard.services.theme_state_metrics import (
     streak_days,
     window_return_pct,
 )
-from dojoagents.dashboard.services.fin_indicators_utils import (
+from dojoagents.harnesses.built_in.financial.services.fin_indicators_utils import (
     comparable_quarter_key,
     natural_comparable_quarter_key,
 )

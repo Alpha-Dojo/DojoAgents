@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from dojoagents.agent.harnesses.artifact_synthesis import ArtifactSynthesisHarness
-from dojoagents.agent.harnesses.tool_orchestrated import ToolOrchestratedHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy.artifact_synthesis import ArtifactSynthesisHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy.tool_orchestrated import ToolOrchestratedHarness
 from dojoagents.agent.models import ChatRequest, ToolCall, ToolResult
-from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
 from dojoagents.tasks.activator import TaskActivator, TaskActivationError
 from dojoagents.tasks.artifacts import resolve_dated_filename
 from dojoagents.tasks.command_router import CommandRouter
@@ -23,8 +23,9 @@ from dojoagents.tools.session_file_tool import read_session_output, write_sessio
 @pytest.fixture
 def task_roots(tmp_path: Path) -> tuple[Path, Path]:
     repo_root = Path(__file__).resolve().parents[1]
-    built_in = repo_root / "dojoagents" / "tasks" / "built_in"
-    pipelines = repo_root / "dojoagents" / "tasks" / "pipelines"
+    financial = repo_root / "dojoagents" / "harnesses" / "built_in" / "financial"
+    built_in = financial / "tasks" / "definitions"
+    pipelines = financial / "pipelines" / "definitions"
     return built_in, pipelines
 
 
@@ -61,14 +62,8 @@ def _write_task_file(
 
 
 def test_resolve_dated_filename() -> None:
-    assert (
-        resolve_dated_filename("market_news_raw_pack.json", {"trading_date": "2026-07-03"})
-        == "market_news_raw_pack_2026-07-03.json"
-    )
-    assert (
-        resolve_dated_filename("market_event_triggers.jsonl", {"trading_date": "2026-07-03"})
-        == "market_event_triggers_2026-07-03.jsonl"
-    )
+    assert resolve_dated_filename("market_news_raw_pack.json", {"trading_date": "2026-07-03"}) == "market_news_raw_pack_2026-07-03.json"
+    assert resolve_dated_filename("market_event_triggers.jsonl", {"trading_date": "2026-07-03"}) == "market_event_triggers_2026-07-03.jsonl"
     assert resolve_dated_filename("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
 
 
@@ -308,10 +303,7 @@ def test_pipeline_runner_advances_to_event_trigger(
     advance = runner.maybe_advance(request, response)
     assert advance.next_request is not None
     assert advance.next_request.metadata["active_task"]["task_id"] == "event-trigger"
-    assert (
-        advance.next_request.metadata["active_task"]["inputs"][0]["filename"]
-        == "market_news_raw_pack_2026-07-02.json"
-    )
+    assert advance.next_request.metadata["active_task"]["inputs"][0]["filename"] == "market_news_raw_pack_2026-07-02.json"
     assert advance.next_request.metadata["active_task"]["inputs"][0]["source_task_id"] == "sector-attribution"
     assert advance.next_request.metadata["pipeline"]["step"] == 2
 

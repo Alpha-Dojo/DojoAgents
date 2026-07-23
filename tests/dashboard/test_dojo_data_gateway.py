@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from dojoagents.dashboard.services.dojo_data_gateway import (
+from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import (
     DojoDataGateway,
     GatewayBadResponseError,
     GatewayTimeoutError,

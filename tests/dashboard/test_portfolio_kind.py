@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.schemas.portfolio import CreatePortfolioRequest, UpdatePortfolioRequest
-from dojoagents.dashboard.services.portfolio_service import PortfolioService, PortfolioValidationError
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import CreatePortfolioRequest, UpdatePortfolioRequest
+from dojoagents.harnesses.built_in.financial.services.portfolio_service import PortfolioService, PortfolioValidationError
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
 
 
 class _EmptyStockStore:

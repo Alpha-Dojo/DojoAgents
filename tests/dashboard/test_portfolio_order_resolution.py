@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.agent.escalation import AgentEscalationError
-from dojoagents.dashboard.services.portfolio_allocation import normalize_shares
-from dojoagents.dashboard.schemas.portfolio import PortfolioCapitalConfig, PortfolioDetail, PortfolioPositionView
-from dojoagents.dashboard.services.portfolio_order_resolution import (
+from dojoagents.tools.escalation import AgentEscalationError
+from dojoagents.harnesses.built_in.financial.services.portfolio_allocation import normalize_shares
+from dojoagents.harnesses.built_in.financial.contracts.portfolio import PortfolioCapitalConfig, PortfolioDetail, PortfolioPositionView
+from dojoagents.harnesses.built_in.financial.services.portfolio_order_resolution import (
     validate_share_quantity,
     resolve_portfolio_order_request,
 )
@@ -29,7 +29,7 @@ class FakeKlineStore:
 
     async def get_or_fetch_kline(self, symbol, **kwargs):
         self.calls.append({"symbol": symbol, **kwargs})
-        from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+        from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse
 
         selected = self.bars
         start = str(kwargs.get("start_time") or "")[:10]
@@ -275,7 +275,7 @@ async def test_resolve_gooql_falls_back_to_goog_kline_symbol() -> None:
         async def get_or_fetch_kline(self, symbol, **kwargs):
             self.calls.append({"symbol": symbol, **kwargs})
             if symbol == "GOOGL":
-                from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
+                from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineResponse
 
                 return StockKlineResponse(symbol=symbol, bars=[])
             return await super().get_or_fetch_kline(symbol, **kwargs)
@@ -429,4 +429,3 @@ async def test_resolve_sell_uses_qty_pct_when_provided() -> None:
 
     assert body.qty == 500.0
     assert meta.qty_source == "qty_pct"
-

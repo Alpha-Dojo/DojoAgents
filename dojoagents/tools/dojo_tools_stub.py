@@ -125,7 +125,8 @@ def _record_session_output(payload):
 def _rpc_call(tool_name, args):
     payload = {{"tool": tool_name, "args": args or {{}}}}
     if sys.platform == "win32":
-        import dojoagents.tools.af_unix_asyncio_compat as sync_unix
+        import dojoagents.tools.af_unix_socket_compat as sync_unix
+
         with sync_unix.create_connection(_SOCKET_PATH) as sock:
             sock.sendall(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\\n")
             raw = _read_response(sock)

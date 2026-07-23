@@ -12,6 +12,7 @@ from dojoagents.harnesses.capabilities import (
     MemoryProviderSpec,
     PromptContributorSpec,
     RequestContextCodecSpec,
+    ResultArtifactAdapterSpec,
     ResultPresenterSpec,
     PipelineSourceSpec,
     TaskSourceSpec,
@@ -57,10 +58,16 @@ from .presenters import (
     FinancialResultPresenter,
     FinancialResultProjector,
 )
+from .presenters.artifacts import FinancialArtifactAdapter
 from dojoagents.harnesses.registries.presenters import PresenterRegistry
 from .services import FinancialServiceContainer
 from .state import FinancialSessionStateCodec
-from .surfaces import FinancialCliSurface, FinancialDashboardSurface, FinancialGatewaySurface
+from .surfaces import (
+    FinancialCliSurface,
+    FinancialDashboardSurface,
+    FinancialGatewaySurface,
+    LegacyFinancialDashboardSurface,
+)
 from .tasks import TASK_IO_TOOL_NAMES, financial_task_directories, get_task_io_specs
 from .pipelines import financial_pipeline_directories
 from .tools import (
@@ -104,6 +111,7 @@ class FinancialHarness:
         self.artifact_task_policy = ArtifactSynthesisTaskPolicy(task_output_root=str(config.tasks.output_root))
         self.completion_policy = FinancialTurnCompletionPolicy()
         self.result_presenter = FinancialResultPresenter()
+        self.artifact_adapter = FinancialArtifactAdapter()
         self.result_projector = FinancialResultProjector()
         self.dashboard_surface = FinancialDashboardSurface(self.service_container)
         self.cli_surface = FinancialCliSurface(self.service_container)
@@ -273,6 +281,14 @@ class FinancialHarness:
         self.result_projector = FinancialResultProjector(PresenterRegistry(presenter_specs))
         for presenter_spec in presenter_specs:
             builder.add_result_presenter(presenter_spec)
+        builder.set_result_artifact_adapter(
+            ResultArtifactAdapterSpec(
+                "financial.artifacts",
+                source,
+                priority=500,
+                adapter=self.artifact_adapter,
+            )
+        )
         builder.add_service(
             ServiceSpec(
                 component_id=FINANCIAL_SERVICE_ID,
@@ -321,6 +337,55 @@ class FinancialHarness:
     async def shutdown(self, context: HarnessRuntimeContext) -> None:
         # Service shutdown is dependency-ordered by LifecycleManager.
         return None
+
+    def legacy_surface(self, surface_id: str, runtime: Any) -> Any:
+        """Resolve a host adapter for the deprecated synchronous Runtime."""
+
+        if surface_id != "dashboard":
+            raise KeyError(surface_id)
+        return LegacyFinancialDashboardSurface.from_runtime(runtime)
+
+    def legacy_runtime_contributions(self, root_config: Any):
+        """Bridge the deprecated synchronous Runtime without leaking finance into core."""
+
+        from dojoagents.harnesses.legacy import LegacyRuntimeContributions
+        from .tools.sdk_runtime import get_dojo_sdk_specs
+        from .tools.visualization_engine import get_agent_viz_specs as legacy_viz_specs
+
+        from .compat import FinancialLegacyBehavior
+        from .policies.legacy import (
+            ArtifactSynthesisHarness,
+            PortfolioTaskHarness,
+            ToolOrchestratedHarness,
+        )
+        from .presenters.artifacts import FinancialArtifactAdapter
+        from .presenters.legacy_registry import ToolResultPresenterRegistry
+
+        def task_harnesses(task_manager: Any, config: Any) -> tuple[Any, ...]:
+            return (
+                PortfolioTaskHarness(),
+                ToolOrchestratedHarness(
+                    task_manager=task_manager,
+                    task_output_root=config.tasks.output_root,
+                ),
+                ArtifactSynthesisHarness(
+                    task_manager=task_manager,
+                    task_output_root=config.tasks.output_root,
+                ),
+            )
+
+        return LegacyRuntimeContributions(
+            artifact_adapter=FinancialArtifactAdapter(),
+            presenter_factory=ToolResultPresenterRegistry,
+            behavior=FinancialLegacyBehavior(),
+            additional_tool_specs=(
+                *get_dojo_sdk_specs(root_config.dojosdk),
+                *legacy_viz_specs(),
+            ),
+            task_harness_factory=task_harnesses,
+            task_directories=financial_task_directories(),
+            pipeline_directories=financial_pipeline_directories(),
+        )
 
 
 def create_harness(config: Mapping[str, Any], context: HarnessBuildContext) -> FinancialHarness:

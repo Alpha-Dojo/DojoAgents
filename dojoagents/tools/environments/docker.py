@@ -1,6 +1,7 @@
 import asyncio
 from dojoagents.tools.environments.base import BaseEnvironment
 
+
 class DockerEnvironment(BaseEnvironment):
     def __init__(self, image: str, cwd: str = "/workspace", container_name: str = None):
         super().__init__(cwd=cwd)
@@ -13,15 +14,10 @@ class DockerEnvironment(BaseEnvironment):
             return
         # 自动挂载宿主机当前工作目录至容器的 /workspace
         import os
+
         host_cwd = os.getcwd()
-        start_cmd = [
-            "docker", "run", "-d", "--name", self.container_name,
-            "-v", f"{host_cwd}:/workspace",
-            "--workdir", "/workspace", self.image, "tail", "-f", "/dev/null"
-        ]
-        proc = await asyncio.create_subprocess_exec(
-            *start_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
+        start_cmd = ["docker", "run", "-d", "--name", self.container_name, "-v", f"{host_cwd}:/workspace", "--workdir", "/workspace", self.image, "tail", "-f", "/dev/null"]
+        proc = await asyncio.create_subprocess_exec(*start_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         await proc.communicate()
         self._started = True
 
@@ -29,13 +25,11 @@ class DockerEnvironment(BaseEnvironment):
         await self._ensure_container()
         exec_cmd = ["docker", "exec", "-i", self.container_name, "bash", "-c", cmd_string]
         return await asyncio.create_subprocess_exec(
-            *exec_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.PIPE if stdin_data else asyncio.subprocess.DEVNULL
+            *exec_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.PIPE if stdin_data else asyncio.subprocess.DEVNULL
         )
 
     def cleanup(self):
         if self._started:
             import subprocess
+
             subprocess.run(["docker", "rm", "-f", self.container_name], capture_output=True)

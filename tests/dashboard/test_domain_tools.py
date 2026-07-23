@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.dashboard.tools import domain_tools
+from dojoagents.harnesses.built_in.financial.tools import domain_runtime as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -268,6 +268,9 @@ async def test_price_trends_tool_accepts_start_time_alias(monkeypatch) -> None:
 
 def test_create_app_registers_dashboard_domain_tools() -> None:
     from dojoagents.dashboard.server import create_app
+    from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
+        LegacyFinancialDashboardSurface,
+    )
 
     class FakeRuntime:
         def __init__(self) -> None:
@@ -279,7 +282,11 @@ def test_create_app_registers_dashboard_domain_tools() -> None:
             self.scheduler = SimpleNamespace(list_jobs=lambda: [])
 
     runtime = FakeRuntime()
-    create_app(runtime, store_registry=_ready_registry())
+    surface = LegacyFinancialDashboardSurface.from_runtime(
+        runtime,
+        registry=_ready_registry(),
+    )
+    create_app(runtime, dashboard_surface=surface)
 
     assert runtime.agent.tool_executor.registry.get("get_market_overview") is not None
     assert runtime.agent.tool_executor.registry.get("get_sector_movers") is not None

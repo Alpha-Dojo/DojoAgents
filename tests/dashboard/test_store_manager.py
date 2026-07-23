@@ -6,7 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dojoagents.dashboard.server import create_app
-from dojoagents.dashboard.store_manager import GlobalStores, stores
+from dojoagents.harnesses.built_in.financial.services.legacy_store_manager import GlobalStores, stores
+from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
+    LegacyFinancialDashboardSurface,
+)
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
@@ -52,12 +55,14 @@ def test_create_app_defers_sdk_and_store_initialization_to_lifespan(tmp_path) ->
         clients.append(client)
         return client
 
-    app = create_app(
-        FakeRuntime(),
-        dojo_client_factory=factory,
-        store_registry=registry,
-        dashboard_data_root=tmp_path,
+    runtime = FakeRuntime()
+    surface = LegacyFinancialDashboardSurface.from_runtime(
+        runtime,
+        client_factory=factory,
+        registry=registry,
+        data_root=tmp_path,
     )
+    app = create_app(runtime, dashboard_surface=surface)
 
     assert clients == []
     with TestClient(app) as client:
@@ -110,7 +115,7 @@ async def test_preload_failure_is_isolated_and_does_not_abort(tmp_path) -> None:
 
 
 def test_financial_dependency_before_lifespan_has_clear_error() -> None:
-    from dojoagents.dashboard.deps import get_stock_store
+    from dojoagents.harnesses.built_in.financial.surfaces.dashboard_dependencies import get_stock_store
 
     stores.reset()
 

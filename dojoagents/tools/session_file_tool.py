@@ -4,15 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from dojoagents.agent.tool_result_artifacts import _validate_session_id
-from dojoagents.agent.write_session_file_guardrails import (
+from dojoagents.sessions.identifiers import validate_output_filename, validate_session_id
+from dojoagents.tools.write_authorization import (
     active_task_metadata,
     classify_write_session_file,
     preview_write_content,
     should_allow_write_session_file_for_task,
     write_session_file_guardrail_from_classification,
 )
-from dojoagents.dashboard.services.file_store_base import _atomic_write_text
+from dojoagents.sessions.atomic import _atomic_write_text
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.output_paths import resolve_task_read_path, resolve_task_write_path
 from dojoagents.tasks.output_validation import find_output_artifact, validate_task_output_content
@@ -22,14 +22,13 @@ from dojoagents.tools.process_registry import (
     active_write_session_file_guard,
 )
 from dojoagents.tools.registry import ToolSpec
-from dojoagents.tools.session_file_names import validate_output_filename
 
 SESSION_OUTPUT_SUBDIR = "outputs"
 _SUPPORTED_FORMATS = frozenset({"text", "json", "jsonl"})
 
 
 def resolve_session_output_dir(sessions_root: str | Path, session_id: str) -> Path:
-    safe_session = _validate_session_id(session_id)
+    safe_session = validate_session_id(session_id)
     root = Path(sessions_root).expanduser().resolve()
     return root / safe_session / SESSION_OUTPUT_SUBDIR
 
@@ -109,7 +108,7 @@ def read_session_output(
 
     return {
         "ok": True,
-        "session_id": _validate_session_id(session_id),
+        "session_id": validate_session_id(session_id),
         "filename": safe_name,
         "path": str(target_path.resolve()),
         "storage_kind": storage_kind,
@@ -186,7 +185,7 @@ def get_read_session_output_spec(
             "properties": {
                 "filename": {
                     "type": "string",
-                    "description": "Basename only, e.g. market_news_raw_pack.json",
+                    "description": "Basename only, e.g. analysis_output.json",
                 },
             },
             "required": ["filename"],
@@ -242,7 +241,7 @@ def write_session_file(
     bytes_written = target_path.stat().st_size
     return {
         "ok": True,
-        "session_id": _validate_session_id(session_id),
+        "session_id": validate_session_id(session_id),
         "filename": safe_name,
         "format": normalized_fmt,
         "path": str(target_path),

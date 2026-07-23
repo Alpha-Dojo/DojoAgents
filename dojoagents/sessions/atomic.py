@@ -55,6 +55,13 @@ def _atomic_write_text(path: Path, content: str) -> None:
     _atomic_write_bytes(path, content.encode("utf-8"))
 
 
+def _atomic_write_json(path: Path, data: Any) -> None:
+    _atomic_write_text(
+        path,
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
 class AtomicJsonStore:
     suffix = ".json"
 
@@ -137,4 +144,14 @@ class AtomicJsonlStore(AtomicJsonStore):
         return rows
 
 
-__all__ = ["AtomicJsonStore", "AtomicJsonlStore", "CorruptStoreError", "FileStoreError", "InvalidStoreKeyError", "SchemaVersionError", "_atomic_write_bytes", "_atomic_write_text"]
+__all__ = [
+    "AtomicJsonStore",
+    "AtomicJsonlStore",
+    "CorruptStoreError",
+    "FileStoreError",
+    "InvalidStoreKeyError",
+    "SchemaVersionError",
+    "_atomic_write_bytes",
+    "_atomic_write_json",
+    "_atomic_write_text",
+]

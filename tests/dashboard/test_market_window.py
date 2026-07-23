@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.market_window import (
+from dojoagents.harnesses.built_in.financial.services.market_window import (
     MarketAnalysisWindow,
     resolve_market_analysis_window,
     resolve_window_bounds_from_trade_dates,

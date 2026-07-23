@@ -18,15 +18,12 @@ class ToolsListTool:
                 "type": "object",
                 "properties": {},
             },
-            handler=self.handle_call
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
         try:
             tools_data = [spec.schema() for spec in self.registry.all()]
-            return {
-                "content": json.dumps(tools_data, indent=2, ensure_ascii=False),
-                "metadata": {"ok": True}
-            }
+            return {"content": json.dumps(tools_data, indent=2, ensure_ascii=False), "metadata": {"ok": True}}
         except Exception as e:
             return {"content": f"Failed to list tools: {e}", "metadata": {"ok": False}}

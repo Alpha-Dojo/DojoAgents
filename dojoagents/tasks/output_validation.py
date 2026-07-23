@@ -9,7 +9,6 @@ from dojoagents.tasks.models import TaskArtifactSpec, TaskSpec
 from dojoagents.tasks.output_paths import resolve_task_output_file
 from dojoagents.tasks.schema_validator import TaskOutputValidator, validate_json_payload
 
-
 _PLACEHOLDER_MARKERS = frozenset(
     {
         "copy_of_task_output",
@@ -51,13 +50,17 @@ def _looks_like_placeholder_dict(payload: dict[str, Any]) -> bool:
     if any(marker in keys for marker in _PLACEHOLDER_MARKERS):
         return True
     note = str(payload.get("note") or "").lower()
-    if note and any(
-        token in note
-        for token in ("saved at", "also saved", "output path", "file path", "写入", "保存于")
-    ):
+    if note and any(token in note for token in ("saved at", "also saved", "output path", "file path", "写入", "保存于")):
         return True
-    # Real task payloads always include trading_date; tiny meta-only dicts are not deliverables.
-    if "trading_date" not in payload and "event_time" not in payload and len(keys) <= 3:
+    metadata_only = {
+        "filename",
+        "message",
+        "note",
+        "output",
+        "path",
+        "status",
+    }
+    if keys and keys <= metadata_only and len(keys) <= 3:
         return True
     return False
 
@@ -83,10 +86,7 @@ def validate_task_output_content(
 ) -> list[str]:
     issues: list[str] = []
     if is_placeholder_task_output(content, fmt=fmt):
-        issues.append(
-            "Refusing placeholder/meta-only output. Write the full task schema payload "
-            "(sector_moves, news_items, event_summary, etc.), not path notes."
-        )
+        issues.append("Refusing placeholder/meta-only output. Write the full task schema " "payload, not a path note.")
         return issues
 
     schema_ref = str(artifact_meta.get("schema") or "").strip()

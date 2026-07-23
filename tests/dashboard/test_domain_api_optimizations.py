@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import dojoagents.dashboard.services.domain_api as domain_api
-from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
-from dojoagents.dashboard.schemas.dojo_sphere import (
+import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
+from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import BilingualText
+from dojoagents.harnesses.built_in.financial.contracts.dojo_sphere import (
     SectorConstituentsResponse,
     SectorPerformanceResponse,
     SectorScopeMetricsResponse,

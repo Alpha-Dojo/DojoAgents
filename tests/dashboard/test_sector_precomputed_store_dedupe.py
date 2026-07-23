@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from dojoagents.dashboard.services.sector_precomputed_store import (
+from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import (
     SectorPrecomputedStore,
     dedupe_constituent_rows,
 )

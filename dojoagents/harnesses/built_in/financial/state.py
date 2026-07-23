@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.harnesses.portfolio_task_intent import (
+from .policies.legacy_harness import FinancialHarnessLoopState
+from .policies.legacy.portfolio_task_intent import (
     classify_portfolio_task,
     is_liquidation_intent,
     order_side_trace,
@@ -15,8 +15,8 @@ from dojoagents.harnesses.state import HarnessSessionState
 from dojoagents.sessions.errors import HarnessSessionIncompatibleError
 
 
-def _legacy_state(context: Any) -> HarnessLoopState:
-    return HarnessLoopState(
+def _legacy_state(context: Any) -> FinancialHarnessLoopState:
+    return FinancialHarnessLoopState(
         request=context.request,
         tool_calls=list(context.tool_calls),
         tool_results=list(context.tool_results),

@@ -1,4 +1,4 @@
-from dojoagents.agent.harnesses.artifact_synthesis import ArtifactSynthesisHarness
+from .legacy.artifact_synthesis import ArtifactSynthesisHarness
 from dojoagents.harnesses.decisions import CompletionDecision, ToolControlDecision
 
 from ..state import _legacy_state

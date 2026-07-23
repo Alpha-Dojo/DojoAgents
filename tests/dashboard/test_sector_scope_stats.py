@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.sector_scope_stats import _compute_sector_scope_metrics_sync
-from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
+from dojoagents.harnesses.built_in.financial.services.sector_scope_stats import _compute_sector_scope_metrics_sync
+from dojoagents.harnesses.built_in.financial.services.sector_store import ResolvedSectorPath
 
 
 class _FakePrecomputedStore:
@@ -18,13 +18,7 @@ class _FakePrecomputedStore:
         level3_id: str,
         market: str | None = None,
     ) -> list[dict]:
-        matched = [
-            row
-            for row in self._rows
-            if row["scope"] == scope
-            and row["level1_id"] == level1_id
-            and row["market"] == market
-        ]
+        matched = [row for row in self._rows if row["scope"] == scope and row["level1_id"] == level1_id and row["market"] == market]
         if scope in ("L2", "L3"):
             matched = [row for row in matched if row["level2_id"] == level2_id]
         if scope == "L3":

@@ -3,8 +3,8 @@ import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop
-from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
+from dojoagents.harnesses.built_in.financial.services.market_refresh_jobs import start_refresh_loop
+from dojoagents.harnesses.built_in.financial.services.constituent_kline_refresh_state import RefreshStateStore
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,7 @@ async def test_start_refresh_loop_triggers_preload_after_8am(tmp_path):
             raise asyncio.CancelledError()
 
     # Mock datetime to 2026-06-29 08:30:00 (after 8 AM)
-    with patch("dojoagents.dashboard.services.market_refresh_jobs.datetime") as mock_datetime:
+    with patch("dojoagents.harnesses.built_in.financial.services.market_refresh_jobs.datetime") as mock_datetime:
         mock_datetime.datetime.now.return_value = datetime.datetime(2026, 6, 29, 8, 30)
         mock_datetime.time = datetime.time
         mock_datetime.timedelta = datetime.timedelta
@@ -57,7 +57,7 @@ async def test_start_refresh_loop_triggers_preload_before_8am(tmp_path):
             raise asyncio.CancelledError()
 
     # Mock datetime to 2026-06-29 07:30:00 (before 8 AM) -> target date is yesterday (2026-06-28)
-    with patch("dojoagents.dashboard.services.market_refresh_jobs.datetime") as mock_datetime:
+    with patch("dojoagents.harnesses.built_in.financial.services.market_refresh_jobs.datetime") as mock_datetime:
         mock_datetime.datetime.now.return_value = datetime.datetime(2026, 6, 29, 7, 30)
         mock_datetime.time = datetime.time
         mock_datetime.timedelta = datetime.timedelta
@@ -114,7 +114,7 @@ async def test_start_refresh_loop_skips_if_already_refreshed_today(tmp_path):
             raise asyncio.CancelledError()
 
     # Mock datetime to 2026-06-29 10:00:00 (target date is today)
-    with patch("dojoagents.dashboard.services.market_refresh_jobs.datetime") as mock_datetime:
+    with patch("dojoagents.harnesses.built_in.financial.services.market_refresh_jobs.datetime") as mock_datetime:
         mock_datetime.datetime.now.return_value = datetime.datetime(2026, 6, 29, 10, 0)
         mock_datetime.time = datetime.time
         mock_datetime.timedelta = datetime.timedelta
@@ -144,7 +144,7 @@ async def test_start_refresh_loop_supports_sync_preload(tmp_path):
             raise asyncio.CancelledError()
 
     # Mock datetime to 2026-06-29 08:30:00 (after 8 AM)
-    with patch("dojoagents.dashboard.services.market_refresh_jobs.datetime") as mock_datetime:
+    with patch("dojoagents.harnesses.built_in.financial.services.market_refresh_jobs.datetime") as mock_datetime:
         mock_datetime.datetime.now.return_value = datetime.datetime(2026, 6, 29, 8, 30)
         mock_datetime.time = datetime.time
         mock_datetime.timedelta = datetime.timedelta

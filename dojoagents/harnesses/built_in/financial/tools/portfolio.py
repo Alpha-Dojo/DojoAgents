@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from dojoagents.dashboard.tools.portfolio_tools import register_dashboard_portfolio_tools
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
+from .portfolio_runtime import register_dashboard_portfolio_tools
 
 PORTFOLIO_TOOL_NAMES = (
     "portfolio_read_list",

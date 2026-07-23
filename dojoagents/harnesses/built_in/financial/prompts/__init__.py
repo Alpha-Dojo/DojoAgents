@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dojoagents.agent.temporal_context import build_temporal_context_block
-from dojoagents.agent.turn_intent import TurnIntentResult, build_turn_intent_anchor
+from ..policies.turn_intent import TurnIntentResult, build_turn_intent_anchor
 
 from .dashboard import dashboard_tool_prompt
 from .identity import FINANCIAL_IDENTITY, financial_instructions_prompt, identity_prompt

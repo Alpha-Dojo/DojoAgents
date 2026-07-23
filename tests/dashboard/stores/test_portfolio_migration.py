@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
 
 
 def _write_v1(root) -> tuple[object, bytes]:

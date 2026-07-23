@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.dojo_sphere_service import DojoSphereService
-from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStore
+from dojoagents.harnesses.built_in.financial.services.dojo_sphere_service import DojoSphereService
+from dojoagents.harnesses.built_in.financial.services.sector_metrics_store import SectorMetricsStore
 
 
 @pytest.mark.asyncio

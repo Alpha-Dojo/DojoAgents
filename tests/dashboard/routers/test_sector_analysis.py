@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import dojoagents.dashboard.routers.sector as sector_router
+import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.sector as sector_router
 
 
 def test_sector_analysis_returns_404_when_path_cannot_be_resolved(financial_client, monkeypatch) -> None:

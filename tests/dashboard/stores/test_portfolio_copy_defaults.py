@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore, INDEX_FILENAME
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore, INDEX_FILENAME
 
 
 def test_portfolio_store_copies_defaults_when_empty(tmp_path) -> None:

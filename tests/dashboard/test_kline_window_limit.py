@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
-from dojoagents.dashboard.services.kline_bar_utils import (
+from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
+from dojoagents.harnesses.built_in.financial.services.kline_bar_utils import (
     DATA_START_DATE,
     ashare_kline_symbol_candidates,
     infer_ashare_kline_suffix,
     resolve_kline_limit_for_elapsed_days,
     resolve_tail_limit,
 )
-from dojoagents.dashboard.services.kline_store import KlineStore
-from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
-from dojoagents.dashboard.services.stock_store import StockStore
+from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
+from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
+from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
@@ -44,12 +42,7 @@ class TailOnlyKlineGateway:
         if window.get("start_time") or window.get("end_time"):
             start = str(window.get("start_time") or "")[:10]
             end = str(window.get("end_time") or "9999-99-99")[:10]
-            filtered = [
-                row
-                for row in sym_rows
-                if (not start or row["bar_time"][:10] >= start)
-                and row["bar_time"][:10] <= end
-            ]
+            filtered = [row for row in sym_rows if (not start or row["bar_time"][:10] >= start) and row["bar_time"][:10] <= end]
         else:
             filtered = sym_rows[-self.tail :]
         return GatewayResult(pd.DataFrame(filtered), None, "sdk_snapshot", False)
@@ -72,7 +65,7 @@ def test_resolve_kline_limit_for_elapsed_days_covers_2025_inception() -> None:
 
 
 def test_price_within_daily_range_is_inclusive() -> None:
-    from dojoagents.dashboard.services.kline_bar_utils import price_within_daily_range
+    from dojoagents.harnesses.built_in.financial.services.kline_bar_utils import price_within_daily_range
 
     assert price_within_daily_range(100.0, 100.0, 105.0)
     assert price_within_daily_range(105.0, 100.0, 105.0)
@@ -230,4 +223,3 @@ def test_infer_ashare_kline_suffix_maps_exchange_codes() -> None:
 def test_ashare_kline_symbol_candidates_returns_suffixed_symbol() -> None:
     assert ashare_kline_symbol_candidates("688008") == ["688008.SS"]
     assert ashare_kline_symbol_candidates("002230") == ["002230.SZ"]
-

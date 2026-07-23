@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall, ToolResult
-from dojoagents.agent.turn_completion import (
+from dojoagents.harnesses.built_in.financial.policies.legacy_completion import (
     TurnCompletionContext,
     absorb_tools_from_llm_result,
     absorb_tools_from_strands_message,
@@ -14,7 +14,9 @@ from dojoagents.agent.turn_completion import (
     register_turn_completion_rule,
     resolve_turn_completion,
 )
-from dojoagents.agent import turn_completion as turn_completion_module
+from dojoagents.harnesses.built_in.financial.policies import (
+    legacy_completion as turn_completion_module,
+)
 
 
 def _request() -> ChatRequest:
@@ -77,9 +79,7 @@ def test_absorb_viz_from_llm_result_when_deliverable_and_viz_forbidden() -> None
 
 def test_no_absorb_without_deliverable() -> None:
     inv = _invocation()
-    inv["_dojo_harness_state"].tool_results = (
-        ToolResult(call_id="e1", name="portfolio_eval_submit", ok=True, data={"accepted": True}),
-    )
+    inv["_dojo_harness_state"].tool_results = (ToolResult(call_id="e1", name="portfolio_eval_submit", ok=True, data={"accepted": True}),)
     llm = LLMResult(
         content="",
         tool_calls=[ToolCall(id="v1", name="agent_viz_build", arguments={})],
@@ -120,9 +120,7 @@ def test_absorb_strands_message_updates_stop_reason() -> None:
 
 def test_forbidden_viz_only_absorbs_viz_tool() -> None:
     harness_state = _invocation()["_dojo_harness_state"]
-    harness_state.tool_results = (
-        ToolResult(call_id="w1", name="portfolio_write_create_order", ok=True, data={}),
-    )
+    harness_state.tool_results = (ToolResult(call_id="w1", name="portfolio_write_create_order", ok=True, data={}),)
     ctx = TurnCompletionContext(
         channel="dashboard",
         user_message="分析",
@@ -142,7 +140,9 @@ def test_custom_turn_completion_rule() -> None:
 
     def _rule(ctx: TurnCompletionContext):
         if "stop-after-text" in ctx.user_message and ctx.pending_tool_names:
-            from dojoagents.agent.turn_completion import TurnCompletionDecision
+            from dojoagents.harnesses.built_in.financial.policies.legacy_completion import (
+                TurnCompletionDecision,
+            )
 
             return TurnCompletionDecision(
                 scene_id="custom_stop",

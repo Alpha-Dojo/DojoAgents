@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar
-from dojoagents.dashboard.services.benchmark_store import _bars_for_window, _window_change_percent
-from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
+from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar
+from dojoagents.harnesses.built_in.financial.services.benchmark_store import _bars_for_window, _window_change_percent
+from dojoagents.harnesses.built_in.financial.services.market_window import MarketAnalysisWindow
 
 
 def _bar(day: str, close: float) -> StockKlineBar:

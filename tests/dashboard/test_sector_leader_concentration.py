@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.sector_leader_concentration import (
+from dojoagents.harnesses.built_in.financial.services.sector_leader_concentration import (
     compute_leader_concentration,
     leader_concentration_tier,
 )

@@ -24,7 +24,6 @@ from dojoagents.dashboard.schemas.session_inputs import (
 from dojoagents.dashboard.schemas.session_outputs import SessionOutputRevealResponse, SessionOutputsResponse
 from dojoagents.dashboard.services.session_inputs import (
     list_session_input_files,
-    resolve_session_input_file,
     reveal_session_input_file,
     save_session_input_file,
 )
@@ -35,6 +34,7 @@ from dojoagents.dashboard.services.session_outputs import (
 )
 from dojoagents.logging import LOGGER
 from dojoagents.sessions.models import ObjectQuery, SessionPrincipal
+from dojoagents.sessions.paths import resolve_session_input_file
 
 router = APIRouter(prefix="/chat/sessions", tags=["chat-sessions"])
 

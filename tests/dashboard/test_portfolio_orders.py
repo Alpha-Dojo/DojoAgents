@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.portfolio_order_execution import (
+from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import (
     aggregate_positions,
     available_shares,
     explain_order_fill_failure,
     try_fill_order,
 )
-from dojoagents.dashboard.services.portfolio_store import PortfolioStore
+from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
 
 
 class Bar:
@@ -28,7 +28,7 @@ class FakeKlineStore:
         self.bars = bars
 
     async def get_or_fetch_kline(self, *_args, **_kwargs):
-        from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+        from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse
 
         return StockKlineResponse(
             symbol="NVDA",
@@ -54,7 +54,7 @@ class TruncatingFakeKlineStore:
         self.trailing_limit = trailing_limit
 
     async def get_or_fetch_kline(self, *_args, **kwargs):
-        from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+        from dojoagents.harnesses.built_in.financial.contracts.stock_kline import StockKlineBar, StockKlineResponse
 
         start = str(kwargs.get("start_time") or "")[:10]
         end = str(kwargs.get("end_time") or "")[:10]
@@ -86,7 +86,7 @@ class TruncatingFakeKlineStore:
 
 @pytest.mark.asyncio
 async def test_evaluate_fill_failure_fetches_historical_bar_outside_trailing_window() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import evaluate_order_fill_failure
 
     order = {
         "id": "o-hist",
@@ -176,7 +176,7 @@ def test_sync_order_overrides_prior_buy_and_trade_after_sync() -> None:
 
 
 def test_sync_order_clear_position_with_zero_qty() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import replay_market_balance
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import replay_market_balance
 
     orders = [
         {
@@ -269,7 +269,7 @@ async def test_fill_order_rejects_buy_when_cash_insufficient() -> None:
 
 @pytest.mark.asyncio
 async def test_evaluate_fill_failure_returns_code_for_insufficient_cash() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import evaluate_order_fill_failure
 
     order = {
         "id": "o-cash2",
@@ -393,7 +393,7 @@ async def test_explain_fill_failure_when_insufficient_shares() -> None:
 
 @pytest.mark.asyncio
 async def test_evaluate_fill_failure_returns_code_for_insufficient_shares() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import evaluate_order_fill_failure
 
     order = {
         "id": "o6",
@@ -420,7 +420,7 @@ async def test_evaluate_fill_failure_returns_code_for_insufficient_shares() -> N
 
 @pytest.mark.asyncio
 async def test_evaluate_fill_failure_returns_code_for_price_out_of_range() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import evaluate_order_fill_failure
 
     order = {
         "id": "o7",
@@ -470,7 +470,7 @@ def test_store_migrates_legacy_holdings_to_candidates(tmp_path) -> None:
 
 
 def test_replay_market_balance_does_not_go_negative_on_oversized_buy() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import replay_market_balance
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import replay_market_balance
 
     orders = [
         {
@@ -495,7 +495,7 @@ def test_replay_market_balance_does_not_go_negative_on_oversized_buy() -> None:
 
 
 def test_sanitize_invalid_filled_orders_rejects_oversized_buy() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import sanitize_invalid_filled_orders
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import sanitize_invalid_filled_orders
 
     orders = [
         {
@@ -517,7 +517,7 @@ def test_sanitize_invalid_filled_orders_rejects_oversized_buy() -> None:
 
 
 def test_aggregate_positions_bounded_skips_oversized_buy() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import aggregate_positions_bounded
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import aggregate_positions_bounded
 
     orders = [
         {
@@ -603,7 +603,7 @@ async def test_try_fill_order_reuses_resolved_bar_without_kline_fetch() -> None:
 
 @pytest.mark.asyncio
 async def test_evaluate_fill_failure_reuses_resolved_bar_without_kline_fetch() -> None:
-    from dojoagents.dashboard.services.portfolio_order_execution import evaluate_order_fill_failure
+    from dojoagents.harnesses.built_in.financial.services.portfolio_order_execution import evaluate_order_fill_failure
 
     order = {
         "id": "o-resolved",

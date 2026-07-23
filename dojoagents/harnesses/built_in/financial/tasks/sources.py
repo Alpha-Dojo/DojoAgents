@@ -14,8 +14,7 @@ TASK_IO_TOOL_NAMES = (
 
 
 def financial_task_directories() -> tuple[Path, ...]:
-    compatibility_root = Path(__file__).resolve().parents[4] / "tasks" / "built_in"
-    return (compatibility_root,)
+    return (Path(__file__).resolve().parent / "definitions",)
 
 
 def get_task_io_specs(runtime):

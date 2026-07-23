@@ -1,4 +1,4 @@
-from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+from .legacy.portfolio import PortfolioTaskHarness
 
 from ..state import _legacy_state
 

@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.dashboard.server import create_app
+from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
+    LegacyFinancialDashboardSurface,
+)
 
 
 def test_financial_config_has_safe_separate_defaults() -> None:
@@ -91,7 +94,12 @@ dashboard:
         scheduler=None,
         extensions=None,
     )
-    app = create_app(runtime, dojo_client_factory=factory, store_registry=Registry())
+    surface = LegacyFinancialDashboardSurface.from_runtime(
+        runtime,
+        client_factory=factory,
+        registry=Registry(),
+    )
+    app = create_app(runtime, dashboard_surface=surface)
 
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200

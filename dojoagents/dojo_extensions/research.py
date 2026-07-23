@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+
 from dojoagents.dojo_extensions.base import DashboardCardSpec, ExtensionHealth
-from dojoagents.quant.context import QuantContext
 
 
 class DojoResearchExtension:
@@ -17,5 +18,5 @@ class DojoResearchExtension:
     def dashboard_cards(self) -> list[DashboardCardSpec]:
         return [DashboardCardSpec(id="research", title="Research Artifacts")]
 
-    def prompt_context(self, quant_context: QuantContext) -> str:
+    def prompt_context(self, request_context: Any) -> str:
         return "Dojo research extension available for analysis artifact lookup."

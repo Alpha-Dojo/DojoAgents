@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from dojoagents.agent.models import ToolCall
-from dojoagents.dashboard.services import domain_api
-from dojoagents.dashboard.services.sector_store import SectorStore
-from dojoagents.dashboard.tools import domain_tools
+from dojoagents.harnesses.built_in.financial.services import domain_api
+from dojoagents.harnesses.built_in.financial.services.sector_store import SectorStore
+from dojoagents.harnesses.built_in.financial.tools import domain_runtime as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy

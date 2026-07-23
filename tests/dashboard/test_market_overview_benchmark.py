@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import dojoagents.dashboard.services.domain_api as domain_api
-from dojoagents.dashboard.schemas.benchmark import (
+import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
+from dojoagents.harnesses.built_in.financial.contracts.benchmark import (
     BenchmarkCard,
     BenchmarkKline,
     BilingualText,

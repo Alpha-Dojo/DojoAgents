@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.services.fin_currency_conversion import (
+from dojoagents.harnesses.built_in.financial.services.fin_currency_conversion import (
     chained_conversion_factor,
     required_forex_symbols,
 )

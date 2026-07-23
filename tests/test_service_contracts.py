@@ -7,11 +7,15 @@ async def test_scheduler_runs_job_through_runtime_and_saves_output(tmp_path):
     from dojoagents.agent.models import AgentResponse
     from dojoagents.cron.jobs import JobStore, ScheduledJob
     from dojoagents.cron.scheduler import SchedulerService
-    from dojoagents.quant.context import QuantContext
+    from dojoagents.harnesses.built_in.financial.context import FinancialContext
 
     class FakeAgent:
         async def run(self, request):
-            assert request.quant == QuantContext(market="crypto", symbols=["BTC-USD"], timeframe="1d")
+            assert request.quant == FinancialContext(
+                market="crypto",
+                symbols=("BTC-USD",),
+                timeframe="1d",
+            )
             return AgentResponse(content="daily brief", session_id=request.session_id)
 
     class FakeRuntime:
@@ -29,7 +33,11 @@ async def test_scheduler_runs_job_through_runtime_and_saves_output(tmp_path):
             name="Daily BTC",
             schedule={"kind": "cron", "expr": "0 8 * * 1-5"},
             prompt="Write a daily BTC brief.",
-            quant=QuantContext(market="crypto", symbols=["BTC-USD"], timeframe="1d"),
+            quant=FinancialContext(
+                market="crypto",
+                symbols=("BTC-USD",),
+                timeframe="1d",
+            ),
         )
     )
 
