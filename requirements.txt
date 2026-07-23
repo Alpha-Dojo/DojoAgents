@@ -20,7 +20,7 @@ pip>=25.2
 yfinance
 openpyxl
 pypdf>=5.0.0,<7
-dojosdk>=0.1.14
+dojosdk>=0.1.15
 portalocker
 ddgs
 exchange-calendars
