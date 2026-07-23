@@ -8,4 +8,5 @@
 - [Skills](skills.md)：内置和外部技能的使用方式。
 - [Tools](tools.md)：Agent 工具能力和结果形态。
 - [Scheduled Jobs](scheduled-jobs.md)：定时任务和 cron 调度。
+- [任务与流水线](tasks-and-pipelines.md)：结构化 Task / Pipeline（含 Theme Deep Dive 设计）。
 - [金融工作流](financial-workflows.md)：组合、行情、行业和分析流程。

@@ -10,8 +10,9 @@
 | --- | --- |
 | `dojoagents/agent/` | Agent loop、runtime、provider、events、guardrails |
 | `dojoagents/config/` | ConfigStore 和配置 schema |
-| `dojoagents/tools/` | Tool registry、executor、sandbox 和工具实现 |
-| `dojoagents/dashboard/` | FastAPI Dashboard、services、schemas、React app |
+| `dojoagents/tools/` | Tool registry、executor、sandbox；含 `dojo_sdk_tool.py`、web、session |
+| `dojoagents/tasks/` | 结构化 Task / Pipeline（contract、TASK.md、schema、pipelines） |
+| `dojoagents/dashboard/` | FastAPI Dashboard、services、schemas、React app；`dashboard/tools/` 为 portfolio / legacy domain |
 | `dojoagents/gateway/` | Gateway server、runner、state、adapters |
 | `dojoagents/plugins/` | Plugin discovery、hooks、manifest |
 | `dojoagents/skills/` | Skill loader、cache、manager |
@@ -27,5 +28,6 @@
 - 配置：`ConfigStore`
 - 日志：`dojoagents.logging`
 - 工具：`ToolRegistry`、`ToolSpec`、`ToolExecutor`
+- 金融 Agent 只读：优先 `dojo.sdk.*`（见 [DojoSDK](../reference/dojo-sdk.md)）
 - Dashboard 存储：`AtomicJsonStore`、`AtomicJsonlStore`
 - Dashboard services：通过 `dojoagents/dashboard/deps.py` 获取

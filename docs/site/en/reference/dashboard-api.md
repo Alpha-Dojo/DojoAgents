@@ -2,6 +2,9 @@
 
 The Dashboard API is registered by `dojoagents/dashboard/server.py` and `dojoagents/dashboard/routers/`. `/api/chat` is the main agent entrypoint, `/api/chat/runs` exposes background run lifecycle control, and `/api/v1/*` contains dashboard financial-domain and session APIs.
 
+!!! note
+    `/api/v1` REST route names are **not** agent `ToolSpec` names. The target finance-read path for agents is `dojo.sdk.*` (see [DojoSDK](dojo-sdk.md)). Domain tools are legacy / UI companions.
+
 ## Base Entrypoints
 
 | Method | Path | Description |
