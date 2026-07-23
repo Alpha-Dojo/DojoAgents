@@ -243,6 +243,24 @@ export function SectorRow({
                   {formatSignedPercent(changePercent)}
                 </span>
               </div>
+              {sector.leader_concentration_pct != null ? (
+                <span
+                  className={`mesh-sector-row__leader mesh-sector-row__leader--${sector.leader_concentration_tier ?? 'healthy'}`}
+                  title={
+                    sector.leader_ticker
+                      ? `${sector.leader_ticker} · ${t(
+                          `sector.leaderConcentrationTier.${sector.leader_concentration_tier ?? 'healthy'}`,
+                        )}`
+                      : t(
+                          `sector.leaderConcentrationTier.${sector.leader_concentration_tier ?? 'healthy'}`,
+                        )
+                  }
+                >
+                  {t('sector.leaderConcentration', {
+                    pct: Math.abs(sector.leader_concentration_pct).toFixed(0),
+                  })}
+                </span>
+              ) : null}
               {!expanded && sector.sample_tickers.length > 0 ? (
                 <span className="mesh-sector-row__tickers">{sector.sample_tickers.join(', ')}</span>
               ) : null}

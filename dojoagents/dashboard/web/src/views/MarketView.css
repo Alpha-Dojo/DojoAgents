@@ -1286,6 +1286,24 @@
   white-space: nowrap;
 }
 
+.mesh-sector-row__leader {
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mesh-sector-row__leader--extreme {
+  color: var(--red, #c44);
+}
+
+.mesh-sector-row__leader--moderate {
+  color: var(--text-secondary, #b8860b);
+}
+
+.mesh-sector-row__leader--healthy {
+  color: var(--text-muted);
+}
+
 .mesh-sector-row__bar {
   grid-column: 2;
   grid-row: 1 / 3;

@@ -14,7 +14,11 @@ from typing import Any
 import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
-from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
+from dojoagents.dashboard.services.stock_quote_filter import (
+    filter_constituents_frame_by_ticker_cap_min,
+    stock_passes_ticker_market_cap_min,
+    ticker_cap_mins_snapshot,
+)
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.sector_return_coverage import sector_day_return_coverage_ok
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
@@ -445,6 +449,7 @@ def compute_sector_precomputed_frames(snapshot: PrecomputeInputSnapshot) -> tupl
         "window_start": snapshot.start_date,
         "window_end": snapshot.end_date or str(sector_daily_df["trade_date"].max()),
         "weighting_method": "latest_market_cap_snapshot",
+        "ticker_market_cap_mins": ticker_cap_mins_snapshot(),
         "constituent_count": int(len(constituents_df)),
         "ticker_daily_rows": int(len(ticker_daily_df)),
         "sector_daily_rows": int(len(sector_daily_df)),
@@ -452,6 +457,29 @@ def compute_sector_precomputed_frames(snapshot: PrecomputeInputSnapshot) -> tupl
         "stats": snapshot.stats,
     }
     return constituents_df, ticker_daily_df, sector_daily_df, manifest
+
+
+def validate_precompute_market_coverage(stats: dict[str, Any] | None) -> None:
+    """Refuse to publish when a market with assignments produced zero constituents.
+
+    Typical failure mode: upstream quote dataset missing an entire venue (e.g. US),
+    which silently empties Daily Discovery treemaps for that market.
+    """
+    markets = (stats or {}).get("markets") or {}
+    for market, row in markets.items():
+        if not isinstance(row, dict):
+            continue
+        candidates = int(row.get("candidate_assignments") or 0)
+        eligible = int(row.get("eligible_constituents") or 0)
+        if candidates <= 0 or eligible > 0:
+            continue
+        missing_quote = int(row.get("missing_quote") or 0)
+        missing_stock = int(row.get("missing_stock") or 0)
+        raise ValueError(
+            f"Market '{market}' has {candidates} sector assignments but 0 eligible constituents "
+            f"(missing_quote={missing_quote}, missing_stock={missing_stock}); "
+            "refusing to publish a snapshot that drops this market."
+        )
 
 
 def validate_precomputed_frames(
@@ -471,12 +499,19 @@ def validate_precomputed_frames(
         raise ValueError("Ticker daily contains duplicate market/ticker/date rows.")
     if sector_daily_df.duplicated(subset=["market", "scope", "level1_id", "level2_id", "level3_id", "trade_date"]).any():
         raise ValueError("Sector daily contains duplicate scope/path/date rows.")
+    filtered = filter_constituents_frame_by_ticker_cap_min(constituents_df)
+    if len(filtered) != len(constituents_df):
+        dropped = len(constituents_df) - len(filtered)
+        raise ValueError(
+            f"Constituents contain {dropped} rows at/below ticker market-cap floor; refusing to publish."
+        )
 
 
 def compute_and_stage_sector_precomputed(
     snapshot: PrecomputeInputSnapshot,
     out_dir: Path,
 ) -> tuple[dict[str, Any], Path]:
+    validate_precompute_market_coverage(snapshot.stats)
     constituents_df, ticker_daily_df, sector_daily_df, manifest = compute_sector_precomputed_frames(snapshot)
     validate_precomputed_frames(constituents_df, ticker_daily_df, sector_daily_df)
 

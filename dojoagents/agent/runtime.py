@@ -152,18 +152,22 @@ class Runtime:
 
         from dojoagents.tools.session_file_tool import get_write_session_file_spec
 
-        tool_registry.register(get_write_session_file_spec(
-            config.sessions.root,
-            task_output_root=config.tasks.output_root if config.tasks.enabled else None,
-            task_manager=task_manager,
-        ))
+        tool_registry.register(
+            get_write_session_file_spec(
+                config.sessions.root,
+                task_output_root=config.tasks.output_root if config.tasks.enabled else None,
+                task_manager=task_manager,
+            )
+        )
 
         from dojoagents.tools.session_file_tool import get_read_session_output_spec
 
-        tool_registry.register(get_read_session_output_spec(
-            config.sessions.root,
-            task_output_root=config.tasks.output_root if config.tasks.enabled else None,
-        ))
+        tool_registry.register(
+            get_read_session_output_spec(
+                config.sessions.root,
+                task_output_root=config.tasks.output_root if config.tasks.enabled else None,
+            )
+        )
 
         from dojoagents.tools.session_input_tool import get_read_session_input_spec
 
@@ -260,6 +264,7 @@ class Runtime:
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
+                author=provider_cfg.author,
             )
             provider.name = provider_name or "openai"
             LOGGER.info(

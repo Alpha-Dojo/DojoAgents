@@ -59,6 +59,13 @@ export interface SectorItem {
   sample_tickers: string[];
   member_count?: number;
   members?: SectorMemberItem[];
+  /** Top contributor by |weight × return| share of sector return. */
+  leader_ticker?: string | null;
+  leader_weight_pct?: number | null;
+  leader_return_pct?: number | null;
+  leader_contribution_pct?: number | null;
+  leader_concentration_pct?: number | null;
+  leader_concentration_tier?: 'extreme' | 'moderate' | 'healthy' | null;
 }
 
 export interface MarketColumn {

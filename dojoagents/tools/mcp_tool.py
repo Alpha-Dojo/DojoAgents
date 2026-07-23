@@ -151,6 +151,7 @@ class SamplingHandler:
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
+                author=provider_cfg.author,
             )
             model = provider_cfg.model or ""
 

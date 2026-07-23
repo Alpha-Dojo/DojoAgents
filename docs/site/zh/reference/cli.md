@@ -20,6 +20,7 @@ CLI parser 定义在 `dojoagents/cli/main.py`。
 | `model` | `--config` | 交互式模型配置 |
 | `mcp serve` | 无 | 启动 MCP server |
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | 预计算行业数据 |
+| `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | 读取 `precompute-sector` 快照，发布统一主题状态数据，并可上传到 `dojo_sector_precomputed` |
 
 ## 示例
 
@@ -29,7 +30,12 @@ dojoagents model --config ./agents.yaml
 dojoagents gateway setup telegram
 dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
+dojoagents precompute-sector-theme-state --upload
 ```
+
+默认情况下，`precompute-sector-theme-state` 从
+`<data-root>/dojo_sector_precomputed` 读取并发布到同一目录。需要保留独立的
+Phase A 输入快照与统一输出时，可分别指定 `--input-dir` 和 `--output-dir`。
 
 ## Session 导出
 

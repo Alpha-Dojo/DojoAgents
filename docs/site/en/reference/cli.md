@@ -22,6 +22,7 @@ dojoagents
 | `model` | `--config` | Interactive model/provider configuration |
 | `mcp serve` | none | Start the MCP server |
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | Precompute sector daily metrics and returns |
+| `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | Read a `precompute-sector` snapshot, publish the unified theme-state bundle, and optionally upload it to `dojo_sector_precomputed` |
 
 ## Examples
 
@@ -33,7 +34,12 @@ dojoagents gateway pairing list --platform telegram
 dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
 dojoagents precompute-sector --start-date 2025-01-01
+dojoagents precompute-sector-theme-state --upload
 ```
+
+By default, `precompute-sector-theme-state` reads from and publishes to
+`<data-root>/dojo_sector_precomputed`. Use `--input-dir` and `--output-dir` when
+the Phase A snapshot and the unified published bundle must be kept separate.
 
 ## Session Export
 

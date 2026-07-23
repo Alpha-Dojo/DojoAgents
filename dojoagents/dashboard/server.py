@@ -108,7 +108,11 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
             base_url=provider_cfg.base_url,
         )
     else:
-        llm_provider = OpenAICompatibleProvider(api_key=provider_cfg.api_key, base_url=provider_cfg.base_url)
+        llm_provider = OpenAICompatibleProvider(
+            api_key=provider_cfg.api_key,
+            base_url=provider_cfg.base_url,
+            author=provider_cfg.author,
+        )
         llm_provider.name = selected_provider
     LOGGER.info(
         "Dashboard synced runtime agent provider: requested=%s selected=%s implementation=%s model=%s base_url=%s api_key_present=%s",
@@ -275,9 +279,7 @@ async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink 
             signature = inspect.signature(run)
         except (TypeError, ValueError):
             return await run(request, event_sink=event_sink)
-        accepts_event_sink = "event_sink" in signature.parameters or any(
-            param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values()
-        )
+        accepts_event_sink = "event_sink" in signature.parameters or any(param.kind is inspect.Parameter.VAR_KEYWORD for param in signature.parameters.values())
         if accepts_event_sink:
             return await run(request, event_sink=event_sink)
         return await run(request)

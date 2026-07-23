@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
@@ -76,7 +77,8 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
     )
     ticker_rows = pd.DataFrame(
         [
-            {"market": "us", "ticker": "AAA", "daily_return_pct": 3.0},
+            {"market": "us", "ticker": "LEAD", "daily_return_pct": 46.0},
+            {"market": "us", "ticker": "A", "daily_return_pct": -0.5},
             {"market": "us", "ticker": "BBB", "daily_return_pct": 1.0},
             {"market": "us", "ticker": "CCC", "daily_return_pct": -2.0},
         ]
@@ -100,7 +102,12 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
 
         def get_sector_constituents_exact(self, level1_id: str, level2_id: str, level3_id: str, market: str | None = None):
             constituent_calls.append(level3_id)
-            return [{"ticker": {"1": "AAA", "2": "BBB", "3": "CCC"}[level3_id], "market_cap": 100.0}]
+            if level3_id == "1":
+                return [
+                    {"ticker": "LEAD", "market_cap": 15.0},
+                    {"ticker": "A", "market_cap": 85.0},
+                ]
+            return [{"ticker": {"2": "BBB", "3": "CCC"}[level3_id], "market_cap": 100.0}]
 
     sector_store = SimpleNamespace(
         find_resolved_path=lambda _l1, _l2, l3: SimpleNamespace(
@@ -134,6 +141,13 @@ def test_sector_movers_service_only_builds_members_for_selected_top_sectors() ->
     assert [item.name.en for item in response.markets["us"].gainers] == ["Sector 1"]
     assert [item.name.en for item in response.markets["us"].losers] == ["Sector 3"]
     assert constituent_calls == ["1", "3"]
+
+    gainer = response.markets["us"].gainers[0]
+    assert gainer.leader_ticker == "LEAD"
+    assert gainer.leader_weight_pct == pytest.approx(15.0)
+    assert gainer.leader_concentration_pct is not None
+    assert gainer.leader_concentration_tier in {"extreme", "moderate", "healthy"}
+    assert gainer.leader_contribution_pct == pytest.approx(0.15 * 46.0)
 
 
 def test_single_member_sectors_excluded_from_movers_rankings() -> None:

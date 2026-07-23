@@ -61,6 +61,12 @@ export interface AlphaSectorMoverItem {
     market_cap: number;
     change_percent: number;
   }>;
+  leader_ticker?: string | null;
+  leader_weight_pct?: number | null;
+  leader_return_pct?: number | null;
+  leader_contribution_pct?: number | null;
+  leader_concentration_pct?: number | null;
+  leader_concentration_tier?: 'extreme' | 'moderate' | 'healthy' | null;
 }
 
 export interface AlphaSectorAnalysis {
@@ -164,6 +170,12 @@ export function mapSectorMoverItem(item: AlphaSectorMoverItem, peers: AlphaSecto
     sample_tickers: item.sample_tickers ?? [],
     member_count: item.member_count,
     members,
+    leader_ticker: item.leader_ticker ?? null,
+    leader_weight_pct: item.leader_weight_pct ?? null,
+    leader_return_pct: item.leader_return_pct ?? null,
+    leader_contribution_pct: item.leader_contribution_pct ?? null,
+    leader_concentration_pct: item.leader_concentration_pct ?? null,
+    leader_concentration_tier: item.leader_concentration_tier ?? null,
   };
   const peerItems = peers.map((peer) => ({
     concept_code: peer.concept_code,

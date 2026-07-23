@@ -163,6 +163,13 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
       { value: 'abab6.5g-chat', label: 'ABAB6.5g Chat' },
     ],
   },
+  'model-router': {
+    label: 'Model Router',
+    baseUrl: '',
+    apiKeyEnv: '',
+    author: '',
+    models: [],
+  },
 };
 
 const KNOWN_PROVIDERS = Object.keys(LLM_PROVIDER_PRESETS);
