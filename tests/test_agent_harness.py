@@ -105,6 +105,7 @@ async def test_portfolio_harness_emits_eval_hint_and_blocks_incomplete_completio
 
     llm = StaticLLMProvider(
         [
+            LLMResult(content=('{"continue_unfinished": false, ' '"prior_task_summary": "", ' '"last_turn_status": "complete"}')),
             LLMResult(
                 content="",
                 tool_calls=[ToolCall(id="call-create", name="portfolio_write_create", arguments={"name": "Quality"})],

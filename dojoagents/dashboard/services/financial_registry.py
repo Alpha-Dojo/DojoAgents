@@ -67,6 +67,7 @@ class FinancialDomainRegistry:
         self.sector_precomputed_store: Optional[SectorPrecomputedStore] = None
         self.theme_state_precomputed_store: Optional[ThemeStatePrecomputedStore] = None
         self.sector_movers_service: Optional[SectorMoversService] = None
+        self.refresh_store = None
 
     async def init_and_load_all(
         self,
@@ -74,6 +75,7 @@ class FinancialDomainRegistry:
         *,
         data_root: Path,
         preload: bool = True,
+        portfolio_data_root: Path | None = None,
     ) -> None:
         self.client = client
         self.gateway = DojoDataGateway(client)
@@ -94,10 +96,11 @@ class FinancialDomainRegistry:
         from dojoagents.dashboard.services.forex_store import ForexStore
 
         self.forex_store = ForexStore(self.gateway)
-        self.portfolio_store = PortfolioStore(Path("~/.dojo/data").expanduser())
+        self.portfolio_store = PortfolioStore((portfolio_data_root or Path("~/.dojo/data")).expanduser().resolve())
         from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
 
         refresh_store = RefreshStateStore(self.data_root / "runtime")
+        self.refresh_store = refresh_store
         self.portfolio_service = PortfolioService(
             store=self.portfolio_store,
             stock_store=self.stock_store,
@@ -242,5 +245,6 @@ class FinancialDomainRegistry:
             "sector_precomputed_store",
             "theme_state_precomputed_store",
             "sector_movers_service",
+            "refresh_store",
         ):
             setattr(self, name, None)

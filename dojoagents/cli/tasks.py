@@ -30,6 +30,7 @@ from dojoagents.tasks.output_paths import resolve_task_output_file
 from dojoagents.tasks.preflight import evaluate_pipeline_preflight
 from dojoagents.tasks.runtime_helpers import run_agent_with_tasks
 from dojoagents.tasks.schema_validator import TaskOutputValidator
+from dojoagents.sessions.models import SessionPrincipal
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -284,7 +285,7 @@ async def _run_pipeline_task_local(args: argparse.Namespace, *, pipeline_id: str
 
         request = ChatRequest(
             message=message,
-            user_id="cli-tasks",
+            principal=SessionPrincipal("local"),
             session_id=session_id,
             channel="cli",
             metadata={"persist_session": False},

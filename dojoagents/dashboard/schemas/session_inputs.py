@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 
 class SessionInputFileItem(BaseModel):
     filename: str
-    path: str
+    path: str = ""
+    object_id: str | None = None
     bytes: int
     kind: str
     updated_at: str
@@ -16,7 +17,7 @@ class SessionInputFileItem(BaseModel):
 
 class SessionInputsResponse(BaseModel):
     session_id: str
-    input_dir: str
+    input_dir: str = ""
     files: list[SessionInputFileItem] = Field(default_factory=list)
 
 

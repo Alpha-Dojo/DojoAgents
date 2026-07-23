@@ -1,0 +1,13 @@
+apiVersion: dojoagents/v1alpha1
+kind: Harness
+metadata:
+  id: financial
+  version: 1.0.0
+  display_name: Dojo Financial Analyst
+  description: Full-market financial research and portfolio workflows.
+  state_schema_version: 1
+  supported_channels: [dashboard, cli, gateway, api]
+implementation:
+  factory: dojoagents.harnesses.built_in.financial:create_harness
+config:
+  refresh_enabled: false

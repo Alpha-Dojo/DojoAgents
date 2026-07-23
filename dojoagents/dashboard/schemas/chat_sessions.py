@@ -42,7 +42,7 @@ class ChatSessionListResponse(BaseModel):
 
 
 class ChatSessionMessageResponse(BaseModel):
-    message_id: int
+    message_id: int | str | None = None
     role: str
     content: str
     created_at: str

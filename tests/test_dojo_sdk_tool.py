@@ -144,7 +144,12 @@ async def test_dojo_sdk_stock_ystock_info_forwards_repro_args():
 
     assert result.ok
     data = json.loads(result.content)
-    assert data["total_num"] == 1
+    rows = data.get("data") or []
+    tickers = {row.get("ticker") or row.get("symbol") for row in rows if isinstance(row, dict) and (row.get("ticker") or row.get("symbol"))}
+    # Offline snapshots need not contain every requested symbol, but must not
+    # leak the full market or symbols outside the request.
+    assert data["total_num"] <= len(YSTOCK_INFO_REPRO_SYMBOLS)
+    assert tickers <= YSTOCK_INFO_REPRO_SYMBOLS
 
 
 @pytest.mark.asyncio

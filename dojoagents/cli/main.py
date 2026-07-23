@@ -14,6 +14,7 @@ from dojoagents.cli.gateway_setup import configure_gateway_adapters
 from dojoagents.dashboard.server import create_app as create_dashboard_app
 from dojoagents.gateway.server import create_runner_app as create_gateway_app
 from dojoagents.quant.context import QuantContext
+from dojoagents.sessions.models import SessionPrincipal
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +44,16 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_export.add_argument("--no-dojo-sidecars", action="store_true")
     sessions_export.add_argument("--no-memory", action="store_true")
     sessions_export.add_argument("--no-token-usage", action="store_true")
+    sessions_export.add_argument("--canonical", action="store_true", help="Use the backend-neutral Session export")
+    sessions_export.add_argument("--user-id", default=None, help="Authenticated owner for canonical export")
+    sessions_export.add_argument("--tenant-id", default="default")
+
+    sessions_migrate = sessions_sub.add_parser("migrate", help="Non-destructively migrate legacy file sessions")
+    sessions_migrate.add_argument("--config", default="~/.dojo/agents.yaml")
+    sessions_migrate.add_argument("--source", required=True)
+    sessions_migrate.add_argument("--user-id", default=None, help="Fallback owner for ownerless legacy sessions")
+    sessions_migrate.add_argument("--tenant-id", default="default")
+    sessions_migrate.add_argument("--dry-run", action="store_true")
 
     gateway = sub.add_parser("gateway")
     gateway_sub = gateway.add_subparsers(dest="gateway_command")
@@ -145,7 +156,7 @@ async def _run_chat(args: argparse.Namespace) -> int:
         )
     response = await runtime.agent.run(
         ChatRequest(
-            user_id="local",
+            principal=SessionPrincipal("local"),
             session_id="cli",
             message=args.message or input("> "),
             quant=quant,
@@ -159,7 +170,7 @@ def _run_sessions(args: argparse.Namespace) -> int:
     from dojoagents.config.loader import ConfigStore
     from dojoagents.agent.session_manager import DojoAgentSessionManager
 
-    if args.sessions_command == "export":
+    if args.sessions_command == "export" and not args.canonical:
         sessions_config = ConfigStore(args.config).snapshot().sessions
         manager = DojoAgentSessionManager(
             root=sessions_config.root,
@@ -185,7 +196,51 @@ def _run_sessions(args: argparse.Namespace) -> int:
         for file in result.files:
             LOGGER.info(" - %s", file)
         return 0
-    return 2
+    return asyncio.run(_run_canonical_sessions(args))
+
+
+async def _run_canonical_sessions(args: argparse.Namespace) -> int:
+    from dojoagents.config.loader import ConfigStore
+    from dojoagents.sessions.export import SessionExporter
+    from dojoagents.sessions.factory import create_blob_store, create_session_store, shutdown_stores
+    from dojoagents.sessions.migration import SessionMigrator
+    from dojoagents.sessions.models import SessionPrincipal
+    from dojoagents.sessions.service import SessionService
+
+    sessions_config = ConfigStore(args.config).snapshot().sessions
+    store = await create_session_store(sessions_config.store)
+    blob_store = await create_blob_store(sessions_config.blob_store)
+    service = SessionService(store=store, blob_store=blob_store, config=sessions_config)
+    try:
+        if args.sessions_command == "migrate":
+            fallback = SessionPrincipal(args.user_id, args.tenant_id) if args.user_id else None
+            result = await SessionMigrator(service).migrate(
+                args.source,
+                fallback_principal=fallback,
+                dry_run=args.dry_run,
+            )
+            LOGGER.info(
+                "Session migration%s: sessions=%s messages=%s objects=%s fingerprint=%s already_migrated=%s",
+                " dry-run" if result.dry_run else "",
+                result.session_count,
+                result.message_count,
+                result.object_count,
+                result.fingerprint,
+                result.already_migrated,
+            )
+            return 0
+        if args.sessions_command == "export":
+            if not args.user_id or not args.session_id:
+                raise ValueError("canonical export requires --user-id and --session-id")
+            principal = SessionPrincipal(args.user_id, args.tenant_id)
+            bundle = await SessionExporter(service).export(principal, args.session_id)
+            output = args.output_dir or sessions_config.export_default_dir
+            result = await bundle.write_to(Path(output) / args.session_id)
+            LOGGER.info("Exported canonical session %s to %s", args.session_id, result)
+            return 0
+        return 2
+    finally:
+        await shutdown_stores(blob_store, store)
 
 
 def main(argv: list[str] | None = None) -> int:

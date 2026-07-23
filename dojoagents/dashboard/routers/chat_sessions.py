@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from dojoagents.dashboard.deps import get_chat_session_service
+from dojoagents.dashboard.auth import get_session_principal
 from dojoagents.dashboard.services.chat_session_service import ChatSessionService
 from dojoagents.dashboard.schemas.chat_sessions import (
     ArchiveChatSessionResponse,
@@ -33,6 +34,7 @@ from dojoagents.dashboard.services.session_outputs import (
     reveal_path_in_file_manager,
 )
 from dojoagents.logging import LOGGER
+from dojoagents.sessions.models import ObjectQuery, SessionPrincipal
 
 router = APIRouter(prefix="/chat/sessions", tags=["chat-sessions"])
 
@@ -53,15 +55,23 @@ async def list_chat_sessions(
     cursor: str | None = None,
     include_archived: bool = False,
     service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
-    return await service.list_sessions(limit=limit, cursor=cursor, include_archived=include_archived)
+    return (
+        await service.scoped(principal).list_sessions(limit=limit, cursor=cursor, include_archived=include_archived)
+        if service.canonical_backend
+        else await service.list_sessions(limit=limit, cursor=cursor, include_archived=include_archived)
+    )
 
 
 @router.get("/{session_id}", response_model=ChatSessionSummaryResponse)
 async def get_chat_session(
     session_id: str,
     service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
+    if service.canonical_backend:
+        service = service.scoped(principal)
     result = await service.get_session(session_id)
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
@@ -74,7 +84,10 @@ async def get_chat_session_messages(
     limit: int = 200,
     offset: int = 0,
     service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
+    if service.canonical_backend:
+        service = service.scoped(principal)
     result = await service.get_messages(session_id, limit=limit, offset=offset)
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
@@ -87,7 +100,10 @@ async def get_chat_session_messages(
 async def archive_chat_session(
     session_id: str,
     service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
+    if service.canonical_backend:
+        service = service.scoped(principal)
     result = await service.archive_session(session_id)
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
@@ -98,12 +114,38 @@ async def archive_chat_session(
 async def export_chat_sessions(
     payload: ChatSessionExportRequest,
     service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
+    if service.canonical_backend:
+        service = service.scoped(principal)
     return await service.export_sessions(payload)
 
 
 @router.get("/{session_id}/outputs", response_model=SessionOutputsResponse)
-async def get_chat_session_outputs(request: Request, session_id: str) -> Any:
+async def get_chat_session_outputs(
+    request: Request,
+    session_id: str,
+    service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
+) -> Any:
+    if service.canonical_backend:
+        scoped = service.scoped(principal)
+        if await scoped.get_session(session_id) is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        page = await service.session_manager.list_objects(principal, session_id, ObjectQuery(kind="output", status="committed", limit=200))
+        return {
+            "session_id": session_id,
+            "output_dir": "",
+            "files": [
+                {
+                    "filename": item.name,
+                    "object_id": item.object_id,
+                    "bytes_written": item.blob_ref.size_bytes if item.blob_ref else 0,
+                    "updated_at": item.updated_at.isoformat(),
+                }
+                for item in page.items
+            ],
+        }
     try:
         payload = list_session_output_files(_sessions_root(request), session_id)
     except ValueError as exc:
@@ -137,7 +179,31 @@ async def reveal_chat_session_output(
 
 
 @router.get("/{session_id}/inputs", response_model=SessionInputsResponse)
-async def get_chat_session_inputs(request: Request, session_id: str) -> Any:
+async def get_chat_session_inputs(
+    request: Request,
+    session_id: str,
+    service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
+) -> Any:
+    if service.canonical_backend:
+        scoped = service.scoped(principal)
+        if await scoped.get_session(session_id) is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        page = await service.session_manager.list_objects(principal, session_id, ObjectQuery(kind="input", status="committed", limit=200))
+        return {
+            "session_id": session_id,
+            "input_dir": "",
+            "files": [
+                {
+                    "filename": item.name,
+                    "object_id": item.object_id,
+                    "bytes": item.blob_ref.size_bytes if item.blob_ref else 0,
+                    "kind": item.content_type,
+                    "updated_at": item.updated_at.isoformat(),
+                }
+                for item in page.items
+            ],
+        }
     try:
         payload = list_session_input_files(_sessions_root(request), session_id)
     except ValueError as exc:
@@ -151,7 +217,33 @@ async def upload_chat_session_input(
     session_id: str,
     file: UploadFile = File(...),
     overwrite: bool = False,
+    service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
 ) -> Any:
+    if service.canonical_backend:
+        scoped = service.scoped(principal)
+        if await scoped.get_session(session_id) is None:
+            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+        content = await file.read()
+        record = await service.session_manager.write_named_object(
+            principal,
+            session_id,
+            kind="input",
+            name=file.filename or "upload.bin",
+            content_type=file.content_type or "application/octet-stream",
+            data=content,
+            metadata={"overwrite": overwrite},
+        )
+        return {
+            "ok": True,
+            "file": {
+                "filename": record.name,
+                "object_id": record.object_id,
+                "bytes": len(content),
+                "kind": record.content_type,
+                "updated_at": record.updated_at.isoformat(),
+            },
+        }
     try:
         content = await file.read()
         payload = save_session_input_file(

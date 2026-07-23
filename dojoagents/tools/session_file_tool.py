@@ -16,7 +16,11 @@ from dojoagents.dashboard.services.file_store_base import _atomic_write_text
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.output_paths import resolve_task_read_path, resolve_task_write_path
 from dojoagents.tasks.output_validation import find_output_artifact, validate_task_output_content
-from dojoagents.tools.process_registry import active_session_id, active_write_session_file_guard
+from dojoagents.tools.process_registry import (
+    active_session_id,
+    active_session_principal,
+    active_write_session_file_guard,
+)
 from dojoagents.tools.registry import ToolSpec
 from dojoagents.tools.session_file_names import validate_output_filename
 
@@ -119,6 +123,7 @@ def get_read_session_output_spec(
     sessions_root: str | Path,
     *,
     task_output_root: str | Path | None = None,
+    session_service: Any | None = None,
 ) -> ToolSpec:
     root = Path(sessions_root).expanduser().resolve()
     task_root = Path(task_output_root).expanduser().resolve() if task_output_root else None
@@ -129,20 +134,44 @@ def get_read_session_output_spec(
             raise RuntimeError("read_session_output requires an active agent session_id")
         guard_ctx = active_write_session_file_guard.get()
         request_metadata = guard_ctx.request_metadata if guard_ctx is not None else None
-        payload = read_session_output(
-            sessions_root=root,
-            session_id=session_id,
-            filename=str(args.get("filename") or ""),
-            task_output_root=task_root,
-            request_metadata=request_metadata,
-        )
+        filename = validate_output_filename(str(args.get("filename") or ""))
+        if session_service is not None:
+            principal = active_session_principal.get()
+            if principal is None:
+                raise RuntimeError("read_session_output requires an active session principal")
+            record, raw_bytes = await session_service.read_named_object(principal, session_id, kind="output", name=filename)
+            raw = raw_bytes.decode("utf-8")
+            parsed: Any = raw
+            if filename.endswith(".json"):
+                parsed = json.loads(raw)
+            elif filename.endswith(".jsonl"):
+                parsed = [json.loads(line) for line in raw.splitlines() if line.strip()]
+            payload = {
+                "ok": True,
+                "session_id": session_id,
+                "filename": filename,
+                "object_id": record.object_id,
+                "storage_kind": "session_object",
+                "bytes_read": len(raw_bytes),
+                "data": parsed,
+                "content": raw,
+            }
+        else:
+            payload = read_session_output(
+                sessions_root=root,
+                session_id=session_id,
+                filename=filename,
+                task_output_root=task_root,
+                request_metadata=request_metadata,
+            )
         return {
             "content": json.dumps(payload, ensure_ascii=False, indent=2),
             "data": payload,
             "metadata": {
                 "ok": True,
                 "filename": payload["filename"],
-                "path": payload["path"],
+                "path": payload.get("path"),
+                "object_id": payload.get("object_id"),
             },
         }
 
@@ -221,10 +250,7 @@ def write_session_file(
         "storage_kind": storage_kind,
         "bytes_written": bytes_written,
         "append": bool(append),
-        "message": (
-            f"Wrote {bytes_written} bytes to {target_path}. "
-            "Use this exact path in your reply to the user."
-        ),
+        "message": (f"Wrote {bytes_written} bytes to {target_path}. " "Use this exact path in your reply to the user."),
     }
 
 
@@ -233,6 +259,7 @@ def get_write_session_file_spec(
     *,
     task_output_root: str | Path | None = None,
     task_manager: TaskPromptManager | None = None,
+    session_service: Any | None = None,
 ) -> ToolSpec:
     root = Path(sessions_root).expanduser().resolve()
     task_root = Path(task_output_root).expanduser().resolve() if task_output_root else None
@@ -277,28 +304,61 @@ def get_write_session_file_spec(
                         fmt=fmt,
                     )
                     if issues:
-                        raise RuntimeError(
-                            "Task output validation failed for "
-                            f"{filename}: {'; '.join(issues)}"
-                        )
+                        raise RuntimeError("Task output validation failed for " f"{filename}: {'; '.join(issues)}")
 
-        payload = write_session_file(
-            sessions_root=root,
-            session_id=session_id,
-            filename=str(args.get("filename") or ""),
-            content=args.get("content"),
-            fmt=str(args.get("format") or "text"),
-            append=bool(args.get("append", False)),
-            task_output_root=task_root,
-            request_metadata=guard_ctx.request_metadata if guard_ctx is not None else None,
-        )
+        if session_service is not None:
+            if bool(args.get("append", False)):
+                raise RuntimeError("append is unavailable for immutable session objects")
+            principal = active_session_principal.get()
+            if principal is None:
+                raise RuntimeError("write_session_file requires an active session principal")
+            filename = validate_output_filename(str(args.get("filename") or ""))
+            fmt = str(args.get("format") or "text")
+            serialized = _serialize_content(args.get("content"), fmt)
+            content_type = {
+                "json": "application/json",
+                "jsonl": "application/x-ndjson",
+                "text": "text/plain",
+            }.get(fmt, "text/plain")
+            record = await session_service.write_named_object(
+                principal,
+                session_id,
+                kind="output",
+                name=filename,
+                content_type=content_type,
+                data=serialized.encode("utf-8"),
+                metadata={"format": fmt},
+            )
+            payload = {
+                "ok": True,
+                "session_id": session_id,
+                "filename": filename,
+                "format": fmt,
+                "object_id": record.object_id,
+                "storage_kind": "session_object",
+                "bytes_written": len(serialized.encode("utf-8")),
+                "append": False,
+                "message": f"Wrote session object {record.object_id}.",
+            }
+        else:
+            payload = write_session_file(
+                sessions_root=root,
+                session_id=session_id,
+                filename=str(args.get("filename") or ""),
+                content=args.get("content"),
+                fmt=str(args.get("format") or "text"),
+                append=bool(args.get("append", False)),
+                task_output_root=task_root,
+                request_metadata=guard_ctx.request_metadata if guard_ctx is not None else None,
+            )
         return {
             "content": json.dumps(payload, ensure_ascii=False, indent=2),
             "data": payload,
             "metadata": {
                 "ok": True,
-                "path": payload["path"],
-                "output_dir": payload["output_dir"],
+                "path": payload.get("path"),
+                "output_dir": payload.get("output_dir"),
+                "object_id": payload.get("object_id"),
                 "bytes_written": payload["bytes_written"],
             },
         }

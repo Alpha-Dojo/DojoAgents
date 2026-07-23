@@ -202,6 +202,46 @@ OFFLINE_TOOL_BINDINGS: dict[str, OfflineToolBinding] = {
         ),
         handler_name="_forex_kline",
     ),
+    "/api/qdata/v1/benchmark/catalog": OfflineToolBinding(
+        "dojo.sdk.benchmark.catalog",
+        "Retrieve the offline benchmark catalog.",
+        _object_schema(properties={}),
+        "_benchmark_catalog",
+    ),
+    "/api/qdata/v1/analysis/market_dynamics": OfflineToolBinding(
+        "dojo.sdk.analysis.market_dynamics",
+        "Retrieve precomputed market dynamics analysis.",
+        _object_schema(
+            properties={
+                "market": {"type": "string"},
+                "category": {"type": "string"},
+                "start_time": {"type": "string"},
+                "end_time": {"type": "string"},
+                "limit": {"type": "integer"},
+            }
+        ),
+        "_analysis_market_dynamics",
+    ),
+    **{
+        f"/api/qdata/v1/sector/precomputed/{endpoint}": OfflineToolBinding(
+            name=f"dojo.sdk.sector.precomputed.{endpoint}",
+            description=f"Retrieve precomputed sector {endpoint.replace('_', ' ')} data.",
+            parameters=_object_schema(properties={}),
+            handler_name=f"_sector_precomputed_{endpoint}",
+        )
+        for endpoint in (
+            "constituents",
+            "fundamentals_period",
+            "manifest",
+            "market_benchmark_daily",
+            "sector_advice_daily",
+            "sector_daily",
+            "sector_health_radar",
+            "sector_horizon_metrics",
+            "theme_state_daily",
+            "ticker_daily",
+        )
+    },
 }
 
 
@@ -266,6 +306,16 @@ class DojoSDKToolManager:
         res = await self.client.benchmark.get_catalog()
         return await self._ok(res)
 
+    async def _analysis_market_dynamics(self, args: dict[str, Any]) -> dict[str, Any]:
+        res = await self.client.analysis.get_market_dynamics(
+            market=args.get("market"),
+            category=args.get("category"),
+            start_time=args.get("start_time"),
+            end_time=args.get("end_time"),
+            limit=args.get("limit"),
+        )
+        return await self._ok(res)
+
     async def _sector_info(self, args: dict[str, Any]) -> dict[str, Any]:
         res = await self.client.sectors.get_info(
             name=args.get("name"),
@@ -291,6 +341,10 @@ class DojoSDKToolManager:
         res = await self.client.sectors.get_precomputed_constituents()
         return await self._ok(res)
 
+    async def _sector_precomputed_fundamentals_period(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_fundamentals_period())
+
     async def _sector_precomputed_sector_daily(self, args: dict[str, Any]) -> dict[str, Any]:
         del args
         res = await self.client.sectors.get_precomputed_sector_daily()
@@ -305,6 +359,26 @@ class DojoSDKToolManager:
         del args
         res = await self.client.sectors.get_precomputed_manifest()
         return await self._ok(res)
+
+    async def _sector_precomputed_market_benchmark_daily(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_market_benchmark_daily())
+
+    async def _sector_precomputed_sector_advice_daily(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_sector_advice_daily())
+
+    async def _sector_precomputed_sector_health_radar(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_sector_health_radar())
+
+    async def _sector_precomputed_sector_horizon_metrics(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_sector_horizon_metrics())
+
+    async def _sector_precomputed_theme_state_daily(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return await self._ok(await self.client.sectors.get_precomputed_theme_state_daily())
 
     async def _stock_ystock_info(self, args: dict[str, Any]) -> dict[str, Any]:
         market = args.get("market")

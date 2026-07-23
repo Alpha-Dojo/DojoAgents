@@ -85,6 +85,7 @@ nav:
       - architecture/index.md
       - 总览: architecture/overview.md
       - Runtime: architecture/runtime.md
+      - Harness Runtime: harness-runtime.md
       - Agent Loop: architecture/agent-loop.md
       - Tools 与 Sandbox: architecture/tools-and-sandbox.md
       - Dashboard: architecture/dashboard.md

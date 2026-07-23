@@ -6,11 +6,11 @@ from typing import Any
 
 from dojoagents.dashboard.services.session_input_ingest import read_session_input_slice
 from dojoagents.dashboard.services.session_inputs import resolve_session_input_file
-from dojoagents.tools.process_registry import active_session_id
+from dojoagents.tools.process_registry import active_session_id, active_session_principal
 from dojoagents.tools.registry import ToolSpec
 
 
-def get_read_session_input_spec(sessions_root: str | Path) -> ToolSpec:
+def get_read_session_input_spec(sessions_root: str | Path, *, session_service: Any | None = None) -> ToolSpec:
     root = Path(sessions_root).expanduser().resolve()
 
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
@@ -21,6 +21,29 @@ def get_read_session_input_spec(sessions_root: str | Path) -> ToolSpec:
         filename = str(args.get("filename") or "").strip()
         if not filename:
             raise ValueError("filename is required")
+
+        if session_service is not None:
+            principal = active_session_principal.get()
+            if principal is None:
+                raise RuntimeError("read_session_input requires an active session principal")
+            record, raw = await session_service.read_named_object(principal, session_id, kind="input", name=filename)
+            text = raw.decode("utf-8")
+            lines = text.splitlines()
+            offset = max(1, int(args.get("offset") or 1))
+            limit = max(1, int(args.get("limit") or 200))
+            payload = {
+                "filename": filename,
+                "object_id": record.object_id,
+                "offset": offset,
+                "limit": limit,
+                "content": "\n".join(lines[offset - 1 : offset - 1 + limit]),
+                "total_lines": len(lines),
+            }
+            return {
+                "content": json.dumps(payload, ensure_ascii=False, indent=2),
+                "data": payload,
+                "metadata": {"object_id": record.object_id, "filename": filename},
+            }
 
         target = resolve_session_input_file(root, session_id, filename)
         if not target.is_file():

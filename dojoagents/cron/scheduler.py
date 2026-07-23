@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import inspect
 
 from dojoagents.agent.models import AgentResponse
 from dojoagents.cron.jobs import JobRun, JobStore
@@ -25,6 +26,10 @@ class SchedulerService:
     async def run_job(self, job_id: str) -> JobRun:
         job = self.job_store.get(job_id)
         runtime = self.runtime_factory.for_profile(job.profile)
+        if inspect.isawaitable(runtime):
+            runtime = await runtime
+        if getattr(runtime, "state", None) == "composed":
+            await runtime.startup()
         response: AgentResponse = await run_agent_with_tasks(
             runtime,
             job.to_chat_request(),

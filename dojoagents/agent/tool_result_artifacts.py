@@ -7,11 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from dojoagents.agent.session_repository import _atomic_write_json
+from dojoagents.agent.tool_schema_hints import get_tool_schema_hint
 from dojoagents.logging import get_logger
 
 LOGGER = get_logger(__name__)
-
-from dojoagents.agent.tool_schema_hints import get_tool_schema_hint
 
 ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
 ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
@@ -75,12 +74,11 @@ def summarize_portfolio_detail_artifact_data(data: dict[str, Any]) -> dict[str, 
             if field in eval_summary
         }
     else:
-        from dojoagents.agent.harnesses.portfolio_eval import eval_summary_from_detail
-
-        compact_eval = eval_summary_from_detail(data)
-        summary["eval_summary"] = {
-            key: value for key, value in compact_eval.items() if key != "guidance"
+        compact_eval = {
+            "candidate_count": len(data.get("candidates") or []),
+            "position_count": len(_position_rows_from_detail(data)),
         }
+        summary["eval_summary"] = {key: value for key, value in compact_eval.items() if key != "guidance"}
 
     positions: list[dict[str, Any]] = []
     for row in _position_rows_from_detail(data):
@@ -109,11 +107,7 @@ def summarize_portfolio_detail_artifact_data(data: dict[str, Any]) -> dict[str, 
     candidates = data.get("candidates")
     if isinstance(candidates, list) and candidates:
         summary["candidate_count"] = len(candidates)
-        summary["candidate_tickers"] = [
-            str(row.get("ticker"))
-            for row in candidates[:40]
-            if isinstance(row, dict) and row.get("ticker")
-        ]
+        summary["candidate_tickers"] = [str(row.get("ticker")) for row in candidates[:40] if isinstance(row, dict) and row.get("ticker")]
 
     return summary
 
@@ -389,8 +383,7 @@ def build_artifact_pointer_message(
         if tool_name == "get_ticker_price_trends":
             summary.update(summarize_kline_artifact_data(data))
             summary["reuse_hint"] = (
-                "Do NOT call get_ticker_price_trends again for the latest bar — "
-                "use latest_kline.datetime / as_of above, or dojo_tools.load_tool_result(call_id)."
+                "Do NOT call get_ticker_price_trends again for the latest bar — " "use latest_kline.datetime / as_of above, or dojo_tools.load_tool_result(call_id)."
             )
         if tool_name == "portfolio_read_detail":
             summary.update(summarize_portfolio_detail_artifact_data(data))
@@ -410,9 +403,7 @@ def build_artifact_pointer_message(
         usage_notes = schema_hint.get("usage_notes")
         if isinstance(usage_notes, str) and usage_notes.strip():
             summary["usage_notes"] = usage_notes.strip()
-        summary["parse_hint"] = schema_hint.get("pandas_example") or (
-            "res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)"
-        )
+        summary["parse_hint"] = schema_hint.get("pandas_example") or ("res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)")
 
     viz_payload: dict[str, Any] | None = data if isinstance(data, dict) else None
     if viz_payload is None and content:

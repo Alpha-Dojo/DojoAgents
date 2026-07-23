@@ -18,6 +18,7 @@ from dojoagents.config.models import (
     FinancialDashboardConfig,
     DojoExtensionsConfig,
     GatewayConfig,
+    HarnessConfig,
     LLMConfig,
     LLMProviderConfig,
     LoggingConfig,
@@ -31,7 +32,9 @@ from dojoagents.config.models import (
     WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
+    SessionRuntimeConfig,
     SessionsConfig,
+    StoreProviderConfig,
     TasksConfig,
 )
 
@@ -50,6 +53,17 @@ _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "minimax": "minimax",
     "openrouter": "",
 }
+
+
+def load_yaml_mapping(path: str | Path) -> dict[str, Any]:
+    """Load a YAML mapping through the repository's shared config boundary."""
+
+    config_path = Path(path).expanduser()
+    with config_path.open("r", encoding="utf-8") as handle:
+        value = yaml.safe_load(handle) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"configuration must be a mapping: {config_path}")
+    return _expand_env(value)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +139,36 @@ def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -
     return name, llm.providers[name]
 
 
-def _to_config(raw: dict[str, Any]) -> AgentsConfig:
+def _reject_unknown_keys(raw: dict[str, Any], allowed: set[str], section: str) -> None:
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValueError(f"{section} contains unknown keys: {', '.join(unknown)}")
+
+
+def _resolve_path(value: str, base_dir: Path | None) -> str:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return str(path.resolve())
+    if base_dir is None:
+        return str(path)
+    return str((base_dir / path).resolve())
+
+
+def _store_provider_config(raw: dict[str, Any], *, section: str) -> StoreProviderConfig:
+    _reject_unknown_keys(raw, {"provider", "factory", "options"}, section)
+    provider = str(raw.get("provider", "file"))
+    factory = raw.get("factory")
+    if factory is not None:
+        factory = str(factory)
+    options = raw.get("options", {})
+    if not isinstance(options, dict):
+        raise ValueError(f"{section}.options must be a mapping")
+    if provider != "file" and not factory:
+        raise ValueError(f"{section}.factory is required for provider {provider!r}")
+    return StoreProviderConfig(provider=provider, factory=factory, options=dict(options))
+
+
+def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw: dict[str, Any] | None = None) -> AgentsConfig:
     providers = {name: _provider_config(name, value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
     llm = LLMConfig(
         default=raw.get("llm_provider", {}).get("default"),
@@ -191,8 +234,100 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
+    harness_raw = raw.get("harness", {})
     sessions_raw = raw.get("sessions", {})
     tasks_raw = raw.get("tasks", {})
+
+    if not isinstance(harness_raw, dict):
+        raise ValueError("harness must be a mapping")
+    _reject_unknown_keys(
+        harness_raw,
+        {"id", "factory", "manifest", "config", "extra_skill_dirs", "extra_tool_dirs"},
+        "harness",
+    )
+    harness_factory = harness_raw.get("factory", HarnessConfig().factory)
+    harness_manifest = harness_raw.get("manifest")
+    if (harness_factory is None) == (harness_manifest is None):
+        raise ValueError("harness must configure exactly one of factory or manifest")
+    harness_config_raw = harness_raw.get("config", {})
+    if not isinstance(harness_config_raw, dict):
+        raise ValueError("harness.config must be a mapping")
+    harness = HarnessConfig(
+        id=str(harness_raw.get("id", "financial")),
+        factory=str(harness_factory) if harness_factory is not None else None,
+        manifest=_resolve_path(str(harness_manifest), base_dir) if harness_manifest is not None else None,
+        config=dict(harness_config_raw),
+        extra_skill_dirs=[_resolve_path(str(path), base_dir) for path in harness_raw.get("extra_skill_dirs", [])],
+        extra_tool_dirs=[_resolve_path(str(path), base_dir) for path in harness_raw.get("extra_tool_dirs", [])],
+    )
+
+    if not isinstance(sessions_raw, dict):
+        raise ValueError("sessions must be a mapping")
+    _reject_unknown_keys(
+        sessions_raw,
+        {
+            "enabled",
+            "store",
+            "blob_store",
+            "runtime",
+            "provider",
+            "root",
+            "agent_id",
+            "persist_openai_history",
+            "sync_memory",
+            "export_default_dir",
+        },
+        "sessions",
+    )
+    root = str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions"))
+    legacy_provider = str(sessions_raw.get("provider", "dojo_repository"))
+    nested_store_raw = sessions_raw.get("store")
+    if nested_store_raw is None:
+        store_config = StoreProviderConfig(
+            provider="file",
+            options={"root": root, "compatibility_mode": legacy_provider},
+        )
+    else:
+        if not isinstance(nested_store_raw, dict):
+            raise ValueError("sessions.store must be a mapping")
+        store_config = _store_provider_config(nested_store_raw, section="sessions.store")
+        if store_config.provider == "file" and not store_config.options:
+            store_config = StoreProviderConfig(
+                provider="file",
+                factory=store_config.factory,
+                options={"root": root, "compatibility_mode": legacy_provider},
+            )
+    nested_blob_raw = sessions_raw.get("blob_store")
+    if nested_blob_raw is None:
+        blob_config = StoreProviderConfig(provider="file", options={"root": root})
+    else:
+        if not isinstance(nested_blob_raw, dict):
+            raise ValueError("sessions.blob_store must be a mapping")
+        blob_config = _store_provider_config(nested_blob_raw, section="sessions.blob_store")
+        if blob_config.provider == "file" and not blob_config.options:
+            blob_config = StoreProviderConfig(provider="file", factory=blob_config.factory, options={"root": root})
+    runtime_raw = sessions_raw.get("runtime", {})
+    if not isinstance(runtime_raw, dict):
+        raise ValueError("sessions.runtime must be a mapping")
+    _reject_unknown_keys(
+        runtime_raw,
+        {"require_user_id", "lease_seconds", "heartbeat_seconds", "event_batch_size"},
+        "sessions.runtime",
+    )
+    session_runtime = SessionRuntimeConfig(
+        require_user_id=bool(runtime_raw.get("require_user_id", True)),
+        lease_seconds=int(runtime_raw.get("lease_seconds", 90)),
+        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 30)),
+        event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
+    )
+    explicit_sessions = (source_raw or raw).get("sessions", {})
+    if isinstance(explicit_sessions, dict) and ({"provider", "root"} & set(explicit_sessions)):
+        from dojoagents.logging import LOGGER
+
+        LOGGER.warning(
+            "Deprecated flat session configuration converted to file store",
+            extra={"event": "sessions.config.deprecated", "provider": legacy_provider},
+        )
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -261,8 +396,12 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             plan_store_path=str(planning_raw.get("plan_store_path", "~/.dojo/agents/plans")),
             max_plan_steps=int(planning_raw.get("max_plan_steps", 10)),
         ),
+        harness=harness,
         sessions=SessionsConfig(
             enabled=bool(sessions_raw.get("enabled", True)),
+            store=store_config,
+            blob_store=blob_config,
+            runtime=session_runtime,
             provider=str(sessions_raw.get("provider", "dojo_repository")),
             root=str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions")),
             agent_id=str(sessions_raw.get("agent_id", "dojo-agent")),
@@ -306,7 +445,7 @@ class ConfigStore:
         return _expand_env(_deep_merge(defaults, loaded))
 
     def _load_and_validate(self) -> AgentsConfig:
-        return _to_config(self._load_raw())
+        return _to_config(self._load_raw(), base_dir=self.path.parent.resolve(), source_raw=self.raw())
 
     def snapshot(self) -> AgentsConfig:
         fingerprint = self._stat_fingerprint()
@@ -324,6 +463,18 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+        sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")
+
+        def redact_options(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: "***" if any(fragment in key.lower() for fragment in sensitive_fragments) else redact_options(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact_options(item) for item in value]
+            return value
+
+        data["harness"]["config"] = redact_options(data["harness"]["config"])
+        data["sessions"]["store"]["options"] = redact_options(data["sessions"]["store"]["options"])
+        data["sessions"]["blob_store"]["options"] = redact_options(data["sessions"]["blob_store"]["options"])
         return data
 
     def raw(self) -> dict[str, Any]:

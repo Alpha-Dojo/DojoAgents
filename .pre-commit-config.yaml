@@ -17,4 +17,6 @@ repos:
       args:
       - --max-line-length=180
       - --max-complexity=100
-      - --ignore=E203,W503
+      # Black intentionally emits one-line Protocol stubs (``def ...: ...``),
+      # so E704 conflicts with the formatter just like E203/W503 do.
+      - --ignore=E203,W503,E704

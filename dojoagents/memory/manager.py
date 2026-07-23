@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import inspect
 
 from dojoagents.memory.provider import MemoryProvider
 
@@ -10,6 +11,7 @@ class MemoryManager:
         self._providers: list[MemoryProvider] = []
         self._has_external = False
         self.turns: list[dict[str, str]] = []
+        self._synced_turn_ids: set[str] = set()
 
     def add_provider(self, provider: MemoryProvider) -> None:
         if provider.name != "skill_summary":
@@ -34,15 +36,32 @@ class MemoryManager:
         return "\n\n".join(block for block in blocks if block)
 
     async def sync_turn(
-        self, user_content: str, assistant_content: str, *, session_id: str
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str,
+        idempotency_context: dict[str, Any] | None = None,
     ) -> None:
-        self.turns.append(
-            {"session_id": session_id, "user": user_content, "assistant": assistant_content}
-        )
+        idempotency_key = str((idempotency_context or {}).get("idempotency_key") or "")
+        if idempotency_key and idempotency_key in self._synced_turn_ids:
+            return
         for provider in self._providers:
-            await provider.sync_turn(
-                user_content, assistant_content, session_id=session_id
-            )
+            parameters = inspect.signature(provider.sync_turn).parameters
+            if "idempotency_context" in parameters:
+                await provider.sync_turn(
+                    user_content,
+                    assistant_content,
+                    session_id=session_id,
+                    idempotency_context=idempotency_context,
+                )
+            else:
+                await provider.sync_turn(user_content, assistant_content, session_id=session_id)
+        turn = {"session_id": session_id, "user": user_content, "assistant": assistant_content}
+        if idempotency_key:
+            turn["idempotency_key"] = idempotency_key
+            self._synced_turn_ids.add(idempotency_key)
+        self.turns.append(turn)
 
     async def queue_prefetch_all(self, query: str, *, session_id: str) -> None:
         for provider in self._providers:
@@ -80,6 +99,7 @@ class MemoryHookProvider:
 
     def register_hooks(self, registry: Any, **kwargs: Any) -> None:
         from strands.hooks.events import BeforeInvocationEvent, MessageAddedEvent, AfterInvocationEvent
+
         registry.add_callback(BeforeInvocationEvent, self._on_before_invocation)
         registry.add_callback(MessageAddedEvent, self._on_message_added)
         registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
@@ -97,15 +117,12 @@ class MemoryHookProvider:
                     query = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and "text" in b)
                 elif isinstance(content, str):
                     query = content
-        
+
         if query:
             mem_prompt = await self.manager.prefetch_all(query, session_id=session_id)
             if mem_prompt and event.messages:
                 # Add as a system block
-                event.messages.insert(0, {
-                    "role": "system",
-                    "content": [{"type": "text", "text": mem_prompt}]
-                })
+                event.messages.insert(0, {"role": "system", "content": [{"type": "text", "text": mem_prompt}]})
 
     async def _on_message_added(self, event: Any) -> None:
         pass
@@ -117,7 +134,7 @@ class MemoryHookProvider:
             assistant_content = ""
             user_content = ""
             session_id = event.invocation_state.get("session_id", "default")
-            
+
             # Walk backwards to find assistant message and user message
             idx = len(agent.messages) - 1
             while idx >= 0:
@@ -140,9 +157,9 @@ class MemoryHookProvider:
                         user_content = curr_user_content
                         break
                 idx -= 1
-            
+
             if user_content and assistant_content:
                 await self.manager.sync_turn(user_content, assistant_content, session_id=session_id)
-        
+
         # Finally trigger session end callbacks
         await self.manager.on_session_end(agent.messages if agent else [])

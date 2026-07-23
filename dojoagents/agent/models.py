@@ -6,17 +6,36 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from dojoagents.quant.context import QuantContext
+from dojoagents.sessions.models import SessionPrincipal
 
 
 @dataclass(frozen=True)
 class ChatRequest:
     message: str
-    user_id: str
-    session_id: str
+    user_id: str | None = None
+    session_id: str = ""
     channel: str = "cli"
-    quant: QuantContext | None = None
+    # Compatibility payload retained until every surface uses ``context``.
+    # Core intentionally does not import the financial QuantContext type.
+    quant: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    principal: SessionPrincipal | None = None
+    context: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.session_id.strip():
+            raise ValueError("session_id must not be blank")
+        principal = self.principal
+        if principal is None:
+            if not isinstance(self.user_id, str) or not self.user_id.strip():
+                raise ValueError("principal or legacy user_id is required")
+            principal = SessionPrincipal(self.user_id)
+            object.__setattr__(self, "principal", principal)
+        elif self.user_id is not None and self.user_id != principal.user_id:
+            raise ValueError("legacy user_id does not match principal.user_id")
+        object.__setattr__(self, "user_id", principal.user_id)
+        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "context", dict(self.context))
 
 
 @dataclass

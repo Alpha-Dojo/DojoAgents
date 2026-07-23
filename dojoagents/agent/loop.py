@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
@@ -20,6 +21,7 @@ from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.memory.manager import MemoryManager
+from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.skills.manager import SkillManager
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tools.executor import ToolExecutor
@@ -76,6 +78,8 @@ class DojoBridgedTool(AgentTool):
         tool_executor_inst: Any,
         sess_id: str,
         event_sink: AgentEventSink | None = None,
+        harness_runtime: Any | None = None,
+        turn_context: Any | None = None,
     ):
         super().__init__()
         if isinstance(dojo_spec_or_name, str):
@@ -87,6 +91,8 @@ class DojoBridgedTool(AgentTool):
         self.tool_executor = tool_executor_inst
         self.sess_id = sess_id
         self.event_sink = event_sink
+        self.harness_runtime = harness_runtime
+        self.turn_context = turn_context
 
     @property
     def tool_name(self) -> str:
@@ -113,13 +119,67 @@ class DojoBridgedTool(AgentTool):
             arguments=tool_use["input"],
             metadata=dict(tool_use.get("dojoProviderMetadata") or {}),
         )
-        if hasattr(self.tool_executor, "execute_many") and (
-            isinstance(self.tool_executor, AsyncMock) or hasattr(self.tool_executor.execute_many, "assert_called") or not hasattr(self.tool_executor, "execute_one")
-        ):
-            results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
-            res = results[0]
-        else:
-            res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+        if self.harness_runtime is not None:
+            transformed = await self.harness_runtime.transform_calls((dojo_call,), self.turn_context)
+            if not transformed:
+                from dojoagents.agent.models import ToolResult
+
+                res = ToolResult(dojo_call.id, dojo_call.name, False, error="Harness removed the tool call")
+                invocation_state.setdefault("_dojo_tool_results", []).append(res)
+                yield ToolResultEvent(
+                    {
+                        "status": "error",
+                        "toolUseId": tool_use["toolUseId"],
+                        "name": self.tool_name,
+                        "content": [{"text": res.error}],
+                    }
+                )
+                return
+            dojo_call = transformed[0]
+            if self.turn_context is not None:
+                self.turn_context.tool_calls.append(dojo_call)
+            decision = await self.harness_runtime.authorize(dojo_call, self.turn_context)
+            if decision.action != "allow":
+                from dojoagents.agent.models import ToolResult
+
+                res = ToolResult(
+                    dojo_call.id,
+                    dojo_call.name,
+                    False,
+                    error=decision.message or f"Tool blocked by Harness policy ({decision.code})",
+                    metadata={"decision_code": decision.code, "decision_action": decision.action},
+                )
+                invocation_state.setdefault("_dojo_tool_results", []).append(res)
+                yield ToolResultEvent(
+                    {
+                        "status": "error",
+                        "toolUseId": tool_use["toolUseId"],
+                        "name": self.tool_name,
+                        "content": [{"text": res.error}],
+                    }
+                )
+                return
+        from dojoagents.tools.process_registry import active_session_principal
+
+        principal = getattr(getattr(self.turn_context, "request", None), "principal", None)
+        principal_token = active_session_principal.set(principal)
+        try:
+            if hasattr(self.tool_executor, "execute_many") and (
+                isinstance(self.tool_executor, AsyncMock) or hasattr(self.tool_executor.execute_many, "assert_called") or not hasattr(self.tool_executor, "execute_one")
+            ):
+                results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
+                res = results[0]
+            else:
+                res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+        finally:
+            active_session_principal.reset(principal_token)
+
+        if self.harness_runtime is not None:
+            presented = await self.harness_runtime.present_results((res,), self.turn_context)
+            if presented:
+                res = presented[0]
+            if self.turn_context is not None:
+                self.turn_context.tool_results.append(res)
 
         invocation_state.setdefault("_dojo_tool_results", []).append(res)
 
@@ -407,6 +467,10 @@ class AgentLoop:
         provider_state: ProviderConversationState | None = None,
         session_manager: Any | None = None,
         task_manager: TaskPromptManager | None = None,
+        harness_runtime: Any | None = None,
+        session_service: Any | None = None,
+        harness_descriptor: Any | None = None,
+        memory_sync_worker: Any | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -421,6 +485,10 @@ class AgentLoop:
         self.provider_state = provider_state or ProviderConversationState()
         self.session_manager = session_manager
         self.task_manager = task_manager
+        self.harness_runtime = harness_runtime
+        self.session_service = session_service
+        self.harness_descriptor = harness_descriptor
+        self.memory_sync_worker = memory_sync_worker
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -432,7 +500,103 @@ class AgentLoop:
         )
         self.guardrails = ToolCallGuardrailController()
 
-    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:  # noqa
+    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+        """Run one turn with optional canonical persistence and Harness lifecycle hooks."""
+
+        canonical_run = None
+        active_request = request
+        active_sink = event_sink
+        if self.session_service is not None and request.metadata.get("persist_session", True) is not False:
+            if self.harness_descriptor is None:
+                raise RuntimeError("canonical sessions require a harness descriptor")
+            from dojoagents.agent.session_run import CanonicalAgentRun
+
+            canonical_run = await CanonicalAgentRun.begin(
+                self.session_service,
+                request,
+                self.harness_descriptor,
+                model=self.config.model or "unconfigured",
+                agent_id="dojo-agent",
+                event_sink=event_sink,
+                memory_sync_worker=self.memory_sync_worker,
+            )
+            active_request = canonical_run.request
+            active_sink = canonical_run.event_sink
+
+        turn_context = None
+        state_handle = None
+        state_version = None
+        if self.harness_runtime is not None:
+            from dojoagents.harnesses.context import HarnessSessionContext, HarnessTurnContext
+            from dojoagents.harnesses.state import HarnessSessionState
+
+            state = HarnessSessionState()
+            if canonical_run is not None and self.harness_descriptor is not None:
+                capabilities = getattr(self.harness_runtime, "capabilities", None)
+                codec = getattr(capabilities, "state_codec", None)
+                state_handle = self.session_service.harness_session(
+                    active_request.principal,
+                    active_request.session_id,
+                    self.harness_descriptor.id,
+                    self.harness_descriptor.version,
+                    self.harness_descriptor.state_schema_version,
+                    codec=codec,
+                )
+                snapshot = await state_handle.load_state()
+                if snapshot is not None:
+                    values = snapshot.state if isinstance(snapshot.state, dict) else {}
+                    state = HarnessSessionState(dict(values))
+                    state_version = snapshot.version
+            session_context = HarnessSessionContext(
+                active_request.principal,
+                active_request.session_id,
+                state,
+            )
+            turn_context = HarnessTurnContext(active_request, session_context)
+
+        after_turn_attempted = False
+        try:
+            response = await self._run_core(active_request, event_sink=active_sink, turn_context=turn_context)
+            if self.harness_runtime is not None and turn_context is not None:
+                after_turn_attempted = True
+                await self.harness_runtime.after_turn(turn_context)
+            if state_handle is not None and turn_context is not None:
+                try:
+                    await state_handle.save_state(
+                        turn_context.session.state.values,
+                        expected_version=state_version,
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Harness state checkpoint failed after turn: session_id=%s",
+                        active_request.session_id,
+                    )
+            if canonical_run is not None:
+                await canonical_run.commit(response)
+            return response
+        except asyncio.CancelledError:
+            if canonical_run is not None:
+                await canonical_run.cancel()
+            raise
+        except SessionLeaseLostError:
+            # The fencing token is no longer ours. Do not attempt any further
+            # terminal or checkpoint write from this worker.
+            raise
+        except BaseException as exc:
+            if canonical_run is not None:
+                await canonical_run.fail(exc)
+            raise
+        finally:
+            if not after_turn_attempted and self.harness_runtime is not None and turn_context is not None:
+                await self.harness_runtime.after_turn(turn_context)
+
+    async def _run_core(  # noqa: C901
+        self,
+        request: ChatRequest,
+        *,
+        event_sink: AgentEventSink | None = None,
+        turn_context: Any | None = None,
+    ) -> AgentResponse:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
         remaining_tokens = getattr(self.config, "session_max_tokens", 500000)
@@ -446,6 +610,8 @@ class AgentLoop:
         write_guard_token = None
 
         def _resolve_active_harness():
+            if self.harness_runtime is not None:
+                return None
             return next(
                 (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
                 None,
@@ -541,37 +707,42 @@ class AgentLoop:
                 metadata={"error": "no_model_configured"},
             )
 
-        # 1. Build the system prompt
-        blocks = [
-            "You are DojoAgents, a full-market finance analysis agent.",
-            build_temporal_context_block(request.metadata),
-            self.skill_manager.prompt_block(platform=request.channel),
-            self.memory_manager.build_system_prompt(),
-            await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),
-        ]
-        if request.quant is not None:
-            blocks.append(request.quant.prompt_block())
-            blocks.append(self.extension_registry.prompt_context(request.quant))
-        # Inject dashboard-specific structured visualization guidance.
-        if request.channel == "dashboard":
-            from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
-            from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
-            from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
+        # 1. Build the system prompt. Harness-backed instances own the complete
+        # prompt graph; the legacy branch remains until FinancialHarness cutover.
+        if self.harness_runtime is not None:
+            prompt_blocks = await self.harness_runtime.before_turn(turn_context)
+            blocks = [block.content for block in prompt_blocks if getattr(block, "content", "")]
+        else:
+            blocks = [
+                "You are DojoAgents, a full-market finance analysis agent.",
+                build_temporal_context_block(request.metadata),
+                self.skill_manager.prompt_block(platform=request.channel),
+                self.memory_manager.build_system_prompt(),
+                await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),
+            ]
+            if request.quant is not None:
+                blocks.append(request.quant.prompt_block())
+                blocks.append(self.extension_registry.prompt_context(request.quant))
+            # Inject dashboard-specific structured visualization guidance.
+            if request.channel == "dashboard":
+                from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+                from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
+                from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
 
-            blocks.append(DASHBOARD_VIZ_PROTOCOL)
-            blocks.append(DASHBOARD_TOOL_PROTOCOL)
-            locale = str(request.metadata.get("locale") or "en")
-            blocks.append(build_viz_policy_catalog(locale))
-            viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
-            if viz_turn_anchor:
-                blocks.append(viz_turn_anchor)
-        if self.task_manager is not None:
-            task_block = self.task_manager.build_injection_block(request)
-            if task_block:
-                blocks.append(task_block)
-        turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
-        if turn_anchor:
-            blocks.append(turn_anchor)
+                blocks.append(DASHBOARD_VIZ_PROTOCOL)
+                blocks.append(DASHBOARD_TOOL_PROTOCOL)
+                locale = str(request.metadata.get("locale") or "en")
+                blocks.append(build_viz_policy_catalog(locale))
+                viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
+                if viz_turn_anchor:
+                    blocks.append(viz_turn_anchor)
+            if self.task_manager is not None:
+                task_block = self.task_manager.build_injection_block(request)
+                if task_block:
+                    blocks.append(task_block)
+            turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
+            if turn_anchor:
+                blocks.append(turn_anchor)
         write_guard_token = active_write_session_file_guard.set(
             WriteSessionFileGuardContext(
                 llm_provider=self.llm_provider,
@@ -742,7 +913,7 @@ class AgentLoop:
 
         # 4. Collect and bridge tools
         tool_specs = self._collect_tool_specs()
-        for plugin_tool in plugin_registry._tools:
+        for plugin_tool in plugin_registry.contribution_snapshot().tools:
             self.tool_executor.registry.register(plugin_tool)
             if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
                 tool_specs.append(plugin_tool.schema())
@@ -752,7 +923,16 @@ class AgentLoop:
         for spec in self.tool_executor.registry.all():
             if spec.name in excluded_tools:
                 continue
-            strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id, event_sink=event_sink))
+            strands_tools.append(
+                DojoBridgedTool(
+                    spec,
+                    self.tool_executor,
+                    request.session_id,
+                    event_sink=event_sink,
+                    harness_runtime=self.harness_runtime,
+                    turn_context=turn_context,
+                )
+            )
 
         # 5. Set up hooks (Memory Hook & Plugin Hook)
         hooks = []
@@ -849,6 +1029,8 @@ class AgentLoop:
                     self.tool_executor,
                     request.session_id,
                     event_sink=event_sink,
+                    harness_runtime=self.harness_runtime,
+                    turn_context=turn_context,
                 )
             if self.config.enable_guardrails:
                 if not event.tool_use:
@@ -885,10 +1067,7 @@ class AgentLoop:
                             decision = ToolGuardrailDecision(
                                 action="block",
                                 code="execute_code_task_file_write_forbidden",
-                                message=(
-                                    "Blocked execute_code in task mode: use write_session_file directly "
-                                    "for required task outputs. Do not write JSON files via Python."
-                                ),
+                                message=("Blocked execute_code in task mode: use write_session_file directly " "for required task outputs. Do not write JSON files via Python."),
                                 tool_name=tool_name,
                             )
                             blocked_res = toolguard_synthetic_result(decision)
@@ -956,7 +1135,7 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
-            if event.tool_use:
+            if event.tool_use and self.harness_runtime is None:
                 from dojoagents.agent.sector_session import repair_sector_tool_arguments
 
                 tool_args = dict(event.tool_use.get("input") or {})
@@ -1059,9 +1238,10 @@ class AgentLoop:
                     "ok": matched_result.ok if matched_result is not None else not is_failed,
                 }
                 if matched_result is not None:
-                    from dojoagents.agent.sector_session import record_sector_search_in_invocation
+                    if self.harness_runtime is None:
+                        from dojoagents.agent.sector_session import record_sector_search_in_invocation
 
-                    record_sector_search_in_invocation(invocation_state, matched_result)
+                        record_sector_search_in_invocation(invocation_state, matched_result)
                     trace_item.update(
                         {
                             "latency_ms": matched_result.latency_ms,
@@ -1277,6 +1457,28 @@ class AgentLoop:
         token_ledger.save()
 
         harness_state.final_response = response_text
+        if self.harness_runtime is not None and turn_context is not None:
+            turn_context.final_response = response_text
+            decision = await self.harness_runtime.evaluate_completion(turn_context)
+            recovery_turns = 0
+            while decision.action == "recover" and recovery_turns < decision.max_extra_turns:
+                recovery_turns += 1
+                if event_sink is not None:
+                    event_sink.eval_hint(decision.recovery_prompt, list(decision.issues))
+                result = await agent.invoke_async(
+                    prompt=decision.recovery_prompt,
+                    invocation_state=invocation_state,
+                    limits=limits,
+                )
+                response_text = _scrub_response_text(str(result).strip())
+                turn_context.final_response = response_text
+                decision = await self.harness_runtime.evaluate_completion(turn_context)
+            if decision.action in {"blocked", "needs_user_input", "recover"}:
+                metadata["stopped"] = decision.code
+                metadata["harness_issues"] = list(decision.issues)
+                if decision.recovery_prompt and not response_text:
+                    response_text = decision.recovery_prompt
+            harness_state.final_response = response_text
         active_harness = _resolve_active_harness()
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")

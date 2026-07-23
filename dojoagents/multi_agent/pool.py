@@ -10,15 +10,17 @@ from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.multi_agent.models import AgentSpec
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
+from dojoagents.sessions.models import SessionPrincipal
 
 
 class AgentPool:
     """Manages a pool of specialized worker agent instances."""
 
-    def __init__(self, runtime: Any) -> None:
+    def __init__(self, runtime: Any, principal: SessionPrincipal | None = None) -> None:
         self._runtime = runtime
         self._agents: dict[str, AgentLoop] = {}
         self._specs: dict[str, AgentSpec] = {}
+        self._principal = principal
 
     def register_agent(self, spec: AgentSpec) -> None:
         """Register an agent specification (lazy instantiation)."""
@@ -54,9 +56,19 @@ class AgentPool:
             memory_manager=src.memory_manager,
             extension_registry=src.extension_registry,
             config=agent_config,
+            task_manager=getattr(src, "task_manager", None),
+            harness_runtime=getattr(src, "harness_runtime", None),
+            session_service=getattr(src, "session_service", None),
+            harness_descriptor=getattr(src, "harness_descriptor", None),
         )
 
     async def invoke(self, name: str, request: ChatRequest) -> AgentResponse:
         """Invoke a specific agent by name."""
         agent = self.get_or_create(name)
+        if self._principal is not None:
+            request = replace(
+                request,
+                principal=self._principal,
+                user_id=self._principal.user_id,
+            )
         return await agent.run(request)

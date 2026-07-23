@@ -30,7 +30,12 @@ class SkillSummaryMemoryProvider:
         return None
 
     async def sync_turn(
-        self, user_content: str, assistant_content: str, *, session_id: str
+        self,
+        user_content: str,
+        assistant_content: str,
+        *,
+        session_id: str,
+        idempotency_context: dict[str, Any] | None = None,
     ) -> None:
         self.turns.append({"user": user_content, "assistant": assistant_content})
 

@@ -22,14 +22,16 @@ def get_plan_tools(engine: PlanExecutionEngine) -> list[ToolSpec]:
             step_type = s.get("step_type", "analysis")
             if isinstance(step_type, str):
                 step_type = StepType(step_type)
-            steps.append(PlanStep(
-                id=s.get("id", uuid4().hex[:6]),
-                title=s["title"],
-                description=s["description"],
-                step_type=step_type,
-                depends_on=s.get("depends_on", []),
-                assigned_agent=s.get("assigned_agent", "orchestrator"),
-            ))
+            steps.append(
+                PlanStep(
+                    id=s.get("id", uuid4().hex[:6]),
+                    title=s["title"],
+                    description=s["description"],
+                    step_type=step_type,
+                    depends_on=s.get("depends_on", []),
+                    assigned_agent=s.get("assigned_agent", "orchestrator"),
+                )
+            )
         plan = Plan(
             id=uuid4().hex[:8],
             title=title,
@@ -41,7 +43,7 @@ def get_plan_tools(engine: PlanExecutionEngine) -> list[ToolSpec]:
 
     async def execute_plan_handler(args: dict) -> str:
         plan_id: str = args["plan_id"]
-        session_id: str = args.get("session_id", "")
+        session_id: str = str(args.get("session_id") or f"plan-{plan_id}")
         plan = engine._store.get(plan_id)
         result = await engine.execute_plan(plan, session_id=session_id)
         step_summary = "\n".join(f"  - {s.title}: {s.status}" for s in result.steps)
@@ -51,10 +53,12 @@ def get_plan_tools(engine: PlanExecutionEngine) -> list[ToolSpec]:
         plan_id: str = args["plan_id"]
         revision: str = args.get("revision", "")
         plan = engine._store.get(plan_id)
-        plan.revision_history.append({
-            "reason": revision,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        plan.revision_history.append(
+            {
+                "reason": revision,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         plan.status = PlanStatus.REVISED
         engine._store.save(plan)
         return f"Plan '{plan.title}' marked for revision: {revision}"

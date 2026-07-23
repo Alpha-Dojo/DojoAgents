@@ -11,6 +11,32 @@ from typing import Any, AsyncGenerator
 from dojoagents.agent.events import AgentEvent, AgentEventSink
 
 
+async def stream_persisted_run_events(
+    service: Any,
+    principal: Any,
+    run_id: str,
+    *,
+    after_seq: int = 0,
+    poll_seconds: float = 0.05,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Replay canonical events and follow a run without process-local truth."""
+
+    sequence = max(0, int(after_seq))
+    while True:
+        page = await service.read_events(principal, run_id, after_seq=sequence, limit=200)
+        for event in page.items:
+            sequence = event.sequence
+            payload = dict(event.payload) if isinstance(event.payload, dict) else {"data": event.payload}
+            yield {"sequence": event.sequence, "type": event.event_type, **payload}
+        run = await service.get_run(principal, run_id)
+        if run.status != "running" and run.status != "cancellation_requested":
+            trailing = await service.read_events(principal, run_id, after_seq=sequence, limit=200)
+            if not trailing.items:
+                return
+            continue
+        await asyncio.sleep(poll_seconds)
+
+
 def make_stream_delta_callback(queue: asyncio.Queue):
     """Backward-compatible callback that pushes raw text deltas onto a queue."""
 

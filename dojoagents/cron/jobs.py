@@ -10,6 +10,7 @@ import yaml
 
 from dojoagents.agent.models import ChatRequest
 from dojoagents.quant.context import QuantContext
+from dojoagents.sessions.models import SessionPrincipal
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class ScheduledJob:
     delivery: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     plan: bool = False
+    owner: SessionPrincipal = field(default_factory=lambda: SessionPrincipal("scheduler", roles=frozenset({"service"})))
 
     def to_chat_request(self) -> ChatRequest:
         meta = {"job_id": self.id, **self.metadata}
@@ -31,7 +33,7 @@ class ScheduledJob:
             meta["plan"] = True
         return ChatRequest(
             message=self.prompt,
-            user_id="scheduler",
+            principal=self.owner,
             session_id=f"job-{self.id}-{uuid4().hex[:8]}",
             channel="scheduler",
             quant=self.quant,
@@ -40,6 +42,11 @@ class ScheduledJob:
 
     def to_record(self) -> dict[str, Any]:
         data = asdict(self)
+        data["owner"] = {
+            "user_id": self.owner.user_id,
+            "tenant_id": self.owner.tenant_id,
+            "roles": sorted(self.owner.roles),
+        }
         return data
 
     @classmethod
@@ -47,6 +54,15 @@ class ScheduledJob:
         quant = record.get("quant")
         if isinstance(quant, dict):
             quant = QuantContext(**quant)
+        owner = record.get("owner")
+        if isinstance(owner, dict):
+            owner = SessionPrincipal(
+                user_id=str(owner.get("user_id") or "scheduler"),
+                tenant_id=str(owner.get("tenant_id") or "default"),
+                roles=frozenset(str(role) for role in owner.get("roles") or ()),
+            )
+        else:
+            owner = SessionPrincipal("scheduler", roles=frozenset({"service"}))
         return cls(
             id=record["id"],
             name=record.get("name", record["id"]),
@@ -58,6 +74,7 @@ class ScheduledJob:
             delivery=record.get("delivery"),
             metadata=dict(record.get("metadata", {})),
             plan=bool(record.get("plan", False)),
+            owner=owner,
         )
 
 
@@ -80,11 +97,7 @@ class JobStore:
         output_dir: str | Path | None = None,
     ) -> None:
         self.path = Path(path).expanduser()
-        self.output_dir = (
-            Path(output_dir).expanduser()
-            if output_dir is not None
-            else self.path.parent / "job_runs"
-        )
+        self.output_dir = Path(output_dir).expanduser() if output_dir is not None else self.path.parent / "job_runs"
         self._jobs: dict[str, ScheduledJob] = {}
         self._load()
 
@@ -93,10 +106,7 @@ class JobStore:
             return
         raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or []
         records = raw.get("jobs", raw) if isinstance(raw, dict) else raw
-        self._jobs = {
-            record["id"]: ScheduledJob.from_record(record)
-            for record in records
-        }
+        self._jobs = {record["id"]: ScheduledJob.from_record(record) for record in records}
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
