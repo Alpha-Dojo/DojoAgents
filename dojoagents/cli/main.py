@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     precompute.add_argument(
         "--with-theme-state",
         action="store_true",
-        help="After Phase A, enrich with theme-state, horizon, radar, and short/mid advice",
+        help="After Phase A, enrich with theme-state, horizon, and sector/ticker alpha factors",
     )
     precompute.add_argument(
         "--skip-fundamentals",
@@ -102,7 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     theme_state = sub.add_parser(
         "precompute-sector-theme-state",
-        help=("Enrich dojo_sector_precomputed with theme-state, horizon metrics, " "health radar, and short/mid advice scores"),
+        help=(
+            "Enrich dojo_sector_precomputed with theme-state, horizon metrics, "
+            "sector_alpha_factors_daily, and ticker_alpha_factors_daily (short + mid)"
+        ),
     )
     theme_state.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
     theme_state.add_argument(

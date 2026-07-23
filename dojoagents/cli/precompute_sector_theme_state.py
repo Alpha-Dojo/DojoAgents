@@ -66,8 +66,10 @@ async def run_precompute_sector_theme_state(args: argparse.Namespace) -> int:
     output_dir = Path(getattr(args, "output_dir", None) or (data_root / PRECOMPUTE_DIR)).expanduser().resolve()
     floors = apply_configured_ticker_market_cap_mins(getattr(args, "config", None))
 
-    LOGGER.info("Reading precompute-sector snapshot <- %s", input_dir)
-    LOGGER.info("Publishing unified sector precompute -> %s", output_dir)
+    LOGGER.info(
+        "Enriching unified sector precompute (theme + horizon + sector/ticker alpha) -> %s",
+        data_root / PRECOMPUTE_DIR,
+    )
     LOGGER.info("Ticker market-cap floors: %s", floors)
 
     progress = _PrecomputeProgressReporter()

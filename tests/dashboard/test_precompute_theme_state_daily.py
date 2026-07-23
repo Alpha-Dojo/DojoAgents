@@ -14,10 +14,11 @@ from dojoagents.dashboard.services.precompute_sector_daily import (
     TICKER_DAILY_FILE,
 )
 from dojoagents.dashboard.services.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
-from dojoagents.dashboard.services.precompute_sector_radar_advice import (
-    SECTOR_ADVICE_DAILY_FILE,
-    SECTOR_HEALTH_RADAR_FILE,
+from dojoagents.dashboard.services.precompute_sector_alpha_factors import (
+    RESEARCH_ONLY_LEAKAGE_RISK,
+    SECTOR_ALPHA_FACTORS_FILE,
 )
+from dojoagents.dashboard.services.precompute_ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
 from dojoagents.dashboard.services.precompute_theme_state_daily import (
     FUNDAMENTALS_PERIOD_FILE,
     MANIFEST_FILE,
@@ -377,16 +378,17 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     out_dir = Path(manifest["published_dir"])
     assert out_dir == tmp_path / PRECOMPUTE_DIR
     saved = json.loads((out_dir / MANIFEST_FILE).read_text(encoding="utf-8"))
-    assert saved["schema_version"] == "5"
+    assert saved["schema_version"] == "7"
     assert saved["phase"] == "sector_unified"
     assert saved["phase_a"]["schema_version"] == "3"
     assert saved["rules"]["rotation_rank_rule"] == "rs_z_blend_20d_dominant_x_breadth_v1"
     assert saved["rules"]["horizon_windows"] == [60, 120, 252]
-    assert saved["scoring"]["radar_rule"] == "radar_v1"
-    assert saved["scoring"]["short_advice_rule"] == "short_advice_v1"
-    assert saved["scoring"]["mid_advice_rule"] == "mid_advice_v1"
+    assert saved["alpha_factors"]["rule"] == "sector_alpha_factors_v1"
+    assert "s_mom_ret_5d" in saved["alpha_factors"]["research_only_leakage_risk"]
+    assert saved["ticker_alpha_factors"]["rule"] == "ticker_alpha_factors_v1"
+    assert "s_mom_reversal_1d" in saved["ticker_alpha_factors"]["research_only_leakage_risk"]
 
-    # Unified bundle keeps Phase A files alongside theme/horizon/radar/advice tables.
+    # Unified bundle keeps Phase A files alongside theme/horizon/alpha tables.
     assert (out_dir / CONSTITUENTS_FILE).exists()
     assert (out_dir / SECTOR_DAILY_FILE).exists()
     assert (out_dir / TICKER_DAILY_FILE).exists()
@@ -394,8 +396,10 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     assert (out_dir / MARKET_BENCHMARK_DAILY_FILE).exists()
     assert (out_dir / FUNDAMENTALS_PERIOD_FILE).exists()
     assert (out_dir / SECTOR_HORIZON_METRICS_FILE).exists()
-    assert (out_dir / SECTOR_HEALTH_RADAR_FILE).exists()
-    assert (out_dir / SECTOR_ADVICE_DAILY_FILE).exists()
+    assert (out_dir / SECTOR_ALPHA_FACTORS_FILE).exists()
+    assert (out_dir / TICKER_ALPHA_FACTORS_FILE).exists()
+    assert not (out_dir / "sector_health_radar.parquet").exists()
+    assert not (out_dir / "sector_advice_daily.parquet").exists()
 
     theme_df = pd.read_parquet(out_dir / THEME_STATE_DAILY_FILE)
     assert set(theme_df["level3_id"].unique()) == {"L3A", "L3B"}
@@ -427,47 +431,18 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     horizon = store.get_horizon_metrics(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
     assert horizon is not None
     assert horizon["row_status"] in {"ok", "partial", "insufficient_history"}
-    radar = store.get_health_radar(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
-    assert radar is not None
-    assert "overall_score" in radar
-    assert "score_capital_heat" in radar
-    advice = store.get_advice(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
-    assert advice is not None
-    assert "short_score" in advice and "mid_score" in advice
-    board = store.list_advice_board(market="us", horizon="short", limit=10)
+    alpha = store.get_alpha_factors(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
+    assert alpha is not None
+    assert "s_rs_rotation" in alpha
+    assert "m_mom_ret_60d" in alpha
+    assert "s_mom_ret_5d" in RESEARCH_ONLY_LEAKAGE_RISK
+    board = store.list_alpha_board(market="us", factor="s_rs_rotation", limit=10)
     assert board
-    assert board[0]["short_rank"] == 1
-
-
-@pytest.mark.asyncio
-async def test_build_theme_state_reads_phase_a_from_explicit_dir_and_uploads_output(
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "phase-a"
-    source_dir = _write_phase_a(source_root)
-    output_dir = tmp_path / "published" / PRECOMPUTE_DIR
-
-    class UploadClient:
-        def __init__(self) -> None:
-            self.uploads: list[tuple[str, str]] = []
-
-        async def upload_dataset(self, dataset_name: str, path: str) -> None:
-            self.uploads.append((dataset_name, path))
-
-    client = UploadClient()
-    manifest = await build_theme_state_precomputed(
-        data_root=tmp_path,
-        source_dir=source_dir,
-        out_dir=output_dir,
-        upload_client=client,
-        skip_fundamentals=True,
-        skip_volume_enrich=True,
-    )
-
-    assert Path(manifest["source_dir"]) == source_dir
-    assert Path(manifest["published_dir"]) == output_dir
-    assert manifest["uploaded_dataset"] == PRECOMPUTE_DIR
-    assert client.uploads == [(PRECOMPUTE_DIR, str(output_dir))]
-    assert (output_dir / CONSTITUENTS_FILE).exists()
-    assert (output_dir / THEME_STATE_DAILY_FILE).exists()
-    assert json.loads((source_dir / PHASE_A_MANIFEST).read_text(encoding="utf-8"))["schema_version"] == "3"
+    assert board[0]["level3_id"] in {"L3A", "L3B"}
+    ticker_alpha = store.get_ticker_alpha_factors(ticker="AAA", market="us")
+    assert ticker_alpha is not None
+    assert ticker_alpha["level3_id"] == "L3A"
+    assert "s_rs_20d" in ticker_alpha
+    ticker_board = store.list_ticker_alpha_board(market="us", factor="s_rs_20d", limit=10)
+    assert ticker_board
+    assert ticker_board[0]["ticker"] in {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF"}
