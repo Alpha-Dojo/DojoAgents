@@ -21,6 +21,8 @@ CLI parser 定义在 `dojoagents/cli/main.py`。
 | `mcp serve` | 无 | 启动 MCP server |
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | 预计算行业数据 |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | 读取 `precompute-sector` 快照，发布统一主题状态数据，并可上传到 `dojo_sector_precomputed` |
+| `tasks run` | `--pipeline`, `--date`, `--config`, `--local`, `--force`, `--force-rerun`, … | 运行 Task 流水线（需 `tasks.enabled`） |
+| `tasks eval` | `--task`, `--date`, `--config`, `--artifact` | 按 contract schema 校验任务产物 |
 
 ## 示例
 
@@ -31,11 +33,16 @@ dojoagents gateway setup telegram
 dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
 dojoagents precompute-sector-theme-state --upload
+dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
+dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
 
 默认情况下，`precompute-sector-theme-state` 从
 `<data-root>/dojo_sector_precomputed` 读取并发布到同一目录。需要保留独立的
 Phase A 输入快照与统一输出时，可分别指定 `--input-dir` 和 `--output-dir`。
+
+Precompute 产物由 Agent 侧 **`dojo.sdk.sector.precomputed_*`** 消费（见 [DojoSDK](dojo-sdk.md)）。  
+任务流水线说明见 [任务与流水线](../user-guide/tasks-and-pipelines.md)。
 
 ## Session 导出
 
