@@ -43,6 +43,7 @@ plugins:
             第一次 Agent 运行: First Agent Run
             用户指南: User Guide
             金融工作流: Financial Workflows
+            任务与流水线: Tasks and Pipelines
             架构: Architecture
             总览: Overview
             配置: Configuration
@@ -80,6 +81,7 @@ nav:
       - Skills: user-guide/skills.md
       - Tools: user-guide/tools.md
       - Scheduled Jobs: user-guide/scheduled-jobs.md
+      - 任务与流水线: user-guide/tasks-and-pipelines.md
       - 金融工作流: user-guide/financial-workflows.md
   - 架构:
       - architecture/index.md
