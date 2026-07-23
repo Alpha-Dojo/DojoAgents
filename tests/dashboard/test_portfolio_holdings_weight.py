@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
-from dojoagents.harnesses.built_in.financial.services.portfolio_service import PortfolioService
-from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
+from dojoagents.dashboard.schemas.stock import Stock, StockQuote
+from dojoagents.dashboard.services.portfolio_service import PortfolioService
+from dojoagents.dashboard.services.portfolio_store import PortfolioStore
 
 
 def _quote(ticker: str, *, last_price: float) -> StockQuote:

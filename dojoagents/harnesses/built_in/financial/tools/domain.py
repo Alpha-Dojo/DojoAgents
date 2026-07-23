@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from dojoagents.tools.registry import ToolRegistry, ToolSpec
-from .domain_runtime import register_dashboard_domain_tools
+from dojoagents.tools.registry import ToolSpec
+from .backend_delegation import get_backend_tool_specs
 
 DOMAIN_TOOL_NAMES = (
     "search_company_ticker",
@@ -23,12 +23,8 @@ DOMAIN_TOOL_NAMES = (
 )
 
 
-def get_domain_tool_specs(container: Any) -> list[ToolSpec]:
-    if container.registry is None:
-        raise RuntimeError("financial service container is not ready")
-    registry = ToolRegistry()
-    register_dashboard_domain_tools(registry, container.registry)
-    return registry.all()
+def get_domain_tool_specs(backend: Any) -> list[ToolSpec]:
+    return get_backend_tool_specs(backend, DOMAIN_TOOL_NAMES)
 
 
 __all__ = ["DOMAIN_TOOL_NAMES", "get_domain_tool_specs"]

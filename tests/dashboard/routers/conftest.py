@@ -5,51 +5,49 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from dojoagents.harnesses.built_in.financial.surfaces import (
-    dashboard_dependencies as deps,
-)
-from dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers import (
+from dojoagents.dashboard import deps
+from dojoagents.dashboard.routers import (
     dojo_core,
     dojo_mesh,
     dojo_sphere,
 )
-import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.market as market_router
-import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.sector as sector_router
-import dojoagents.harnesses.built_in.financial.surfaces.dashboard_routers.utility as utility_router
-from dojoagents.harnesses.built_in.financial.contracts.benchmark import DojoMeshBenchmarksResponse
-from dojoagents.harnesses.built_in.financial.contracts.dojo_core import (
+import dojoagents.dashboard.routers.market as market_router
+import dojoagents.dashboard.routers.sector as sector_router
+import dojoagents.dashboard.routers.utility as utility_router
+from dojoagents.dashboard.schemas.benchmark import DojoMeshBenchmarksResponse
+from dojoagents.dashboard.schemas.dojo_core import (
     CoreTickerPeBandResponse,
     CoreTickerQuoteResponse,
     CoreTickerSectorResponse,
 )
-from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import (
+from dojoagents.dashboard.schemas.dojo_mesh import (
     DojoMeshSectorsResponse,
 )
-from dojoagents.harnesses.built_in.financial.contracts.dojo_sphere import (
+from dojoagents.dashboard.schemas.dojo_sphere import (
     SectorConstituentsResponse,
     SectorPerformanceResponse,
     SectorScopeMetricsResponse,
 )
-from dojoagents.harnesses.built_in.financial.contracts.market import MarketStats
-from dojoagents.harnesses.built_in.financial.contracts.portfolio import (
+from dojoagents.dashboard.schemas.market import MarketStats
+from dojoagents.dashboard.schemas.portfolio import (
     PortfolioDetail,
     PortfolioSearchResponse,
     PortfolioSummary,
 )
-from dojoagents.harnesses.built_in.financial.contracts.sector import SectorTaxonomyDocumentResponse
-from dojoagents.harnesses.built_in.financial.contracts.stock_event import CoreTickerEventsResponse
-from dojoagents.harnesses.built_in.financial.contracts.stock_fin_indicators import CoreTickerFinIndicatorsResponse
-from dojoagents.harnesses.built_in.financial.contracts.stock_income import CoreTickerIncomeResponse
-from dojoagents.harnesses.built_in.financial.contracts.stock_kline import (
+from dojoagents.dashboard.schemas.sector import SectorTaxonomyDocumentResponse
+from dojoagents.dashboard.schemas.stock_event import CoreTickerEventsResponse
+from dojoagents.dashboard.schemas.stock_fin_indicators import CoreTickerFinIndicatorsResponse
+from dojoagents.dashboard.schemas.stock_income import CoreTickerIncomeResponse
+from dojoagents.dashboard.schemas.stock_kline import (
     ConstituentKlineBatchResponse,
     ConstituentKlineStatsResponse,
     SectorConstituentKlineResponse,
     StockKlineResponse,
 )
-from dojoagents.harnesses.built_in.financial.contracts.stock_news import CoreTickerNewsResponse
+from dojoagents.dashboard.schemas.stock_news import CoreTickerNewsResponse
 from dojoagents.dashboard.server import create_app
-import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
-from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
+import dojoagents.dashboard.services.domain_api as domain_api
+from dojoagents.dashboard.schemas.domain_api import (
     CompanyTickerSearchResponse,
     MarketOverviewMarket,
     MarketOverviewResponse,
@@ -117,6 +115,12 @@ class StockStore:
     def find_market(self, _ticker):
         return "us"
 
+    def resolve(self, ticker, market=None):
+        return SimpleNamespace(
+            ticker=str(ticker).strip().upper(),
+            market=market or "us",
+        )
+
     def all_market_stats(self):
         return {market: self.market_stats(market) for market in ("sh", "hk", "us")}
 
@@ -172,6 +176,9 @@ class PortfolioService:
     async def add_holding(self, _portfolio_id, _body):
         return self.detail
 
+    async def add_holdings_batch(self, _portfolio_id, _bodies):
+        return self.detail
+
     async def auto_allocate(self, _portfolio_id, _body):
         return self.detail
 
@@ -198,13 +205,12 @@ def financial_client(monkeypatch) -> TestClient:
             performance=lambda _key, compute: _sphere_performance_cache(compute),
         ),
     )
-    from dojoagents.harnesses.built_in.financial.surfaces.dashboard import (
-        FinancialDashboardSurface,
-    )
-
     app = create_app(
         runtime,
-        dashboard_surface=FinancialDashboardSurface.from_registry(registry),
+        app_services=SimpleNamespace(
+            registry=registry,
+            market_data_revision={},
+        ),
     )
 
     app.dependency_overrides.update(

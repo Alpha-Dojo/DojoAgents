@@ -92,9 +92,9 @@ def test_completion_request_old_format_backward_compat():
 def test_completion_request_extracts_quant_from_metadata():
     """Quant context is extracted from metadata."""
     from dojoagents.dashboard.server import _completion_request
-    from dojoagents.harnesses.built_in.financial.context import FinancialContext
-    from dojoagents.harnesses.built_in.financial.surfaces.dashboard import (
-        FinancialDashboardSurface,
+    from dojoagents.harnesses.built_in.financial.context import (
+        FinancialContext,
+        FinancialRequestContextCodec,
     )
 
     payload = {
@@ -107,7 +107,7 @@ def test_completion_request_extracts_quant_from_metadata():
     }
     req, info = _completion_request(
         payload,
-        surface=FinancialDashboardSurface.from_registry(object()),
+        surface=FinancialRequestContextCodec(),
     )
     assert isinstance(req.quant, FinancialContext)
     assert req.quant.market == "crypto"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from pathlib import Path
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
 from dojoagents.plugins import get_plugin_registry
@@ -465,6 +466,7 @@ class AgentLoop:
         harness_descriptor: Any | None = None,
         memory_sync_worker: Any | None = None,
         legacy_behavior: Any | None = None,
+        token_ledger_root: str | None = None,
     ) -> None:
         self.llm_provider = llm_provider
         self.tool_executor = tool_executor
@@ -484,6 +486,8 @@ class AgentLoop:
         self.harness_descriptor = harness_descriptor
         self.memory_sync_worker = memory_sync_worker
         self.legacy_behavior = legacy_behavior
+        session_root = getattr(session_manager, "root", None)
+        self.token_ledger_root = token_ledger_root or (str(Path(session_root) / "_token_ledger") if session_root is not None else None)
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -576,6 +580,10 @@ class AgentLoop:
         except SessionLeaseLostError:
             # The fencing token is no longer ours. Do not attempt any further
             # terminal or checkpoint write from this worker.
+            LOGGER.exception(
+                "Canonical agent run lost its session lease: session_id=%s. " "The run cannot commit buffered events or transition itself to a terminal state.",
+                active_request.session_id,
+            )
             raise
         except BaseException as exc:
             if canonical_run is not None:
@@ -776,7 +784,7 @@ class AgentLoop:
         threshold_ratio = self.config.compression_threshold_ratio if isinstance(getattr(self.config, "compression_threshold_ratio", None), (int, float)) else 0.8
         compression_enabled = bool(getattr(self.config, "enable_context_compression", True))
         compression_policy = TokenCompressionPolicy(threshold_ratio=float(threshold_ratio))
-        token_ledger = SessionTokenLedger()
+        token_ledger = SessionTokenLedger(self.token_ledger_root)
         token_state = token_ledger.load_or_create(
             request.session_id,
             provider=provider_name,

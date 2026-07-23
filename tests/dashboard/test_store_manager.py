@@ -6,10 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dojoagents.dashboard.server import create_app
-from dojoagents.harnesses.built_in.financial.services.legacy_store_manager import GlobalStores, stores
-from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
-    LegacyFinancialDashboardSurface,
+from dojoagents.dashboard.services.app_container import (
+    DashboardAppServices,
+    DashboardAppServicesConfig,
 )
+from dojoagents.dashboard.store_manager import GlobalStores, stores
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
@@ -39,7 +40,17 @@ class RecordingRegistry:
         self.calls: list[tuple[object, Path, bool]] = []
         self.reset_count = 0
 
-    async def init_and_load_all(self, client: object, *, data_root: Path, preload: bool = True) -> None:
+    client = None
+
+    async def init_and_load_all(
+        self,
+        client: object,
+        *,
+        data_root: Path,
+        preload: bool = True,
+        portfolio_data_root=None,
+    ) -> None:
+        self.client = client
         self.calls.append((client, data_root, preload))
 
     def reset(self) -> None:
@@ -56,13 +67,25 @@ def test_create_app_defers_sdk_and_store_initialization_to_lifespan(tmp_path) ->
         return client
 
     runtime = FakeRuntime()
-    surface = LegacyFinancialDashboardSurface.from_runtime(
-        runtime,
+    services = DashboardAppServices(
+        DashboardAppServicesConfig(
+            api_key=None,
+            base_url=None,
+            timeout=60,
+            max_retries=1,
+            sdk_cache_dir=tmp_path / "cache",
+            data_root=tmp_path,
+            portfolio_data_root=tmp_path / "portfolios",
+            refresh_enabled=False,
+        ),
         client_factory=factory,
-        registry=registry,
-        data_root=tmp_path,
+        registry_factory=lambda: registry,
     )
-    app = create_app(runtime, dashboard_surface=surface)
+    app = create_app(
+        runtime,
+        app_services=services,
+        app_services_owned=True,
+    )
 
     assert clients == []
     with TestClient(app) as client:
@@ -89,11 +112,8 @@ async def test_global_stores_share_one_gateway_and_explicit_data_root(tmp_path) 
     assert IsolatedStores.stock_fin_indicators_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.stock_income_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.forex_store.gateway is IsolatedStores.gateway
-    from pathlib import Path
-
-    assert IsolatedStores.portfolio_store.root == Path("~/.dojo/data/portfolio").expanduser()
+    assert IsolatedStores.portfolio_store.root == tmp_path / "portfolio"
     assert IsolatedStores.kline_store.gateway is IsolatedStores.gateway
-    assert IsolatedStores.kline_store.working_set.root == (tmp_path / "working-set" / "stock-kline").resolve()
 
 
 @pytest.mark.asyncio
@@ -115,7 +135,7 @@ async def test_preload_failure_is_isolated_and_does_not_abort(tmp_path) -> None:
 
 
 def test_financial_dependency_before_lifespan_has_clear_error() -> None:
-    from dojoagents.harnesses.built_in.financial.surfaces.dashboard_dependencies import get_stock_store
+    from dojoagents.dashboard.deps import get_stock_store
 
     stores.reset()
 

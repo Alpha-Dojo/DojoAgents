@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dojoagents.harnesses.built_in.financial.services.market_trading_calendar import (
+from dojoagents.dashboard.services.market_trading_calendar import (
     canonical_market,
     is_trading_day,
     open_markets_on,

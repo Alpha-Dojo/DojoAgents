@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -7,7 +8,7 @@ from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import ChatRequest, LLMResult
 from dojoagents.agent.providers import StaticLLMProvider
-from dojoagents.config.models import AgentConfig, SessionsConfig, StoreProviderConfig
+from dojoagents.config.models import AgentConfig, SessionRuntimeConfig, SessionsConfig, StoreProviderConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.memory.manager import MemoryManager
@@ -29,12 +30,26 @@ class FailingProvider:
         raise RuntimeError("model failed")
 
 
-async def _service(tmp_path):
+class BlockingProvider:
+    name = "blocking"
+
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def chat(self, *args, **kwargs):
+        self.started.set()
+        await self.release.wait()
+        return LLMResult("hello")
+
+
+async def _service(tmp_path, *, runtime_config=None):
     store = FileSessionStore(tmp_path / "sessions", cursor_secret=b"secret")
     blobs = FileBlobStore(tmp_path / "blobs")
     config = SessionsConfig(
         store=StoreProviderConfig(options={"root": str(tmp_path / "sessions")}),
         blob_store=StoreProviderConfig(options={"root": str(tmp_path / "blobs")}),
+        runtime=runtime_config or SessionRuntimeConfig(),
     )
     service = SessionService(store=store, blob_store=blobs, config=config)
     await service.startup()
@@ -42,7 +57,7 @@ async def _service(tmp_path):
 
 
 def _loop(provider, service):
-    return AgentLoop(
+    loop = AgentLoop(
         llm_provider=provider,
         tool_executor=ToolExecutor(ToolRegistry(), SandboxPolicy(timeout_seconds=2)),
         skill_manager=SkillManager([]),
@@ -52,6 +67,11 @@ def _loop(provider, service):
         session_service=service,
         harness_descriptor=HarnessDescriptor("minimal", "1", "Minimal"),
     )
+    config = getattr(service, "config", None)
+    store_root = getattr(getattr(config, "store", None), "options", {}).get("root")
+    if store_root:
+        loop.model_context_registry.cache_path = Path(store_root) / "model_limits.json"
+    return loop
 
 
 @pytest.mark.asyncio
@@ -128,7 +148,12 @@ async def test_external_event_sink_and_canonical_run_share_one_run_id(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
     loop = _loop(StaticLLMProvider([LLMResult("hello")]), service)
-    sink = AgentEventSink(run_id="run-external", session_id="s1")
+    emitted = []
+    sink = AgentEventSink(
+        run_id="run-external",
+        session_id="s1",
+        emit=emitted.append,
+    )
 
     await loop.run(
         ChatRequest("hi", session_id="s1", principal=principal),
@@ -140,4 +165,104 @@ async def test_external_event_sink_and_canonical_run_share_one_run_id(tmp_path):
     assert runs[0].run_id == "run-external"
     assert events.items
     assert all(event.payload["run_id"] == "run-external" for event in events.items)
+    assert len(emitted) == len(sink.events)
+    assert len(events.items) == len(sink.events)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_canonical_events_are_persisted_before_run_completes(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = BlockingProvider()
+    loop = _loop(provider, service)
+    sink = AgentEventSink(run_id="run-live", session_id="s1")
+
+    task = asyncio.create_task(
+        loop.run(
+            ChatRequest("hi", session_id="s1", principal=principal),
+            event_sink=sink,
+        )
+    )
+    await asyncio.wait_for(provider.started.wait(), timeout=2)
+
+    page = None
+    for _ in range(100):
+        page = await service.read_events(principal, "run-live", after_seq=0, limit=100)
+        if page.items:
+            break
+        await asyncio.sleep(0.01)
+
+    assert page is not None
+    assert page.items
+    assert (await service.get_run(principal, "run-live")).status == "running"
+
+    provider.release.set()
+    response = await asyncio.wait_for(task, timeout=2)
+    assert response.content == "hello"
+    assert (await service.get_run(principal, "run-live")).status == "completed"
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_canonical_heartbeat_keeps_long_run_lease_alive(tmp_path):
+    service = await _service(
+        tmp_path,
+        runtime_config=SessionRuntimeConfig(
+            lease_seconds=1,
+            heartbeat_seconds=0,
+            event_batch_size=20,
+        ),
+    )
+    principal = SessionPrincipal("alice")
+    provider = BlockingProvider()
+    loop = _loop(provider, service)
+
+    task = asyncio.create_task(
+        loop.run(
+            ChatRequest("hi", session_id="s1", principal=principal),
+            event_sink=AgentEventSink(run_id="run-heartbeat", session_id="s1"),
+        )
+    )
+    await asyncio.wait_for(provider.started.wait(), timeout=2)
+    await asyncio.sleep(1.2)
+    provider.release.set()
+
+    response = await asyncio.wait_for(task, timeout=2)
+    assert response.content == "hello"
+    assert (await service.get_run(principal, "run-heartbeat")).status == "completed"
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_canonical_heartbeat_converts_cancel_request_to_terminal_cancel(tmp_path):
+    service = await _service(
+        tmp_path,
+        runtime_config=SessionRuntimeConfig(
+            lease_seconds=3,
+            heartbeat_seconds=0,
+            event_batch_size=20,
+        ),
+    )
+    principal = SessionPrincipal("alice")
+    provider = BlockingProvider()
+    loop = _loop(provider, service)
+
+    task = asyncio.create_task(
+        loop.run(
+            ChatRequest("hi", session_id="s1", principal=principal),
+            event_sink=AgentEventSink(run_id="run-cancel-live", session_id="s1"),
+        )
+    )
+    await asyncio.wait_for(provider.started.wait(), timeout=2)
+    await service.request_cancel(principal, "run-cancel-live")
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2)
+
+    run = await service.get_run(principal, "run-cancel-live")
+    events = await service.read_events(principal, "run-cancel-live", after_seq=0, limit=100)
+    assert run.status == "cancelled"
+    assert events.items[-1].event_type == "error"
+    assert events.items[-1].payload["code"] == "cancelled"
     await service.shutdown()

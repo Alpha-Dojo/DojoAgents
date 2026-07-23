@@ -3,10 +3,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import DojoDataGateway
-from dojoagents.harnesses.built_in.financial.services.kline_bar_utils import DATA_START_DATE
-from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
-from dojoagents.harnesses.built_in.financial.services.portfolio_kline_fetch import fetch_kline_bars_for_symbol
+from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
+from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE
+from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_for_symbol
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 TARGET = "2026-07-03"
@@ -108,7 +108,7 @@ async def test_kline_store_single_day_returns_target_bar_when_sdk_has_full_windo
             self.calls: list[dict] = []
 
         async def stock_klines(self, symbols, **window):
-            from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
+            from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
 
             self.calls.append(window)
             filtered = [row for row in rows if row["symbol"] in symbols]
@@ -170,7 +170,7 @@ async def test_portfolio_fetch_single_day_returns_target_bar() -> None:
 
     class RecordingGateway:
         async def stock_klines(self, symbols, **window):
-            from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
+            from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
 
             filtered = [row for row in rows if row["symbol"] in symbols]
             return GatewayResult(pd.DataFrame(filtered), None, "sdk_snapshot", False)

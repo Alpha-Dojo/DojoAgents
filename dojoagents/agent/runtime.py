@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
 import inspect
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.session_manager import DojoAgentSessionManager
@@ -119,22 +120,43 @@ class Runtime:
     session_service: Any | None = None
     harness_runtime_context: Any | None = None
     lifecycle_manager: Any | None = None
+    service_bindings: Mapping[str, Any] | None = None
     state: str = "legacy"
     _legacy_surfaces: dict[str, Any] | None = None
 
     @classmethod
-    def compose(cls, store: ConfigStore, *, host: str = "library") -> "Runtime":
+    def compose(
+        cls,
+        store: ConfigStore,
+        *,
+        host: str = "library",
+        service_bindings: Mapping[str, Any] | None = None,
+    ) -> "Runtime":
         """Assemble a Harness capability graph without starting resources."""
 
         from dojoagents.harnesses.composer import RuntimeComposer
 
-        return RuntimeComposer.compose(store, host=host)
+        return RuntimeComposer.compose(
+            store,
+            host=host,
+            service_bindings=service_bindings,
+        )
 
     @classmethod
-    async def create(cls, store: ConfigStore, *, host: str = "library") -> "Runtime":
+    async def create(
+        cls,
+        store: ConfigStore,
+        *,
+        host: str = "library",
+        service_bindings: Mapping[str, Any] | None = None,
+    ) -> "Runtime":
         """Compose and fully start a Harness-backed Runtime."""
 
-        runtime = cls.compose(store, host=host)
+        runtime = cls.compose(
+            store,
+            host=host,
+            service_bindings=service_bindings,
+        )
         await runtime.startup()
         return runtime
 
@@ -168,7 +190,11 @@ class Runtime:
                 config=self.config.sessions,
             )
             self.sessions = self.session_service
-            self.lifecycle_manager = LifecycleManager(self.capabilities.services)
+            self.service_bindings = MappingProxyType(dict(self.service_bindings or {}))
+            self.lifecycle_manager = LifecycleManager(
+                self.capabilities.services,
+                self.service_bindings,
+            )
             services = await self.lifecycle_manager.startup()
             for service in services.values():
                 if callable(getattr(service, "project_results", None)):
@@ -375,6 +401,64 @@ class Runtime:
                 task_output_root=self.config.tasks.output_root,
             )
 
+        # Core execution tools belong to Agent Core rather than any scenario
+        # Harness. The legacy Runtime registered these directly; keep the same
+        # invariant for the Harness-backed Runtime so every Harness can rely on
+        # the generic execution and session I/O surface.
+        artifact_store = ToolResultArtifactStore(self.config.sessions.root)
+        artifact_adapter = self.capabilities.artifact_adapter.adapter if self.capabilities.artifact_adapter is not None else None
+
+        def register_core_tool(spec: ToolSpec) -> None:
+            existing = registry.get(spec.name)
+            if existing is not None:
+                raise RuntimeError(f"core tool name conflict: '{spec.name}' is already provided by the Harness or a plugin")
+            registry.register(spec)
+
+        from dojoagents.tools.code_execution_tool import get_code_execution_spec
+        from dojoagents.tools.session_file_tool import (
+            get_read_session_output_spec,
+            get_write_session_file_spec,
+        )
+        from dojoagents.tools.session_input_tool import get_read_session_input_spec
+        from dojoagents.tools.terminal_tool import get_terminal_spec
+        from dojoagents.tools.tools_list_tool import ToolsListTool
+        from dojoagents.tools.web_searcher import get_web_searcher_specs
+
+        register_core_tool(get_terminal_spec(sandbox))
+        register_core_tool(
+            get_write_session_file_spec(
+                self.config.sessions.root,
+                task_output_root=self.config.tasks.output_root if self.config.tasks.enabled else None,
+                task_manager=self.task_manager,
+                session_service=self.session_service,
+            )
+        )
+        register_core_tool(
+            get_read_session_output_spec(
+                self.config.sessions.root,
+                task_output_root=self.config.tasks.output_root if self.config.tasks.enabled else None,
+                session_service=self.session_service,
+            )
+        )
+        register_core_tool(
+            get_read_session_input_spec(
+                self.config.sessions.root,
+                session_service=self.session_service,
+            )
+        )
+        for spec in get_web_searcher_specs(self.config.tools.web):
+            register_core_tool(spec)
+        register_core_tool(
+            get_code_execution_spec(
+                registry,
+                sandbox,
+                artifact_store=artifact_store,
+                artifact_adapter=artifact_adapter,
+                sessions_root=self.config.sessions.root,
+            )
+        )
+        register_core_tool(ToolsListTool(registry).get_tool_spec())
+
         provider_name, provider_cfg = resolve_provider_config(self.config.llm_provider)
         if provider_cfg is None:
             llm_provider: Any = UnconfiguredLLMProvider()
@@ -397,8 +481,6 @@ class Runtime:
 
         agent_config = replace(self.config.agent, model=model or "unconfigured")
         memory_worker = SessionMemorySyncWorker(self.session_service, memory) if self.config.sessions.sync_memory else None
-        artifact_store = ToolResultArtifactStore(self.config.sessions.root)
-        artifact_adapter = self.capabilities.artifact_adapter.adapter if self.capabilities.artifact_adapter is not None else None
         self.agent = AgentLoop(
             llm_provider=llm_provider,
             tool_executor=ToolExecutor(
@@ -418,6 +500,7 @@ class Runtime:
             harness_descriptor=self.capabilities.descriptor,
             harness_runtime=harness_runtime,
             memory_sync_worker=memory_worker,
+            token_ledger_root=(str(Path(self.config.sessions.store.options["root"]).expanduser() / "_token_ledger") if self.config.sessions.store.options.get("root") else None),
         )
         return self.agent
 

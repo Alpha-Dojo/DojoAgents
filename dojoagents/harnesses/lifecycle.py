@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
@@ -14,10 +15,27 @@ async def _resolve(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
+@dataclass(frozen=True)
+class ExternalServiceBinding:
+    """A host-provided service and its Runtime lifecycle ownership."""
+
+    instance: Any
+    runtime_owns_lifecycle: bool = False
+
+
 class LifecycleManager:
-    def __init__(self, specs: Iterable[ServiceSpec]) -> None:
+    def __init__(
+        self,
+        specs: Iterable[ServiceSpec],
+        bindings: Mapping[str, ExternalServiceBinding] | None = None,
+    ) -> None:
         self._specs = tuple(specs)
-        self._started: list[tuple[ServiceSpec, Any]] = []
+        self._bindings = MappingProxyType(dict(bindings or {}))
+        declared = {spec.component_id for spec in self._specs}
+        unknown = set(self._bindings).difference(declared)
+        if unknown:
+            raise HarnessLifecycleError("external service bindings are not declared by the harness: " + ", ".join(sorted(unknown)))
+        self._started: list[tuple[ServiceSpec, Any, bool]] = []
         self._services: dict[str, Any] = {}
         self._shutdown = False
 
@@ -51,15 +69,21 @@ class LifecycleManager:
         self._shutdown = False
         try:
             for spec in self._topological_order():
-                if spec.factory is None:
-                    raise HarnessLifecycleError(f"service '{spec.component_id}' has no factory")
-                service = await _resolve(spec.factory())
+                binding = self._bindings.get(spec.component_id)
+                if binding is None:
+                    if spec.factory is None:
+                        raise HarnessLifecycleError(f"service '{spec.component_id}' has no factory")
+                    service = await _resolve(spec.factory())
+                    owns_lifecycle = True
+                else:
+                    service = binding.instance
+                    owns_lifecycle = binding.runtime_owns_lifecycle
                 # Register before startup so a callback that partially acquires
                 # resources and then raises is still included in rollback.
-                self._started.append((spec, service))
+                self._started.append((spec, service, owns_lifecycle))
                 self._services[spec.component_id] = service
                 callback = spec.startup or getattr(service, "startup", None)
-                if callback is not None:
+                if owns_lifecycle and callback is not None:
                     if spec.startup is not None:
                         await _resolve(callback(service))
                     else:
@@ -79,7 +103,9 @@ class LifecycleManager:
         return MappingProxyType(dict(self._services))
 
     async def _rollback(self) -> None:
-        for spec, service in reversed(self._started):
+        for spec, service, owns_lifecycle in reversed(self._started):
+            if not owns_lifecycle:
+                continue
             callback = spec.shutdown or getattr(service, "shutdown", None)
             if callback is None:
                 continue
@@ -98,7 +124,9 @@ class LifecycleManager:
         if self._shutdown:
             return
         errors: list[str] = []
-        for spec, service in reversed(self._started):
+        for spec, service, owns_lifecycle in reversed(self._started):
+            if not owns_lifecycle:
+                continue
             callback = spec.shutdown or getattr(service, "shutdown", None)
             if callback is None:
                 continue

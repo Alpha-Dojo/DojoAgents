@@ -126,8 +126,23 @@ class AgentEventSink:
         self.run_id = run_id
         self.session_id = session_id
         self._emit = emit
+        self._listeners: list[Callable[[AgentEvent], None]] = []
         self._seq = 0
         self.events: list[dict[str, Any]] = []
+
+    def add_listener(self, listener: Callable[[AgentEvent], None]) -> None:
+        """Observe future events without replacing the surface callback."""
+
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def remove_listener(self, listener: Callable[[AgentEvent], None]) -> None:
+        """Stop observing future events."""
+
+        try:
+            self._listeners.remove(listener)
+        except ValueError:
+            pass
 
     def _dispatch(self, event_cls: type[AgentEvent], **payload: Any) -> dict[str, Any]:
         self._seq += 1
@@ -141,6 +156,8 @@ class AgentEventSink:
         self.events.append(event_payload)
         if self._emit is not None:
             self._emit(event)
+        for listener in tuple(self._listeners):
+            listener(event)
         return event_payload
 
     def delta(self, text: str) -> dict[str, Any]:

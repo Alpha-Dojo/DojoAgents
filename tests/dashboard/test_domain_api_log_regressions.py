@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.contracts.dojo_core import CoreTickerSearchItem
-from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import BilingualText
-import dojoagents.harnesses.built_in.financial.services.domain_api as domain_api
+from dojoagents.dashboard.schemas.dojo_core import CoreTickerSearchItem
+from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
+import dojoagents.dashboard.services.domain_api as domain_api
 
 
 @pytest.mark.asyncio
@@ -35,7 +35,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 1.23,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [
@@ -88,7 +88,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 2.5,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market_cap": 100.0}],
@@ -202,8 +202,9 @@ def _quoted_stock(ticker: str, market: str = "sh"):
             name=ticker,
             last_price=10.0,
             change_percent=1.0,
+            volume=1,
             turn_rate=0.5,
-            market_cap=100.0,
+            market_cap=10_000_000_000.0,
             pe=12.0,
             pb=1.5,
             amount=1000.0,

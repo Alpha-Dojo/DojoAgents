@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from dojoagents.harnesses.built_in.financial.services.market_trading_calendar import (
+from .trading_calendar import (
     DEFAULT_MARKETS,
     canonical_market,
     open_markets_on,

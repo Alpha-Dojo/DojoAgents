@@ -25,7 +25,7 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.14",
+    "dojosdk>=0.1.15",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
@@ -48,9 +48,9 @@ sdist = "dojoagents.packaging_hooks.SdistCommand"
 [tool.setuptools.package-data]
 "dojoagents" = [
     "skills/built_in/**/*",
-    "harnesses/built_in/financial/data/default_portfolios/**/*",
     "harnesses/built_in/financial/tasks/definitions/**/*",
     "harnesses/built_in/financial/pipelines/definitions/*.yaml",
+    "dashboard/data/default_portfolios/**/*",
 ]
 "dojoagents.dashboard" = [
     "web/dist/**/*",

@@ -7,24 +7,6 @@ from typing import Annotated, Any, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
-    CompanyTickerSearchResponse,
-    MarketOverviewResponse,
-    PortfolioListResponseV1,
-    SectorAnalysisResponse,
-    SectorConstituentsResponse,
-    SectorMoverItem,
-    SectorMoversResponse,
-    StockScreenResponse,
-    TaxonomyTreeResponse,
-    TickerFinancialsResponseV1,
-    TickerNewsEventsResponseV1,
-    TickerPriceTrendsResponseV1,
-    TickerQuoteResponseV1,
-)
-from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import BilingualText
-from dojoagents.harnesses.built_in.financial.contracts.portfolio import PortfolioDetail
-
 _PREFERRED_ROWS_KEYS = (
     "items",
     "klines",
@@ -42,21 +24,183 @@ _PREFERRED_ROWS_KEYS = (
 _TOOL_TABLE_PANDAS = "dojo_tools.tool_print(res)"
 _TOOL_MULTI_TABLE_PANDAS = "meta = dojo_tools.tool_meta(res); " "dojo_tools.tool_print(res, table='markets'); " "dojo_tools.tool_print(res, table='benchmarks')"
 
-TOOL_RESPONSE_MODELS: dict[str, type[BaseModel]] = {
-    "search_company_ticker": CompanyTickerSearchResponse,
-    "get_taxonomy_tree": TaxonomyTreeResponse,
-    "get_market_overview": MarketOverviewResponse,
-    "get_sector_movers": SectorMoversResponse,
-    "screen_market_stocks": StockScreenResponse,
-    "get_sector_analysis": SectorAnalysisResponse,
-    "filter_sector_constituents": SectorConstituentsResponse,
-    "get_ticker_realtime_quote": TickerQuoteResponseV1,
-    "get_ticker_financials": TickerFinancialsResponseV1,
-    "get_ticker_price_trends": TickerPriceTrendsResponseV1,
-    "get_ticker_news_events": TickerNewsEventsResponseV1,
-    "portfolio_read_list": PortfolioListResponseV1,
-    "portfolio_read_search": PortfolioListResponseV1,
-    "portfolio_read_detail": PortfolioDetail,
+TOOL_RESPONSE_MODELS: dict[str, type[BaseModel]] = {}
+
+
+def _static_list_hint(
+    rows_key: str,
+    row_fields: list[str],
+    *,
+    top_level_keys: list[str] | None = None,
+    expand_bilingual: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "shape": "tabular",
+        "rows_key": rows_key,
+        "top_level_keys": list(top_level_keys or [rows_key]),
+        "default_table": rows_key,
+        "tables": {
+            rows_key: {
+                "type": "list",
+                "path": rows_key,
+                "expand_bilingual": list(expand_bilingual or []),
+                "row_fields": row_fields,
+            }
+        },
+        "row_fields": row_fields,
+        "pandas_example": _TOOL_TABLE_PANDAS,
+    }
+
+
+STATIC_TOOL_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
+    "screen_market_stocks": _static_list_hint(
+        "items",
+        [
+            "ticker",
+            "market",
+            "name_zh",
+            "name_en",
+            "last_price",
+            "change_percent",
+            "window_change_percent",
+            "market_cap",
+            "pe",
+            "pb",
+        ],
+        top_level_keys=[
+            "days",
+            "market",
+            "window_start",
+            "as_of",
+            "universe_count",
+            "match_count",
+            "items",
+        ],
+        expand_bilingual=["name"],
+    ),
+    "filter_sector_constituents": _static_list_hint(
+        "items",
+        [
+            "ticker",
+            "market",
+            "name_zh",
+            "name_en",
+            "currency",
+            "last_price",
+            "change_percent",
+            "window_change_percent",
+            "turn_rate",
+            "market_cap",
+            "pe",
+            "pb",
+            "amount",
+        ],
+        top_level_keys=[
+            "level1_id",
+            "level2_id",
+            "level3_id",
+            "scope",
+            "market",
+            "count",
+            "items",
+        ],
+        expand_bilingual=["name"],
+    ),
+    "get_ticker_price_trends": _static_list_hint(
+        "klines",
+        ["datetime", "open", "high", "low", "close", "volume"],
+        top_level_keys=["ticker", "market", "as_of", "klines", "pe_band"],
+    ),
+    "get_ticker_financials": _static_list_hint(
+        "indicators",
+        [],
+        top_level_keys=[
+            "ticker",
+            "market",
+            "report_type",
+            "as_of",
+            "indicators",
+            "income_distributions",
+        ],
+    ),
+    "get_market_overview": {
+        "shape": "nested",
+        "top_level_keys": [
+            "days",
+            "window_mode",
+            "window_start",
+            "window_end",
+            "as_of",
+            "markets",
+            "benchmarks",
+        ],
+        "default_table": "markets",
+        "tables": {
+            "markets": {
+                "type": "dict_records",
+                "path": "markets",
+                "group_key": "market",
+                "row_fields": [
+                    "market",
+                    "listed_count",
+                    "total_market_cap",
+                    "weighted_pe",
+                    "simple_pe",
+                    "pe_sample_count",
+                ],
+            },
+            "benchmarks": {
+                "type": "dict_list_records",
+                "path": "benchmarks",
+                "group_key": "market",
+                "row_fields": [
+                    "market",
+                    "symbol",
+                    "name_zh",
+                    "name_en",
+                    "price",
+                    "change_percent",
+                    "window_start",
+                    "window_end",
+                ],
+            },
+        },
+        "pandas_example": _TOOL_MULTI_TABLE_PANDAS,
+    },
+    "get_sector_movers": {
+        "shape": "nested",
+        "top_level_keys": [
+            "days",
+            "window_mode",
+            "window_start",
+            "window_end",
+            "markets",
+        ],
+        "default_table": "sectors",
+        "tables": {
+            "sectors": {
+                "type": "dict_side_lists",
+                "path": "markets",
+                "group_key": "market",
+                "side_column": "side",
+                "sides": ["gainers", "losers"],
+                "rank_by": ["market", "side"],
+                "row_fields": [
+                    "market",
+                    "side",
+                    "rank",
+                    "level1_id",
+                    "level2_id",
+                    "level3_id",
+                    "name_zh",
+                    "name_en",
+                    "change_percent",
+                    "member_count",
+                ],
+            }
+        },
+        "pandas_example": _TOOL_TABLE_PANDAS,
+    },
 }
 
 TOOL_NAME_ALIASES: dict[str, str] = {
@@ -173,7 +317,7 @@ def _is_basemodel_type(annotation: Any) -> bool:
 
 def _is_bilingual_text_type(annotation: Any) -> bool:
     unwrapped = _unwrap_annotation(annotation)
-    return unwrapped is BilingualText or (_is_basemodel_type(unwrapped) and issubclass(unwrapped, BilingualText))
+    return isinstance(unwrapped, type) and unwrapped.__name__ == "BilingualText"
 
 
 def _is_list_of_rows(annotation: Any) -> bool:
@@ -333,7 +477,7 @@ def infer_schema_hint_from_model(model: type[BaseModel]) -> dict[str, Any]:
             item_model = _inner_list_model(gainers_field.annotation) if gainers_field is not None else None
             tables["sectors"] = _dict_side_lists_table(
                 dict_name,
-                item_model or SectorMoverItem,
+                item_model or BaseModel,
             )
             return _finalize_hint(
                 {
@@ -429,6 +573,8 @@ def get_tool_schema_hint(tool_name: str) -> dict[str, Any] | None:
 
     model = TOOL_RESPONSE_MODELS.get(normalized)
     base: dict[str, Any] | None = _cached_model_hint(model) if model is not None else None
+    if base is None and normalized in STATIC_TOOL_SCHEMA_HINTS:
+        base = dict(STATIC_TOOL_SCHEMA_HINTS[normalized])
 
     override = MANUAL_TOOL_SCHEMA_OVERRIDES.get(normalized)
     if base and override:

@@ -70,8 +70,11 @@ class SessionTokenState:
 
 
 class SessionTokenLedger:
-    def __init__(self, root: str | Path = "~/.dojo/agents/sessions") -> None:
-        self._store = AtomicJsonStore(Path(root).expanduser(), schema_version=1)
+    def __init__(
+        self,
+        root: str | Path | None = "~/.dojo/agents/sessions",
+    ) -> None:
+        self._store = AtomicJsonStore(Path(root).expanduser(), schema_version=1) if root is not None else None
         self.state: SessionTokenState | None = None
         self._session_id = ""
 
@@ -90,8 +93,8 @@ class SessionTokenLedger:
         compression_threshold_ratio: float,
     ) -> SessionTokenState:
         self._session_id = session_id
-        path = self._store.path_for(session_id)
-        if path.exists():
+        path = self._store.path_for(session_id) if self._store is not None else None
+        if path is not None and path.exists():
             raw = self._store._read_sync(path, session_id)
             if isinstance(raw, dict):
                 self.state = SessionTokenState(**{**raw, "session_id": session_id})
@@ -107,7 +110,7 @@ class SessionTokenLedger:
         return self.state
 
     def save(self) -> None:
-        if self.state is None or not self._session_id:
+        if self.state is None or not self._session_id or self._store is None:
             return
         path = self._store.path_for(self._session_id)
         self._store._write_sync(path, asdict(self.state))

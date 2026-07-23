@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.market_window import MarketAnalysisWindow
-from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
+from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 
 
 def test_compute_date_range_frame_returns_window_return() -> None:

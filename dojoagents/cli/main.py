@@ -16,29 +16,28 @@ from dojoagents.gateway.server import create_runner_app as create_gateway_app
 from dojoagents.sessions.models import SessionPrincipal
 
 
-def _configured_cli_surface():
-    from dojoagents.config.loader import ConfigStore
-
-    runtime = Runtime.compose(ConfigStore(), host="cli")
-    try:
-        return runtime.surface("cli")
-    except KeyError:
-        return None
-
-
-def build_parser(cli_surface=None) -> argparse.ArgumentParser:
-    if cli_surface is None:
-        cli_surface = _configured_cli_surface()
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dojoagents")
     sub = parser.add_subparsers(dest="command", required=True)
 
     chat = sub.add_parser("chat")
     chat.add_argument("message", nargs="?", default="")
     chat.add_argument("--profile", default="default")
+    chat.add_argument("--market", choices=["stock", "crypto"])
+    chat.add_argument("--symbols", default="")
+    chat.add_argument("--timeframe", default="1d")
 
     dashboard = sub.add_parser("dashboard")
     dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8765)
+
+    from dojoagents.dashboard.cli.tasks import add_tasks_parser
+    from dojoagents.dashboard.cli.precompute_sector import configure_parser as configure_sector_precompute
+    from dojoagents.dashboard.cli.precompute_theme_state import configure_parser as configure_theme_precompute
+
+    configure_sector_precompute(sub)
+    configure_theme_precompute(sub)
+    add_tasks_parser(sub)
 
     sessions = sub.add_parser("sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)
@@ -99,21 +98,18 @@ def build_parser(cli_surface=None) -> argparse.ArgumentParser:
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
     _ = mcp_sub.add_parser("serve")
 
-    configure_surface = getattr(cli_surface, "configure_parser", None)
-    if callable(configure_surface):
-        configure_surface(sub, chat)
-
     return parser
 
 
-async def _run_chat(args: argparse.Namespace, cli_surface=None) -> int:
+async def _run_chat(args: argparse.Namespace) -> int:
     runtime = Runtime.from_default_config()
-    context_factory = getattr(
-        cli_surface,
-        "request_context_from_args",
-        None,
-    )
-    quant = context_factory(args) if callable(context_factory) else None
+    quant = None
+    if args.market and args.symbols:
+        quant = {
+            "market": args.market,
+            "symbols": [symbol.strip() for symbol in args.symbols.split(",") if symbol.strip()],
+            "timeframe": args.timeframe,
+        }
     response = await runtime.agent.run(
         ChatRequest(
             principal=SessionPrincipal("local"),
@@ -204,18 +200,22 @@ async def _run_canonical_sessions(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    cli_surface = _configured_cli_surface()
     try:
-        args = build_parser(cli_surface).parse_args(argv)
+        args = build_parser().parse_args(argv)
     except SystemExit as exc:
         if argv is not None:
             return int(exc.code)
         raise
     if args.command == "chat":
-        return asyncio.run(_run_chat(args, cli_surface))
+        return asyncio.run(_run_chat(args))
     if args.command == "dashboard":
-        runtime = Runtime.from_default_config()
-        uvicorn.run(create_dashboard_app(runtime), host=args.host, port=args.port)
+        from dojoagents.config.loader import ConfigStore
+
+        uvicorn.run(
+            create_dashboard_app(config_store=ConfigStore()),
+            host=args.host,
+            port=args.port,
+        )
         return 0
     if args.command == "sessions":
         return _run_sessions(args)
@@ -280,11 +280,20 @@ def main(argv: list[str] | None = None) -> int:
 
             run_server()
             return 0
-    surface_handler = getattr(cli_surface, "run_command", None)
-    if callable(surface_handler):
-        result = asyncio.run(surface_handler(args))
-        if result is not None:
-            return result
+    if args.command == "precompute-sector":
+        from dojoagents.dashboard.cli.precompute_sector import run_precompute_sector
+
+        return asyncio.run(run_precompute_sector(args))
+    if args.command == "precompute-sector-theme-state":
+        from dojoagents.dashboard.cli.precompute_theme_state import (
+            run_precompute_sector_theme_state,
+        )
+
+        return asyncio.run(run_precompute_sector_theme_state(args))
+    if args.command == "tasks":
+        from dojoagents.dashboard.cli.tasks import run_tasks_command
+
+        return asyncio.run(run_tasks_command(args))
     return 2
 
 

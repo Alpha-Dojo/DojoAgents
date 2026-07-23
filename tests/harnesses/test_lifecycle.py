@@ -2,7 +2,7 @@ import pytest
 
 from dojoagents.harnesses.capabilities import ServiceSpec
 from dojoagents.harnesses.errors import HarnessLifecycleError
-from dojoagents.harnesses.lifecycle import LifecycleManager
+from dojoagents.harnesses.lifecycle import ExternalServiceBinding, LifecycleManager
 
 
 class Service:
@@ -79,3 +79,35 @@ async def test_unhealthy_service_and_dependency_cycle_are_errors():
     )
     with pytest.raises(HarnessLifecycleError, match="cycle"):
         await cycle.startup()
+
+
+@pytest.mark.asyncio
+async def test_external_service_binding_obeys_lifecycle_ownership():
+    events = []
+    external = Service("external", events)
+    manager = LifecycleManager(
+        (ServiceSpec("db", "harness:a", factory=lambda: Service("default", events)),),
+        {"db": ExternalServiceBinding(external)},
+    )
+
+    services = await manager.startup()
+    await manager.shutdown()
+
+    assert services["db"] is external
+    assert events == []
+
+    owned = LifecycleManager(
+        (ServiceSpec("db", "harness:a", factory=lambda: Service("default", events)),),
+        {"db": ExternalServiceBinding(external, runtime_owns_lifecycle=True)},
+    )
+    await owned.startup()
+    await owned.shutdown()
+    assert events == ["start:external", "stop:external"]
+
+
+def test_external_service_binding_rejects_undeclared_ids():
+    with pytest.raises(HarnessLifecycleError, match="not declared"):
+        LifecycleManager(
+            (ServiceSpec("db", "harness:a", factory=lambda: object()),),
+            {"unknown": ExternalServiceBinding(object())},
+        )

@@ -3,17 +3,17 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-from dojoagents.harnesses.built_in.financial.services.kline_bar_utils import (
+from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.kline_bar_utils import (
     DATA_START_DATE,
     ashare_kline_symbol_candidates,
     infer_ashare_kline_suffix,
     resolve_kline_limit_for_elapsed_days,
     resolve_tail_limit,
 )
-from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
-from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
-from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
+from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
+from dojoagents.dashboard.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
@@ -65,7 +65,7 @@ def test_resolve_kline_limit_for_elapsed_days_covers_2025_inception() -> None:
 
 
 def test_price_within_daily_range_is_inclusive() -> None:
-    from dojoagents.harnesses.built_in.financial.services.kline_bar_utils import price_within_daily_range
+    from dojoagents.dashboard.services.kline_bar_utils import price_within_daily_range
 
     assert price_within_daily_range(100.0, 100.0, 105.0)
     assert price_within_daily_range(105.0, 100.0, 105.0)

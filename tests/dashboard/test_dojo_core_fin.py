@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.contracts.stock_fin_indicators import CoreTickerFinIndicatorsResponse
-from dojoagents.harnesses.built_in.financial.contracts.stock_income import (
+from dojoagents.dashboard.schemas.stock_fin_indicators import CoreTickerFinIndicatorsResponse
+from dojoagents.dashboard.schemas.stock_income import (
     CoreIncomeDistributionItem,
     CoreIncomeDistributionSlice,
     CoreTickerIncomeResponse,
 )
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-from dojoagents.harnesses.built_in.financial.services.dojo_core_fin import (
+from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_fin_indicators_for_market,
     resolve_income_for_market,
 )
-from dojoagents.harnesses.built_in.financial.services.forex_store import ForexStore
+from dojoagents.dashboard.services.forex_store import ForexStore
 
 
 class StubForexGateway:
@@ -26,8 +26,8 @@ class StubForexGateway:
 
 @pytest.mark.asyncio
 async def test_convert_fin_rows_fetches_usdcny_for_cny_reports():
-    from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-    from dojoagents.harnesses.built_in.financial.services.forex_store import ForexStore
+    from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+    from dojoagents.dashboard.services.forex_store import ForexStore
 
     class RecordingForexGateway:
         def __init__(self) -> None:

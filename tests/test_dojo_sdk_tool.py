@@ -13,13 +13,14 @@ from dojoagents.config.models import DojoSDKConfig
 from dojoagents.harnesses.built_in.financial.tools.sdk_runtime import (
     DojoSDKToolManager,
     HF_REGISTRY,
+    OFFLINE_TOOL_ALIASES,
     OFFLINE_TOOL_BINDINGS,
     get_dojo_sdk_specs,
 )
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
-from dojo.types.models import BenchmarkCatalogResponse, CurrentQuoteResponse, StockKlineResponse, StockNewsResponse
+from dojo.types.models import CurrentQuoteResponse, StockKlineResponse, StockNewsResponse
 
 YSTOCK_INFO_REPRO_ARGS = {
     "symbols": ["SPY", "2800.HK", "510300.SH"],
@@ -30,10 +31,10 @@ YSTOCK_INFO_REPRO_SYMBOLS = {"SPY", "2800.HK", "510300.SH"}
 
 
 def test_hf_registry_coverage():
-    assert set(OFFLINE_TOOL_BINDINGS) == set(HF_REGISTRY)
+    assert set(OFFLINE_TOOL_BINDINGS).issubset(set(HF_REGISTRY))
     specs = get_dojo_sdk_specs()
-    assert len(specs) == len(HF_REGISTRY)
-    assert len({spec.name for spec in specs}) == len(HF_REGISTRY)
+    assert len(specs) == len(OFFLINE_TOOL_BINDINGS) + len(OFFLINE_TOOL_ALIASES)
+    assert len({spec.name for spec in specs}) == len(specs)
 
 
 def test_dojo_sdk_tools_discovery():
@@ -42,7 +43,8 @@ def test_dojo_sdk_tools_discovery():
 
     assert "dojo.sdk.stock.kline" in all_tools
     assert "dojo.sdk.stock.current_quote" in all_tools
-    assert "dojo.sdk.benchmark.catalog" in all_tools
+    assert "dojo.sdk.sector.precomputed_sector_alpha_factors_daily" in all_tools
+    assert "dojo.sdk.sector.precomputed_ticker_alpha_factors_daily" in all_tools
     assert "dojo.sdk.get_ticker" not in all_tools
 
 
@@ -58,13 +60,15 @@ async def test_dojo_sdk_stock_kline_tool():
         data=[
             {
                 "symbol": "AAPL",
-                "kline_t": "1d",
+                "kline_t": "1D",
                 "bar_time": "2026-06-04",
                 "open": 180.0,
                 "high": 182.0,
                 "low": 179.0,
                 "close": 181.5,
-                "vol": 1000.0,
+                "volume": 1000000,
+                "amount": 181500000.0,
+                "ts": "2026-05-01T00:00:00Z",
             }
         ],
     )
@@ -78,7 +82,7 @@ async def test_dojo_sdk_stock_kline_tool():
             ToolCall(
                 id="tc-stock-kline",
                 name="dojo.sdk.stock.kline",
-                arguments={"symbol": "AAPL", "kline_t": "1d", "limit": 50},
+                arguments={"symbol": "AAPL", "kline_t": "1d", "limit": 10},
             )
         )
 
@@ -93,7 +97,7 @@ async def test_dojo_sdk_stock_kline_tool():
             end_time=None,
             price_adj_type=None,
             price_adj_date=None,
-            limit=50,
+            limit=10,
         )
 
 
@@ -104,7 +108,12 @@ async def test_dojo_sdk_stock_current_quote_tool():
         registry.register(spec)
 
     executor = ToolExecutor(registry, SandboxPolicy())
-    mock_response = CurrentQuoteResponse(symbol="AAPL", price=180.5, volume=50000.0)
+    mock_response = CurrentQuoteResponse(
+        symbol="AAPL",
+        price=180.5,
+        change=1.5,
+        change_pct=0.84,
+    )
     mock_get_quote = AsyncMock(return_value=mock_response)
 
     with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
@@ -228,7 +237,7 @@ async def test_dojo_sdk_benchmark_catalog_tool():
         registry.register(spec)
 
     executor = ToolExecutor(registry, SandboxPolicy())
-    mock_response = BenchmarkCatalogResponse(total_num=1, data=[{"symbol": "SPX", "name": "S&P 500"}])
+    mock_response = {"total_num": 1, "data": [{"symbol": "SPX", "name": "S&P 500"}]}
     mock_get_catalog = AsyncMock(return_value=mock_response)
 
     with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
@@ -266,4 +275,66 @@ def test_dojo_sdk_config_injection():
             base_url="https://test.dojo.api",
             timeout=30.0,
             max_retries=3,
+        )
+
+
+@pytest.mark.asyncio
+async def test_dojo_sdk_precomputed_alpha_factors_tools():
+    registry = ToolRegistry()
+    for spec in get_dojo_sdk_specs():
+        registry.register(spec)
+
+    executor = ToolExecutor(registry, SandboxPolicy())
+
+    mock_sector_factors = AsyncMock(return_value={"total_num": 1, "data": [{"sector": "tech", "alpha": 1.25}]})
+    mock_ticker_factors = AsyncMock(return_value={"total_num": 1, "data": [{"symbol": "AAPL", "alpha": 0.85}]})
+
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
+        instance = mock_async_dojo.return_value
+        instance.sectors.get_precomputed_sector_alpha_factors_daily = mock_sector_factors
+        instance.sectors.get_precomputed_ticker_alpha_factors_daily = mock_ticker_factors
+
+        res_sector = await executor.execute_one(
+            ToolCall(
+                id="tc-sector-alpha",
+                name="dojo.sdk.sector.precomputed_sector_alpha_factors_daily",
+                arguments={"trade_date": "2026-05-28"},
+            )
+        )
+        assert res_sector.ok
+        data_sector = json.loads(res_sector.content)
+        assert data_sector["data"][0]["sector"] == "tech"
+        mock_sector_factors.assert_called_once_with(
+            trade_date="2026-05-28",
+            market=None,
+            scope=None,
+            level1_id=None,
+            level2_id=None,
+            level3_id=None,
+            link_key=None,
+            theme_row_status=None,
+            horizon_row_status=None,
+            factor_rule=None,
+        )
+
+        res_ticker = await executor.execute_one(
+            ToolCall(
+                id="tc-ticker-alpha",
+                name="dojo.sdk.sector.precomputed_ticker_alpha_factors_daily",
+                arguments={"ticker": "AAPL"},
+            )
+        )
+        assert res_ticker.ok
+        data_ticker = json.loads(res_ticker.content)
+        assert data_ticker["data"][0]["symbol"] == "AAPL"
+        mock_ticker_factors.assert_called_once_with(
+            trade_date=None,
+            market=None,
+            ticker="AAPL",
+            level1_id=None,
+            level2_id=None,
+            level3_id=None,
+            role=None,
+            factor_rule=None,
+            row_status=None,
         )

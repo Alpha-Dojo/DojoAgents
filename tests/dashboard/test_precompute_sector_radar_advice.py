@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_radar_advice import (
+from dojoagents.dashboard.jobs.precompute.sector_radar_advice import (
     SECTOR_ADVICE_DAILY_COLUMNS,
     SECTOR_HEALTH_RADAR_COLUMNS,
     compute_sector_radar_advice_frames,

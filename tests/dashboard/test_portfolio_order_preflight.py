@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.contracts.portfolio import CreatePortfolioOrderRequest
-from dojoagents.harnesses.built_in.financial.services.portfolio_order_preflight import preflight_buy_orders
+from dojoagents.dashboard.schemas.portfolio import CreatePortfolioOrderRequest
+from dojoagents.dashboard.services.portfolio_order_preflight import preflight_buy_orders
 
 
 def test_preflight_passes_when_budget_is_sufficient() -> None:

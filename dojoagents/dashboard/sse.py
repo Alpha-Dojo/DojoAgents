@@ -9,6 +9,9 @@ import uuid
 from typing import Any, AsyncGenerator
 
 from dojoagents.agent.events import AgentEvent, AgentEventSink
+from dojoagents.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 async def stream_persisted_run_events(
@@ -22,18 +25,60 @@ async def stream_persisted_run_events(
     """Replay canonical events and follow a run without process-local truth."""
 
     sequence = max(0, int(after_seq))
+    started_at = time.monotonic()
+    last_wait_log_at = started_at
+    last_status: str | None = None
+    LOGGER.info(
+        "Persisted run SSE started: run_id=%s after_seq=%d poll_seconds=%.3f",
+        run_id,
+        sequence,
+        poll_seconds,
+    )
     while True:
         page = await service.read_events(principal, run_id, after_seq=sequence, limit=200)
+        if page.items:
+            LOGGER.debug(
+                "Persisted run SSE loaded events: run_id=%s count=%d first_sequence=%d last_sequence=%d",
+                run_id,
+                len(page.items),
+                page.items[0].sequence,
+                page.items[-1].sequence,
+            )
         for event in page.items:
             sequence = event.sequence
             payload = dict(event.payload) if isinstance(event.payload, dict) else {"data": event.payload}
             yield {"sequence": event.sequence, "type": event.event_type, **payload}
         run = await service.get_run(principal, run_id)
+        if run.status != last_status:
+            LOGGER.info(
+                "Persisted run SSE observed status: run_id=%s status=%s sequence=%d",
+                run_id,
+                run.status,
+                sequence,
+            )
+            last_status = run.status
         if run.status != "running" and run.status != "cancellation_requested":
             trailing = await service.read_events(principal, run_id, after_seq=sequence, limit=200)
             if not trailing.items:
+                LOGGER.info(
+                    "Persisted run SSE completed: run_id=%s status=%s last_sequence=%d elapsed_seconds=%.3f",
+                    run_id,
+                    run.status,
+                    sequence,
+                    time.monotonic() - started_at,
+                )
                 return
             continue
+        now = time.monotonic()
+        if not page.items and now - last_wait_log_at >= 10:
+            LOGGER.warning(
+                "Persisted run SSE is waiting with no new events: run_id=%s status=%s after_seq=%d elapsed_seconds=%.3f",
+                run_id,
+                run.status,
+                sequence,
+                now - started_at,
+            )
+            last_wait_log_at = now
         await asyncio.sleep(poll_seconds)
 
 

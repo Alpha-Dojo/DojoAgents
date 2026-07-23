@@ -3,13 +3,13 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.market_window import MarketAnalysisWindow
-from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_daily import (
+from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
+from dojoagents.dashboard.jobs.precompute.sector_daily import (
     PrecomputeInputSnapshot,
     compute_sector_precomputed_frames,
 )
-from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
-from dojoagents.harnesses.built_in.financial.services.sector_return_coverage import (
+from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.dashboard.services.sector_return_coverage import (
     filter_usable_sector_daily_rows,
     resolve_market_as_of_by_market,
     sector_day_return_coverage_ok,

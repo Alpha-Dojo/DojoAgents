@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.sector_scope_stats import _compute_sector_scope_metrics_sync
-from dojoagents.harnesses.built_in.financial.services.sector_store import ResolvedSectorPath
+from dojoagents.dashboard.services.sector_scope_stats import _compute_sector_scope_metrics_sync
+from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 
 
 class _FakePrecomputedStore:

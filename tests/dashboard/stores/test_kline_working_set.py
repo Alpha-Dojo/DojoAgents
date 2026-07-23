@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-from dojoagents.harnesses.built_in.financial.services.kline_store import KlineStore
-from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
-from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
+from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
+from dojoagents.dashboard.services.stock_store import StockStore
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
@@ -28,7 +28,10 @@ class KlineGateway:
         return GatewayResult(self.responses.pop(0), None, "sdk_online", False)
 
     async def stock_all_klines(self, *, symbols=None, **window):
-        self.all_klines_calls.append({"symbols": symbols, **window})
+        call = dict(window)
+        if symbols is not None:
+            call["symbols"] = symbols
+        self.all_klines_calls.append(call)
         if self.all_klines is not None:
             rows = self.all_klines
         elif self.responses:
@@ -44,6 +47,7 @@ def _store(gateway, tmp_path) -> KlineStore:
         gateway,
         StockStore(client),
         StockSectorStore(client),
+        data_root=tmp_path,
     )
 
 
@@ -150,6 +154,7 @@ async def test_load_prefills_symbol_cache_and_skips_repeat_fetch(tmp_path) -> No
         gateway,
         stock_store,
         StockSectorStore(client),
+        data_root=tmp_path,
     )
 
     await store.load(limit=252)
@@ -221,6 +226,7 @@ async def test_get_klines_batch_fetch_logic(tmp_path) -> None:
         gateway,
         stock_store,
         StockSectorStore(client),
+        data_root=tmp_path,
     )
 
     result = await store.get_klines(["AAPL", "MSFT"], limit=15)

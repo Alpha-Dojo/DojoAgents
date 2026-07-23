@@ -1,5 +1,5 @@
-from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
-from dojoagents.harnesses.built_in.financial.services.market_sector_lead import _stock_bilingual_name
+from dojoagents.dashboard.schemas.stock import Stock, StockQuote
+from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 
 
 def _stock(**overrides) -> Stock:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dojoagents.harnesses.built_in.financial.services.sector_movers_ranking import (
+from dojoagents.dashboard.services.sector_movers_ranking import (
     DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
 )
-from dojoagents.harnesses.built_in.financial.tools.domain_runtime import (
+from dojoagents.dashboard.integrations.financial_domain_tools import (
     _resolve_sector_movers_min_cap_by_market,
 )
 

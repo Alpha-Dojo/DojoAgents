@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+from types import MappingProxyType
+from typing import Mapping
 
 from dojoagents.config.loader import ConfigStore
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
@@ -26,7 +28,13 @@ class RuntimeComposer:
     """Build the immutable graph without starting stores, services or tasks."""
 
     @classmethod
-    def compose(cls, store: ConfigStore, *, host: str = "library"):
+    def compose(
+        cls,
+        store: ConfigStore,
+        *,
+        host: str = "library",
+        service_bindings: Mapping[str, object] | None = None,
+    ):
         from dojoagents.agent.runtime import Runtime
 
         config = store.snapshot()
@@ -100,6 +108,13 @@ class RuntimeComposer:
             )
 
         capabilities = builder.build()
+        bindings = dict(service_bindings or {})
+        declared_service_ids = {spec.component_id for spec in capabilities.services}
+        unknown_bindings = set(bindings).difference(declared_service_ids)
+        if unknown_bindings:
+            from .errors import HarnessLifecycleError
+
+            raise HarnessLifecycleError("external service bindings are not declared by the harness: " + ", ".join(sorted(unknown_bindings)))
         return Runtime(
             config=config,
             config_store=store,
@@ -110,5 +125,6 @@ class RuntimeComposer:
             harness=harness,
             capabilities=capabilities,
             resolved_harness_factory=loaded.resolved_factory,
+            service_bindings=MappingProxyType(bindings),
             state="composed",
         )

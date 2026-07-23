@@ -1,1 +1,1 @@
-"""Dashboard host-only services; financial services live in FinancialHarness."""
+"""Dashboard Financial App services and stores."""

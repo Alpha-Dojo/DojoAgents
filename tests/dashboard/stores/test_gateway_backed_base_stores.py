@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.benchmark_store import BenchmarkStore
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-from dojoagents.harnesses.built_in.financial.services.sector_store import SectorStore
-from dojoagents.harnesses.built_in.financial.services.stock_sector_store import StockSectorStore
-from dojoagents.harnesses.built_in.financial.services.stock_store import StockStore
+from dojoagents.dashboard.services.benchmark_store import BenchmarkStore
+from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.sector_store import SectorStore
+from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
+from dojoagents.dashboard.services.stock_store import StockStore
 
 
 class BaseGateway:

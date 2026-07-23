@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.tools import (
-    portfolio_runtime as portfolio_tools,
+from dojoagents.dashboard.integrations import (
+    financial_portfolio_tools as portfolio_tools,
 )
 
 

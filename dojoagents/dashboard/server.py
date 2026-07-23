@@ -10,7 +10,20 @@ from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from dojoagents.dashboard.routers import chat_sessions
+from dojoagents.dashboard.routers import (
+    chat_sessions,
+    dojo_core,
+    dojo_folio,
+    dojo_mesh,
+    dojo_sphere,
+    market,
+    markets,
+    portfolio,
+    sector,
+    sectors,
+    ticker,
+    utility,
+)
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
 from fastapi import Depends, FastAPI, Request
@@ -132,6 +145,8 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
 
 def _decode_request_context(surface: Any, value: Any) -> Any:
     decoder = getattr(surface, "decode_request_context", None)
+    if not callable(decoder):
+        decoder = getattr(surface, "decode", None)
     return decoder(value) if callable(decoder) else value
 
 
@@ -276,37 +291,55 @@ async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink 
 
 
 def create_app(  # noqa: C901
-    runtime: Any,
+    runtime: Any | None = None,
     *,
-    dashboard_surface: Any | None = None,
+    app_services: Any | None = None,
+    app_services_owned: bool = False,
+    config_store: Any | None = None,
+    agent_enabled: bool = True,
 ) -> FastAPI:
-    if dashboard_surface is None:
-        try:
-            dashboard_surface = runtime.surface("dashboard")
-        except (AttributeError, KeyError, RuntimeError):
-            dashboard_surface = None
-    configure_surface = getattr(
-        dashboard_surface,
-        "configure_runtime",
-        None,
-    )
-    if callable(configure_surface):
-        configure_surface(runtime)
-    store = getattr(runtime, "config_store", None)
+    store = config_store
+    if store is None and runtime is not None:
+        store = getattr(runtime, "config_store", None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        nonlocal runtime
         from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
+        from dojoagents.dashboard.integrations.runtime_factory import (
+            create_embedded_runtime,
+        )
+        from dojoagents.dashboard.services.app_container import (
+            DashboardAppServices,
+            DashboardAppServicesConfig,
+        )
 
-        app.state.config_store = getattr(runtime, "config_store", None)
+        app.state.config_store = store
         app.state.agent_run_manager = AgentRunManager()
         app.state.principal_provider = LegacyLocalPrincipalProvider()
-        surface_lifespan = getattr(dashboard_surface, "lifespan", None)
-        if not callable(surface_lifespan):
+        services = app_services
+        owns_services = app_services_owned or (services is None and store is not None)
+        if owns_services:
+            if services is None:
+                services = DashboardAppServices(DashboardAppServicesConfig.from_agents_config(store.snapshot()))
+            await services.startup()
+        if services is not None:
+            app.state.app_services = services
+            app.state.financial_registry = services.registry
+            app.state.market_data_revision = dict(services.market_data_revision)
+        owns_runtime = runtime is None and agent_enabled and store is not None
+        if owns_runtime:
+            if services is None:
+                raise RuntimeError("embedded Dashboard Runtime requires Dashboard app services")
+            runtime = await create_embedded_runtime(store, services)
+        app.state.runtime = runtime
+        try:
             yield
-            return
-        async with surface_lifespan(app, runtime):
-            yield
+        finally:
+            if owns_runtime:
+                await runtime.shutdown()
+            if owns_services:
+                await services.shutdown()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
     app.state.runtime = runtime
@@ -315,10 +348,21 @@ def create_app(  # noqa: C901
 
     app.state.principal_provider = LegacyLocalPrincipalProvider()
 
-    if dashboard_surface is not None:
-        for router in dashboard_surface.routers():
-            app.include_router(router, prefix="/api/v1")
-    app.include_router(chat_sessions.router, prefix="/api/v1")
+    for router in (
+        utility.router,
+        market.router,
+        sector.router,
+        ticker.router,
+        portfolio.router,
+        dojo_core.router,
+        dojo_folio.router,
+        dojo_mesh.router,
+        dojo_sphere.router,
+        markets.router,
+        sectors.router,
+        chat_sessions.router,
+    ):
+        app.include_router(router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -330,20 +374,38 @@ def create_app(  # noqa: C901
 
     app.add_middleware(PyInstrumentProfilerMiddleware)
 
+    @app.middleware("http")
+    async def require_agent_runtime_for_agent_endpoints(
+        request: Request,
+        call_next: Any,
+    ) -> Any:
+        agent_paths = (
+            "/api/chat",
+            "/api/jobs",
+            "/api/extensions",
+        )
+        if runtime is None and any(request.url.path == path or request.url.path.startswith(path + "/") for path in agent_paths):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Agent Runtime is disabled for this Dashboard",
+                    "code": "agent_runtime_disabled",
+                },
+            )
+        return await call_next(request)
+
     @app.get("/api/health")
     async def health() -> dict:
         return {"ok": True}
 
     @app.get("/api/config")
     async def config() -> dict:
-        store = getattr(runtime, "config_store", None)
         if store is None:
             return {}
         return store.redacted()
 
     @app.put("/api/config")
     async def update_config(request: Request) -> Any:
-        store = getattr(runtime, "config_store", None)
         if store is None:
             return JSONResponse(
                 status_code=503,
@@ -415,7 +477,7 @@ def create_app(  # noqa: C901
         try:
             req, info = _completion_request(
                 payload,
-                surface=dashboard_surface,
+                surface=None,
             )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
@@ -512,7 +574,7 @@ def create_app(  # noqa: C901
         try:
             req, info = _completion_request(
                 payload,
-                surface=dashboard_surface,
+                surface=None,
             )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
@@ -610,14 +672,20 @@ def create_app(  # noqa: C901
         run_id: str,
         principal: SessionPrincipal = Depends(get_session_principal),
     ) -> Any:
+        manager: AgentRunManager = app.state.agent_run_manager
         service = getattr(runtime, "session_service", None)
         if service is not None:
             try:
                 await service.request_cancel(principal, run_id)
             except Exception:
                 return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+            cancelled_locally = await manager.cancel_run(run_id)
+            LOGGER.info(
+                "Dashboard canonical run cancellation requested: run_id=%s local_task_cancelled=%s",
+                run_id,
+                cancelled_locally,
+            )
             return {"cancelled": True}
-        manager: AgentRunManager = app.state.agent_run_manager
         cancelled = await manager.cancel_run(run_id)
         if not cancelled:
             record = manager.get(run_id)
@@ -640,10 +708,30 @@ def create_app(  # noqa: C901
                 return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
 
             async def _persisted():
-                async for event in stream_persisted_run_events(service, principal, run_id, after_seq=max(0, cursor)):
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                iterator = stream_persisted_run_events(service, principal, run_id, after_seq=max(0, cursor)).__aiter__()
+                next_event = asyncio.create_task(anext(iterator))
+                try:
+                    while True:
+                        done, _ = await asyncio.wait((next_event,), timeout=10)
+                        if not done:
+                            yield ": keepalive\n\n"
+                            continue
+                        try:
+                            event = next_event.result()
+                        except StopAsyncIteration:
+                            return
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        next_event = asyncio.create_task(anext(iterator))
+                finally:
+                    if not next_event.done():
+                        next_event.cancel()
+                    await iterator.aclose()
 
-            return StreamingResponse(_persisted(), media_type="text/event-stream")
+            return StreamingResponse(
+                _persisted(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         manager: AgentRunManager = app.state.agent_run_manager
         record = manager.get(run_id)
         if record is None:

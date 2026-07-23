@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.pipelines.precompute_sector_daily import DATA_START_DATE
-from dojoagents.harnesses.built_in.financial.services.sector_scope_performance import compute_sector_scope_performance
+from dojoagents.dashboard.jobs.precompute.sector_daily import DATA_START_DATE
+from dojoagents.dashboard.services.sector_scope_performance import compute_sector_scope_performance
 
 
 class _FakePrecomputedStore:

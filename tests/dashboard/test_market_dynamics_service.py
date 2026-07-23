@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import math
 
-from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
+from dojoagents.dashboard.schemas.domain_api import (
     MarketDynamicsEvent,
     MarketDynamicsSummary,
 )
-from dojoagents.harnesses.built_in.financial.contracts.dojo_mesh import BilingualText
-from dojoagents.harnesses.built_in.financial.services.market_dynamics_service import (
+from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
+from dojoagents.dashboard.services.market_dynamics_service import (
     clear_market_dynamics_cache,
     filter_events_by_date_window,
     normalize_market_dynamics_row,

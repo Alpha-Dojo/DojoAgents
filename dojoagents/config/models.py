@@ -107,7 +107,7 @@ class ProfilerConfig:
 @dataclass(frozen=True)
 class FinancialDashboardConfig:
     enabled: bool = True
-    sdk_cache_dir: str = "~/.cache/huggingface/hub"
+    sdk_cache_dir: str = "~/.cache/dojo"
     dashboard_data_root: str = "~/.dojo/dashboard-data"
     stock_quote_refresh_seconds: int = 15
     constituent_kline_post_close_poll_seconds: int = 300

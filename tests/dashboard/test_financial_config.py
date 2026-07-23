@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.dashboard.server import create_app
-from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
-    LegacyFinancialDashboardSurface,
+from dojoagents.dashboard.services.app_container import (
+    DashboardAppServices,
+    DashboardAppServicesConfig,
 )
 
 
@@ -81,7 +82,17 @@ dashboard:
         return Client()
 
     class Registry:
-        async def init_and_load_all(self, _client, *, data_root, preload):
+        client = None
+
+        async def init_and_load_all(
+            self,
+            client,
+            *,
+            data_root,
+            preload,
+            portfolio_data_root=None,
+        ):
+            self.client = client
             received["data_root"] = data_root
             received["preload"] = preload
 
@@ -94,12 +105,16 @@ dashboard:
         scheduler=None,
         extensions=None,
     )
-    surface = LegacyFinancialDashboardSurface.from_runtime(
-        runtime,
+    services = DashboardAppServices(
+        DashboardAppServicesConfig.from_agents_config(runtime.config_store.snapshot()),
         client_factory=factory,
-        registry=Registry(),
+        registry_factory=Registry,
     )
-    app = create_app(runtime, dashboard_surface=surface)
+    app = create_app(
+        runtime,
+        app_services=services,
+        app_services_owned=True,
+    )
 
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200

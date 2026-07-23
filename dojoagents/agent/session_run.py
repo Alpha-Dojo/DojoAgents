@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any
 
-from dojoagents.agent.events import AgentEventSink
+from dojoagents.agent.events import AgentEvent, AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.logging import LOGGER
@@ -31,6 +32,113 @@ def _history_message(record: SessionMessageRecord) -> dict[str, Any]:
     return message
 
 
+class _DurableEventWriter:
+    """Persist AgentEventSink output in order while the run is still active."""
+
+    def __init__(self, coordinator: RunCoordinator, sink: AgentEventSink) -> None:
+        self.coordinator = coordinator
+        self.sink = sink
+        self.queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+        self._closed = False
+        self.sink.add_listener(self._enqueue)
+        self.task = asyncio.create_task(
+            self._run(),
+            name=f"dojo-events:{coordinator.run_id}",
+        )
+
+    def _enqueue(self, event: AgentEvent) -> None:
+        if not self._closed:
+            self.queue.put_nowait(event)
+
+    async def _persist(self, events: list[AgentEvent]) -> None:
+        if not events:
+            return
+        await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events))
+        # RunCoordinator's size threshold reduces store calls for bursts, while
+        # this explicit flush guarantees that an idle SSE reader sees the burst
+        # before the Agent turn finishes.
+        await self.coordinator.flush()
+        LOGGER.debug(
+            "Canonical run events persisted: run_id=%s count=%d first_seq=%d last_seq=%d",
+            self.coordinator.run_id,
+            len(events),
+            events[0].seq,
+            events[-1].seq,
+        )
+
+    async def _run(self) -> None:
+        while True:
+            item = await self.queue.get()
+            if item is None:
+                return
+            pending = [item]
+            await asyncio.sleep(0)
+            while len(pending) < self.coordinator.service.config.runtime.event_batch_size:
+                try:
+                    queued = self.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if queued is None:
+                    await self._persist(pending)
+                    return
+                pending.append(queued)
+            await self._persist(pending)
+
+    async def close(self) -> None:
+        if self._closed:
+            await self.task
+            return
+        self._closed = True
+        self.sink.remove_listener(self._enqueue)
+        self.queue.put_nowait(None)
+        await self.task
+
+
+class _RunHeartbeat:
+    """Renew the session lease and convert durable cancellation into task cancellation."""
+
+    def __init__(self, coordinator: RunCoordinator, owner_task: asyncio.Task[Any]) -> None:
+        self.coordinator = coordinator
+        self.owner_task = owner_task
+        configured = float(coordinator.service.config.runtime.heartbeat_seconds)
+        self.interval = max(0.1, configured)
+        self.task = asyncio.create_task(
+            self._run(),
+            name=f"dojo-heartbeat:{coordinator.run_id}",
+        )
+
+    async def _run(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self.interval)
+                result = await self.coordinator.heartbeat()
+                if result.cancellation_requested:
+                    LOGGER.info(
+                        "Canonical run observed cancellation request: run_id=%s session_id=%s",
+                        self.coordinator.run_id,
+                        self.coordinator.session_id,
+                    )
+                    self.owner_task.cancel()
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            LOGGER.exception(
+                "Canonical run heartbeat failed: run_id=%s session_id=%s",
+                self.coordinator.run_id,
+                self.coordinator.session_id,
+            )
+            self.owner_task.cancel()
+
+    async def close(self) -> None:
+        if not self.task.done():
+            self.task.cancel()
+        try:
+            await self.task
+        except asyncio.CancelledError:
+            pass
+
+
 @dataclass
 class CanonicalAgentRun:
     service: SessionService
@@ -42,6 +150,8 @@ class CanonicalAgentRun:
     turn_sequence: int
     message_sequence: int
     event_sink: AgentEventSink
+    event_writer: _DurableEventWriter
+    heartbeat: _RunHeartbeat
     agent_id: str
     memory_sync_worker: SessionMemorySyncWorker | None = None
 
@@ -100,7 +210,19 @@ class CanonicalAgentRun:
             model=model,
         )
         await coordinator.begin(run_id, idempotency_key=str(metadata.get("idempotency_key") or turn_id))
+        LOGGER.info(
+            "Canonical agent run started: run_id=%s session_id=%s harness_id=%s lease_expires_at=%s",
+            run_id,
+            request.session_id,
+            descriptor.id,
+            coordinator.handle.lease.expires_at.isoformat() if coordinator.handle is not None else None,
+        )
         sink = event_sink or AgentEventSink(run_id=run_id, session_id=request.session_id)
+        owner_task = asyncio.current_task()
+        if owner_task is None:
+            raise RuntimeError("canonical run requires an active asyncio task")
+        event_writer = _DurableEventWriter(coordinator, sink)
+        heartbeat = _RunHeartbeat(coordinator, owner_task)
         return cls(
             service=service,
             coordinator=coordinator,
@@ -111,15 +233,26 @@ class CanonicalAgentRun:
             turn_sequence=turn_sequence,
             message_sequence=message_sequence,
             event_sink=sink,
+            event_writer=event_writer,
+            heartbeat=heartbeat,
             agent_id=agent_id,
             memory_sync_worker=memory_sync_worker,
         )
 
+    async def _prepare_terminal(self) -> None:
+        await self.heartbeat.close()
+        await self.event_writer.close()
+
     async def commit(self, response: AgentResponse) -> TurnRecord:
         principal = self.request.principal
         assert principal is not None
-        if self.event_sink.events:
-            await self.coordinator.append_events(tuple((str(event.get("type") or "agent_event"), dict(event)) for event in self.event_sink.events))
+        LOGGER.info(
+            "Canonical agent run commit started: run_id=%s session_id=%s buffered_event_count=%d",
+            self.coordinator.run_id,
+            self.request.session_id,
+            len(self.event_sink.events),
+        )
+        await self._prepare_terminal()
         usage_payload = response.metadata.get("usage") or {}
         usage: tuple[UsageRecord, ...] = ()
         if any(int(usage_payload.get(key) or 0) for key in ("prompt_tokens", "completion_tokens", "total_tokens")):
@@ -167,6 +300,12 @@ class CanonicalAgentRun:
             tool_trace=tuple(response.metadata.get("tool_trace") or ()),
         )
         committed = await self.coordinator.commit(turn, messages=messages, usage=usage)
+        LOGGER.info(
+            "Canonical agent run committed: run_id=%s session_id=%s persisted_event_count=%d",
+            self.coordinator.run_id,
+            self.request.session_id,
+            len(self.event_sink.events),
+        )
         if self.memory_sync_worker is not None:
             try:
                 await self.memory_sync_worker.sync_pending(principal, self.request.session_id)
@@ -175,7 +314,21 @@ class CanonicalAgentRun:
         return committed
 
     async def fail(self, error: BaseException) -> None:
+        LOGGER.exception(
+            "Canonical agent run failing: run_id=%s session_id=%s buffered_event_count=%d error_type=%s error=%s",
+            self.coordinator.run_id,
+            self.request.session_id,
+            len(self.event_sink.events),
+            type(error).__name__,
+            error,
+        )
+        if not self.event_sink.events or self.event_sink.events[-1].get("type") not in {"done", "error"}:
+            self.event_sink.error(str(error), code="agent_run_failed")
+        await self._prepare_terminal()
         await self.coordinator.fail({"code": "agent_run_failed", "type": type(error).__name__, "message": str(error)})
 
     async def cancel(self) -> None:
+        if not self.event_sink.events or self.event_sink.events[-1].get("type") not in {"done", "error"}:
+            self.event_sink.error("Run cancelled", code="cancelled")
+        await self._prepare_terminal()
         await self.coordinator.cancel({"code": "agent_run_cancelled"})

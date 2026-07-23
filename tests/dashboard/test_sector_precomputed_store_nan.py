@@ -4,7 +4,7 @@ import math
 
 import pandas as pd
 
-from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
+from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 
 
 def test_compute_window_frame_replaces_invalid_daily_return_pct_with_zero() -> None:

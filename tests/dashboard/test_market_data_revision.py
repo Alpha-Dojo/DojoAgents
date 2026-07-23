@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dojoagents.harnesses.built_in.financial.services.constituent_kline_refresh_state import RefreshStateStore
+from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
 
 
 def test_get_market_data_revision_prefers_updated_at(tmp_path: Path) -> None:

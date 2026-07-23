@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.tools import domain_runtime as domain_tools
+from dojoagents.dashboard.integrations import financial_domain_tools as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -266,11 +266,8 @@ async def test_price_trends_tool_accepts_start_time_alias(monkeypatch) -> None:
     assert captured["start_date"] == "2025-01-01"
 
 
-def test_create_app_registers_dashboard_domain_tools() -> None:
+def test_create_app_registers_financial_api_without_harness_surface() -> None:
     from dojoagents.dashboard.server import create_app
-    from dojoagents.harnesses.built_in.financial.surfaces.dashboard_legacy import (
-        LegacyFinancialDashboardSurface,
-    )
 
     class FakeRuntime:
         def __init__(self) -> None:
@@ -282,11 +279,9 @@ def test_create_app_registers_dashboard_domain_tools() -> None:
             self.scheduler = SimpleNamespace(list_jobs=lambda: [])
 
     runtime = FakeRuntime()
-    surface = LegacyFinancialDashboardSurface.from_runtime(
-        runtime,
-        registry=_ready_registry(),
-    )
-    create_app(runtime, dashboard_surface=surface)
+    app = create_app(runtime)
+    paths = {route.path for route in app.routes}
 
-    assert runtime.agent.tool_executor.registry.get("get_market_overview") is not None
-    assert runtime.agent.tool_executor.registry.get("get_sector_movers") is not None
+    assert "/api/v1/market/overview" in paths
+    assert "/api/v1/market/sector-movers" in paths
+    assert runtime.agent.tool_executor.registry.all() == []

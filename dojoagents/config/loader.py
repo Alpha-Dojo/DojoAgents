@@ -360,7 +360,7 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             profiler=ProfilerConfig(enabled=bool(dashboard_raw.get("profiler", {}).get("enabled", False))),
             financial=FinancialDashboardConfig(
                 enabled=bool(financial_raw.get("enabled", True)),
-                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/huggingface/hub")),
+                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/dojo")),
                 dashboard_data_root=str(financial_raw.get("dashboard_data_root", "~/.dojo/dashboard-data")),
                 stock_quote_refresh_seconds=int(financial_raw.get("stock_quote_refresh_seconds", 15)),
                 constituent_kline_post_close_poll_seconds=int(financial_raw.get("constituent_kline_post_close_poll_seconds", 300)),

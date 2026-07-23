@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from dojoagents.harnesses.built_in.financial.contracts.stock import StockQuote
-from dojoagents.harnesses.built_in.financial.services.dojo_core_quote import resolve_core_ticker_quote
+from dojoagents.dashboard.schemas.stock import StockQuote
+from dojoagents.dashboard.services.dojo_core_quote import resolve_core_ticker_quote
 
 
 class FakeStockStore:

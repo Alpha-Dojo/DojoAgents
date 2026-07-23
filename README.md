@@ -204,10 +204,17 @@ harness:
   id: financial
   factory: dojoagents.harnesses.built_in.financial:create_harness
   config:
-    refresh_enabled: true
+    backend: sdk
 ```
 
 Other projects can provide a Python Harness factory or set `factory: null` and `manifest: ./my-harness.yaml` for the constrained `dojoagents/v1alpha1` declarative format. Extra skill/tool directories supplement the bound Harness and cannot silently replace its owned components.
+
+The Financial Harness owns agent behavior—prompts, ToolSpecs, policies, memory,
+tasks, and result presentation. The FastAPI Dashboard independently owns the
+financial application backend—routers, API schemas, stores, refresh/precompute
+jobs, portfolio data, and service lifecycle. Embedded Dashboard deployments bind
+their existing financial backend into Runtime; CLI or Gateway deployments can use
+the standalone SDK backend or a configured remote HTTP backend.
 
 Sessions are scoped by `(tenant_id, user_id, session_id)` and can use file or project-provided stores. See the [external SessionStore / BlobStore adapter contract](docs/session-store-adapter.md) for online MySQL/PostgreSQL/object-storage deployments.
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dojoagents.harnesses.built_in.financial.contracts.portfolio import (
+from dojoagents.dashboard.schemas.portfolio import (
     PortfolioHoldingView,
     PortfolioSummary,
     UpdatePortfolioRequest,
 )
-from dojoagents.harnesses.built_in.financial.services.portfolio_store import PortfolioStore
+from dojoagents.dashboard.services.portfolio_store import PortfolioStore
 
 
 def test_portfolio_v2_schema_exposes_new_summary_and_holding_fields() -> None:

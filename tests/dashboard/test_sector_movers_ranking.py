@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.sector_movers_ranking import (
+from dojoagents.dashboard.services.sector_movers_ranking import (
     DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
     MIN_SECTOR_MEMBER_COUNT_FOR_MOVERS_RANKING,
     sector_eligible_for_movers_ranking,

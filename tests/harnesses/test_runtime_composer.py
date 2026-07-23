@@ -9,6 +9,7 @@ from dojoagents.config.models import AgentsConfig, HarnessConfig, SessionsConfig
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.harnesses.capabilities import ServiceSpec
 from dojoagents.harnesses.errors import HarnessLifecycleError
+from dojoagents.harnesses.lifecycle import ExternalServiceBinding
 from dojoagents.sessions.models import SessionPrincipal
 
 from tests.test_runtime_multi_agent_plan import _make_store
@@ -80,6 +81,16 @@ def _config(tmp_path, **harness_config):
     )
 
 
+def test_compose_rejects_external_binding_for_undeclared_service(tmp_path):
+    with pytest.raises(HarnessLifecycleError, match="not declared"):
+        Runtime.compose(
+            _make_store(_config(tmp_path)),
+            service_bindings={
+                "unknown": ExternalServiceBinding(object()),
+            },
+        )
+
+
 @pytest.mark.asyncio
 async def test_compose_is_side_effect_free_then_startup_and_shutdown_are_ordered(tmp_path):
     global CREATED
@@ -140,6 +151,17 @@ async def test_minimal_harness_composes_without_importing_financial_modules(tmp_
     assert runtime.capabilities.descriptor.id == "minimal"
     assert runtime.capabilities.tools[0].tool_names == ("echo",)
     assert not any(name.startswith("dojoagents.harnesses.built_in.financial") for name in newly_loaded)
+    assert {
+        "echo",
+        "execute_code",
+        "read_session_input",
+        "read_session_output",
+        "terminal",
+        "tools_list",
+        "web_extract",
+        "web_search",
+        "write_session_file",
+    } <= {spec.name for spec in runtime.agent.tool_executor.registry.all()}
 
     runtime.agent.llm_provider = StaticLLMProvider(
         [

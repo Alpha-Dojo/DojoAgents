@@ -5,12 +5,12 @@ from typing import Any
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.services.dojo_data_gateway import GatewayResult
-from dojoagents.harnesses.built_in.financial.services.forex_store import ForexStore
-from dojoagents.harnesses.built_in.financial.services.stock_event_store import StockEventStore
-from dojoagents.harnesses.built_in.financial.services.stock_fin_indicators_store import StockFinIndicatorsStore
-from dojoagents.harnesses.built_in.financial.services.stock_income_store import StockIncomeStore
-from dojoagents.harnesses.built_in.financial.services.stock_news_store import StockNewsStore
+from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.forex_store import ForexStore
+from dojoagents.dashboard.services.stock_event_store import StockEventStore
+from dojoagents.dashboard.services.stock_fin_indicators_store import StockFinIndicatorsStore
+from dojoagents.dashboard.services.stock_income_store import StockIncomeStore
+from dojoagents.dashboard.services.stock_news_store import StockNewsStore
 
 
 class StubGateway:

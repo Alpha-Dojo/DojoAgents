@@ -18,7 +18,6 @@ from dojoagents.harnesses.capabilities import (
     TaskSourceSpec,
     SkillSourceSpec,
     StateCodecSpec,
-    SurfaceAdapterSpec,
     ToolAuthorizerSpec,
     ToolProviderSpec,
     ToolTransformerSpec,
@@ -60,15 +59,9 @@ from .presenters import (
 )
 from .presenters.artifacts import FinancialArtifactAdapter
 from dojoagents.harnesses.registries.presenters import PresenterRegistry
-from .services import FinancialServiceContainer
+from .backends import HTTPFinancialToolBackend, SDKFinancialToolBackend
 from .state import FinancialSessionStateCodec
-from .surfaces import (
-    FinancialCliSurface,
-    FinancialDashboardSurface,
-    FinancialGatewaySurface,
-    LegacyFinancialDashboardSurface,
-)
-from .tasks import TASK_IO_TOOL_NAMES, financial_task_directories, get_task_io_specs
+from .tasks import financial_task_directories
 from .pipelines import financial_pipeline_directories
 from .tools import (
     DOMAIN_TOOL_NAMES,
@@ -81,7 +74,7 @@ from .tools import (
     get_sdk_tool_specs,
 )
 
-FINANCIAL_SERVICE_ID = "financial-domain"
+FINANCIAL_SERVICE_ID = "financial.tool-backend"
 FINANCIAL_PROJECTOR_SERVICE_ID = "financial-result-projector"
 
 
@@ -97,7 +90,16 @@ class FinancialHarness:
 
     def __init__(self, config: FinancialHarnessConfig) -> None:
         self.config = config
-        self.service_container = FinancialServiceContainer(config)
+        if config.backend == "http":
+            self.tool_backend = HTTPFinancialToolBackend(
+                config.dashboard_base_url or "",
+                auth_token=config.dashboard_auth_token,
+                timeout=config.sdk.timeout,
+            )
+        elif config.backend == "sdk":
+            self.tool_backend = SDKFinancialToolBackend(config.sdk)
+        else:
+            raise ValueError("financial harness backend must be 'sdk' or 'http'")
         self.context_codec = FinancialRequestContextCodec()
         self.memory_provider = create_skill_summary_provider(config.memory_generated_skill_dir)
         self.state_codec = FinancialSessionStateCodec()
@@ -113,9 +115,6 @@ class FinancialHarness:
         self.result_presenter = FinancialResultPresenter()
         self.artifact_adapter = FinancialArtifactAdapter()
         self.result_projector = FinancialResultProjector()
-        self.dashboard_surface = FinancialDashboardSurface(self.service_container)
-        self.cli_surface = FinancialCliSurface(self.service_container)
-        self.gateway_surface = FinancialGatewaySurface(self.service_container)
 
     def configure(self, builder: Any, context: HarnessBuildContext) -> None:
         source = "harness:financial"
@@ -212,14 +211,6 @@ class FinancialHarness:
                 tool_names=VISUALIZATION_TOOL_NAMES,
             )
         )
-        builder.add_tool_provider(
-            ToolProviderSpec(
-                "financial.tools.task-io",
-                source,
-                provider=get_task_io_specs,
-                tool_names=TASK_IO_TOOL_NAMES,
-            )
-        )
         builder.add_state_codec(StateCodecSpec("financial.state", source, codec=self.state_codec))
         for index, directory in enumerate(financial_task_directories()):
             builder.add_task_source(TaskSourceSpec(f"financial.tasks.{index}", source, provider=directory))
@@ -293,32 +284,8 @@ class FinancialHarness:
             ServiceSpec(
                 component_id=FINANCIAL_SERVICE_ID,
                 source="harness:financial",
-                factory=lambda: self.service_container,
+                factory=lambda: self.tool_backend,
                 required=True,
-            )
-        )
-        builder.add_surface_adapter(
-            SurfaceAdapterSpec(
-                "dashboard",
-                source,
-                required_services=(FINANCIAL_SERVICE_ID,),
-                adapter=self.dashboard_surface,
-            )
-        )
-        builder.add_surface_adapter(
-            SurfaceAdapterSpec(
-                "cli",
-                source,
-                required_services=(FINANCIAL_SERVICE_ID,),
-                adapter=self.cli_surface,
-            )
-        )
-        builder.add_surface_adapter(
-            SurfaceAdapterSpec(
-                "gateway",
-                source,
-                required_services=(FINANCIAL_SERVICE_ID,),
-                adapter=self.gateway_surface,
             )
         )
         builder.add_service(
@@ -331,19 +298,28 @@ class FinancialHarness:
         )
 
     async def startup(self, context: HarnessRuntimeContext) -> None:
-        if context.services.get(FINANCIAL_SERVICE_ID) is not self.service_container:
-            raise RuntimeError("financial service container identity mismatch")
+        backend = context.services.get(FINANCIAL_SERVICE_ID)
+        if backend is None or not hasattr(backend, "supported_tools"):
+            raise RuntimeError("financial tool backend is not initialized")
 
     async def shutdown(self, context: HarnessRuntimeContext) -> None:
         # Service shutdown is dependency-ordered by LifecycleManager.
         return None
 
-    def legacy_surface(self, surface_id: str, runtime: Any) -> Any:
-        """Resolve a host adapter for the deprecated synchronous Runtime."""
+    def evaluate_pipeline_preflight(
+        self,
+        pipeline: Any,
+        *,
+        trading_date: str,
+        force: bool = False,
+    ) -> Any:
+        from .pipelines.preflight import evaluate_pipeline_preflight
 
-        if surface_id != "dashboard":
-            raise KeyError(surface_id)
-        return LegacyFinancialDashboardSurface.from_runtime(runtime)
+        return evaluate_pipeline_preflight(
+            pipeline,
+            trading_date=trading_date,
+            force=force,
+        )
 
     def legacy_runtime_contributions(self, root_config: Any):
         """Bridge the deprecated synchronous Runtime without leaking finance into core."""

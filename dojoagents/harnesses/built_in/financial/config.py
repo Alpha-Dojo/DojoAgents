@@ -47,35 +47,29 @@ class FinancialTasksConfig:
 class FinancialHarnessConfig:
     sdk: FinancialSDKConfig
     tasks: FinancialTasksConfig
-    data_root: Path
-    portfolio_data_root: Path
     memory_generated_skill_dir: Path
-    preload_offline_data: bool = True
-    preload_registry: bool = True
-    refresh_enabled: bool = False
-    refresh_poll_seconds: int = 3600
-
-    def __post_init__(self) -> None:
-        if self.refresh_poll_seconds <= 0:
-            raise ValueError("financial harness config 'refresh_poll_seconds' must be greater than zero")
+    backend: str = "sdk"
+    dashboard_base_url: str | None = None
+    dashboard_auth_token: str | None = None
 
     @classmethod
     def from_context(cls, context: HarnessBuildContext) -> "FinancialHarnessConfig":
-        """Adapt legacy dashboard/dojosdk/tasks fields with harness.config overrides."""
+        """Read only Agent-runtime financial settings."""
 
         root = context.config
         options = dict(context.harness_config)
-        dashboard = root.dashboard.financial
         sdk = root.dojosdk
         tasks = root.tasks
-        host = str(context.host).lower()
 
         sdk_config = FinancialSDKConfig(
             api_key=options.get("api_key", sdk.api_key),
             base_url=options.get("base_url", sdk.base_url),
             timeout=float(options.get("timeout", sdk.timeout)),
             max_retries=int(options.get("max_retries", sdk.max_retries)),
-            cache_dir=_path(options.get("sdk_cache_dir"), dashboard.sdk_cache_path),
+            cache_dir=_path(
+                options.get("sdk_cache_dir"),
+                Path("~/.cache/huggingface/hub"),
+            ),
             offline_mode=_bool(options, "offline_mode", True),
         )
         task_dirs = options.get("task_dirs", tasks.dirs)
@@ -89,13 +83,10 @@ class FinancialHarnessConfig:
         return cls(
             sdk=sdk_config,
             tasks=task_config,
-            data_root=_path(options.get("data_root"), dashboard.dashboard_data_path),
-            portfolio_data_root=_path(options.get("portfolio_data_root"), Path("~/.dojo/data")),
             memory_generated_skill_dir=_path(options.get("memory_generated_skill_dir"), Path(root.memory.generated_skill_dir)),
-            preload_offline_data=_bool(options, "preload_offline_data", True),
-            preload_registry=_bool(options, "preload_registry", True),
-            refresh_enabled=_bool(options, "refresh_enabled", host == "dashboard"),
-            refresh_poll_seconds=int(options.get("refresh_poll_seconds", 3600)),
+            backend=str(options.get("backend", "sdk")).strip().lower(),
+            dashboard_base_url=(str(options["dashboard_base_url"]).strip() if options.get("dashboard_base_url") else None),
+            dashboard_auth_token=(str(options["dashboard_auth_token"]).strip() if options.get("dashboard_auth_token") else None),
         )
 
 

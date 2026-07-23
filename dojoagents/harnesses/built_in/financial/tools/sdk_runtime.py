@@ -209,20 +209,6 @@ OFFLINE_TOOL_BINDINGS: dict[str, OfflineToolBinding] = {
         _object_schema(properties={}),
         "_benchmark_catalog",
     ),
-    "/api/qdata/v1/analysis/market_dynamics": OfflineToolBinding(
-        "dojo.sdk.analysis.market_dynamics",
-        "Retrieve precomputed market dynamics analysis.",
-        _object_schema(
-            properties={
-                "market": {"type": "string"},
-                "category": {"type": "string"},
-                "start_time": {"type": "string"},
-                "end_time": {"type": "string"},
-                "limit": {"type": "integer"},
-            }
-        ),
-        "_analysis_market_dynamics",
-    ),
     **{
         f"/api/qdata/v1/sector/precomputed/{endpoint}": OfflineToolBinding(
             name=f"dojo.sdk.sector.precomputed.{endpoint}",
@@ -242,7 +228,73 @@ OFFLINE_TOOL_BINDINGS: dict[str, OfflineToolBinding] = {
             "ticker_daily",
         )
     },
+    "/api/qdata/v1/sector/precomputed/sector_alpha_factors_daily": OfflineToolBinding(
+        name="dojo.sdk.sector.precomputed_sector_alpha_factors_daily",
+        description="Retrieve precomputed daily sector alpha factors from offline HuggingFace datasets.",
+        parameters=_object_schema(
+            properties={
+                "trade_date": {"type": "string", "description": "Trade date (e.g. 2026-05-28)"},
+                "market": {"type": "string", "description": "Market filter"},
+                "scope": {"type": "string", "description": "Scope filter"},
+                "level1_id": {"type": "string", "description": "Level 1 ID filter"},
+                "level2_id": {"type": "string", "description": "Level 2 ID filter"},
+                "level3_id": {"type": "string", "description": "Level 3 ID filter"},
+                "link_key": {"type": "string", "description": "Link key filter"},
+                "theme_row_status": {"type": "string", "description": "Theme row status filter"},
+                "horizon_row_status": {"type": "string", "description": "Horizon row status filter"},
+                "factor_rule": {"type": "string", "description": "Factor rule filter"},
+            }
+        ),
+        handler_name="_sector_precomputed_sector_alpha_factors_daily",
+    ),
+    "/api/qdata/v1/sector/precomputed/ticker_alpha_factors_daily": OfflineToolBinding(
+        name="dojo.sdk.sector.precomputed_ticker_alpha_factors_daily",
+        description="Retrieve precomputed daily ticker alpha factors from offline HuggingFace datasets.",
+        parameters=_object_schema(
+            properties={
+                "trade_date": {"type": "string", "description": "Trade date (e.g. 2026-05-28)"},
+                "market": {"type": "string", "description": "Market filter"},
+                "ticker": {"type": "string", "description": "Ticker filter"},
+                "level1_id": {"type": "string", "description": "Level 1 ID filter"},
+                "level2_id": {"type": "string", "description": "Level 2 ID filter"},
+                "level3_id": {"type": "string", "description": "Level 3 ID filter"},
+                "role": {"type": "string", "description": "Role filter"},
+                "factor_rule": {"type": "string", "description": "Factor rule filter"},
+                "row_status": {"type": "string", "description": "Row status filter"},
+            }
+        ),
+        handler_name="_sector_precomputed_ticker_alpha_factors_daily",
+    ),
+    "/api/qdata/v1/analysis/market_dynamics": OfflineToolBinding(
+        name="dojo.sdk.analysis.market_dynamics",
+        description="Retrieve market dynamics analysis records from offline HuggingFace datasets.",
+        parameters=_object_schema(
+            properties={
+                "market": {"type": "string", "description": "Market filter"},
+                "category": {"type": "string", "description": "Category filter"},
+                "start_time": {"type": "string", "description": "ISO-8601 start time"},
+                "end_time": {"type": "string", "description": "ISO-8601 end time"},
+                "limit": {"type": "integer", "description": "Max records to return"},
+            },
+        ),
+        handler_name="_analysis_market_dynamics",
+    ),
 }
+
+OFFLINE_TOOL_ALIASES: tuple[OfflineToolBinding, ...] = (
+    OfflineToolBinding(
+        name="dojo.sdk.sector.precomputed.sector_alpha_factors_daily",
+        description="Alias for the precomputed daily sector alpha factors tool.",
+        parameters=OFFLINE_TOOL_BINDINGS["/api/qdata/v1/sector/precomputed/sector_alpha_factors_daily"].parameters,
+        handler_name="_sector_precomputed_sector_alpha_factors_daily",
+    ),
+    OfflineToolBinding(
+        name="dojo.sdk.sector.precomputed.ticker_alpha_factors_daily",
+        description="Alias for the precomputed daily ticker alpha factors tool.",
+        parameters=OFFLINE_TOOL_BINDINGS["/api/qdata/v1/sector/precomputed/ticker_alpha_factors_daily"].parameters,
+        handler_name="_sector_precomputed_ticker_alpha_factors_daily",
+    ),
+)
 
 
 class DojoSDKToolManager:
@@ -279,6 +331,15 @@ class DojoSDKToolManager:
                         handler=handler,
                     )
                 )
+        for binding in OFFLINE_TOOL_ALIASES:
+            specs.append(
+                ToolSpec(
+                    name=binding.name,
+                    description=binding.description,
+                    parameters=binding.parameters,
+                    handler=getattr(self, binding.handler_name),
+                )
+            )
         return specs
 
     async def _ok(self, res: Any) -> dict[str, Any]:
@@ -341,10 +402,6 @@ class DojoSDKToolManager:
         res = await self.client.sectors.get_precomputed_constituents()
         return await self._ok(res)
 
-    async def _sector_precomputed_fundamentals_period(self, args: dict[str, Any]) -> dict[str, Any]:
-        del args
-        return await self._ok(await self.client.sectors.get_precomputed_fundamentals_period())
-
     async def _sector_precomputed_sector_daily(self, args: dict[str, Any]) -> dict[str, Any]:
         del args
         res = await self.client.sectors.get_precomputed_sector_daily()
@@ -355,25 +412,54 @@ class DojoSDKToolManager:
         res = await self.client.sectors.get_precomputed_ticker_daily()
         return await self._ok(res)
 
+    async def _sector_precomputed_fundamentals_period(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        res = await self.client.sectors.get_precomputed_fundamentals_period()
+        return await self._ok(res)
+
     async def _sector_precomputed_market_benchmark_daily(self, args: dict[str, Any]) -> dict[str, Any]:
         del args
-        return await self._ok(await self.client.sectors.get_precomputed_market_benchmark_daily())
+        res = await self.client.sectors.get_precomputed_market_benchmark_daily()
+        return await self._ok(res)
 
     async def _sector_precomputed_sector_alpha_factors_daily(self, args: dict[str, Any]) -> dict[str, Any]:
-        del args
-        return await self._ok(await self.client.sectors.get_precomputed_sector_alpha_factors_daily())
+        res = await self.client.sectors.get_precomputed_sector_alpha_factors_daily(
+            trade_date=args.get("trade_date"),
+            market=args.get("market"),
+            scope=args.get("scope"),
+            level1_id=args.get("level1_id"),
+            level2_id=args.get("level2_id"),
+            level3_id=args.get("level3_id"),
+            link_key=args.get("link_key"),
+            theme_row_status=args.get("theme_row_status"),
+            horizon_row_status=args.get("horizon_row_status"),
+            factor_rule=args.get("factor_rule"),
+        )
+        return await self._ok(res)
 
     async def _sector_precomputed_ticker_alpha_factors_daily(self, args: dict[str, Any]) -> dict[str, Any]:
-        del args
-        return await self._ok(await self.client.sectors.get_precomputed_ticker_alpha_factors_daily())
+        res = await self.client.sectors.get_precomputed_ticker_alpha_factors_daily(
+            trade_date=args.get("trade_date"),
+            market=args.get("market"),
+            ticker=args.get("ticker"),
+            level1_id=args.get("level1_id"),
+            level2_id=args.get("level2_id"),
+            level3_id=args.get("level3_id"),
+            role=args.get("role"),
+            factor_rule=args.get("factor_rule"),
+            row_status=args.get("row_status"),
+        )
+        return await self._ok(res)
 
     async def _sector_precomputed_sector_horizon_metrics(self, args: dict[str, Any]) -> dict[str, Any]:
         del args
-        return await self._ok(await self.client.sectors.get_precomputed_sector_horizon_metrics())
+        res = await self.client.sectors.get_precomputed_sector_horizon_metrics()
+        return await self._ok(res)
 
     async def _sector_precomputed_theme_state_daily(self, args: dict[str, Any]) -> dict[str, Any]:
         del args
-        return await self._ok(await self.client.sectors.get_precomputed_theme_state_daily())
+        res = await self.client.sectors.get_precomputed_theme_state_daily()
+        return await self._ok(res)
 
     async def _stock_ystock_info(self, args: dict[str, Any]) -> dict[str, Any]:
         market = args.get("market")

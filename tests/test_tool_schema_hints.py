@@ -12,7 +12,7 @@ from dojoagents.harnesses.built_in.financial.presenters.schema_hints import (
     infer_schema_hint_from_model,
     get_tool_schema_hint,
 )
-from dojoagents.harnesses.built_in.financial.contracts.domain_api import (
+from dojoagents.dashboard.schemas.domain_api import (
     MarketOverviewResponse,
     SectorMoversResponse,
     StockScreenResponse,

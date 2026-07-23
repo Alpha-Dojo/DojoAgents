@@ -3,16 +3,29 @@ from __future__ import annotations
 from typing import Any
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.harnesses.built_in.financial.services.domain_api import (
-    _looks_like_index_guess,
-    _parse_sector_path_id,
-)
 
 _SECTOR_SEARCH_TOOL = "search_sector_taxonomy"
 _SECTOR_FOLLOWUP_TOOLS = frozenset({"get_sector_analysis", "filter_sector_constituents"})
 _SECTOR_ID_KEYS = ("sector_path_id", "level1_id", "level2_id", "level3_id")
 _INVOCATION_BEST_MATCH_KEY = "_dojo_sector_best_match"
 _INVOCATION_SEARCH_QUERY_KEY = "_dojo_sector_search_query"
+
+
+def _parse_sector_path_id(value: str) -> tuple[str, str, str] | None:
+    text = str(value or "").strip()
+    if not text or text.count("/") != 2:
+        return None
+    parts = tuple(part.strip() for part in text.split("/", 2))
+    return parts if all(parts) else None
+
+
+def _looks_like_index_guess(
+    level1_id: str,
+    level2_id: str,
+    level3_id: str,
+) -> bool:
+    parts = (level1_id.strip(), level2_id.strip(), level3_id.strip())
+    return bool(all(parts) and all(part.isdigit() for part in parts))
 
 
 def extract_sector_best_match(result: ToolResult | None) -> dict[str, Any] | None:

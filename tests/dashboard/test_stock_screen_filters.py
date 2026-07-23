@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.harnesses.built_in.financial.contracts.stock import Stock, StockQuote
-from dojoagents.harnesses.built_in.financial.services.domain_api import build_stock_screen
-from dojoagents.harnesses.built_in.financial.services.stock_quote_filter import (
+from dojoagents.dashboard.schemas.stock import Stock, StockQuote
+from dojoagents.dashboard.services.domain_api import build_stock_screen
+from dojoagents.dashboard.services.stock_quote_filter import (
     change_significance_score,
     configure_ticker_market_cap_mins,
     effective_min_market_cap,
@@ -138,7 +138,7 @@ def test_sector_precomputed_store_drops_below_floor_on_reload(tmp_path, monkeypa
 
     import pandas as pd
 
-    from dojoagents.harnesses.built_in.financial.services.sector_precomputed_store import SectorPrecomputedStore
+    from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 
     monkeypatch.setenv("DOJO_HF_OFFLINE", "1")
 

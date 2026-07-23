@@ -92,8 +92,10 @@ def test_generic_task_cron_extension_and_cli_hosts_do_not_import_built_in_harnes
         assert not forbidden, f"{path}: {sorted(forbidden)}"
 
 
-def test_dashboard_host_does_not_import_financial_harness_or_quant():
+def test_dashboard_core_does_not_import_financial_harness_or_quant():
     for path in Path("dojoagents/dashboard").rglob("*.py"):
+        if "integrations" in path.parts:
+            continue
         forbidden = {
             module
             for module in _imports(path)
@@ -113,33 +115,60 @@ def test_financial_harness_does_not_import_dashboard_implementation():
         assert not forbidden, f"{path}: {sorted(forbidden)}"
 
 
-def test_dashboard_namespace_contains_only_host_owned_modules():
-    expected = {
-        "routers": {"__init__.py", "chat_sessions.py"},
+def test_dashboard_owns_complete_financial_app_backend():
+    required = {
+        "routers": {
+            "market.py",
+            "sector.py",
+            "ticker.py",
+            "portfolio.py",
+            "dojo_core.py",
+        },
         "schemas": {
-            "__init__.py",
-            "agent.py",
-            "chat_sessions.py",
-            "common.py",
-            "session_inputs.py",
-            "session_outputs.py",
+            "market.py",
+            "sector.py",
+            "portfolio.py",
+            "stock.py",
         },
         "services": {
-            "__init__.py",
-            "chat_session_service.py",
-            "session_inputs.py",
-            "session_outputs.py",
+            "financial_registry.py",
+            "dojo_data_gateway.py",
+            "portfolio_service.py",
+            "sector_store.py",
+            "stock_store.py",
         },
     }
-    for directory, allowed in expected.items():
+    for directory, expected in required.items():
         actual = {path.name for path in (Path("dojoagents/dashboard") / directory).glob("*.py")}
-        assert actual == allowed
+        assert expected <= actual
 
 
-def test_removed_financial_compatibility_paths_do_not_reappear():
+def test_financial_harness_contains_only_agent_runtime_capabilities():
+    root = Path("dojoagents/harnesses/built_in/financial")
+    forbidden_directories = ("contracts", "services", "surfaces", "data")
+    assert not [name for name in forbidden_directories if (root / name).exists()]
+    app_pipeline_patterns = (
+        "cli_precompute_*.py",
+        "precompute_sector_*.py",
+        "precompute_theme_state_daily.py",
+        "precompute_ticker_alpha_factors.py",
+    )
+    assert not [path for pattern in app_pipeline_patterns for path in (root / "pipelines").glob(pattern)]
+
+
+def test_dashboard_integration_is_the_only_dashboard_financial_harness_boundary():
+    root = Path("dojoagents/dashboard")
+    offenders = []
+    for path in root.rglob("*.py"):
+        imports_financial_harness = any(module.startswith("dojoagents.harnesses.built_in.financial") for module in _imports(path))
+        if imports_financial_harness and "integrations" not in path.parts:
+            offenders.append(path)
+    assert not offenders
+
+
+def test_removed_core_financial_compatibility_paths_do_not_reappear():
     removed = (
         "dojoagents/quant",
-        "dojoagents/dashboard/store_manager.py",
         "dojoagents/dashboard/tools/domain_tools.py",
         "dojoagents/dashboard/tools/portfolio_tools.py",
         "dojoagents/tasks/built_in",

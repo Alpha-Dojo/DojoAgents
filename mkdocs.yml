@@ -16,7 +16,11 @@ markdown_extensions:
   - attr_list
   - md_in_html
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
 plugins:
@@ -45,6 +49,7 @@ plugins:
             金融工作流: Financial Workflows
             架构: Architecture
             总览: Overview
+            Harness、Agent 与 Session: Harness, Agent, and Session
             配置: Configuration
             开发: Development
             仓库地图: Repository Map
@@ -85,6 +90,7 @@ nav:
       - architecture/index.md
       - 总览: architecture/overview.md
       - Runtime: architecture/runtime.md
+      - Harness、Agent 与 Session: architecture/harness-agent-session-integration.md
       - Harness Runtime: harness-runtime.md
       - Agent Loop: architecture/agent-loop.md
       - Tools 与 Sandbox: architecture/tools-and-sandbox.md

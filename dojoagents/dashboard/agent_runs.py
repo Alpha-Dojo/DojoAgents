@@ -11,6 +11,9 @@ from typing import Any, Literal
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.config.models import LLMProviderConfig
+from dojoagents.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 RunStatus = Literal["running", "done", "error", "cancelled"]
 
@@ -198,6 +201,12 @@ class AgentRunManager:
                     result = on_completed(record, response)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.info(
+                    "Dashboard background run completed: run_id=%s event_count=%d content_length=%d",
+                    run_id,
+                    len(record.events),
+                    len(record.result_content),
+                )
             except asyncio.CancelledError:
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error("Run cancelled", code="cancelled")
@@ -207,6 +216,11 @@ class AgentRunManager:
                     result = on_cancelled(record)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.info(
+                    "Dashboard background run cancelled: run_id=%s event_count=%d",
+                    run_id,
+                    len(record.events),
+                )
                 raise
             except Exception as exc:  # noqa: BLE001
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
@@ -217,8 +231,21 @@ class AgentRunManager:
                     result = on_failed(record, exc)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.exception(
+                    "Dashboard background run failed: run_id=%s status=%s event_count=%d",
+                    run_id,
+                    record.status,
+                    len(record.events),
+                )
 
         record.task = asyncio.run_coroutine_threadsafe(_execute(), self._loop)
+        LOGGER.info(
+            "Dashboard background run scheduled: run_id=%s session_id=%s model=%s canonical_session=%s",
+            run_id,
+            request.session_id,
+            model,
+            bool(getattr(agent, "session_service", None)),
+        )
         return record
 
     async def cancel_run(self, run_id: str) -> bool:
