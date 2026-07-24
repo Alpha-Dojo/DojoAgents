@@ -40,8 +40,7 @@ def test_chat_sessions_routes_list_get_messages_archive_and_export(tmp_path):
     client, sessions = _make_client(tmp_path)
     turns_path = sessions._turns_path("sess-api")
     turns_path.write_text(
-        '{"turn_id":"turn-1","events":[{"type":"think_delta","text":"reason"},'
-        '{"type":"tool_start","call_id":"call-1","tool":"search","arguments":{}}]}\n',
+        '{"turn_id":"turn-1","events":[{"type":"think_delta","text":"reason"},' '{"type":"tool_start","call_id":"call-1","tool":"search","arguments":{}}]}\n',
         encoding="utf-8",
     )
 

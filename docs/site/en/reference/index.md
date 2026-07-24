@@ -11,4 +11,5 @@ Reference pages document stable contracts, fields, commands, and APIs.
 - [Plugin Manifest](plugin-manifest.md)
 - [Gateway Adapters](gateway-adapters.md)
 - [DojoSDK](dojo-sdk.md)
+- [Tasks and Pipelines (user guide)](../user-guide/tasks-and-pipelines.md)
 

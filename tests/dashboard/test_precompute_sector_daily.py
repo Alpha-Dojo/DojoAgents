@@ -8,7 +8,7 @@ import pytest
 
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
 from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_daily import (
     MANIFEST_FILE,
     build_sector_precomputed,
     validate_precompute_market_coverage,
@@ -86,9 +86,7 @@ class StubDojoClient:
 
 
 @pytest.mark.asyncio
-async def test_build_sector_precomputed_publishes_market_aware_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOJO_HF_OFFLINE", "true")
     path = ResolvedSectorPath(
         level1_id="L1",

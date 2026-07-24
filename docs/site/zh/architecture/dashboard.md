@@ -22,8 +22,15 @@ Dashboard 把 FastAPI 后端、React 前端、金融数据服务和 Agent chat A
 - `dojo.v2` 事件通过 OpenAI chunk 的 `dojo_event` 字段扩展。
 - REST 路由使用 `/api/v1` 下的 domain routers。
 
+## Agent 工具注册（与 REST 分离）
+
+- Dashboard 启动时会 `register_dashboard_domain_tools` / `register_dashboard_portfolio_tools`，把工具挂到同一 Runtime registry，供 Chat 使用。
+- **REST domain API ≠ Agent tool 名**；金融只读的**目标主路径**是始终由 Runtime 注册的 `dojo.sdk.*`（见 [DojoSDK](../reference/dojo-sdk.md)）。
+- Domain 读工具视为 legacy；新 Task 不应新增对它们的依赖。Portfolio 写工具暂留在 Dashboard tools。
+
 ## 深入阅读
 
 - [Dashboard API](../reference/dashboard-api.md)
 - [Dashboard 用户指南](../user-guide/dashboard.md)
+- [任务与流水线](../user-guide/tasks-and-pipelines.md)
 - [Session 设计与集成](../development/session-history-design.md)

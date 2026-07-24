@@ -6,20 +6,24 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE as PHASE_A_MANIFEST,
     PRECOMPUTE_DIR,
     SECTOR_DAILY_FILE,
     TICKER_DAILY_FILE,
 )
-from dojoagents.dashboard.services.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
-from dojoagents.dashboard.services.precompute_sector_alpha_factors import (
+from dojoagents.dashboard.jobs.precompute.sector_alpha_factors import (
     RESEARCH_ONLY_LEAKAGE_RISK,
     SECTOR_ALPHA_FACTORS_FILE,
 )
-from dojoagents.dashboard.services.precompute_ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
-from dojoagents.dashboard.services.precompute_theme_state_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_horizon import SECTOR_HORIZON_METRICS_FILE
+from dojoagents.dashboard.jobs.precompute.sector_radar_advice import (
+    SECTOR_ADVICE_DAILY_FILE,
+    SECTOR_HEALTH_RADAR_FILE,
+)
+from dojoagents.dashboard.jobs.precompute.ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
+from dojoagents.dashboard.jobs.precompute.theme_state_daily import (
     FUNDAMENTALS_PERIOD_FILE,
     MANIFEST_FILE,
     MARKET_BENCHMARK_DAILY_FILE,
@@ -398,8 +402,8 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     assert (out_dir / SECTOR_HORIZON_METRICS_FILE).exists()
     assert (out_dir / SECTOR_ALPHA_FACTORS_FILE).exists()
     assert (out_dir / TICKER_ALPHA_FACTORS_FILE).exists()
-    assert not (out_dir / "sector_health_radar.parquet").exists()
-    assert not (out_dir / "sector_advice_daily.parquet").exists()
+    assert (out_dir / SECTOR_HEALTH_RADAR_FILE).exists()
+    assert (out_dir / SECTOR_ADVICE_DAILY_FILE).exists()
 
     theme_df = pd.read_parquet(out_dir / THEME_STATE_DAILY_FILE)
     assert set(theme_df["level3_id"].unique()) == {"L3A", "L3B"}
@@ -431,6 +435,11 @@ async def test_build_theme_state_precomputed_publishes_snapshot(tmp_path: Path) 
     horizon = store.get_horizon_metrics(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
     assert horizon is not None
     assert horizon["row_status"] in {"ok", "partial", "insufficient_history"}
+    radar = store.get_health_radar(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
+    assert radar is not None
+    advice = store.get_advice(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
+    assert advice is not None
+    assert store.list_advice_board(market="us", horizon="short", limit=10)
     alpha = store.get_alpha_factors(level1_id="L1", level2_id="L2", level3_id="L3A", market="us")
     assert alpha is not None
     assert "s_rs_rotation" in alpha

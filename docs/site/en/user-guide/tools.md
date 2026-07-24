@@ -16,3 +16,11 @@ Tools are the standard way for agents to execute external capabilities, includin
 
 Dashboard renders tool activity and visualization blocks from these fields.
 
+## Related pages
+
+- [Tools and Sandbox](../architecture/tools-and-sandbox.md)
+- [Tool Contracts](../reference/tool-contracts.md)
+- [DojoSDK](../reference/dojo-sdk.md)
+- [Tasks and Pipelines](tasks-and-pipelines.md)
+- [Adding Tools](../development/adding-tools.md)
+

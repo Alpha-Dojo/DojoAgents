@@ -6,9 +6,6 @@ from datetime import date, datetime, timezone
 from typing import Callable, List, Optional
 
 from dojoagents.dashboard.services.portfolio_allocation import (
-    allocate_market_cap_weighted,
-    holding_uses_default_open_date,
-    lookup_open_price,
     resolve_cost_date,
 )
 from dojoagents.dashboard.services.portfolio_order_execution import (
@@ -40,7 +37,7 @@ from dojoagents.dashboard.schemas.portfolio import (
     PortfolioCapitalConfig,
     PortfolioCandidateView,
     PortfolioDetail,
-    PortfolioHoldingView,
+    PortfolioMarketPerformance,
     PortfolioOrderView,
     PortfolioPerformanceView,
     PortfolioPositionView,
@@ -149,10 +146,7 @@ def _resolve_benchmark_kline_limit(kline_limit: int) -> int:
 
 
 def _order_tickers_by_market(orders: list[dict]) -> dict[str, list[str]]:
-    return {
-        market: sorted(market_tickers_from_orders(orders, market=market))
-        for market in MARKETS
-    }
+    return {market: sorted(market_tickers_from_orders(orders, market=market)) for market in MARKETS}
 
 
 def _config_capital_by_market(raw: dict) -> Optional[dict]:
@@ -209,11 +203,7 @@ def _portfolio_start_date(config: Optional[dict], orders: list[dict]) -> str:
 
 
 def _closes_from_kline_bars(bars: list, *, chart_start: str) -> dict[str, float]:
-    return {
-        bar.bar_time[:10]: float(bar.close)
-        for bar in bars
-        if bar.close > 0 and bar.bar_time[:10] >= chart_start
-    }
+    return {bar.bar_time[:10]: float(bar.close) for bar in bars if bar.close > 0 and bar.bar_time[:10] >= chart_start}
 
 
 def _collect_performance_tickers(
@@ -238,12 +228,8 @@ def _ticker_closes_by_market_from_batch(
     *,
     chart_start: str,
 ) -> dict[str, dict[str, dict[str, float]]]:
-    tickers_by_market = {
-        market: market_tickers_from_orders(orders, market=market) for market in MARKETS
-    }
-    ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {
-        market: {} for market in MARKETS
-    }
+    tickers_by_market = {market: market_tickers_from_orders(orders, market=market) for market in MARKETS}
+    ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {market: {} for market in MARKETS}
     for market in MARKETS:
         for ticker in tickers_by_market[market]:
             kline = kline_batch.items.get(ticker)
@@ -313,14 +299,8 @@ class PortfolioService:
         if not raw:
             return None
 
-        canonical_ticker, resolved_market = resolve_ticker_symbol(
-            self.stock_store, raw, market
-        )
-        lookup_market = (
-            normalize_market_code(resolved_market)
-            or normalize_market_code(market)
-            or self.stock_store.find_market(canonical_ticker)
-        )
+        canonical_ticker, resolved_market = resolve_ticker_symbol(self.stock_store, raw, market)
+        lookup_market = normalize_market_code(resolved_market) or normalize_market_code(market) or self.stock_store.find_market(canonical_ticker)
         if not lookup_market:
             return None
 
@@ -436,7 +416,7 @@ class PortfolioService:
         overrides = body.cost_override_by_ticker
         if not overrides:
             return
-        holdings = {str(row.get("ticker")): row for row in raw.get("candidates") or [] if isinstance(row, dict) and row.get("ticker")}
+        holdings = {str(row.get("ticker")): row for row in (raw.get("holdings") or raw.get("candidates") or []) if isinstance(row, dict) and row.get("ticker")}
         config = raw.get("config") if isinstance(raw.get("config"), dict) else None
         for ticker, cost in overrides.items():
             if cost is None:
@@ -506,8 +486,7 @@ class PortfolioService:
                 return False
             if str(raw.get("kind") or "manual") != "agent":
                 raise PortfolioValidationError(
-                    "only DojoAgent-generated portfolios can be deleted by the agent; "
-                    "user-built portfolios are protected",
+                    "only DojoAgent-generated portfolios can be deleted by the agent; " "user-built portfolios are protected",
                     field="kind",
                 )
         return await self._store_call("delete", portfolio_id)
@@ -599,12 +578,7 @@ class PortfolioService:
                 orders,
                 capital_by_market=capital_by_market,
             )
-            has_position = any(
-                str(row.get("market")) == market
-                and str(row.get("ticker")) == ticker
-                and float(row.get("shares") or 0) > 0
-                for row in positions
-            )
+            has_position = any(str(row.get("market")) == market and str(row.get("ticker")) == ticker and float(row.get("shares") or 0) > 0 for row in positions)
             if body.order_side == "buy" and not has_position:
                 await self._discard_order(portfolio_id, order_id, orders)
                 raise PortfolioOrderFillError(
@@ -708,11 +682,7 @@ class PortfolioService:
             capital_by_market=_config_capital_by_market(raw),
         )
         candidates = raw.get("candidates") or []
-        existing = {
-            (str(row.get("market")), str(row.get("ticker")))
-            for row in candidates
-            if isinstance(row, dict) and row.get("ticker") and row.get("market")
-        }
+        existing = {(str(row.get("market")), str(row.get("ticker"))) for row in candidates if isinstance(row, dict) and row.get("ticker") and row.get("market")}
         updated = raw
         for row in positions:
             if float(row.get("shares") or 0) <= 0:
@@ -772,12 +742,7 @@ class PortfolioService:
             [row for row in raw.get("orders") or [] if isinstance(row, dict)],
             capital_by_market=_config_capital_by_market(raw),
         )
-        if any(
-            str(row.get("market")) == market
-            and str(row.get("ticker")) == ticker
-            and float(row.get("shares") or 0) > 0
-            for row in positions
-        ):
+        if any(str(row.get("market")) == market and str(row.get("ticker")) == ticker and float(row.get("shares") or 0) > 0 for row in positions):
             raise PortfolioValidationError(
                 "cannot remove candidate while position is open",
                 field=f"candidates.{ticker}",
@@ -937,10 +902,7 @@ class PortfolioService:
 
         total_nav = sum(net_value_by_market.values())
         if total_nav > 0:
-            positions = [
-                item.model_copy(update={"weight": (item.market_value / total_nav) * 100.0})
-                for item in positions
-            ]
+            positions = [item.model_copy(update={"weight": (item.market_value / total_nav) * 100.0}) for item in positions]
 
         return PortfolioDetail(
             **summary.model_dump(),
@@ -970,13 +932,9 @@ class PortfolioService:
                 chart_start=chart_start,
             )
 
-        tickers_by_market = {
-            market: market_tickers_from_orders(orders, market=market) for market in MARKETS
-        }
+        tickers_by_market = {market: market_tickers_from_orders(orders, market=market) for market in MARKETS}
         all_tickers = sorted({ticker for tickers in tickers_by_market.values() for ticker in tickers})
-        ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {
-            market: {} for market in MARKETS
-        }
+        ticker_closes_by_market: dict[str, dict[str, dict[str, float]]] = {market: {} for market in MARKETS}
         if not all_tickers:
             return ticker_closes_by_market
 
@@ -992,10 +950,7 @@ class PortfolioService:
     ) -> Optional[PortfolioPerformanceView]:
         if self.benchmark_store is None:
             return None
-        resolved_benchmarks = {
-            market: (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market]
-            for market in MARKETS
-        }
+        resolved_benchmarks = {market: (benchmark_by_market or {}).get(market) or DEFAULT_BENCHMARKS[market] for market in MARKETS}
         config = raw.get("config") if isinstance(raw.get("config"), dict) else {}
         start_date = _portfolio_start_date(config, [row for row in raw.get("orders") or [] if isinstance(row, dict)])
         revision = ""
@@ -1018,18 +973,8 @@ class PortfolioService:
         orders = [row for row in raw.get("orders") or [] if isinstance(row, dict)]
         candidate_rows = [row for row in raw.get("candidates") or [] if isinstance(row, dict)]
         performance_tickers = _collect_performance_tickers(orders, candidate_rows)
-        order_tickers = sorted(
-            {
-                ticker
-                for market_tickers in _order_tickers_by_market(orders).values()
-                for ticker in market_tickers
-            }
-        )
-        order_kline_batch = (
-            await self.kline_store.get_klines(order_tickers, limit=kline_limit)
-            if order_tickers
-            else ConstituentKlineBatchResponse(items={})
-        )
+        order_tickers = sorted({ticker for market_tickers in _order_tickers_by_market(orders).values() for ticker in market_tickers})
+        order_kline_batch = await self.kline_store.get_klines(order_tickers, limit=kline_limit) if order_tickers else ConstituentKlineBatchResponse(items={})
         if performance_tickers and set(performance_tickers) - set(order_tickers):
             kline_batch = await self.kline_store.get_klines(performance_tickers, limit=kline_limit)
         else:
@@ -1135,10 +1080,7 @@ class PortfolioService:
                 continue
             market, result, points = built
             candidate_market_perf[market] = result
-            candidate_series_by_market[market] = [
-                {"date": day, "value": float(value)}
-                for day, value in zip(result.dates, result.portfolio)
-            ]
+            candidate_series_by_market[market] = [{"date": day, "value": float(value)} for day, value in zip(result.dates, result.portfolio)]
             candidate_stats_by_market[market] = result.stats
 
         if not series and not candidate_market_perf:
@@ -1156,9 +1098,7 @@ class PortfolioService:
             window_end = primary.dates[-1] if primary.dates else None
 
         benchmark_by_market = {market: item.benchmark for market, item in series.items()}
-        benchmark_symbol_by_market = {
-            market: item.benchmark_symbol for market, item in series.items()
-        }
+        benchmark_symbol_by_market = {market: item.benchmark_symbol for market, item in series.items()}
         for market, item in candidate_market_perf.items():
             if not benchmark_by_market.get(market):
                 benchmark_by_market[market] = item.benchmark

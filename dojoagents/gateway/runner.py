@@ -4,11 +4,9 @@ import asyncio
 import os
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 from dojoagents.agent.models import ChatRequest
 from dojoagents.agent.models import AgentResponse
@@ -17,8 +15,9 @@ from dojoagents.config.loader import ConfigStore
 from dojoagents.gateway.adapters import create_default_gateway_registry
 from dojoagents.gateway.adapters.base import GatewayEvent, GatewaySendResult
 from dojoagents.gateway.registry import GatewayRegistry
+from dojoagents.gateway.state import GatewaySessionStore
+from dojoagents.gateway.pairing import PairingStore
 from dojoagents.logging import LOGGER
-
 
 _SECRET_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{12,}\b"),
@@ -26,10 +25,6 @@ _SECRET_PATTERNS = (
     re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{20,}\b"),
     re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._\-]{20,}\b"),
 )
-
-
-from dojoagents.gateway.state import GatewaySessionStore
-from dojoagents.gateway.pairing import PairingStore
 
 
 class GatewayRunner:
@@ -53,12 +48,8 @@ class GatewayRunner:
         self.runtime = runtime or Runtime.from_config_store(self.config_store)
         self.registry = registry or create_default_gateway_registry()
         self.gateway_config = gateway_config or asdict(self.runtime.config.gateway)
-        self.session_store = GatewaySessionStore(
-            self.gateway_config.get("session_store", "~/.dojo/gateway/state.db")
-        )
-        self.pairing_store = PairingStore(
-            self.gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json")
-        )
+        self.session_store = GatewaySessionStore(self.gateway_config.get("session_store", "~/.dojo/gateway/state.db"))
+        self.pairing_store = PairingStore(self.gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json"))
         self.adapters: dict[str, Any] = {}
         self.platform_status: dict[str, dict[str, Any]] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -71,21 +62,19 @@ class GatewayRunner:
         self._agent_cache: dict[str, Any] = {}
         self._pending_approvals: dict[str, dict[str, Any]] = {}
         import sys
+
         is_testing = "pytest" in sys.modules or "unittest" in sys.modules
         default_pid_path = "~/.dojo/gateway/gateway.pid"
         default_clean_path = "~/.dojo/gateway/.clean_shutdown"
         if is_testing:
             import tempfile
+
             temp_dir = tempfile.gettempdir()
             default_pid_path = os.path.join(temp_dir, f"dojo_gateway_test_{os.getpid()}.pid")
             default_clean_path = os.path.join(temp_dir, f"dojo_gateway_test_{os.getpid()}.clean")
 
-        self._pid_file = Path(
-            self.gateway_config.get("pid_file", default_pid_path)
-        ).expanduser()
-        self._clean_marker = Path(
-            self.gateway_config.get("clean_marker", default_clean_path)
-        ).expanduser()
+        self._pid_file = Path(self.gateway_config.get("pid_file", default_pid_path)).expanduser()
+        self._clean_marker = Path(self.gateway_config.get("clean_marker", default_clean_path)).expanduser()
 
     async def start(self) -> bool:
         self._state = "starting"
@@ -135,9 +124,7 @@ class GatewayRunner:
             "state": self._state,
             "started_at": self._started_at,
             "platforms": self.platform_status,
-            "active_sessions": len(
-                [lock for lock in self._session_locks.values() if lock.locked()]
-            ),
+            "active_sessions": len([lock for lock in self._session_locks.values() if lock.locked()]),
             "queued_events": sum(len(queue) for queue in self._pending_events.values()),
             "sessions": {
                 key: {
@@ -155,9 +142,7 @@ class GatewayRunner:
     def register_hook(self, event: str, handler: Any) -> None:
         self._hooks.setdefault(event, []).append(handler)
 
-    async def handle_webhook(
-        self, platform: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def handle_webhook(self, platform: str, payload: dict[str, Any]) -> dict[str, Any]:
         adapter = self.adapters.get(platform)
         if adapter is None:
             hook_config = self._hook_config(platform)
@@ -209,15 +194,11 @@ class GatewayRunner:
         if adapter is None:
             hook_config = self._hook_config(platform)
             if hook_config is None:
-                return asdict(
-                    GatewaySendResult(success=False, error=f"Unknown platform: {platform}")
-                )
+                return asdict(GatewaySendResult(success=False, error=f"Unknown platform: {platform}"))
             await self._connect_platform(platform, hook_config)
             adapter = self.adapters.get(platform)
         if adapter is None:
-            return asdict(
-                GatewaySendResult(success=False, error=f"Platform unavailable: {platform}")
-            )
+            return asdict(GatewaySendResult(success=False, error=f"Platform unavailable: {platform}"))
         result = await adapter.send(target, message, thread_id=thread_id)
         return asdict(result)
 
@@ -284,11 +265,7 @@ class GatewayRunner:
             if group_policy == "open":
                 return True
             if group_policy == "allowlist":
-                allowed = _coerce_list(
-                    config.get("group_allow_from")
-                    or config.get("allow_from")
-                    or config.get("allowed_users")
-                )
+                allowed = _coerce_list(config.get("group_allow_from") or config.get("allow_from") or config.get("allowed_users"))
                 return event.target in allowed
             return False
 
@@ -305,15 +282,9 @@ class GatewayRunner:
         return False
 
     def _is_group_event(self, event: GatewayEvent) -> bool:
-        return bool(
-            event.raw.get("room_id")
-            or event.raw.get("chat_room_id")
-            or str(event.target).endswith("@chatroom")
-        )
+        return bool(event.raw.get("room_id") or event.raw.get("chat_room_id") or str(event.target).endswith("@chatroom"))
 
-    async def _handle_command(
-        self, adapter: Any, event: GatewayEvent
-    ) -> dict[str, Any] | None:
+    async def _handle_command(self, adapter: Any, event: GatewayEvent) -> dict[str, Any] | None:
         text = event.text.strip()
         if not text.startswith("/"):
             return None
@@ -390,20 +361,23 @@ class GatewayRunner:
             subcommand, _, subarg = arg.strip().partition(" ")
             subcommand = subcommand.lower().strip()
             from dojoagents.plugins import get_plugin_registry
+
             plugin_registry = get_plugin_registry()
             if subcommand == "list":
                 plugins_data = []
                 for manifest in plugin_registry._manifests.values():
-                    plugins_data.append({
-                        "name": manifest.name,
-                        "version": manifest.version,
-                        "description": manifest.description,
-                        "source": manifest.source,
-                        "is_claude": manifest.is_claude,
-                        "provides_tools": manifest.provides_tools,
-                        "provides_hooks": manifest.provides_hooks,
-                        "path": manifest.path,
-                    })
+                    plugins_data.append(
+                        {
+                            "name": manifest.name,
+                            "version": manifest.version,
+                            "description": manifest.description,
+                            "source": manifest.source,
+                            "is_claude": manifest.is_claude,
+                            "provides_tools": manifest.provides_tools,
+                            "provides_hooks": manifest.provides_hooks,
+                            "path": manifest.path,
+                        }
+                    )
                 if not plugins_data:
                     msg = "No plugins installed."
                 else:
@@ -430,16 +404,13 @@ class GatewayRunner:
                     await adapter.send(event.target, f"Error: Plugin '{plugin_name}' does not have a valid directory path.", thread_id=event.thread_id)
                     return {"accepted": True, "command": "plugins-delete"}
                 import shutil
+
                 user_plugins_root = Path("~/.dojo/plugins").expanduser().resolve()
                 plugin_path = Path(manifest.path).resolve()
                 try:
                     plugin_path.relative_to(user_plugins_root)
                 except ValueError:
-                    await adapter.send(
-                        event.target,
-                        f"Security Error: Plugin path '{plugin_path}' is outside the authorized user plugins directory.",
-                        thread_id=event.thread_id
-                    )
+                    await adapter.send(event.target, f"Security Error: Plugin path '{plugin_path}' is outside the authorized user plugins directory.", thread_id=event.thread_id)
                     return {"accepted": True, "command": "plugins-delete"}
                 if not plugin_path.exists():
                     await adapter.send(event.target, f"Error: Plugin directory '{plugin_path}' does not exist.", thread_id=event.thread_id)
@@ -453,11 +424,7 @@ class GatewayRunner:
                 await adapter.send(event.target, msg, thread_id=event.thread_id)
                 return {"accepted": True, "command": "plugins-delete"}
             else:
-                await adapter.send(
-                    event.target,
-                    "Usage:\n/plugins list - List all plugins\n/plugins delete <name> - Delete a plugin",
-                    thread_id=event.thread_id
-                )
+                await adapter.send(event.target, "Usage:\n/plugins list - List all plugins\n/plugins delete <name> - Delete a plugin", thread_id=event.thread_id)
                 return {"accepted": True, "command": "plugins-help"}
 
         return None
@@ -467,9 +434,7 @@ class GatewayRunner:
         config = hooks.get(platform)
         return config if isinstance(config, dict) else None
 
-    def _set_platform_status(
-        self, platform: str, state: str, *, error: str | None = None
-    ) -> None:
+    def _set_platform_status(self, platform: str, state: str, *, error: str | None = None) -> None:
         self.platform_status[platform] = {
             "state": state,
             "error": error,
@@ -510,6 +475,7 @@ class GatewayRunner:
             consumer = None
             if stream_cfg.get("enabled", False):
                 from dojoagents.gateway.stream_consumer import GatewayStreamConsumer
+
                 consumer = GatewayStreamConsumer(
                     adapter=adapter,
                     target=event.target,
@@ -529,7 +495,7 @@ class GatewayRunner:
                 )
                 content = _redact_text(response.content)
                 self.session_store.add_transcript(event.session_key, "assistant", content)
-                
+
                 if consumer is not None:
                     await consumer.stop()
                     if consumer.message_id is not None:
@@ -591,7 +557,7 @@ class GatewayRunner:
             metadata["model_override"] = session.model_override
         return ChatRequest(
             message=event.text,
-            user_id=event.user_id,
+            principal=event.principal,
             session_id=event.session_key,
             channel=event.platform,
             metadata=metadata,
@@ -608,9 +574,7 @@ class GatewayRunner:
             return
         await sender(event.target, enabled, thread_id=event.thread_id)
 
-    async def request_approval(
-        self, session_key: str, command: str, *, description: str = "dangerous command"
-    ) -> None:
+    async def request_approval(self, session_key: str, command: str, *, description: str = "dangerous command") -> None:
         self._pending_approvals[session_key] = {
             "command": command,
             "description": description,
@@ -667,6 +631,7 @@ class GatewayRunner:
 
     async def _watch_completion_queue(self) -> None:
         from dojoagents.tools.process_registry import process_registry
+
         while not self._stop_event.is_set():
             try:
                 event = await process_registry.completion_queue.get()
@@ -678,32 +643,27 @@ class GatewayRunner:
                     platform, target, user_id = parts
                 else:
                     platform, target, user_id = "cli", "cli", "local"
-                
+
                 adapter = self.adapters.get(platform)
                 if not adapter:
                     continue
-                
+
                 exit_code = event.get("exit_code", 0)
                 cmd = event.get("command", "")
                 sid = event.get("session_id", "")
                 raw_out = event.get("output", "")
-                
+
                 _LIMIT = 2000
                 if len(raw_out) > _LIMIT:
                     _tail = raw_out[-_LIMIT:]
                     _nl = _tail.find("\n")
-                    _out = _tail[_nl + 1:] if _nl != -1 else _tail
+                    _out = _tail[_nl + 1 :] if _nl != -1 else _tail
                     _out = f"[… output truncated — showing last {len(_out)} chars]\n{_out}"
                 else:
                     _out = raw_out
-                
-                synth_text = (
-                    f"[IMPORTANT: Background process {sid} completed "
-                    f"(exit code {exit_code}).\n"
-                    f"Command: {cmd}\n"
-                    f"Output:\n{_out}]"
-                )
-                
+
+                synth_text = f"[IMPORTANT: Background process {sid} completed " f"(exit code {exit_code}).\n" f"Command: {cmd}\n" f"Output:\n{_out}]"
+
                 gateway_event = GatewayEvent(
                     platform=platform,
                     text=synth_text,
@@ -712,7 +672,7 @@ class GatewayRunner:
                     thread_id=None,
                     internal=True,
                 )
-                
+
                 lock = self._session_locks.setdefault(session_key, asyncio.Lock())
                 if lock.locked():
                     self._pending_events.setdefault(session_key, []).append(gateway_event)
@@ -755,13 +715,7 @@ def _user_safe_error(text: str) -> str:
 
 
 def _extract_media(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_items = (
-        payload.get("attachments")
-        or payload.get("files")
-        or payload.get("media")
-        or payload.get("images")
-        or []
-    )
+    raw_items = payload.get("attachments") or payload.get("files") or payload.get("media") or payload.get("images") or []
     if isinstance(raw_items, dict):
         raw_items = [raw_items]
     media = []

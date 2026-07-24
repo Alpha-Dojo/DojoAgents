@@ -78,9 +78,7 @@ class CommandRouter:
             return self._load_skill(request, name, arg.strip())
         available_tasks = ", ".join(self.manager.list_tasks()) or "(none)"
         available_skills = ", ".join(self.skill_manager.list_skills()) if self.skill_manager else "(none)"
-        raise TaskActivationError(
-            f"Unknown command `/{name}`. Available tasks: {available_tasks}. Available skills: {available_skills}."
-        )
+        raise TaskActivationError(f"Unknown command `/{name}`. Available tasks: {available_tasks}. Available skills: {available_skills}.")
 
     def _activate_pipeline(
         self,

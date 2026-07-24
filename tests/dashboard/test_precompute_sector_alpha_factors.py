@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_sector_alpha_factors import (
+from dojoagents.dashboard.jobs.precompute.sector_alpha_factors import (
     RESEARCH_ONLY_LEAKAGE_RISK,
     SECTOR_ALPHA_FACTORS_COLUMNS,
     compute_cap_hhi_by_sector,

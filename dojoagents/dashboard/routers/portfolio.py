@@ -21,7 +21,6 @@ from dojoagents.dashboard.schemas.domain_api import (
     UpdateHoldingsMetadataRequestV1,
 )
 from dojoagents.dashboard.schemas.portfolio import (
-    AddPortfolioHoldingRequest,
     CancelPortfolioOrderRequest,
     CreatePortfolioOrderRequest,
     CreatePortfolioRequest,

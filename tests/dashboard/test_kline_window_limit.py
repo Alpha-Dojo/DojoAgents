@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
-
 import pandas as pd
 import pytest
 
@@ -44,12 +42,7 @@ class TailOnlyKlineGateway:
         if window.get("start_time") or window.get("end_time"):
             start = str(window.get("start_time") or "")[:10]
             end = str(window.get("end_time") or "9999-99-99")[:10]
-            filtered = [
-                row
-                for row in sym_rows
-                if (not start or row["bar_time"][:10] >= start)
-                and row["bar_time"][:10] <= end
-            ]
+            filtered = [row for row in sym_rows if (not start or row["bar_time"][:10] >= start) and row["bar_time"][:10] <= end]
         else:
             filtered = sym_rows[-self.tail :]
         return GatewayResult(pd.DataFrame(filtered), None, "sdk_snapshot", False)
@@ -230,4 +223,3 @@ def test_infer_ashare_kline_suffix_maps_exchange_codes() -> None:
 def test_ashare_kline_symbol_candidates_returns_suffixed_symbol() -> None:
     assert ashare_kline_symbol_candidates("688008") == ["688008.SS"]
     assert ashare_kline_symbol_candidates("002230") == ["002230.SZ"]
-

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import pytest
-
-from dojoagents.agent.escalation import (
+from dojoagents.tools.escalation import (
     AgentEscalationError,
     STOP_CODE_NEEDS_USER_INPUT,
     escalation_metadata,
     find_user_input_escalation,
 )
-from dojoagents.agent.harness import HarnessDecision, HarnessLoopState
-from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessDecision, HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import PortfolioTaskHarness
 from dojoagents.agent.models import ChatRequest, ToolResult
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry, ToolSpec

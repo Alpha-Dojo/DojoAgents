@@ -9,7 +9,6 @@ from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_for_symbol
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
-
 TARGET = "2026-07-03"
 SYMBOL = "0700.HK"
 

@@ -33,9 +33,7 @@ def _check_required_fields(payload: Any, schema: dict[str, Any], *, prefix: str 
                 if key in payload and isinstance(subschema, dict):
                     enum_values = subschema.get("enum")
                     if isinstance(enum_values, list) and payload[key] not in enum_values:
-                        issues.append(
-                            f"{prefix}{key}: invalid enum value {payload[key]!r}; expected one of {enum_values}"
-                        )
+                        issues.append(f"{prefix}{key}: invalid enum value {payload[key]!r}; expected one of {enum_values}")
                     pattern = subschema.get("pattern")
                     if pattern and isinstance(payload[key], str):
                         if not re.fullmatch(pattern, payload[key]):
@@ -44,9 +42,7 @@ def _check_required_fields(payload: Any, schema: dict[str, Any], *, prefix: str 
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(payload):
-                issues.extend(
-                    _check_required_fields(item, item_schema, prefix=f"{prefix}[{index}].")
-                )
+                issues.extend(_check_required_fields(item, item_schema, prefix=f"{prefix}[{index}]."))
     return issues
 
 

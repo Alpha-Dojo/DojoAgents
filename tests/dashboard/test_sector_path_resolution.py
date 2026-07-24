@@ -5,7 +5,7 @@ import pytest
 from dojoagents.agent.models import ToolCall
 from dojoagents.dashboard.services import domain_api
 from dojoagents.dashboard.services.sector_store import SectorStore
-from dojoagents.dashboard.tools import domain_tools
+from dojoagents.dashboard.integrations import financial_domain_tools as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy

@@ -13,7 +13,7 @@ from dojoagents.agent.runtime import Runtime
 from dojoagents.cli.gateway_setup import configure_gateway_adapters
 from dojoagents.dashboard.server import create_app as create_dashboard_app
 from dojoagents.gateway.server import create_runner_app as create_gateway_app
-from dojoagents.quant.context import QuantContext
+from dojoagents.sessions.models import SessionPrincipal
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +31,14 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8765)
 
+    from dojoagents.dashboard.cli.tasks import add_tasks_parser
+    from dojoagents.dashboard.cli.precompute_sector import configure_parser as configure_sector_precompute
+    from dojoagents.dashboard.cli.precompute_theme_state import configure_parser as configure_theme_precompute
+
+    configure_sector_precompute(sub)
+    configure_theme_precompute(sub)
+    add_tasks_parser(sub)
+
     sessions = sub.add_parser("sessions")
     sessions_sub = sessions.add_subparsers(dest="sessions_command", required=True)
     sessions_export = sessions_sub.add_parser("export", help="Export stored session messages")
@@ -43,6 +51,16 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_export.add_argument("--no-dojo-sidecars", action="store_true")
     sessions_export.add_argument("--no-memory", action="store_true")
     sessions_export.add_argument("--no-token-usage", action="store_true")
+    sessions_export.add_argument("--canonical", action="store_true", help="Use the backend-neutral Session export")
+    sessions_export.add_argument("--user-id", default=None, help="Authenticated owner for canonical export")
+    sessions_export.add_argument("--tenant-id", default="default")
+
+    sessions_migrate = sessions_sub.add_parser("migrate", help="Non-destructively migrate legacy file sessions")
+    sessions_migrate.add_argument("--config", default="~/.dojo/agents.yaml")
+    sessions_migrate.add_argument("--source", required=True)
+    sessions_migrate.add_argument("--user-id", default=None, help="Fallback owner for ownerless legacy sessions")
+    sessions_migrate.add_argument("--tenant-id", default="default")
+    sessions_migrate.add_argument("--dry-run", action="store_true")
 
     gateway = sub.add_parser("gateway")
     gateway_sub = gateway.add_subparsers(dest="gateway_command")
@@ -80,60 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
     _ = mcp_sub.add_parser("serve")
 
-    precompute = sub.add_parser("precompute-sector", help="Precompute sector daily metrics and returns")
-    precompute.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
-    precompute.add_argument("--start-date", default="2025-01-01", help="First trade date to include (default 2025-01-01)")
-    precompute.add_argument("--upload", action="store_true", help="Upload published snapshot to dojo_sector_precomputed")
-    precompute.add_argument(
-        "--with-theme-state",
-        action="store_true",
-        help="After Phase A, enrich with theme-state, horizon, and sector/ticker alpha factors",
-    )
-    precompute.add_argument(
-        "--skip-fundamentals",
-        action="store_true",
-        help="When used with --with-theme-state, skip fundamentals_lite fetch",
-    )
-    precompute.add_argument(
-        "--skip-volume-enrich",
-        action="store_true",
-        help="When used with --with-theme-state, skip kline volume enrichment",
-    )
-
-    theme_state = sub.add_parser(
-        "precompute-sector-theme-state",
-        help=(
-            "Enrich dojo_sector_precomputed with theme-state, horizon metrics, "
-            "sector_alpha_factors_daily, and ticker_alpha_factors_daily (short + mid)"
-        ),
-    )
-    theme_state.add_argument("--data-root", type=Path, default=None, help="Defaults to DojoAgents dashboard_data_root")
-    theme_state.add_argument(
-        "--input-dir",
-        type=Path,
-        default=None,
-        help="Directory produced by precompute-sector (default: <data-root>/dojo_sector_precomputed)",
-    )
-    theme_state.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help="Unified snapshot directory (default: <data-root>/dojo_sector_precomputed)",
-    )
-    theme_state.add_argument("--start-date", default=None, help="Optional first trade date to include")
-    theme_state.add_argument("--end-date", default=None, help="Optional last trade date to include")
-    theme_state.add_argument(
-        "--upload",
-        action="store_true",
-        help="Upload unified snapshot to dojo_sector_precomputed",
-    )
-    theme_state.add_argument("--skip-fundamentals", action="store_true", help="Skip fundamentals_lite aggregation")
-    theme_state.add_argument("--skip-volume-enrich", action="store_true", help="Skip kline volume enrichment for breadth")
-
-    from dojoagents.cli.tasks import add_tasks_parser
-
-    add_tasks_parser(sub)
-
     return parser
 
 
@@ -141,14 +105,14 @@ async def _run_chat(args: argparse.Namespace) -> int:
     runtime = Runtime.from_default_config()
     quant = None
     if args.market and args.symbols:
-        quant = QuantContext(
-            market=args.market,
-            symbols=[symbol.strip() for symbol in args.symbols.split(",") if symbol.strip()],
-            timeframe=args.timeframe,
-        )
+        quant = {
+            "market": args.market,
+            "symbols": [symbol.strip() for symbol in args.symbols.split(",") if symbol.strip()],
+            "timeframe": args.timeframe,
+        }
     response = await runtime.agent.run(
         ChatRequest(
-            user_id="local",
+            principal=SessionPrincipal("local"),
             session_id="cli",
             message=args.message or input("> "),
             quant=quant,
@@ -162,7 +126,7 @@ def _run_sessions(args: argparse.Namespace) -> int:
     from dojoagents.config.loader import ConfigStore
     from dojoagents.agent.session_manager import DojoAgentSessionManager
 
-    if args.sessions_command == "export":
+    if args.sessions_command == "export" and not args.canonical:
         sessions_config = ConfigStore(args.config).snapshot().sessions
         manager = DojoAgentSessionManager(
             root=sessions_config.root,
@@ -188,7 +152,51 @@ def _run_sessions(args: argparse.Namespace) -> int:
         for file in result.files:
             LOGGER.info(" - %s", file)
         return 0
-    return 2
+    return asyncio.run(_run_canonical_sessions(args))
+
+
+async def _run_canonical_sessions(args: argparse.Namespace) -> int:
+    from dojoagents.config.loader import ConfigStore
+    from dojoagents.sessions.export import SessionExporter
+    from dojoagents.sessions.factory import create_blob_store, create_session_store, shutdown_stores
+    from dojoagents.sessions.migration import SessionMigrator
+    from dojoagents.sessions.models import SessionPrincipal
+    from dojoagents.sessions.service import SessionService
+
+    sessions_config = ConfigStore(args.config).snapshot().sessions
+    store = await create_session_store(sessions_config.store)
+    blob_store = await create_blob_store(sessions_config.blob_store)
+    service = SessionService(store=store, blob_store=blob_store, config=sessions_config)
+    try:
+        if args.sessions_command == "migrate":
+            fallback = SessionPrincipal(args.user_id, args.tenant_id) if args.user_id else None
+            result = await SessionMigrator(service).migrate(
+                args.source,
+                fallback_principal=fallback,
+                dry_run=args.dry_run,
+            )
+            LOGGER.info(
+                "Session migration%s: sessions=%s messages=%s objects=%s fingerprint=%s already_migrated=%s",
+                " dry-run" if result.dry_run else "",
+                result.session_count,
+                result.message_count,
+                result.object_count,
+                result.fingerprint,
+                result.already_migrated,
+            )
+            return 0
+        if args.sessions_command == "export":
+            if not args.user_id or not args.session_id:
+                raise ValueError("canonical export requires --user-id and --session-id")
+            principal = SessionPrincipal(args.user_id, args.tenant_id)
+            bundle = await SessionExporter(service).export(principal, args.session_id)
+            output = args.output_dir or sessions_config.export_default_dir
+            result = await bundle.write_to(Path(output) / args.session_id)
+            LOGGER.info("Exported canonical session %s to %s", args.session_id, result)
+            return 0
+        return 2
+    finally:
+        await shutdown_stores(blob_store, store)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -201,8 +209,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat":
         return asyncio.run(_run_chat(args))
     if args.command == "dashboard":
-        runtime = Runtime.from_default_config()
-        uvicorn.run(create_dashboard_app(runtime), host=args.host, port=args.port)
+        from dojoagents.config.loader import ConfigStore
+
+        uvicorn.run(
+            create_dashboard_app(config_store=ConfigStore()),
+            host=args.host,
+            port=args.port,
+        )
         return 0
     if args.command == "sessions":
         return _run_sessions(args)
@@ -268,15 +281,17 @@ def main(argv: list[str] | None = None) -> int:
             run_server()
             return 0
     if args.command == "precompute-sector":
-        from dojoagents.cli.precompute_sector import run_precompute_sector
+        from dojoagents.dashboard.cli.precompute_sector import run_precompute_sector
 
         return asyncio.run(run_precompute_sector(args))
     if args.command == "precompute-sector-theme-state":
-        from dojoagents.cli.precompute_sector_theme_state import run_precompute_sector_theme_state
+        from dojoagents.dashboard.cli.precompute_theme_state import (
+            run_precompute_sector_theme_state,
+        )
 
         return asyncio.run(run_precompute_sector_theme_state(args))
     if args.command == "tasks":
-        from dojoagents.cli.tasks import run_tasks_command
+        from dojoagents.dashboard.cli.tasks import run_tasks_command
 
         return asyncio.run(run_tasks_command(args))
     return 2

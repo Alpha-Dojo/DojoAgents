@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import uuid
+from pathlib import Path
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
 from dojoagents.plugins import get_plugin_registry
 
 from dojoagents.agent.events import AgentEventSink
-from dojoagents.agent.harness import HarnessLoopState
-from dojoagents.agent.temporal_context import build_temporal_context_block
-from dojoagents.agent.turn_intent import build_turn_intent_anchor_async
+from dojoagents.harnesses.components.task_flows import HarnessLoopState
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
     empty_assistant_user_message,
@@ -20,6 +21,7 @@ from dojoagents.agent.providers import LLMProvider
 from dojoagents.config.models import AgentConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.memory.manager import MemoryManager
+from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.skills.manager import SkillManager
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tools.executor import ToolExecutor
@@ -30,11 +32,19 @@ from dojoagents.agent.guardrails import (
     ToolCallGuardrailController,
 )
 from dojoagents.agent.context_length import ContextLengthExceededError
+from dojoagents.agent.context_usage import PromptContextSource
 from dojoagents.agent.compressor import ContextCompressor, _estimate_tokens_rough, flatten_messages_for_compress
 from dojoagents.agent.hooks.token_compression import TokenCompressionHook
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
 from dojoagents.agent.token_policy import TokenCompressionPolicy
+from dojoagents.agent.usage import (
+    UsageCollector,
+    active_usage_collector,
+    bind_usage_collector,
+    ensure_metered_provider,
+    usage_scope,
+)
 from dojoagents.agent.multimodal import (
     IMAGE_TURN_EXCLUDED_TOOLS,
     MULTIMODAL_IMAGE_PROTOCOL,
@@ -76,6 +86,8 @@ class DojoBridgedTool(AgentTool):
         tool_executor_inst: Any,
         sess_id: str,
         event_sink: AgentEventSink | None = None,
+        harness_runtime: Any | None = None,
+        turn_context: Any | None = None,
     ):
         super().__init__()
         if isinstance(dojo_spec_or_name, str):
@@ -87,6 +99,8 @@ class DojoBridgedTool(AgentTool):
         self.tool_executor = tool_executor_inst
         self.sess_id = sess_id
         self.event_sink = event_sink
+        self.harness_runtime = harness_runtime
+        self.turn_context = turn_context
 
     @property
     def tool_name(self) -> str:
@@ -113,30 +127,96 @@ class DojoBridgedTool(AgentTool):
             arguments=tool_use["input"],
             metadata=dict(tool_use.get("dojoProviderMetadata") or {}),
         )
-        if hasattr(self.tool_executor, "execute_many") and (
-            isinstance(self.tool_executor, AsyncMock) or hasattr(self.tool_executor.execute_many, "assert_called") or not hasattr(self.tool_executor, "execute_one")
-        ):
-            results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
-            res = results[0]
-        else:
-            res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
 
-        invocation_state.setdefault("_dojo_tool_results", []).append(res)
+        def record_result(res) -> None:
+            invocation_state.setdefault("_dojo_tool_results", []).append(res)
+            if self.turn_context is not None:
+                self.turn_context.tool_results.append(res)
+            if self.event_sink is not None:
+                self.event_sink.tool_result(
+                    call_id=res.call_id,
+                    tool=res.name,
+                    ok=res.ok,
+                    content=res.content,
+                    error=res.error,
+                    latency_ms=res.latency_ms,
+                    truncated=res.truncated,
+                    data=res.data,
+                    viz_blocks=res.viz_blocks,
+                    artifacts=res.artifacts,
+                    resource_changes=res.resource_changes,
+                )
 
-        if self.event_sink is not None:
-            self.event_sink.tool_result(
-                call_id=res.call_id,
-                tool=res.name,
-                ok=res.ok,
-                content=res.content,
-                error=res.error,
-                latency_ms=res.latency_ms,
-                truncated=res.truncated,
-                data=res.data,
-                viz_blocks=res.viz_blocks,
-                artifacts=res.artifacts,
-                resource_changes=res.resource_changes,
-            )
+        if self.harness_runtime is not None:
+            transformed = await self.harness_runtime.transform_calls((dojo_call,), self.turn_context)
+            if not transformed:
+                from dojoagents.agent.models import ToolResult
+
+                res = ToolResult(dojo_call.id, dojo_call.name, False, error="Harness removed the tool call")
+                record_result(res)
+                yield ToolResultEvent(
+                    {
+                        "status": "error",
+                        "toolUseId": tool_use["toolUseId"],
+                        "name": self.tool_name,
+                        "content": [{"text": res.error}],
+                    }
+                )
+                return
+            dojo_call = transformed[0]
+            if self.turn_context is not None:
+                self.turn_context.tool_calls.append(dojo_call)
+            decision = await self.harness_runtime.authorize(dojo_call, self.turn_context)
+            if decision.action != "allow":
+                from dojoagents.agent.models import ToolResult
+
+                res = ToolResult(
+                    dojo_call.id,
+                    dojo_call.name,
+                    False,
+                    error=decision.message or f"Tool blocked by Harness policy ({decision.code})",
+                    metadata={"decision_code": decision.code, "decision_action": decision.action},
+                )
+                if self.turn_context is not None:
+                    self.turn_context.blocked_calls.append(
+                        {
+                            "tool": dojo_call.name,
+                            "arguments": dict(dojo_call.arguments),
+                            "reason": res.error,
+                            "code": decision.code,
+                            "action": decision.action,
+                        }
+                    )
+                record_result(res)
+                yield ToolResultEvent(
+                    {
+                        "status": "error",
+                        "toolUseId": tool_use["toolUseId"],
+                        "name": self.tool_name,
+                        "content": [{"text": res.error}],
+                    }
+                )
+                return
+        from dojoagents.tools.process_registry import active_session_principal
+
+        principal = getattr(getattr(self.turn_context, "request", None), "principal", None)
+        principal_token = active_session_principal.set(principal)
+        try:
+            if hasattr(self.tool_executor, "execute_many") and (
+                isinstance(self.tool_executor, AsyncMock) or hasattr(self.tool_executor.execute_many, "assert_called") or not hasattr(self.tool_executor, "execute_one")
+            ):
+                results = await self.tool_executor.execute_many([dojo_call], session_id=self.sess_id)
+                res = results[0]
+            else:
+                res = await self.tool_executor.execute_one(dojo_call, session_id=self.sess_id)
+        finally:
+            active_session_principal.reset(principal_token)
+
+        if self.harness_runtime is not None:
+            presented = await self.harness_runtime.present_results((res,), self.turn_context)
+            if presented:
+                res = presented[0]
+        record_result(res)
 
         status = "success" if res.ok else "error"
         content_text = res.content if res.ok else res.error
@@ -146,7 +226,7 @@ class DojoBridgedTool(AgentTool):
 
 class DojoStrandsModelBridge(Model):
     def __init__(self, llm_provider: Any, model_id: str):
-        self.llm_provider = llm_provider
+        self.llm_provider = ensure_metered_provider(llm_provider)
         self._model_id = model_id
         self._config = {"context_window_limit": 128000}
 
@@ -235,7 +315,7 @@ class DojoStrandsModelBridge(Model):
             except Exception as e:
                 queue.put_nowait(e)
 
-        _ = asyncio.create_task(run_chat())
+        chat_task = asyncio.create_task(run_chat())
 
         yield {"messageStart": {"role": "assistant"}}
         yield {"contentBlockStart": {"contentBlockIndex": 0, "start": {"text": ""}}}
@@ -265,20 +345,23 @@ class DojoStrandsModelBridge(Model):
                                 "usage_available": False,
                             }
                     break
+            except asyncio.CancelledError:
+                if not chat_task.done():
+                    chat_task.cancel()
+                try:
+                    await chat_task
+                except asyncio.CancelledError:
+                    pass
+                raise
             except Exception as e:
                 LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
                 raise e
 
         try:
             if invocation_state is not None:
-                from dojoagents.agent.models import ChatRequest
-                from dojoagents.agent.portfolio_tool_repair import merge_remove_holding_tool_calls
-                from dojoagents.agent.turn_completion import apply_turn_completion_after_model
-
-                request = invocation_state.get("_dojo_request")
-                if isinstance(request, ChatRequest) and request.channel == "dashboard":
-                    llm_result.tool_calls = merge_remove_holding_tool_calls(list(llm_result.tool_calls))
-                    apply_turn_completion_after_model(llm_result, invocation_state)
+                legacy_behavior = invocation_state.get("_dojo_legacy_behavior")
+                if legacy_behavior is not None:
+                    legacy_behavior.transform_model_result(llm_result, invocation_state)
 
             if not has_text_delta and llm_result.content:
                 yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
@@ -361,7 +444,10 @@ def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | 
                         res_content += res_block["text"]
                 tool_results.append({"role": "tool", "name": tr.get("name") or "unknown", "tool_call_id": tr.get("toolUseId"), "content": res_content})
 
-        if role == "user":
+        if role == "system":
+            if text_content:
+                dojo_messages.append({"role": "system", "content": text_content})
+        elif role == "user":
             user_parts: list[dict[str, Any]] = []
             if text_content.strip():
                 user_parts.append({"type": "text", "text": text_content})
@@ -407,8 +493,15 @@ class AgentLoop:
         provider_state: ProviderConversationState | None = None,
         session_manager: Any | None = None,
         task_manager: TaskPromptManager | None = None,
+        harness_runtime: Any | None = None,
+        session_service: Any | None = None,
+        harness_descriptor: Any | None = None,
+        memory_sync_worker: Any | None = None,
+        legacy_behavior: Any | None = None,
+        token_ledger_root: str | None = None,
     ) -> None:
-        self.llm_provider = llm_provider
+        self._llm_provider = llm_provider
+        self.usage_llm_provider = ensure_metered_provider(llm_provider)
         self.tool_executor = tool_executor
         self.skill_manager = skill_manager
         self.memory_manager = memory_manager
@@ -421,6 +514,13 @@ class AgentLoop:
         self.provider_state = provider_state or ProviderConversationState()
         self.session_manager = session_manager
         self.task_manager = task_manager
+        self.harness_runtime = harness_runtime
+        self.session_service = session_service
+        self.harness_descriptor = harness_descriptor
+        self.memory_sync_worker = memory_sync_worker
+        self.legacy_behavior = legacy_behavior
+        session_root = getattr(session_manager, "root", None)
+        self.token_ledger_root = token_ledger_root or (str(Path(session_root) / "_token_ledger") if session_root is not None else None)
 
         self.think_scrubber = StreamingThinkScrubber()
         self.compressor = ContextCompressor(
@@ -432,26 +532,188 @@ class AgentLoop:
         )
         self.guardrails = ToolCallGuardrailController()
 
-    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:  # noqa
+    @property
+    def llm_provider(self) -> Any:
+        return self._llm_provider
+
+    @llm_provider.setter
+    def llm_provider(self, provider: Any) -> None:
+        self._llm_provider = provider
+        self.usage_llm_provider = ensure_metered_provider(provider)
+
+    async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+        """Run one turn with optional canonical persistence and Harness lifecycle hooks."""
+
+        canonical_run = None
+        active_request = request
+        active_sink = event_sink
+        if self.session_service is not None and request.metadata.get("persist_session", True) is not False:
+            if self.harness_descriptor is None:
+                raise RuntimeError("canonical sessions require a harness descriptor")
+            from dojoagents.agent.session_run import CanonicalAgentRun
+
+            canonical_run = await CanonicalAgentRun.begin(
+                self.session_service,
+                request,
+                self.harness_descriptor,
+                model=self.config.model or "unconfigured",
+                agent_id="dojo-agent",
+                event_sink=event_sink,
+                memory_sync_worker=self.memory_sync_worker,
+            )
+            active_request = canonical_run.request
+            active_sink = canonical_run.event_sink
+
+        turn_context = None
+        state_handle = None
+        state_version = None
+        if self.harness_runtime is not None:
+            from dojoagents.harnesses.context import HarnessSessionContext, HarnessTurnContext
+            from dojoagents.harnesses.state import HarnessSessionState
+
+            state = HarnessSessionState()
+            if canonical_run is not None and self.harness_descriptor is not None:
+                capabilities = getattr(self.harness_runtime, "capabilities", None)
+                codec = getattr(capabilities, "state_codec", None)
+                state_handle = self.session_service.harness_session(
+                    active_request.principal,
+                    active_request.session_id,
+                    self.harness_descriptor.id,
+                    self.harness_descriptor.version,
+                    self.harness_descriptor.state_schema_version,
+                    codec=codec,
+                )
+                snapshot = await state_handle.load_state()
+                if snapshot is not None:
+                    values = snapshot.state if isinstance(snapshot.state, dict) else {}
+                    state = HarnessSessionState(dict(values))
+                    state_version = snapshot.version
+            session_context = HarnessSessionContext(
+                active_request.principal,
+                active_request.session_id,
+                state,
+            )
+            turn_context = HarnessTurnContext(active_request, session_context)
+
+        after_turn_attempted = False
+        canonical_run_id = getattr(getattr(canonical_run, "coordinator", None), "run_id", None) if canonical_run is not None else None
+        run_id = (
+            canonical_run_id
+            if isinstance(canonical_run_id, str) and canonical_run_id.strip()
+            else str((active_sink.run_id if active_sink is not None else None) or active_request.metadata.get("run_id") or f"run-{uuid.uuid4().hex}")
+        )
+        canonical_turn_id = getattr(canonical_run, "turn_id", None) if canonical_run is not None else None
+        turn_id = (
+            canonical_turn_id if isinstance(canonical_turn_id, str) and canonical_turn_id.strip() else str(active_request.metadata.get("turn_id") or f"turn-{uuid.uuid4().hex}")
+        )
+        canonical_session_uid = getattr(canonical_run, "session_uid", None) if canonical_run is not None else None
+        collector = UsageCollector(
+            session_uid=(canonical_session_uid if isinstance(canonical_session_uid, str) and canonical_session_uid.strip() else active_request.session_id),
+            run_id=run_id,
+            turn_id=turn_id,
+            harness_id=str(getattr(self.harness_descriptor, "id", "") or ""),
+            agent_id="dojo-agent",
+            coordinator=(canonical_run.coordinator if canonical_run is not None else None),
+        )
+        with bind_usage_collector(collector):
+            try:
+                response = await self._run_core(
+                    active_request,
+                    event_sink=active_sink,
+                    turn_context=turn_context,
+                )
+                if self.harness_runtime is not None and turn_context is not None:
+                    after_turn_attempted = True
+                    await self.harness_runtime.after_turn(turn_context)
+                if state_handle is not None and turn_context is not None:
+                    try:
+                        await state_handle.save_state(
+                            turn_context.session.state.values,
+                            expected_version=state_version,
+                        )
+                    except Exception:
+                        LOGGER.exception(
+                            "Harness state checkpoint failed after turn: session_id=%s",
+                            active_request.session_id,
+                        )
+                if canonical_run is not None:
+                    await canonical_run.commit(response)
+                return response
+            except asyncio.CancelledError:
+                if canonical_run is not None:
+                    await canonical_run.cancel()
+                raise
+            except SessionLeaseLostError:
+                # The fencing token is no longer ours. Do not attempt any further
+                # terminal or checkpoint write from this worker.
+                LOGGER.exception(
+                    "Canonical agent run lost its session lease: session_id=%s. " "The run cannot commit buffered events or transition itself " "to a terminal state.",
+                    active_request.session_id,
+                )
+                raise
+            except BaseException as exc:
+                if canonical_run is not None:
+                    await canonical_run.fail(exc)
+                raise
+            finally:
+                if not after_turn_attempted and self.harness_runtime is not None and turn_context is not None:
+                    await self.harness_runtime.after_turn(turn_context)
+
+    async def _run_core(  # noqa: C901
+        self,
+        request: ChatRequest,
+        *,
+        event_sink: AgentEventSink | None = None,
+        turn_context: Any | None = None,
+    ) -> AgentResponse:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
         remaining_tokens = getattr(self.config, "session_max_tokens", 500000)
         active_phase = ""
         tool_trace: list[dict[str, Any]] = []
         saw_content_delta = False
-        harness_state = HarnessLoopState(request=request)
+        state_factory = getattr(self.legacy_behavior, "state_factory", None)
+        if state_factory is None:
+            state_factory = next(
+                (candidate for candidate in (getattr(harness, "state_factory", None) for harness in self.task_harnesses) if candidate is not None),
+                HarnessLoopState,
+            )
+        harness_state = state_factory(request=request)
         from dojoagents.tools.process_registry import active_user_message, active_write_session_file_guard, WriteSessionFileGuardContext
 
         user_msg_token = active_user_message.set(str(request.message or ""))
         write_guard_token = None
 
         def _resolve_active_harness():
+            if self.harness_runtime is not None:
+                return None
             return next(
                 (harness for harness in self.task_harnesses if harness.matches(request, harness_state)),
                 None,
             )
 
         invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
+
+        def apply_turn_usage(metadata: dict[str, Any]) -> dict[str, Any]:
+            collector = active_usage_collector()
+            if collector is None:
+                metadata.setdefault(
+                    "usage",
+                    {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                return {}
+            summary = collector.summary()
+            metadata["usage"] = dict(summary["totals"])
+            metadata["usage_by_category"] = list(summary["groups"])
+            metadata["usage_quality"] = dict(summary["coverage"])
+            metadata["turn_id"] = summary["turn_id"]
+            metadata["run_id"] = summary["run_id"]
+            return summary
+
         LOGGER.info(
             "AgentLoop.run start: session_id=%s channel=%s model=%s provider=%s provider_impl=%s history_turns=%d message_len=%d",
             request.session_id,
@@ -541,40 +803,95 @@ class AgentLoop:
                 metadata={"error": "no_model_configured"},
             )
 
-        # 1. Build the system prompt
-        blocks = [
-            "You are DojoAgents, a full-market finance analysis agent.",
-            build_temporal_context_block(request.metadata),
-            self.skill_manager.prompt_block(platform=request.channel),
-            self.memory_manager.build_system_prompt(),
-            await self.memory_manager.prefetch_all(request.message, session_id=request.session_id),
-        ]
-        if request.quant is not None:
-            blocks.append(request.quant.prompt_block())
-            blocks.append(self.extension_registry.prompt_context(request.quant))
-        # Inject dashboard-specific structured visualization guidance.
-        if request.channel == "dashboard":
-            from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
-            from dojoagents.agent.dashboard_tool_protocol import DASHBOARD_TOOL_PROTOCOL
-            from dojoagents.agent.viz_policy import build_viz_policy_catalog, build_viz_policy_turn_anchor
-
-            blocks.append(DASHBOARD_VIZ_PROTOCOL)
-            blocks.append(DASHBOARD_TOOL_PROTOCOL)
-            locale = str(request.metadata.get("locale") or "en")
-            blocks.append(build_viz_policy_catalog(locale))
-            viz_turn_anchor = build_viz_policy_turn_anchor(request, locale)
-            if viz_turn_anchor:
-                blocks.append(viz_turn_anchor)
-        if self.task_manager is not None:
-            task_block = self.task_manager.build_injection_block(request)
-            if task_block:
-                blocks.append(task_block)
-        turn_anchor, _ = await build_turn_intent_anchor_async(request, self.llm_provider, model=model_id)
-        if turn_anchor:
-            blocks.append(turn_anchor)
+        # 1. Build the system prompt. Harness-backed instances own the complete
+        # prompt graph; the compatibility branch remains for synchronous hosts.
+        if self.harness_runtime is not None:
+            prompt_blocks = await self.harness_runtime.before_turn(turn_context)
+            context_sources = [
+                PromptContextSource(
+                    component_id=block.block_id,
+                    phase=block.phase,
+                    content=block.content,
+                    source=block.source,
+                    category=getattr(block, "usage_category", None),
+                )
+                for block in prompt_blocks
+                if getattr(block, "content", "")
+            ]
+            skill_prompt = self.skill_manager.prompt_block(platform=request.channel)
+            if skill_prompt:
+                skill_source = PromptContextSource(
+                    component_id="core.skills",
+                    phase="skills",
+                    content=skill_prompt,
+                    source="core:skill-manager",
+                    category="skills",
+                )
+                later_phases = {
+                    "memory",
+                    "request_context",
+                    "channel_policy",
+                    "task_context",
+                    "turn_policy",
+                }
+                insert_at = next(
+                    (index for index, source in enumerate(context_sources) if source.phase in later_phases),
+                    len(context_sources),
+                )
+                context_sources.insert(insert_at, skill_source)
+            blocks = [source.content for source in context_sources]
+        elif self.legacy_behavior is not None:
+            blocks = await self.legacy_behavior.build_prompt_blocks(self, request, model_id)
+            context_sources = [
+                PromptContextSource(
+                    component_id=f"legacy.prompt.{index}",
+                    phase="harness_instructions",
+                    content=block,
+                    source="legacy:behavior",
+                    category="rules",
+                )
+                for index, block in enumerate(blocks)
+                if block
+            ]
+        else:
+            context_sources = [
+                PromptContextSource(
+                    "core.identity",
+                    "identity",
+                    "You are a helpful AI agent.",
+                    "core:agent",
+                    "system_prompt",
+                ),
+                PromptContextSource(
+                    "core.skills",
+                    "skills",
+                    self.skill_manager.prompt_block(platform=request.channel),
+                    "core:skill-manager",
+                    "skills",
+                ),
+                PromptContextSource(
+                    "core.memory.instructions",
+                    "memory",
+                    self.memory_manager.build_system_prompt(),
+                    "core:memory-manager",
+                    "memory",
+                ),
+                PromptContextSource(
+                    "core.memory.prefetch",
+                    "memory",
+                    await self.memory_manager.prefetch_all(
+                        request.message,
+                        session_id=request.session_id,
+                    ),
+                    "core:memory-manager",
+                    "memory",
+                ),
+            ]
+            context_sources = [source for source in context_sources if source.content]
+            blocks = [source.content for source in context_sources]
         write_guard_token = active_write_session_file_guard.set(
             WriteSessionFileGuardContext(
-                llm_provider=self.llm_provider,
+                llm_provider=self.usage_llm_provider,
                 model=model_id,
                 user_message=str(request.message or ""),
                 request_metadata=request.metadata,
@@ -584,8 +901,26 @@ class AgentLoop:
         )
         if image_turn:
             blocks.append(MULTIMODAL_IMAGE_PROTOCOL)
+            context_sources.append(
+                PromptContextSource(
+                    "core.multimodal.protocol",
+                    "attachments",
+                    MULTIMODAL_IMAGE_PROTOCOL,
+                    "core:multimodal",
+                    "attachments",
+                )
+            )
         if session_attachments:
             blocks.append(SESSION_ATTACHMENTS_PROTOCOL)
+            context_sources.append(
+                PromptContextSource(
+                    "core.session-attachments.protocol",
+                    "attachments",
+                    SESSION_ATTACHMENTS_PROTOCOL,
+                    "core:session-attachments",
+                    "attachments",
+                )
+            )
         system = "\n\n".join(block for block in blocks if block)
 
         # Plan activation check
@@ -600,6 +935,15 @@ class AgentLoop:
                 return plan_results[0]
             plan_prompt = self._plan_activation_hook.get_plan_prompt()
             system = system + "\n\n" + plan_prompt
+            context_sources.append(
+                PromptContextSource(
+                    "core.plan-activation",
+                    "task_context",
+                    plan_prompt,
+                    "core:planning",
+                    "rules",
+                )
+            )
 
         # 2. Build model bridge and session token ledger
         raw_provider_name = getattr(self.llm_provider, "name", "openai")
@@ -626,7 +970,7 @@ class AgentLoop:
         threshold_ratio = self.config.compression_threshold_ratio if isinstance(getattr(self.config, "compression_threshold_ratio", None), (int, float)) else 0.8
         compression_enabled = bool(getattr(self.config, "enable_context_compression", True))
         compression_policy = TokenCompressionPolicy(threshold_ratio=float(threshold_ratio))
-        token_ledger = SessionTokenLedger()
+        token_ledger = SessionTokenLedger(self.token_ledger_root)
         token_state = token_ledger.load_or_create(
             request.session_id,
             provider=provider_name,
@@ -640,8 +984,11 @@ class AgentLoop:
         invocation_state["_dojo_compression_policy"] = compression_policy
         invocation_state["_dojo_provider_state"] = self.provider_state
         invocation_state["_dojo_image_turn"] = image_turn
+        invocation_state["_dojo_context_sources"] = tuple(context_sources)
+        invocation_state["_dojo_base_context_source_count"] = len(context_sources)
+        invocation_state["_dojo_context_window"] = session_max_tokens
 
-        model = DojoStrandsModelBridge(self.llm_provider, model_id)
+        model = DojoStrandsModelBridge(self.usage_llm_provider, model_id)
         model.update_config(context_window_limit=session_max_tokens)
 
         # 3. Convert history
@@ -721,7 +1068,7 @@ class AgentLoop:
         ):
             compressed_history = await self.compressor.compress(
                 history_msgs,
-                self.llm_provider,
+                self.usage_llm_provider,
                 self.config.model,
                 memory_manager=self.memory_manager,
                 session_id=request.session_id,
@@ -742,7 +1089,7 @@ class AgentLoop:
 
         # 4. Collect and bridge tools
         tool_specs = self._collect_tool_specs()
-        for plugin_tool in plugin_registry._tools:
+        for plugin_tool in plugin_registry.contribution_snapshot().tools:
             self.tool_executor.registry.register(plugin_tool)
             if not any(spec["name"] == plugin_tool.name for spec in tool_specs):
                 tool_specs.append(plugin_tool.schema())
@@ -752,7 +1099,16 @@ class AgentLoop:
         for spec in self.tool_executor.registry.all():
             if spec.name in excluded_tools:
                 continue
-            strands_tools.append(DojoBridgedTool(spec, self.tool_executor, request.session_id, event_sink=event_sink))
+            strands_tools.append(
+                DojoBridgedTool(
+                    spec,
+                    self.tool_executor,
+                    request.session_id,
+                    event_sink=event_sink,
+                    harness_runtime=self.harness_runtime,
+                    turn_context=turn_context,
+                )
+            )
 
         # 5. Set up hooks (Memory Hook & Plugin Hook)
         hooks = []
@@ -799,7 +1155,7 @@ class AgentLoop:
         token_compression_hook = TokenCompressionHook(
             compressor=self.compressor,
             policy=compression_policy,
-            llm_provider=self.llm_provider,
+            llm_provider=self.usage_llm_provider,
             model=self.config.model,
             memory_manager=self.memory_manager,
             enabled=compression_enabled,
@@ -808,14 +1164,13 @@ class AgentLoop:
         invocation_state["_dojo_handle_context_length_exceeded"] = token_compression_hook.handle_context_length_exceeded
         hooks.append(HookProviderWrapper(token_compression_hook))
 
-        from dojoagents.agent.hooks.turn_completion import TurnCompletionHook
-
-        turn_completion_hook = TurnCompletionHook()
-        hooks.append(HookProviderWrapper(turn_completion_hook))
+        if self.legacy_behavior is not None:
+            hooks.append(HookProviderWrapper(self.legacy_behavior.create_hook()))
 
         invocation_state["_dojo_request"] = request
         invocation_state["_dojo_harness_state"] = harness_state
         invocation_state["_dojo_task_harnesses"] = self.task_harnesses
+        invocation_state["_dojo_legacy_behavior"] = self.legacy_behavior
 
         # Bridge plugin registry to strands Plugin
         plugin_bridge = plugin_registry.as_strands_plugin()
@@ -849,18 +1204,15 @@ class AgentLoop:
                     self.tool_executor,
                     request.session_id,
                     event_sink=event_sink,
+                    harness_runtime=self.harness_runtime,
+                    turn_context=turn_context,
                 )
             if self.config.enable_guardrails:
                 if not event.tool_use:
                     return
                 tool_name = str(event.tool_use.get("name") or "")
                 args = event.tool_use.get("input") or {}
-                from dojoagents.agent.execute_code_guardrails import (
-                    EXECUTE_CODE_TOOL_NAMES,
-                    classify_execute_code,
-                    execute_code_guardrail_from_classification,
-                )
-                from dojoagents.agent.write_session_file_guardrails import (
+                from dojoagents.tools.write_authorization import (
                     active_task_metadata,
                     classify_write_session_file,
                     preview_write_content,
@@ -868,7 +1220,7 @@ class AgentLoop:
                     write_session_file_guardrail_from_classification,
                 )
 
-                if tool_name in EXECUTE_CODE_TOOL_NAMES:
+                if tool_name in {"execute_code", "code_execution"}:
                     if active_task_metadata(request.metadata) is not None:
                         code_text = str(args.get("code") or "")
                         if any(
@@ -885,37 +1237,24 @@ class AgentLoop:
                             decision = ToolGuardrailDecision(
                                 action="block",
                                 code="execute_code_task_file_write_forbidden",
-                                message=(
-                                    "Blocked execute_code in task mode: use write_session_file directly "
-                                    "for required task outputs. Do not write JSON files via Python."
-                                ),
+                                message=("Blocked execute_code in task mode: use write_session_file directly " "for required task outputs. Do not write JSON files via Python."),
                                 tool_name=tool_name,
                             )
                             blocked_res = toolguard_synthetic_result(decision)
                             event.cancel_tool = blocked_res["content"]
                             return
-                    if active_task_metadata(request.metadata) is None:
-                        classification = await classify_execute_code(
-                            str(args.get("code") or ""),
-                            request.message,
-                            self.llm_provider,
-                            model=model_id,
-                            request_metadata=request.metadata,
-                        )
-                        blocked, block_message, guardrail_code = execute_code_guardrail_from_classification(
+                    if active_task_metadata(request.metadata) is None and self.legacy_behavior is not None and callable(getattr(self.legacy_behavior, "authorize_tool", None)):
+                        scenario_decision = await self.legacy_behavior.authorize_tool(
+                            self,
+                            request,
                             tool_name,
-                            classification,
+                            dict(args),
+                            model_id,
                         )
-                        if blocked:
-                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+                        if scenario_decision is not None:
+                            from dojoagents.agent.guardrails import toolguard_synthetic_result
 
-                            decision = ToolGuardrailDecision(
-                                action="block",
-                                code=guardrail_code,
-                                message=block_message,
-                                tool_name=tool_name,
-                            )
-                            blocked_res = toolguard_synthetic_result(decision)
+                            blocked_res = toolguard_synthetic_result(scenario_decision)
                             event.cancel_tool = blocked_res["content"]
                             return
                 if tool_name == "write_session_file":
@@ -925,7 +1264,7 @@ class AgentLoop:
                     ):
                         classification = await classify_write_session_file(
                             request.message,
-                            self.llm_provider,
+                            self.usage_llm_provider,
                             model=model_id,
                             request_metadata=request.metadata,
                             filename=str(args.get("filename") or ""),
@@ -956,11 +1295,9 @@ class AgentLoop:
 
                     blocked_res = toolguard_synthetic_result(decision)
                     event.cancel_tool = blocked_res["content"]
-            if event.tool_use:
-                from dojoagents.agent.sector_session import repair_sector_tool_arguments
-
+            if event.tool_use and self.legacy_behavior is not None:
                 tool_args = dict(event.tool_use.get("input") or {})
-                repaired_args = repair_sector_tool_arguments(
+                repaired_args = self.legacy_behavior.repair_tool_arguments(
                     str(event.tool_use.get("name") or ""),
                     tool_args,
                     invocation_state,
@@ -1059,9 +1396,8 @@ class AgentLoop:
                     "ok": matched_result.ok if matched_result is not None else not is_failed,
                 }
                 if matched_result is not None:
-                    from dojoagents.agent.sector_session import record_sector_search_in_invocation
-
-                    record_sector_search_in_invocation(invocation_state, matched_result)
+                    if self.legacy_behavior is not None:
+                        self.legacy_behavior.record_tool_result(invocation_state, matched_result)
                     trace_item.update(
                         {
                             "latency_ms": matched_result.latency_ms,
@@ -1197,7 +1533,11 @@ class AgentLoop:
                 )
                 if event_sink is not None:
                     event_sink.eval_hint(recovery_prompt, ["empty_assistant_turn"])
-                result = await _invoke_agent(recovery_prompt)
+                with usage_scope(
+                    "agent_recovery",
+                    "agent_recovery.empty_assistant",
+                ):
+                    result = await _invoke_agent(recovery_prompt)
                 response_text = _scrub_response_text(str(result).strip())
                 if result.metrics:
                     iterations = result.metrics.cycle_count
@@ -1227,16 +1567,18 @@ class AgentLoop:
                 active_user_message.reset(user_msg_token)
                 if write_guard_token is not None:
                     active_write_session_file_guard.reset(write_guard_token)
+                metadata = {
+                    "iterations": iterations,
+                    "stopped": stopped_reason,
+                    "used_tokens": used_tokens,
+                    "remaining_tokens": remaining_tokens,
+                    "session_tokens": token_state.snapshot(),
+                }
+                apply_turn_usage(metadata)
                 return AgentResponse(
                     content=response_text,
                     session_id=request.session_id,
-                    metadata={
-                        "iterations": iterations,
-                        "stopped": stopped_reason,
-                        "used_tokens": used_tokens,
-                        "remaining_tokens": remaining_tokens,
-                        "session_tokens": token_state.snapshot(),
-                    },
+                    metadata=metadata,
                 )
             else:
                 if event_sink is not None:
@@ -1277,6 +1619,32 @@ class AgentLoop:
         token_ledger.save()
 
         harness_state.final_response = response_text
+        if self.harness_runtime is not None and turn_context is not None:
+            turn_context.final_response = response_text
+            decision = await self.harness_runtime.evaluate_completion(turn_context)
+            recovery_turns = 0
+            while decision.action == "recover" and recovery_turns < decision.max_extra_turns:
+                recovery_turns += 1
+                if event_sink is not None:
+                    event_sink.eval_hint(decision.recovery_prompt, list(decision.issues))
+                with usage_scope(
+                    "agent_recovery",
+                    "agent_recovery.harness_completion",
+                ):
+                    result = await agent.invoke_async(
+                        prompt=decision.recovery_prompt,
+                        invocation_state=invocation_state,
+                        limits=limits,
+                    )
+                response_text = _scrub_response_text(str(result).strip())
+                turn_context.final_response = response_text
+                decision = await self.harness_runtime.evaluate_completion(turn_context)
+            if decision.action in {"blocked", "needs_user_input", "recover"}:
+                metadata["stopped"] = decision.code
+                metadata["harness_issues"] = list(decision.issues)
+                if decision.recovery_prompt and not response_text:
+                    response_text = decision.recovery_prompt
+            harness_state.final_response = response_text
         active_harness = _resolve_active_harness()
         if active_harness is not None:
             locale = str(request.metadata.get("locale") or "en")
@@ -1308,11 +1676,15 @@ class AgentLoop:
                     recovery_prompt[:240],
                 )
                 try:
-                    result = await agent.invoke_async(
-                        prompt=recovery_prompt,
-                        invocation_state=invocation_state,
-                        limits=limits,
-                    )
+                    with usage_scope(
+                        "agent_recovery",
+                        "agent_recovery.harness_progress",
+                    ):
+                        result = await agent.invoke_async(
+                            prompt=recovery_prompt,
+                            invocation_state=invocation_state,
+                            limits=limits,
+                        )
                 except Exception as exc:
                     LOGGER.exception("Harness recovery invoke failed for session_id=%s", request.session_id)
                     response_text = recovery_prompt
@@ -1329,7 +1701,11 @@ class AgentLoop:
                     metadata["stopped"] = "iteration_limit"
                     break
 
+        usage_summary = apply_turn_usage(metadata)
+        token_ledger.save()
         if event_sink is not None:
+            if usage_summary:
+                event_sink.turn_usage(usage_summary)
             event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
         LOGGER.info(
             "AgentLoop.run complete: session_id=%s response_len=%d saw_content_delta=%s tool_steps=%d stopped=%s",

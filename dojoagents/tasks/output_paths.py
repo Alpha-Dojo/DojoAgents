@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dojoagents.agent.write_session_file_guardrails import active_task_metadata
+from dojoagents.tools.write_authorization import active_task_metadata
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.models import TaskArtifactSpec, TaskSpec
-from dojoagents.tools.session_file_names import validate_output_filename
+from dojoagents.sessions.identifiers import validate_output_filename
 
 
 def normalize_task_id(raw: str) -> str:
@@ -93,9 +93,7 @@ def resolve_task_read_path(
                 continue
             if str(item.get("filename") or "").strip() != safe_name:
                 continue
-            source_task = normalize_task_id(
-                str(item.get("source_task_id") or item.get("source_task") or task_id)
-            )
+            source_task = normalize_task_id(str(item.get("source_task_id") or item.get("source_task") or task_id))
             return resolve_task_output_file(task_output_root, source_task, safe_name)
 
     return resolve_task_output_file(task_output_root, task_id, safe_name)

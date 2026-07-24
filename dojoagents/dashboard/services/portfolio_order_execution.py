@@ -50,11 +50,7 @@ def _row_dict(row: Any) -> dict[str, Any]:
         return row
     if hasattr(row, "model_dump"):
         return row.model_dump()
-    return {
-        key: getattr(row, key)
-        for key in ("bar_time", "datetime", "date", "open", "high", "low", "close")
-        if hasattr(row, key)
-    }
+    return {key: getattr(row, key) for key in ("bar_time", "datetime", "date", "open", "high", "low", "close") if hasattr(row, key)}
 
 
 def _bar_for_date(bars: list[Any], target: str) -> Optional[dict[str, float]]:
@@ -235,10 +231,7 @@ async def evaluate_order_fill_failure(
         if not price_within_daily_range(limit_price, bar["low"], bar["high"]):
             return OrderFillFailure(
                 "price_out_of_range",
-                (
-                    f"limit price {limit_price:.4f} is outside the {scheduled} range "
-                    f"[{bar['low']:.4f}, {bar['high']:.4f}] (open {bar['open']:.4f})"
-                ),
+                (f"limit price {limit_price:.4f} is outside the {scheduled} range " f"[{bar['low']:.4f}, {bar['high']:.4f}] (open {bar['open']:.4f})"),
                 {
                     "price": limit_price,
                     "date": scheduled,
@@ -524,13 +517,7 @@ def aggregate_positions_bounded(
     as_of_date: str | None = None,
 ) -> list[dict[str, Any]]:
     as_of = as_of_date or date.today().isoformat()
-    markets = sorted(
-        {
-            _normalized_order_market(order)
-            for order in orders
-            if str(order.get("order_status")) == "filled" and order.get("market")
-        }
-    )
+    markets = sorted({_normalized_order_market(order) for order in orders if str(order.get("order_status")) == "filled" and order.get("market")})
     positions: list[dict[str, Any]] = []
     for market in markets:
         if not market:
@@ -672,9 +659,7 @@ def sanitize_invalid_filled_orders(
         fill_date = _parse_date(order.get("fill_time") or order.get("order_time") or order.get("created_at"))
         if not fill_date:
             continue
-        filled_candidates.append(
-            (fill_date, str(order.get("created_at") or ""), _normalized_order_market(order), order_id)
-        )
+        filled_candidates.append((fill_date, str(order.get("created_at") or ""), _normalized_order_market(order), order_id))
     filled_candidates.sort()
 
     changed = False

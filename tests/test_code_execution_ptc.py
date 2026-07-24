@@ -5,10 +5,13 @@ import json
 import pytest
 
 from dojoagents.agent.models import ToolCall
-from dojoagents.agent.tool_result_artifacts import (
+from dojoagents.tools.artifacts import (
     ARTIFACT_PERSIST_THRESHOLD_CHARS,
     ToolResultArtifactStore,
-    build_artifact_pointer_message,
+)
+from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+    FinancialArtifactAdapter,
+    build_financial_artifact_pointer as build_artifact_pointer_message,
 )
 from dojoagents.tools.code_execution_tool import get_code_execution_spec, handle_code_execution
 from dojoagents.tools.executor import ToolExecutor
@@ -102,7 +105,14 @@ async def test_code_execution_load_tool_result_artifact(tmp_path):
         content=json.dumps({"klines": [{"datetime": "2026-06-30", "close": 520.0}]}),
         data={"klines": [{"datetime": "2026-06-30", "close": 520.0}]},
     )
-    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    registry.register(
+        get_code_execution_spec(
+            registry,
+            policy,
+            artifact_store=store,
+            artifact_adapter=FinancialArtifactAdapter(),
+        )
+    )
 
     code = "import dojo_tools\n" "res = dojo_tools.load_tool_result('call-kline')\n" "data = dojo_tools.tool_json(res)\n" "print('Loaded:', data['klines'][0]['close'])\n"
     result = await handle_code_execution(
@@ -110,6 +120,7 @@ async def test_code_execution_load_tool_result_artifact(tmp_path):
         registry,
         policy,
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="session-1",
     )
     assert "Loaded: 520.0" in result["content"]
@@ -132,19 +143,24 @@ async def test_code_execution_tool_rows_from_artifact(tmp_path):
         content=json.dumps({"ticker": "SNDK", "klines": rows}),
         data={"ticker": "SNDK", "klines": rows},
     )
-    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    registry.register(
+        get_code_execution_spec(
+            registry,
+            policy,
+            artifact_store=store,
+            artifact_adapter=FinancialArtifactAdapter(),
+        )
+    )
 
     code = (
-        "import dojo_tools\n"
-        "res = dojo_tools.load_tool_result('call-sndk')\n"
-        "rows = dojo_tools.tool_rows(res)\n"
-        "print('Rows:', len(rows), 'FirstClose:', rows[0]['close'])\n"
+        "import dojo_tools\n" "res = dojo_tools.load_tool_result('call-sndk')\n" "rows = dojo_tools.tool_rows(res)\n" "print('Rows:', len(rows), 'FirstClose:', rows[0]['close'])\n"
     )
     result = await handle_code_execution(
         {"code": code},
         registry,
         policy,
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="session-1",
     )
     assert "Rows: 2 FirstClose: 194.5" in result["content"]
@@ -216,7 +232,14 @@ async def test_code_execution_tool_df_from_screen_artifact(tmp_path):
             ],
         },
     )
-    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    registry.register(
+        get_code_execution_spec(
+            registry,
+            policy,
+            artifact_store=store,
+            artifact_adapter=FinancialArtifactAdapter(),
+        )
+    )
 
     code = (
         "res = dojo_tools.load_tool_result('call-screen')\n"
@@ -230,6 +253,7 @@ async def test_code_execution_tool_df_from_screen_artifact(tmp_path):
         registry,
         policy,
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="session-1",
     )
     assert "AsOf: 2026-07-07" in result["content"]
@@ -292,7 +316,14 @@ async def test_code_execution_agent_market_overview_script(tmp_path):
         content=json.dumps(sectors),
         data=sectors,
     )
-    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    registry.register(
+        get_code_execution_spec(
+            registry,
+            policy,
+            artifact_store=store,
+            artifact_adapter=FinancialArtifactAdapter(),
+        )
+    )
 
     code = (
         "res1 = dojo_tools.load_tool_result('call-overview')\n"
@@ -310,6 +341,7 @@ async def test_code_execution_agent_market_overview_script(tmp_path):
         registry,
         policy,
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="session-1",
     )
     assert result["metadata"]["exit_code"] == 0
@@ -350,7 +382,14 @@ async def test_code_execution_market_overview_benchmarks_subset(tmp_path):
         content=json.dumps(payload),
         data=payload,
     )
-    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    registry.register(
+        get_code_execution_spec(
+            registry,
+            policy,
+            artifact_store=store,
+            artifact_adapter=FinancialArtifactAdapter(),
+        )
+    )
 
     code = (
         "res = dojo_tools.load_tool_result('call-overview')\n"
@@ -364,6 +403,7 @@ async def test_code_execution_market_overview_benchmarks_subset(tmp_path):
         registry,
         policy,
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="session-1",
     )
     assert "Window: 2026-07-01 2026-07-07" in result["content"]
@@ -392,7 +432,12 @@ async def test_executor_persists_large_tool_result_and_replaces_llm_content(tmp_
             handler=big_payload,
         )
     )
-    executor = ToolExecutor(registry, policy, artifact_store=store)
+    executor = ToolExecutor(
+        registry,
+        policy,
+        artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
+    )
     result = await executor.execute_one(
         ToolCall(id="call-big", name="get_ticker_price_trends", arguments={"ticker": "0700"}),
         session_id="session-abc",
@@ -428,7 +473,12 @@ async def test_executor_keeps_execute_code_stdout_when_large(tmp_path):
         )
     )
 
-    executor = ToolExecutor(registry, policy, artifact_store=store)
+    executor = ToolExecutor(
+        registry,
+        policy,
+        artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
+    )
     result = await executor.execute_one(
         ToolCall(id="call-exec", name="execute_code", arguments={"code": "print('x')"}),
         session_id="session-exec",
@@ -539,7 +589,7 @@ def test_build_artifact_pointer_message_includes_viz_hint_for_drawdown_payload()
 
 
 def test_extract_viz_payload_from_execute_code_stdout() -> None:
-    from dojoagents.agent.tool_result_artifacts import (
+    from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
         enrich_execute_code_tool_result,
         extract_viz_payload_from_content,
         format_execute_code_viz_hint,
@@ -562,7 +612,10 @@ def test_extract_viz_payload_from_execute_code_stdout() -> None:
 
 
 def test_market_overview_schema_hint_uses_nested_pandas_example() -> None:
-    from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message, get_tool_artifact_schema_hint
+    from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+        build_financial_artifact_pointer as build_artifact_pointer_message,
+        get_tool_artifact_schema_hint,
+    )
 
     hint = get_tool_artifact_schema_hint("get_market_overview")
     assert hint is not None
@@ -606,6 +659,9 @@ def test_tool_rows_error_includes_table_guidance_for_nested_payload() -> None:
 @pytest.mark.asyncio
 async def test_load_tool_result_includes_tool_name_and_schema_hint(tmp_path) -> None:
     from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+    from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+        FinancialArtifactAdapter,
+    )
 
     store = ToolResultArtifactStore(tmp_path)
     store.save(
@@ -622,6 +678,7 @@ async def test_load_tool_result_includes_tool_name_and_schema_hint(tmp_path) -> 
         "/tmp/test.sock",
         tool_registry=type("R", (), {"get": lambda self, name: None})(),
         artifact_store=store,
+        artifact_adapter=FinancialArtifactAdapter(),
         agent_session_id="sess-1",
     )
     loaded = server._load_tool_result({"call_id": "overview-1"})

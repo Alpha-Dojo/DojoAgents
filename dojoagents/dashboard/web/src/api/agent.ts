@@ -1,7 +1,7 @@
 import { ApiError } from './http';
 import { fetchSettingsConfig } from './settings';
 
-import type { AgentChatRequest, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse, AgentSessionTokenStatus } from '../types/agent';
+import type { AgentChatRequest, AgentContextUsageSnapshot, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse, AgentSessionUsage, AgentToolTraceItem } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
@@ -109,7 +109,11 @@ export type AgentStreamHandlers = {
     resource_changes?: Record<string, unknown>[];
   }) => void;
   onEvalHint?: (payload: { text: string; issues: string[] }) => void;
-  onDone: (modelId: string) => void;
+  onContextUsage?: (
+    snapshot: AgentContextUsageSnapshot,
+    state: 'estimated' | 'reconciled',
+  ) => void;
+  onDone: (modelId: string, toolTrace?: AgentToolTraceItem[]) => void;
   onError: (message: string) => void;
 };
 
@@ -201,8 +205,12 @@ function dispatchStreamEvent(event: AgentStreamEvent, handlers: AgentStreamHandl
     handlers.onEvalHint?.({ text: event.text, issues: event.issues });
     return 'continue';
   }
+  if (event.type === 'context_usage_snapshot') {
+    handlers.onContextUsage?.(event.snapshot, event.state);
+    return 'continue';
+  }
   if (event.type === 'done') {
-    handlers.onDone(event.model_id);
+    handlers.onDone(event.model_id, event.tool_trace);
     return 'done';
   }
   if (event.type === 'error') {
@@ -320,17 +328,17 @@ export async function fetchAgentRunStatus(
   }>;
 }
 
-export async function fetchAgentSessionTokenStatus(
+export async function fetchAgentSessionUsage(
   sessionId: string,
-): Promise<AgentSessionTokenStatus> {
+): Promise<AgentSessionUsage> {
   const res = await fetch(
-    `${CHAT_API_PREFIX}/chat/sessions/${encodeURIComponent(sessionId)}/tokens`,
+    `/api/v1/chat/sessions/${encodeURIComponent(sessionId)}/usage?view=all&context_scope=latest`,
     { headers: { Accept: 'application/json' } },
   );
   if (!res.ok) {
     throw new ApiError(await readErrorMessage(res), res.status);
   }
-  return res.json() as Promise<AgentSessionTokenStatus>;
+  return res.json() as Promise<AgentSessionUsage>;
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {

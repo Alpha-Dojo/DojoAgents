@@ -155,11 +155,20 @@ class OpenAICompatibleProvider:
             return None
         prompt_i = int(prompt or 0)
         completion_i = int(completion or 0)
-        return {
+        result = {
             "prompt_tokens": prompt_i,
             "completion_tokens": completion_i,
             "total_tokens": int(total if total is not None else prompt_i + completion_i),
         }
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        cached_tokens = getattr(prompt_details, "cached_tokens", None)
+        if isinstance(cached_tokens, int):
+            result["cache_read_tokens"] = cached_tokens
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        reasoning_tokens = getattr(completion_details, "reasoning_tokens", None)
+        if isinstance(reasoning_tokens, int):
+            result["reasoning_tokens"] = reasoning_tokens
+        return result
 
     async def chat(
         self,

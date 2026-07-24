@@ -50,6 +50,8 @@ uv.lock
 docs/superpowers/
 docs/hermes/
 docs/plans/
+docs/designs/
+
 .superpowers/
 .qoder/
 .cursor/
@@ -66,3 +68,5 @@ out/
 dojo_theme_state_precomputed/web/
 dojo_sector_precomputed/web_discovery/
 dojo_sector_precomputed/web_theme/
+
+软件著作权申请资料/

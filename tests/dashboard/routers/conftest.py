@@ -6,7 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dojoagents.dashboard import deps
-from dojoagents.dashboard.routers import dojo_core, dojo_mesh, dojo_sphere
+from dojoagents.dashboard.routers import (
+    dojo_core,
+    dojo_mesh,
+    dojo_sphere,
+)
 import dojoagents.dashboard.routers.market as market_router
 import dojoagents.dashboard.routers.sector as sector_router
 import dojoagents.dashboard.routers.utility as utility_router
@@ -111,6 +115,12 @@ class StockStore:
     def find_market(self, _ticker):
         return "us"
 
+    def resolve(self, ticker, market=None):
+        return SimpleNamespace(
+            ticker=str(ticker).strip().upper(),
+            market=market or "us",
+        )
+
     def all_market_stats(self):
         return {market: self.market_stats(market) for market in ("sh", "hk", "us")}
 
@@ -166,6 +176,9 @@ class PortfolioService:
     async def add_holding(self, _portfolio_id, _body):
         return self.detail
 
+    async def add_holdings_batch(self, _portfolio_id, _bodies):
+        return self.detail
+
     async def auto_allocate(self, _portfolio_id, _body):
         return self.detail
 
@@ -173,7 +186,6 @@ class PortfolioService:
 @pytest.fixture
 def financial_client(monkeypatch) -> TestClient:
     runtime = SimpleNamespace(config_store=None, agent=None, scheduler=None, extensions=None)
-    app = create_app(runtime)
     stock_store = StockStore()
     sector_store = SectorStore()
     kline_store = KlineStore()
@@ -191,6 +203,13 @@ def financial_client(monkeypatch) -> TestClient:
         dojo_sphere_service=SimpleNamespace(
             metrics=lambda _key, compute: compute(),
             performance=lambda _key, compute: _sphere_performance_cache(compute),
+        ),
+    )
+    app = create_app(
+        runtime,
+        app_services=SimpleNamespace(
+            registry=registry,
+            market_data_revision={},
         ),
     )
 

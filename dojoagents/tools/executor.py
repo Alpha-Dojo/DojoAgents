@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any
-from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.models import ToolCall, ToolResult, ToolResultList
-from dojoagents.agent.escalation import AgentEscalationError, escalation_metadata
-from dojoagents.agent.tool_result_artifacts import (
+from dojoagents.tools.escalation import AgentEscalationError, escalation_metadata
+from dojoagents.tools.artifacts import (
     ARTIFACT_PERSIST_THRESHOLD_CHARS,
     ARTIFACT_KEEP_FULL_CONTENT_TOOLS,
+    ToolResultArtifactAdapter,
     ToolResultArtifactStore,
     build_artifact_pointer_message,
-    extract_viz_payload_from_content,
 )
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -28,11 +27,14 @@ class ToolExecutor:
         sandbox: SandboxPolicy,
         *,
         artifact_store: ToolResultArtifactStore | None = None,
+        artifact_adapter: ToolResultArtifactAdapter | None = None,
+        presenter_registry: Any = None,
     ) -> None:
         self.registry = registry
         self.sandbox = sandbox
-        self.presenters = ToolResultPresenterRegistry()
+        self.presenters = presenter_registry
         self.artifact_store = artifact_store
+        self.artifact_adapter = artifact_adapter
 
     async def execute_many(self, tool_calls: list[ToolCall], *, session_id: str = "") -> ToolResultList:
         results = ToolResultList()
@@ -114,13 +116,18 @@ class ToolExecutor:
         normalized.setdefault("content", "")
         normalized.setdefault("metadata", {})
         normalized["arguments"] = dict(call.arguments)
-        normalized = self.presenters.normalize(call.name, normalized)
+        normalized.setdefault("viz_blocks", [])
+        normalized.setdefault("artifacts", [])
+        normalized.setdefault("resource_changes", [])
+        if self.presenters is not None:
+            normalized = self.presenters.normalize(call.name, normalized)
 
         content = str(normalized.get("content", ""))
         if len(content) > _MAX_TOOL_RESULT_CHARS:
             content = truncate_output(content, _MAX_TOOL_RESULT_CHARS)
             normalized["truncated"] = True
         metadata = dict(normalized.get("metadata", {}))
+        metadata.setdefault("tool_arguments", dict(call.arguments))
         if session_id:
             metadata.setdefault("session_id", session_id)
 
@@ -138,16 +145,16 @@ class ToolExecutor:
                     error = content.strip() or f"Process exited with code {exit_code_int}"
 
         artifact_path = None
-        persist_artifact = (
-            self.artifact_store is not None
-            and session_id
-            and len(content) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
-        )
+        persist_artifact = self.artifact_store is not None and session_id and len(content) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
         if persist_artifact:
             try:
                 artifact_data = normalized.get("data")
-                if artifact_data is None and call.name in {"execute_code", "code_execution"}:
-                    artifact_data = extract_viz_payload_from_content(content)
+                if self.artifact_adapter is not None:
+                    artifact_data = self.artifact_adapter.extract_data(
+                        call.name,
+                        content,
+                        artifact_data,
+                    )
                 artifact_path = self.artifact_store.save(
                     session_id=session_id,
                     call_id=call.id,
@@ -161,7 +168,8 @@ class ToolExecutor:
                 metadata["artifact_path"] = str(artifact_path)
                 metadata["artifact_call_id"] = call.id
                 if call.name not in ARTIFACT_KEEP_FULL_CONTENT_TOOLS:
-                    content = build_artifact_pointer_message(
+                    pointer_builder = self.artifact_adapter.build_pointer if self.artifact_adapter is not None else build_artifact_pointer_message
+                    content = pointer_builder(
                         tool_name=call.name,
                         call_id=call.id,
                         arguments=dict(call.arguments),

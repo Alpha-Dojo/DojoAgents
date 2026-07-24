@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_ticker_alpha_factors import (
+from dojoagents.dashboard.jobs.precompute.ticker_alpha_factors import (
     RESEARCH_ONLY_LEAKAGE_RISK,
     TICKER_ALPHA_FACTORS_COLUMNS,
     TICKER_ALPHA_FACTORS_RULE,
@@ -80,9 +80,7 @@ def test_compute_ticker_alpha_factors_frame_basic() -> None:
             },
         ]
     )
-    benchmark = pd.DataFrame(
-        [{"market": "us", "trade_date": d, "daily_return_pct": 0.2, "close": 100.0 + i} for i, d in enumerate(dates)]
-    )
+    benchmark = pd.DataFrame([{"market": "us", "trade_date": d, "daily_return_pct": 0.2, "close": 100.0 + i} for i, d in enumerate(dates)])
     sector_rows = []
     sec_close = 100.0
     for d in dates:

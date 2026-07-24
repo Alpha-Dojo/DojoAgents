@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from dojoagents.dashboard.services.market_stats import display_valuation_ratio
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel

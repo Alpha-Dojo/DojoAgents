@@ -126,7 +126,5 @@ class PipelineRunner:
             if not path.is_file():
                 issues.append(f"Missing required output: {filename}")
                 continue
-            issues.extend(
-                self.validator.validate_artifact(task=task_spec, artifact=artifact, path=path)
-            )
+            issues.extend(self.validator.validate_artifact(task=task_spec, artifact=artifact, path=path))
         return issues

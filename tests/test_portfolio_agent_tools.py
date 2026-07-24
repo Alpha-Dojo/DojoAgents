@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from dojoagents.dashboard.tools import portfolio_tools
+from dojoagents.dashboard.integrations import (
+    financial_portfolio_tools as portfolio_tools,
+)
 
 
 def test_assert_candidate_only_fields_rejects_price() -> None:

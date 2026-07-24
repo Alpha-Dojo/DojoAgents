@@ -129,9 +129,7 @@ class StockStore:
         for market in MARKETS:
             # 1. Fetch stock list
             result = await self.gateway.stocks(market=market)
-            candidates = self._dedupe_stocks(
-                [Stock(**item) for item in result.data if isinstance(item, dict)]
-            )
+            candidates = self._dedupe_stocks([Stock(**item) for item in result.data if isinstance(item, dict)])
 
             if candidates:
                 tickers = [s.ticker for s in candidates]

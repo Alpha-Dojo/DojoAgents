@@ -3,6 +3,7 @@ from dojoagents.gateway.state import GatewaySessionStore
 
 mcp = FastMCP("DojoAgents Outbound MCP Server")
 
+
 @mcp.tool()
 def list_chat_sessions() -> str:
     """List all active and stored DojoAgents chat sessions."""
@@ -14,6 +15,7 @@ def list_chat_sessions() -> str:
     for key, s in sessions.items():
         lines.append(f"- Key: {s.key} | Platform: {s.platform} | User: {s.user_id} | Status: {s.status}")
     return "\n".join(lines)
+
 
 @mcp.tool()
 def get_chat_history(session_key: str) -> str:
@@ -30,6 +32,7 @@ def get_chat_history(session_key: str) -> str:
         content = turn.get("content", "")
         lines.append(f"[{role}]: {content}")
     return "\n\n".join(lines)
+
 
 def run_server():
     """Start the stdio FastMCP server."""

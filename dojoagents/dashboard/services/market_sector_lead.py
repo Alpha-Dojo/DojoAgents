@@ -182,11 +182,7 @@ def compute_market_sector_lead(
     limit: int = 5,
 ) -> MarketSectorLead:
     sectors = build_market_sectors(market, sector_store, sector_precomputed_store)
-    ranked = [
-        sector
-        for sector in sectors
-        if sector_eligible_for_movers_ranking(member_count=sector.member_count or 0)
-    ]
+    ranked = [sector for sector in sectors if sector_eligible_for_movers_ranking(member_count=sector.member_count or 0)]
 
     gainers = _apply_strength(
         sorted(

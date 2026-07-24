@@ -15,6 +15,13 @@ docs/
 
 正式文档只维护在 `docs/site/` 下。正式站点只包含当前指南、架构、Reference 和开发文档；历史规划、迁移记录、原型讨论保存在 `docs/plans/`，不进入正式站点导航。
 
+金融 Agent 工具与 Task 的权威说明在正式站：
+
+- `docs/site/*/reference/dojo-sdk.md`（`dojo.sdk.*` 清单与待补能力）
+- `docs/site/*/user-guide/tasks-and-pipelines.md`（流水线与 Theme Deep Dive）
+
+`docs/plans/` 中的能力盘点 / backlog 应与上述正式说明保持方向一致（SDK 为主路径），但细节仍以 site 为准。
+
 ## 本地预览
 
 从仓库根目录执行：

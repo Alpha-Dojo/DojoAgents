@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.agent.sector_session import (
+from dojoagents.harnesses.built_in.financial.policies.sector_context import (
     extract_sector_best_match,
     get_sector_best_match,
     record_sector_search_in_invocation,

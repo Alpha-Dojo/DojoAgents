@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from dojoagents.dashboard.services.file_store_base import (
+from dojoagents.sessions.atomic import (
     AtomicJsonStore,
     AtomicJsonlStore,
     CorruptStoreError,

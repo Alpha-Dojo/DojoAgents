@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import inspect
 import json
 import os
@@ -11,14 +10,12 @@ from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from dojo.client.async_client import AsyncDojo
-
 from dojoagents.dashboard.routers import (
+    chat_sessions,
     dojo_core,
     dojo_folio,
     dojo_mesh,
     dojo_sphere,
-    chat_sessions,
     market,
     markets,
     portfolio,
@@ -29,12 +26,7 @@ from dojoagents.dashboard.routers import (
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
 from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
-from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop  # noqa
-from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
-from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
-from dojoagents.dashboard.tools import register_dashboard_domain_tools, register_dashboard_portfolio_tools
-
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -47,9 +39,13 @@ from dojoagents.agent.models import (
     ChatRequest,
 )
 from dojoagents.agent.events import AgentEventSink
-from dojoagents.dashboard.sse import make_event_queue_sink, stream_completion_chunks
-from dojoagents.quant.context import QuantContext
-from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.dashboard.sse import (
+    make_event_queue_sink,
+    stream_completion_chunks,
+    stream_persisted_run_events,
+)
+from dojoagents.dashboard.auth import get_session_principal
+from dojoagents.sessions.models import SessionPrincipal
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.providers import OpenAICompatibleProvider
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
@@ -147,10 +143,20 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
     return provider_cfg.model
 
 
-def _chat_request(payload: dict[str, Any]) -> ChatRequest:
+def _decode_request_context(surface: Any, value: Any) -> Any:
+    decoder = getattr(surface, "decode_request_context", None)
+    if not callable(decoder):
+        decoder = getattr(surface, "decode", None)
+    return decoder(value) if callable(decoder) else value
+
+
+def _chat_request(
+    payload: dict[str, Any],
+    *,
+    surface: Any = None,
+) -> ChatRequest:
     quant = payload.get("quant")
-    if isinstance(quant, dict):
-        quant = QuantContext(**quant)
+    quant = _decode_request_context(surface, quant)
     return ChatRequest(
         message=payload["message"],
         user_id=payload["user_id"],
@@ -184,7 +190,11 @@ def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str,
     return normalized
 
 
-def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str, Any]]:
+def _completion_request(
+    payload: dict[str, Any],
+    *,
+    surface: Any = None,
+) -> tuple[ChatRequest, dict[str, Any]]:
     """Parse payload into (ChatRequest, extra_info) with dual-format detection.
 
     Returns a tuple of (ChatRequest, info_dict) where info_dict contains:
@@ -233,8 +243,7 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         event_format = str(metadata.get("event_format") or "openai.v1")
         locale = str(metadata.get("locale") or payload.get("locale") or "zh")
 
-        quant_data = metadata.get("quant")
-        quant = QuantContext(**quant_data) if isinstance(quant_data, dict) else None
+        quant = _decode_request_context(surface, metadata.get("quant"))
         metadata["history"] = messages[:last_user_index]
         metadata["user_content"] = last_user_content
         metadata["locale"] = locale
@@ -251,21 +260,10 @@ def _completion_request(payload: dict[str, Any]) -> tuple[ChatRequest, dict[str,
         return req, {"stream": stream, "model": model, "messages": messages, "event_format": event_format}
     else:
         # Legacy format
-        req = _chat_request(payload)
+        req = _chat_request(payload, surface=surface)
         req.metadata.setdefault("locale", payload.get("locale", "zh"))
         req.metadata.setdefault("event_format", "openai.v1")
         return req, {"stream": False, "model": "default", "messages": [{"role": "user", "content": req.message}], "event_format": "openai.v1"}
-
-
-async def _close_dojo_client(client: Any) -> None:
-    close = getattr(client, "aclose", None)
-    if callable(close):
-        await close()
-        return
-    http_client = getattr(client, "_client", None)
-    close = getattr(http_client, "aclose", None)
-    if callable(close):
-        await close()
 
 
 async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink | None = None) -> AgentResponse:
@@ -292,110 +290,79 @@ async def _run_agent(runtime: Any, req: ChatRequest, event_sink: AgentEventSink 
     )
 
 
-def create_app(
-    runtime: Any,
+def create_app(  # noqa: C901
+    runtime: Any | None = None,
     *,
-    dojo_client_factory=AsyncDojo,
-    store_registry: Any | None = None,
-    dashboard_data_root: Path | None = None,
+    app_services: Any | None = None,
+    app_services_owned: bool = False,
+    config_store: Any | None = None,
+    agent_enabled: bool = True,
 ) -> FastAPI:
-    registry = store_registry or FinancialDomainRegistry()
-    if hasattr(runtime, "agent") and hasattr(runtime.agent, "tool_executor"):
-        register_dashboard_domain_tools(runtime.agent.tool_executor.registry, registry)
-        register_dashboard_portfolio_tools(runtime.agent.tool_executor.registry, registry)
-
-    store = getattr(runtime, "config_store", None)
-    if store:
-        snapshot = store.snapshot()
-        sdk_cfg = getattr(snapshot, "dojosdk", None)
-        offline_mode = getattr(snapshot, "offline_mode", True)
-        financial_cfg = snapshot.dashboard.financial
-    else:
-        sdk_cfg = None
-        offline_mode = True
-        financial_cfg = FinancialDashboardConfig()
-
-    from dojoagents.dashboard.services.stock_quote_filter import configure_ticker_market_cap_mins
-
-    configure_ticker_market_cap_mins(
-        sh=financial_cfg.ticker_market_cap_min_sh,
-        us=financial_cfg.ticker_market_cap_min_us,
-        hk=financial_cfg.ticker_market_cap_min_hk,
-    )
-
-    sdk_cache_dir = financial_cfg.sdk_cache_path
-    os.environ["DOJO_CACHE_DIR"] = str(sdk_cache_dir)
-    resolved_data_root = (dashboard_data_root or financial_cfg.dashboard_data_path).expanduser()
-
-    if offline_mode:
-        os.environ["DOJO_ONLINE"] = "0"
+    store = config_store
+    if store is None and runtime is not None:
+        store = getattr(runtime, "config_store", None)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        kwargs = {
-            "api_key": sdk_cfg.api_key if sdk_cfg else None,
-            "base_url": sdk_cfg.base_url if sdk_cfg else None,
-            "timeout": sdk_cfg.timeout if sdk_cfg else 60.0,
-            "max_retries": sdk_cfg.max_retries if sdk_cfg else 1,
-        }
-        client = dojo_client_factory(**kwargs)
-        refresh_task = None
+        nonlocal runtime
+        from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
+        from dojoagents.dashboard.integrations.runtime_factory import (
+            create_embedded_runtime,
+        )
+        from dojoagents.dashboard.services.app_container import (
+            DashboardAppServices,
+            DashboardAppServicesConfig,
+        )
+
+        app.state.config_store = store
+        app.state.agent_run_manager = AgentRunManager()
+        app.state.principal_provider = LegacyLocalPrincipalProvider()
+        services = app_services
+        owns_services = app_services_owned or (services is None and store is not None)
+        if owns_services:
+            if services is None:
+                services = DashboardAppServices(DashboardAppServicesConfig.from_agents_config(store.snapshot()))
+            await services.startup()
+        if services is not None:
+            app.state.app_services = services
+            app.state.financial_registry = services.registry
+            app.state.market_data_revision = dict(services.market_data_revision)
+        owns_runtime = runtime is None and agent_enabled and store is not None
+        if owns_runtime:
+            if services is None:
+                raise RuntimeError("embedded Dashboard Runtime requires Dashboard app services")
+            runtime = await create_embedded_runtime(store, services)
+        app.state.runtime = runtime
         try:
-            if hasattr(client, "preload_offline_data"):
-                LOGGER.info("=== 阶段 1/2: 开始预加载 DojoSDK 离线数据 ===")
-                await client.preload_offline_data()
-                LOGGER.info("=== 阶段 1/2: DojoSDK 离线数据预加载完成 ===")
-
-            LOGGER.info("=== 阶段 2/2: 开始预加载 Dashboard 内存服务 ===")
-            await registry.init_and_load_all(
-                client,
-                data_root=resolved_data_root,
-                preload=True,
-            )
-            LOGGER.info("=== 阶段 2/2: Dashboard 内存服务预加载完成 ===")
-            refresh_store = RefreshStateStore(resolved_data_root / "runtime")
-            await refresh_store.set_last_refresh_date_async("preload_offline_data", datetime.date.today())
-            app.state.market_data_revision = refresh_store.get_market_data_revision()
-            app.state.dojo_client = client
-            app.state.config_store = getattr(runtime, "config_store", None)
-            app.state.financial_registry = registry
-            app.state.agent_run_manager = AgentRunManager()
-
-            # Start background refresh loop
-            refresh_task = asyncio.create_task(
-                start_refresh_loop(runtime_dir=resolved_data_root / "runtime", registry=registry),
-            )
-
             yield
         finally:
-            if refresh_task:
-                refresh_task.cancel()
-                try:
-                    await refresh_task
-                except asyncio.CancelledError:
-                    pass
-            await _close_dojo_client(client)
-            reset = getattr(registry, "reset", None)
-            if callable(reset):
-                reset()
+            if owns_runtime:
+                await runtime.shutdown()
+            if owns_services:
+                await services.shutdown()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
     app.state.runtime = runtime
     app.state.config_store = store
-    app.state.financial_registry = registry
+    from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
 
-    app.include_router(utility.router, prefix="/api/v1")
-    app.include_router(market.router, prefix="/api/v1")
-    app.include_router(sector.router, prefix="/api/v1")
-    app.include_router(ticker.router, prefix="/api/v1")
-    app.include_router(portfolio.router, prefix="/api/v1")
-    app.include_router(dojo_core.router, prefix="/api/v1")
-    app.include_router(dojo_folio.router, prefix="/api/v1")
-    app.include_router(dojo_mesh.router, prefix="/api/v1")
-    app.include_router(dojo_sphere.router, prefix="/api/v1")
-    app.include_router(markets.router, prefix="/api/v1")
-    app.include_router(sectors.router, prefix="/api/v1")
-    app.include_router(chat_sessions.router, prefix="/api/v1")
+    app.state.principal_provider = LegacyLocalPrincipalProvider()
+
+    for router in (
+        utility.router,
+        market.router,
+        sector.router,
+        ticker.router,
+        portfolio.router,
+        dojo_core.router,
+        dojo_folio.router,
+        dojo_mesh.router,
+        dojo_sphere.router,
+        markets.router,
+        sectors.router,
+        chat_sessions.router,
+    ):
+        app.include_router(router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,
@@ -407,20 +374,38 @@ def create_app(
 
     app.add_middleware(PyInstrumentProfilerMiddleware)
 
+    @app.middleware("http")
+    async def require_agent_runtime_for_agent_endpoints(
+        request: Request,
+        call_next: Any,
+    ) -> Any:
+        agent_paths = (
+            "/api/chat",
+            "/api/jobs",
+            "/api/extensions",
+        )
+        if runtime is None and any(request.url.path == path or request.url.path.startswith(path + "/") for path in agent_paths):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "Agent Runtime is disabled for this Dashboard",
+                    "code": "agent_runtime_disabled",
+                },
+            )
+        return await call_next(request)
+
     @app.get("/api/health")
     async def health() -> dict:
         return {"ok": True}
 
     @app.get("/api/config")
     async def config() -> dict:
-        store = getattr(runtime, "config_store", None)
         if store is None:
             return {}
         return store.redacted()
 
     @app.put("/api/config")
     async def update_config(request: Request) -> Any:
-        store = getattr(runtime, "config_store", None)
         if store is None:
             return JSONResponse(
                 status_code=503,
@@ -443,6 +428,24 @@ def create_app(
 
         current_raw = store.raw()
         merged = _deep_merge(current_raw, payload)
+        restart_paths = (
+            ("harness",),
+            ("sessions", "store"),
+            ("sessions", "blob_store"),
+            ("sessions", "runtime", "require_user_id"),
+            ("sessions", "runtime", "lease_seconds"),
+            ("sessions", "runtime", "heartbeat_seconds"),
+        )
+
+        def _at_path(data: dict[str, Any], path: tuple[str, ...]) -> Any:
+            current: Any = data
+            for key in path:
+                if not isinstance(current, dict) or key not in current:
+                    return None
+                current = current[key]
+            return current
+
+        requires_restart = any(_at_path(current_raw, path) != _at_path(merged, path) for path in restart_paths)
         _sync_agent_model_with_default_provider(merged)
         try:
             store.save_raw(merged)
@@ -454,7 +457,9 @@ def create_app(
                     "detail": str(exc),
                 },
             )
-        return store.redacted()
+        response = store.redacted()
+        response["requires_restart"] = requires_restart
+        return response
 
     @app.get("/api/jobs")
     async def jobs() -> list[dict]:
@@ -470,7 +475,10 @@ def create_app(
     @app.post("/api/chat")
     async def chat(payload: dict[str, Any]) -> Any:
         try:
-            req, info = _completion_request(payload)
+            req, info = _completion_request(
+                payload,
+                surface=None,
+            )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
         is_stream = info["stream"]
@@ -559,37 +567,45 @@ def create_app(
         return body
 
     @app.post("/api/chat/runs")
-    async def create_chat_run(payload: dict[str, Any]) -> Any:
+    async def create_chat_run(
+        payload: dict[str, Any],
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
         try:
-            req, info = _completion_request(payload)
+            req, info = _completion_request(
+                payload,
+                surface=None,
+            )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
+        req = replace(req, principal=principal, user_id=principal.user_id)
         manager: AgentRunManager = app.state.agent_run_manager
         _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
         sessions = getattr(runtime, "sessions", None)
+        canonical_sessions = sessions is not None and hasattr(sessions, "history")
         session_handle_ref: dict[str, Any] = {}
 
         async def _on_started(record: Any) -> None:
-            if sessions is None:
+            if sessions is None or canonical_sessions:
                 return
             session_handle_ref["handle"] = await sessions.begin_run(req, model=info.get("model", "default"), run_id=record.id)
 
         async def _on_completed(record: Any, response: AgentResponse) -> None:
-            if sessions is None:
+            if sessions is None or canonical_sessions:
                 return
             handle = session_handle_ref.get("handle")
             if handle is not None:
                 await sessions.finish_run(handle, response, events=record.events)
 
         async def _on_failed(record: Any, exc: Exception) -> None:
-            if sessions is None:
+            if sessions is None or canonical_sessions:
                 return
             handle = session_handle_ref.get("handle")
             if handle is not None:
                 await sessions.fail_run(handle, str(exc))
 
         async def _on_cancelled(record: Any) -> None:
-            if sessions is None:
+            if sessions is None or canonical_sessions:
                 return
             handle = session_handle_ref.get("handle")
             if handle is not None:
@@ -616,42 +632,204 @@ def create_app(
         }
 
     @app.get("/api/chat/sessions/{session_id}/tokens")
-    async def get_chat_session_tokens(session_id: str) -> Any:
-        from dojoagents.agent.token_ledger import SessionTokenState
+    async def get_chat_session_tokens(
+        session_id: str,
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
+        service = getattr(runtime, "session_service", None)
+        usage_summary = None
+        if service is not None:
+            from dojoagents.sessions.errors import SessionNotFoundError
+            from dojoagents.sessions.models import UsageQuery
 
-        ledger = SessionTokenLedger()
-        path = ledger._store.path_for(session_id)
-        if not path.exists():
-            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-        raw = ledger._store._read_sync(path, session_id)
-        if not isinstance(raw, dict):
-            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-        return SessionTokenState(**raw).snapshot()
+            try:
+                await service.get_session(principal, session_id)
+            except SessionNotFoundError:
+                return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+            usage_summary = await service.usage(
+                principal,
+                session_id,
+                UsageQuery(include_records=False),
+            )
+
+        agent = getattr(runtime, "agent", None)
+        active_root = getattr(agent, "token_ledger_root", None)
+        ledgers = []
+        if active_root:
+            ledgers.append(SessionTokenLedger(active_root))
+        # Preserve ledgers created before canonical SessionService migration.
+        ledgers.append(SessionTokenLedger())
+        for ledger in ledgers:
+            state = ledger.load_existing(session_id)
+            if state is not None:
+                snapshot = state.snapshot()
+                if usage_summary is not None and usage_summary.calls:
+                    snapshot.update(
+                        {
+                            "cumulative_prompt_tokens": usage_summary.input_tokens,
+                            "cumulative_completion_tokens": usage_summary.output_tokens,
+                            "cumulative_total_tokens": usage_summary.total_tokens,
+                            "loop_count": usage_summary.calls,
+                        }
+                    )
+                return snapshot
+        if usage_summary is not None:
+            return {
+                "last_prompt_tokens": 0,
+                "last_completion_tokens": 0,
+                "last_total_tokens": 0,
+                "session_max_tokens": 0,
+                "compression_threshold_ratio": 0.8,
+                "utilization_ratio": 0.0,
+                "cumulative_prompt_tokens": usage_summary.input_tokens,
+                "cumulative_completion_tokens": usage_summary.output_tokens,
+                "cumulative_total_tokens": usage_summary.total_tokens,
+                "compression_count": 0,
+                "model_context_window": 0,
+                "loop_count": usage_summary.calls,
+            }
+        LOGGER.warning(
+            "Token ledger was not found for session: session_id=%s active_root=%s",
+            session_id,
+            active_root,
+        )
+        return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
 
     @app.get("/api/chat/runs/{run_id}")
-    async def get_chat_run(run_id: str) -> Any:
+    async def get_chat_run(
+        run_id: str,
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
         manager: AgentRunManager = app.state.agent_run_manager
+        service = getattr(runtime, "session_service", None)
+        if service is not None:
+            try:
+                record = await service.get_run(principal, run_id)
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                LOGGER.info(
+                    "Canonical run is not persisted yet; returning local status: run_id=%s local_status=%s",
+                    run_id,
+                    local_record.status,
+                )
+                return local_record.to_status_dict()
+            else:
+                return {
+                    "run_id": record.run_id,
+                    "status": record.status,
+                    "model": record.model,
+                    "metadata": {},
+                }
         record = manager.get(run_id)
-        if record is None:
+        if record is None or not record.is_visible_to(principal):
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
         return record.to_status_dict()
 
     @app.post("/api/chat/runs/{run_id}/cancel")
-    async def cancel_chat_run(run_id: str) -> Any:
+    async def cancel_chat_run(
+        run_id: str,
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
         manager: AgentRunManager = app.state.agent_run_manager
+        service = getattr(runtime, "session_service", None)
+        if service is not None:
+            try:
+                await service.request_cancel(principal, run_id)
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                cancelled_locally = await manager.cancel_run(run_id)
+                LOGGER.info(
+                    "Canonical run is not persisted yet; handled cancellation locally: run_id=%s local_status=%s cancelled=%s",
+                    run_id,
+                    local_record.status,
+                    cancelled_locally,
+                )
+                if cancelled_locally:
+                    return {"cancelled": True}
+                return JSONResponse(status_code=400, content={"error": f"Run is not active: {local_record.status}"})
+            cancelled_locally = await manager.cancel_run(run_id)
+            LOGGER.info(
+                "Dashboard canonical run cancellation requested: run_id=%s local_task_cancelled=%s",
+                run_id,
+                cancelled_locally,
+            )
+            return {"cancelled": True}
+        record = manager.get(run_id)
+        if record is None or not record.is_visible_to(principal):
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
         cancelled = await manager.cancel_run(run_id)
         if not cancelled:
             record = manager.get(run_id)
-            if record is None:
+            if record is None or not record.is_visible_to(principal):
                 return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
             return JSONResponse(status_code=400, content={"error": f"Run is not active: {record.status}"})
         return {"cancelled": True}
 
     @app.get("/api/chat/runs/{run_id}/events")
-    async def stream_chat_run_events(run_id: str, cursor: int = 0) -> Any:
+    async def stream_chat_run_events(
+        run_id: str,
+        cursor: int = 0,
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
         manager: AgentRunManager = app.state.agent_run_manager
+        use_persisted_events = False
+        service = getattr(runtime, "session_service", None)
+        if service is not None:
+            try:
+                await service.get_run(principal, run_id)
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                LOGGER.info(
+                    "Canonical run is not persisted yet; streaming local events: run_id=%s local_status=%s event_count=%d cursor=%d",
+                    run_id,
+                    local_record.status,
+                    len(local_record.events),
+                    cursor,
+                )
+            else:
+                use_persisted_events = True
+
+        if use_persisted_events:
+
+            async def _persisted():
+                iterator = stream_persisted_run_events(service, principal, run_id, after_seq=max(0, cursor)).__aiter__()
+                next_event = asyncio.create_task(anext(iterator))
+                try:
+                    while True:
+                        done, _ = await asyncio.wait((next_event,), timeout=10)
+                        if not done:
+                            yield ": keepalive\n\n"
+                            continue
+                        try:
+                            event = next_event.result()
+                        except StopAsyncIteration:
+                            return
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        next_event = asyncio.create_task(anext(iterator))
+                finally:
+                    if not next_event.done():
+                        next_event.cancel()
+                    await iterator.aclose()
+
+            return StreamingResponse(
+                _persisted(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
         record = manager.get(run_id)
-        if record is None:
+        if record is None or not record.is_visible_to(principal):
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
 
         safe_cursor = max(0, cursor)
@@ -660,7 +838,7 @@ def create_app(
             index = safe_cursor
             while True:
                 current = manager.get(run_id)
-                if current is None:
+                if current is None or not current.is_visible_to(principal):
                     yield f'data: {{"type":"error","message":"Unknown run: {run_id}"}}\n\n'
                     return
 

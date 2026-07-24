@@ -12,25 +12,25 @@ from unittest.mock import AsyncMock, MagicMock
 
 class TestDashboardVizProtocol:
     def test_module_importable(self) -> None:
-        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+        from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
         assert isinstance(DASHBOARD_VIZ_PROTOCOL, str)
         assert len(DASHBOARD_VIZ_PROTOCOL) > 0
 
     def test_protocol_mentions_structured_viz_blocks(self) -> None:
-        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+        from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
         assert "viz_blocks" in DASHBOARD_VIZ_PROTOCOL
         assert "agent_viz_build" in DASHBOARD_VIZ_PROTOCOL
 
     def test_protocol_forbids_legacy_dojo_chart_output(self) -> None:
-        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+        from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
         assert "Do NOT output `DOJO_CHART` fenced blocks." in DASHBOARD_VIZ_PROTOCOL
         assert "Do NOT output JavaScript, ECharts scripts, or HTML" in DASHBOARD_VIZ_PROTOCOL
 
     def test_legacy_alias_points_to_current_protocol(self) -> None:
-        from dojoagents.agent.canvas_protocol import (
+        from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import (
             DASHBOARD_CANVAS_PROTOCOL,
             DASHBOARD_VIZ_PROTOCOL,
         )
@@ -68,7 +68,7 @@ class TestProtocolInjectionByChannel:
         )
 
     def _build_system_prompt(self, loop, channel: str) -> str:
-        from dojoagents.agent.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
+        from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
         from dojoagents.agent.models import ChatRequest
 
         request = ChatRequest(

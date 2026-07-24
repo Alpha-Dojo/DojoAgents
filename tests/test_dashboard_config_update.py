@@ -321,3 +321,38 @@ def test_get_config_redacted_marks_api_key_configured(tmp_path, monkeypatch):
     assert providers["openai"]["api_key"] == "***"
     assert providers["glm"]["api_key_configured"] is True
     assert providers["glm"]["api_key"] == "***"
+
+
+def test_put_config_marks_harness_and_session_store_changes_for_restart(tmp_path):
+    runtime, _ = _make_runtime_with_config(tmp_path, {"version": 1})
+    client = TestClient(create_app(runtime))
+
+    response = client.put(
+        "/api/config",
+        json={
+            "harness": {"id": "support", "factory": "project.harness:create_harness"},
+            "sessions": {
+                "store": {
+                    "provider": "mysql",
+                    "factory": "project.sessions:create_mysql_store",
+                    "options": {"dsn": "mysql://user:secret@db/sessions"},
+                },
+                "runtime": {"lease_seconds": 120},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["requires_restart"] is True
+    assert body["sessions"]["store"]["options"]["dsn"] == "***"
+
+
+def test_put_config_marks_logging_only_change_as_hot_reloadable(tmp_path):
+    runtime, _ = _make_runtime_with_config(tmp_path, {"version": 1, "logging": {"level": "INFO"}})
+    client = TestClient(create_app(runtime))
+
+    response = client.put("/api/config", json={"logging": {"level": "DEBUG"}})
+
+    assert response.status_code == 200
+    assert response.json()["requires_restart"] is False

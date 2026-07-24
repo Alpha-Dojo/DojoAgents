@@ -8,4 +8,5 @@ This section covers day-to-day usage:
 - [Skills](skills.md)
 - [Tools](tools.md)
 - [Scheduled Jobs](scheduled-jobs.md)
+- [Tasks and Pipelines](tasks-and-pipelines.md)
 - [Financial Workflows](financial-workflows.md)

@@ -7,6 +7,7 @@ from typing import Any, Protocol
 import httpx
 
 from dojoagents.agent.models import ChatRequest
+from dojoagents.sessions.models import SessionPrincipal
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ class GatewayEvent:
     def to_chat_request(self, *, session_id: str | None = None) -> ChatRequest:
         return ChatRequest(
             message=self.text,
-            user_id=self.user_id,
+            principal=self.principal,
             session_id=session_id or self.session_key,
             channel=self.platform,
             metadata={
@@ -31,6 +32,13 @@ class GatewayEvent:
                 "message_id": self.message_id,
                 "thread_id": self.thread_id,
             },
+        )
+
+    @property
+    def principal(self) -> SessionPrincipal:
+        return SessionPrincipal(
+            user_id=self.user_id,
+            tenant_id=f"gateway:{self.platform}",
         )
 
     @property
@@ -52,8 +60,7 @@ class AsyncHttpClient(Protocol):
         url: str,
         payload: dict[str, Any],
         headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
 
 class HttpxAsyncHttpClient:
@@ -142,9 +149,7 @@ class BaseGatewayAdapter:
     def send_url(self, target: str) -> str:
         raise NotImplementedError
 
-    def send_payload(
-        self, target: str, message: str, *, thread_id: str | None = None
-    ) -> dict[str, Any]:
+    def send_payload(self, target: str, message: str, *, thread_id: str | None = None) -> dict[str, Any]:
         raise NotImplementedError
 
     def auth_headers(self) -> dict[str, str]:

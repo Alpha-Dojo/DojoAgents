@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dojoagents.dashboard.services.file_store_base import AtomicJsonStore
+from dojoagents.sessions.atomic import AtomicJsonStore
 
 
 class SectorMetricsStore:

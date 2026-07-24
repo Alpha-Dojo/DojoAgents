@@ -8,7 +8,7 @@ import pytest
 from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.providers import StaticLLMProvider
-from dojoagents.agent.write_session_file_guardrails import (
+from dojoagents.tools.write_authorization import (
     WriteSessionFileClassification,
     classify_write_session_file,
     write_session_file_guardrail_from_classification,
@@ -24,8 +24,9 @@ from dojoagents.tools.session_file_tool import get_write_session_file_spec
 @pytest.fixture
 def task_manager() -> TaskPromptManager:
     repo_root = Path(__file__).resolve().parents[1]
-    built_in = repo_root / "dojoagents" / "tasks" / "built_in"
-    pipelines = repo_root / "dojoagents" / "tasks" / "pipelines"
+    financial = repo_root / "dojoagents" / "harnesses" / "built_in" / "financial"
+    built_in = financial / "tasks" / "definitions"
+    pipelines = financial / "pipelines" / "definitions"
     return TaskPromptManager(task_dirs=[built_in], pipeline_dirs=[pipelines])
 
 
@@ -61,9 +62,7 @@ async def test_classifier_denies_unrequested_write() -> None:
 
 @pytest.mark.asyncio
 async def test_classifier_allows_explicit_file_request() -> None:
-    provider = StaticLLMProvider(
-        [LLMResult(content=_classification_json(allow_write=True, explanation="User asked to export JSON."))]
-    )
+    provider = StaticLLMProvider([LLMResult(content=_classification_json(allow_write=True, explanation="User asked to export JSON."))])
     classification = await classify_write_session_file(
         "把结果导出为 analysis.json",
         provider,
@@ -91,9 +90,7 @@ async def test_task_mode_allows_required_output_write_without_classifier(
     tmp_path: Path,
     task_manager: TaskPromptManager,
 ) -> None:
-    provider = StaticLLMProvider(
-        [LLMResult(content=_classification_json(allow_write=False, explanation="Should not run."))]
-    )
+    provider = StaticLLMProvider([LLMResult(content=_classification_json(allow_write=False, explanation="Should not run."))])
     token = active_write_session_file_guard.set(
         WriteSessionFileGuardContext(
             llm_provider=provider,
@@ -151,9 +148,7 @@ async def test_task_mode_allows_required_output_write_without_classifier(
 
 @pytest.mark.asyncio
 async def test_task_mode_rejects_placeholder_output(tmp_path: Path, task_manager: TaskPromptManager) -> None:
-    provider = StaticLLMProvider(
-        [LLMResult(content=_classification_json(allow_write=False, explanation="Should not run."))]
-    )
+    provider = StaticLLMProvider([LLMResult(content=_classification_json(allow_write=False, explanation="Should not run."))])
     token = active_write_session_file_guard.set(
         WriteSessionFileGuardContext(
             llm_provider=provider,

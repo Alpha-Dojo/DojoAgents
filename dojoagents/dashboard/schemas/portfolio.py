@@ -253,6 +253,7 @@ class SyncPortfolioPositionsRequest(BaseModel):
 
 class RemovePortfolioHoldingRequest(BaseModel):
     """Removes a candidate ticker from the portfolio watchlist."""
+
     ticker: str = Field(..., min_length=1)
     market: Optional[str] = Field(None, description="Market code: us, sh, hk")
 

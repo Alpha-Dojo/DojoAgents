@@ -9,7 +9,7 @@ import pandas as pd
 from dojoagents.config.loader import FinancialDashboardConfig
 from dojoagents.dashboard.services.domain_utils import normalize_market_code, sanitize_records
 from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_window_bounds_from_trade_dates
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_daily import (
     CONSTITUENTS_FILE,
     MANIFEST_FILE,
     PRECOMPUTE_DIR,
@@ -397,8 +397,7 @@ class SectorPrecomputedStore:
         dropped = len(normalized) - len(filtered)
         if dropped:
             LOGGER.warning(
-                "Dropped %s sector constituents at/below ticker market-cap floor on reload "
-                "(stale snapshot or misconfigured publish).",
+                "Dropped %s sector constituents at/below ticker market-cap floor on reload " "(stale snapshot or misconfigured publish).",
                 dropped,
             )
         return filtered

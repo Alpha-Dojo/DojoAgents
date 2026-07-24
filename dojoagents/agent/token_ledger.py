@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dojoagents.dashboard.services.file_store_base import AtomicJsonStore
+from dojoagents.sessions.atomic import AtomicJsonStore
 
 
 @dataclass
@@ -70,14 +70,30 @@ class SessionTokenState:
 
 
 class SessionTokenLedger:
-    def __init__(self, root: str | Path = "~/.dojo/agents/sessions") -> None:
-        self._store = AtomicJsonStore(Path(root).expanduser(), schema_version=1)
+    def __init__(
+        self,
+        root: str | Path | None = "~/.dojo/agents/sessions",
+    ) -> None:
+        self._store = AtomicJsonStore(Path(root).expanduser(), schema_version=1) if root is not None else None
         self.state: SessionTokenState | None = None
         self._session_id = ""
 
     @property
     def session_id(self) -> str:
         return self._session_id
+
+    def load_existing(self, session_id: str) -> SessionTokenState | None:
+        """Load a persisted session without creating an empty ledger entry."""
+
+        if self._store is None:
+            return None
+        path = self._store.path_for(session_id)
+        if not path.exists():
+            return None
+        raw = self._store._read_sync(path, session_id)
+        if not isinstance(raw, dict):
+            return None
+        return SessionTokenState(**{**raw, "session_id": session_id})
 
     def load_or_create(
         self,
@@ -90,12 +106,10 @@ class SessionTokenLedger:
         compression_threshold_ratio: float,
     ) -> SessionTokenState:
         self._session_id = session_id
-        path = self._store.path_for(session_id)
-        if path.exists():
-            raw = self._store._read_sync(path, session_id)
-            if isinstance(raw, dict):
-                self.state = SessionTokenState(**{**raw, "session_id": session_id})
-                return self.state
+        existing = self.load_existing(session_id)
+        if existing is not None:
+            self.state = existing
+            return self.state
         self.state = SessionTokenState(
             session_id=session_id,
             provider=provider,
@@ -107,7 +121,7 @@ class SessionTokenLedger:
         return self.state
 
     def save(self) -> None:
-        if self.state is None or not self._session_id:
+        if self.state is None or not self._session_id or self._store is None:
             return
         path = self._store.path_for(self._session_id)
         self._store._write_sync(path, asdict(self.state))

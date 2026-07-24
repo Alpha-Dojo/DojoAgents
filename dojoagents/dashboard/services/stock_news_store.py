@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import asyncio
 from typing import Dict, Optional
 
 from dojoagents.dashboard.schemas.stock_news import CoreTickerNewsResponse
@@ -13,6 +15,10 @@ class StockNewsStore:
     def __init__(self, source):
         self.gateway = source if callable(getattr(source, "stock_news", None)) else DojoDataGateway(source)
         self.cache: Dict[str, CoreTickerNewsResponse] = {}
+        self._inflight: dict[
+            str,
+            asyncio.Task[CoreTickerNewsResponse],
+        ] = {}
 
     async def load(self) -> None:
         pass
@@ -38,5 +44,14 @@ class StockNewsStore:
         cached = self.cache.get(cache_key)
         if cached is not None:
             return cached
-        self.cache[cache_key] = await self._fetch(ticker, market or "us", page_size)
-        return self.cache[cache_key]
+        task = self._inflight.get(cache_key)
+        if task is None:
+            task = asyncio.create_task(self._fetch(symbol, market_code, page_size))
+            self._inflight[cache_key] = task
+        try:
+            result = await task
+            self.cache[cache_key] = result
+            return result
+        finally:
+            if self._inflight.get(cache_key) is task:
+                self._inflight.pop(cache_key, None)

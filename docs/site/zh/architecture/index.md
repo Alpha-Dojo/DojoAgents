@@ -5,6 +5,7 @@
 核心页面：
 
 - [Runtime](runtime.md)
+- [Harness、Agent 与 Session](harness-agent-session-integration.md)
 - [Agent Loop](agent-loop.md)
 - [Tools 与 Sandbox](tools-and-sandbox.md)
 - [Dashboard](dashboard.md)
@@ -13,4 +14,3 @@
 - [Multi-Agent 与 Planning](multi-agent-planning.md)
 - [Memory](memory.md)
 - [Event-driven](event-driven.md)
-

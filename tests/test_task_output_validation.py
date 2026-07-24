@@ -14,8 +14,9 @@ from dojoagents.tasks.output_validation import (
 @pytest.fixture
 def task_manager() -> TaskPromptManager:
     repo_root = Path(__file__).resolve().parents[1]
-    built_in = repo_root / "dojoagents" / "tasks" / "built_in"
-    pipelines = repo_root / "dojoagents" / "tasks" / "pipelines"
+    financial = repo_root / "dojoagents" / "harnesses" / "built_in" / "financial"
+    built_in = financial / "tasks" / "definitions"
+    pipelines = financial / "pipelines" / "definitions"
     return TaskPromptManager(task_dirs=[built_in], pipeline_dirs=[pipelines])
 
 

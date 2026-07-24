@@ -2,6 +2,9 @@
 
 Dashboard API 由 `dojoagents/dashboard/server.py` 和 `dojoagents/dashboard/routers/` 注册。`/api/chat` 是 Agent 主入口；`/api/chat/runs` 提供后台 run 生命周期；`/api/v1/*` 提供 Dashboard 金融领域数据和 session 查询。
 
+!!! note
+    `/api/v1` 的 REST 路由名 **不等于** Agent `ToolSpec` 名。Agent 金融只读的目标主路径是 `dojo.sdk.*`（见 [DojoSDK](dojo-sdk.md)）。Domain tools 为 legacy / UI 配套。
+
 ## 基础入口
 
 | Method | Path | 说明 |

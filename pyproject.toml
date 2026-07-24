@@ -47,7 +47,10 @@ sdist = "dojoagents.packaging_hooks.SdistCommand"
 
 [tool.setuptools.package-data]
 "dojoagents" = [
-    "data/default_portfolios/**/*",
+    "skills/built_in/**/*",
+    "harnesses/built_in/financial/tasks/definitions/**/*",
+    "harnesses/built_in/financial/pipelines/definitions/*.yaml",
+    "dashboard/data/default_portfolios/**/*",
 ]
 "dojoagents.dashboard" = [
     "web/dist/**/*",

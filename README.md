@@ -195,6 +195,29 @@ As illustrated in the diagram above, DojoAgents is engineered for scale, deep co
 - **Memory & SKILLS:** Automatically distills successful, multi-step market analysis workflows into reusable, programmatic SKILLS for future execution.
 - **Cron & Gateway:** Decoupled delivery pipelines that push scheduled, automated insights directly to your preferred chat applications, without blocking the main Agent reasoning loop.
 
+### Harness Runtime
+
+An agent instance is bound to exactly one Harness instance. Core owns the LLM loop, tool execution, lifecycle and principal-scoped Session platform; the Harness owns one scenario's identity, prompts, skills, tools, memory, policies, tasks, presenters, services and surface adapters. The built-in financial scenario is selected by default:
+
+```yaml
+harness:
+  id: financial
+  factory: dojoagents.harnesses.built_in.financial:create_harness
+  config:
+    backend: sdk
+```
+
+Other projects can provide a Python Harness factory or set `factory: null` and `manifest: ./my-harness.yaml` for the constrained `dojoagents/v1alpha1` declarative format. Extra skill/tool directories supplement the bound Harness and cannot silently replace its owned components.
+
+The Financial Harness owns agent behavior—prompts, ToolSpecs, policies, memory,
+tasks, and result presentation. The FastAPI Dashboard independently owns the
+financial application backend—routers, API schemas, stores, refresh/precompute
+jobs, portfolio data, and service lifecycle. Embedded Dashboard deployments bind
+their existing financial backend into Runtime; CLI or Gateway deployments can use
+the standalone SDK backend or a configured remote HTTP backend.
+
+Sessions are scoped by `(tenant_id, user_id, session_id)` and can use file or project-provided stores. See the [external SessionStore / BlobStore adapter contract](docs/session-store-adapter.md) for online MySQL/PostgreSQL/object-storage deployments.
+
 
 ## 📚 Documentation & Deep Dives
 
@@ -204,6 +227,7 @@ Ready to build custom quantitative skills, integrate proprietary data, or deploy
 - Writing Custom Plugins & Claude Skills
 - Chat Gateways & Omnichannel Setup
 - Dashboard UI Customization Guide
+- [External SessionStore / BlobStore adapters](docs/session-store-adapter.md)
 
 ## 🤝 Contributing
 

@@ -129,14 +129,13 @@ class TaskActivator:
         return None
 
     def _apply_defaults(self, request: ChatRequest, params: dict[str, Any]) -> None:
+        for key in ("trading_date", "window_start_date", "window_end_date"):
+            if key in request.metadata:
+                params.setdefault(key, request.metadata[key])
         if params.get("trading_date"):
             trading_date = str(params["trading_date"])
             params.setdefault("window_start_date", trading_date)
             params.setdefault("window_end_date", trading_date)
-            return
-        for key in ("trading_date", "window_start_date", "window_end_date"):
-            if key in request.metadata:
-                params.setdefault(key, request.metadata[key])
 
     def _validate_params(self, params: dict[str, Any]) -> None:
         for key in ("trading_date", "window_start_date", "window_end_date"):
@@ -164,10 +163,7 @@ class TaskActivator:
             except ValueError as exc:
                 raise TaskActivationError(str(exc)) from exc
             if not path.is_file():
-                raise TaskActivationError(
-                    f"Required input artifact not found: {resolved_name}. "
-                    f"Run the upstream task first."
-                )
+                raise TaskActivationError(f"Required input artifact not found: {resolved_name}. " f"Run the upstream task first.")
             if trading_date and artifact.format == "json":
                 self._validate_trading_date(path, trading_date, resolved_name)
 
@@ -182,6 +178,4 @@ class TaskActivator:
             return
         file_date = str(payload.get("trading_date") or "").strip()
         if file_date and file_date != trading_date:
-            raise TaskActivationError(
-                f"trading_date mismatch: request={trading_date}, {filename}={file_date}"
-            )
+            raise TaskActivationError(f"trading_date mismatch: request={trading_date}, {filename}={file_date}")

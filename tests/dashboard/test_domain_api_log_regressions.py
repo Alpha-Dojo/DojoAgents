@@ -35,7 +35,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 1.23,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [
@@ -65,9 +65,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_supports_date_range_window() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")),
         stock_store=SimpleNamespace(
             get=lambda market, ticker: SimpleNamespace(
                 ticker=ticker,
@@ -90,7 +88,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 2.5,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market_cap": 100.0}],
@@ -117,9 +115,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_excludes_single_member_sectors() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")),
         stock_store=SimpleNamespace(get=lambda *_args, **_kwargs: None),
         sector_precomputed_store=SimpleNamespace(
             resolve_window_bounds=lambda window: window,
@@ -206,8 +202,9 @@ def _quoted_stock(ticker: str, market: str = "sh"):
             name=ticker,
             last_price=10.0,
             change_percent=1.0,
+            volume=1,
             turn_rate=0.5,
-            market_cap=100.0,
+            market_cap=10_000_000_000.0,
             pe=12.0,
             pb=1.5,
             amount=1000.0,

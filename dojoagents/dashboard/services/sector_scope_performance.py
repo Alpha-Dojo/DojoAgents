@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from dojoagents.dashboard.services.kline_store import KlineStore
@@ -11,7 +11,7 @@ from dojoagents.dashboard.services.sector_earnings_index import (
     compute_market_index_series,
     filter_cap_weighted_tickers,
 )
-from dojoagents.dashboard.services.precompute_sector_daily import DATA_START_DATE
+from dojoagents.dashboard.jobs.precompute.sector_daily import DATA_START_DATE
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.services.sector_scope_performance_stats import compute_market_performance_stats
@@ -185,11 +185,7 @@ def _market_series_from_precomputed(
     if not daily_rows:
         return [], 0
     sorted_rows = sorted(daily_rows, key=lambda row: str(row.get("trade_date") or ""))
-    series = [
-        (str(row["trade_date"]), float(row["index_level"]))
-        for row in sorted_rows
-        if str(row.get("trade_date") or "") >= DATA_START_DATE
-    ]
+    series = [(str(row["trade_date"]), float(row["index_level"])) for row in sorted_rows if str(row.get("trade_date") or "") >= DATA_START_DATE]
     member_count = int(sorted_rows[-1].get("member_count") or 0)
     return series, member_count
 
