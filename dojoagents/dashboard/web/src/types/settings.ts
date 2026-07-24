@@ -37,6 +37,8 @@ export interface SettingsFormState {
       extract_backend: string;
       search_base_url: string;
       extract_base_url: string;
+      api_key: string;
+      api_key_env: string;
       max_extract_urls: number;
       max_content_bytes: number;
       summary_threshold_chars: number;

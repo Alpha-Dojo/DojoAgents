@@ -47,6 +47,8 @@ tools:
   web:
     search_backend: ddgs
     extract_backend: fetch
+    # tavily / exa / firecrawl 等付费后端需要配置 api_key 或 api_key_env
+    # api_key_env: TAVILY_API_KEY
     max_extract_urls: 5
     max_content_bytes: 2000000
 

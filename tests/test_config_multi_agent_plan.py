@@ -167,6 +167,8 @@ class TestConfigLoader:
                         "user_agent": "CustomBot/1.0",
                         "search_base_url": "http://localhost:8080",
                         "extract_base_url": "http://localhost:8081",
+                        "api_key": "tvly-test-key",
+                        "api_key_env": "TAVILY_API_KEY",
                         "summary_threshold_chars": 1200,
                     }
                 }
@@ -177,4 +179,19 @@ class TestConfigLoader:
         assert cfg.tools.web.user_agent == "CustomBot/1.0"
         assert cfg.tools.web.search_base_url == "http://localhost:8080"
         assert cfg.tools.web.extract_base_url == "http://localhost:8081"
+        assert cfg.tools.web.api_key == "tvly-test-key"
+        assert cfg.tools.web.api_key_env == "TAVILY_API_KEY"
         assert cfg.tools.web.summary_threshold_chars == 1200
+
+    def test_resolves_web_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-from-env")
+        cfg = _to_config(
+            {
+                "tools": {
+                    "web": {
+                        "api_key_env": "TAVILY_API_KEY",
+                    }
+                }
+            }
+        )
+        assert cfg.tools.web.api_key == "tvly-from-env"
