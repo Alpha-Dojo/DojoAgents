@@ -111,6 +111,22 @@ def _resolve_search_base_url(cfg: WebToolsConfig) -> str:
     return (cfg.search_base_url or "https://html.duckduckgo.com").rstrip("/")
 
 
+def _resolve_tavily_base_url(cfg: WebToolsConfig, *, kind: str) -> str:
+    if kind == "search":
+        return (cfg.search_base_url or "https://api.tavily.com").rstrip("/")
+    return (cfg.extract_base_url or cfg.search_base_url or "https://api.tavily.com").rstrip("/")
+
+
+def _require_web_api_key(cfg: WebToolsConfig) -> str:
+    key = (cfg.api_key or "").strip()
+    if key:
+        return key
+    raise RuntimeError(
+        "Web tools API key is not configured. Set tools.web.api_key or tools.web.api_key_env "
+        "(for example TAVILY_API_KEY) in ~/.dojo/agents.yaml"
+    )
+
+
 def _strip_html_to_text(raw: str) -> tuple[str, str]:
     title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, flags=re.IGNORECASE | re.DOTALL)
     title = html.unescape(re.sub(r"\s+", " ", title_match.group(1)).strip()) if title_match else ""
@@ -218,6 +234,98 @@ async def _fetch_extract_adapter(
 
 
 register_extract_backend("fetch", _fetch_extract_adapter)
+
+
+async def _tavily_search_adapter(
+    query: str,
+    limit: int,
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    api_key = _require_web_api_key(cfg)
+    base_url = _resolve_tavily_base_url(cfg, kind="search")
+    async with _make_async_client(
+        cfg,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    ) as client:
+        response = await client.post(
+            f"{base_url}/search",
+            json={
+                "query": query,
+                "max_results": max(1, min(int(limit), 20)),
+                "include_answer": False,
+                "include_images": False,
+                "include_raw_content": False,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+    rows: list[dict[str, Any]] = []
+    for index, item in enumerate(list(payload.get("results") or []), start=1):
+        if index > limit:
+            break
+        rows.append(
+            {
+                "title": str(item.get("title") or ""),
+                "url": str(item.get("url") or ""),
+                "description": str(item.get("content") or item.get("snippet") or ""),
+                "position": index,
+            }
+        )
+    return rows
+
+
+register_search_backend("tavily", _tavily_search_adapter)
+
+
+async def _tavily_extract_adapter(
+    urls: list[str],
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    api_key = _require_web_api_key(cfg)
+    base_url = _resolve_tavily_base_url(cfg, kind="extract")
+    async with _make_async_client(
+        cfg,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    ) as client:
+        response = await client.post(
+            f"{base_url}/extract",
+            json={"urls": urls, "include_images": False},
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+    by_url: dict[str, dict[str, Any]] = {}
+    for item in list(payload.get("results") or []):
+        url = str(item.get("url") or "")
+        if not url:
+            continue
+        by_url[url] = {
+            "url": url,
+            "title": str(item.get("title") or ""),
+            "content": str(item.get("raw_content") or item.get("content") or ""),
+            "error": None,
+        }
+    for item in list(payload.get("failed_results") or []):
+        url = str(item.get("url") or "")
+        if not url:
+            continue
+        by_url[url] = {
+            "url": url,
+            "title": "",
+            "content": "",
+            "error": str(item.get("error") or "extract failed"),
+        }
+
+    results: list[dict[str, Any]] = []
+    for url in urls:
+        if url in by_url:
+            results.append(by_url[url])
+        else:
+            results.append({"url": url, "title": "", "content": "", "error": "no extract result"})
+    return results
+
+
+register_extract_backend("tavily", _tavily_extract_adapter)
 
 
 def get_web_searcher_specs(cfg: WebToolsConfig) -> list[ToolSpec]:

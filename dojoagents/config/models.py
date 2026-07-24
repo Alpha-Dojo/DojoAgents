@@ -57,6 +57,8 @@ class WebToolsConfig:
     user_agent: str | None = None
     search_base_url: str | None = None
     extract_base_url: str | None = None
+    api_key: str | None = None
+    api_key_env: str | None = None
     max_extract_urls: int = 5
     max_content_bytes: int = 2_000_000
     summary_threshold_chars: int = 6000

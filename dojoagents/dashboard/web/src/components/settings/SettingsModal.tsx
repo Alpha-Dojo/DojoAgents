@@ -324,6 +324,8 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
         extract_backend: asString(web.extract_backend),
         search_base_url: asString(web.search_base_url),
         extract_base_url: asString(web.extract_base_url),
+        api_key: web.api_key === '***' ? '' : asString(web.api_key),
+        api_key_env: asString(web.api_key_env),
         max_extract_urls: asNumber(web.max_extract_urls, 5),
         max_content_bytes: asNumber(web.max_content_bytes, 2_000_000),
         summary_threshold_chars: asNumber(web.summary_threshold_chars, 6000),
@@ -411,13 +413,26 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
         allowed_roots: linesToArr(form.tools.sandbox.allowed_roots),
         allowed_commands: linesToArr(form.tools.sandbox.allowed_commands),
       },
-      web: {
-        ...form.tools.web,
-        search_backend: form.tools.web.search_backend || null,
-        extract_backend: form.tools.web.extract_backend || null,
-        search_base_url: form.tools.web.search_base_url || null,
-        extract_base_url: form.tools.web.extract_base_url || null,
-      },
+      web: (() => {
+        const {
+          api_key: webApiKey,
+          api_key_env: webApiKeyEnv,
+          search_backend: searchBackend,
+          extract_backend: extractBackend,
+          search_base_url: searchBaseUrl,
+          extract_base_url: extractBaseUrl,
+          ...webRest
+        } = form.tools.web;
+        return {
+          ...webRest,
+          search_backend: searchBackend || null,
+          extract_backend: extractBackend || null,
+          search_base_url: searchBaseUrl || null,
+          extract_base_url: extractBaseUrl || null,
+          api_key_env: webApiKeyEnv || null,
+          ...(webApiKey ? { api_key: webApiKey } : {}),
+        };
+      })(),
     },
     memory: { ...form.memory },
     skills: {
@@ -805,6 +820,12 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 </Field>
                 <Field label="Extract Base URL">
                   {textInput(form.tools.web.extract_base_url, (value) => updateField((draft) => { draft.tools.web.extract_base_url = value; }))}
+                </Field>
+                <Field label="Web API Key Env">
+                  {textInput(form.tools.web.api_key_env, (value) => updateField((draft) => { draft.tools.web.api_key_env = value; }), 'TAVILY_API_KEY')}
+                </Field>
+                <Field label="Web API Key">
+                  {textInput(form.tools.web.api_key, (value) => updateField((draft) => { draft.tools.web.api_key = value; }), '***', 'password')}
                 </Field>
                 <Field label="Max Extract URLs">
                   {numberInput(form.tools.web.max_extract_urls, (value) => updateField((draft) => { draft.tools.web.max_extract_urls = value; }), 1)}
