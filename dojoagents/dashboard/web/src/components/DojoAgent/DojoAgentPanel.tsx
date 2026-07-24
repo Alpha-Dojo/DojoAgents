@@ -1524,6 +1524,7 @@ export function DojoAgentPanel({
             <AgentStatusPanel
               sessionId={activeSessionId}
               refreshKey={statusRefreshKey}
+              liveContext={sessionRun.contextUsage}
               onClose={() => setStatusOpen(false)}
             />
           ) : null}

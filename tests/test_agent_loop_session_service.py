@@ -13,7 +13,14 @@ from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.memory.manager import MemoryManager
 from dojoagents.sessions.blobs.file import FileBlobStore
-from dojoagents.sessions.models import HistoryQuery, SessionListQuery, SessionPrincipal, TurnQuery
+from dojoagents.sessions.models import (
+    ContextUsageQuery,
+    HistoryQuery,
+    SessionListQuery,
+    SessionPrincipal,
+    TurnQuery,
+    UsageQuery,
+)
 from dojoagents.sessions.service import SessionService
 from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.sessions.stores.file import FileSessionStore
@@ -86,6 +93,12 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     turns = await service.turns(principal, "s1", TurnQuery())
     runs = await service.list_runs(principal, "s1")
     history = await service.history(principal, "s1", HistoryQuery())
+    usage = await service.usage(principal, "s1", UsageQuery())
+    context_usage = await service.context_usage(
+        principal,
+        "s1",
+        ContextUsageQuery(),
+    )
     assert response.content == "hello"
     assert sessions.items[0].harness_id == "minimal"
     assert len(turns.items) == 1
@@ -93,6 +106,17 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     assert turns.items[0].output == {"content": "hello"}
     assert [message.role for message in history.items] == ["user", "assistant"]
     assert runs[0].status == "completed"
+    assert response.metadata["usage"]["total_tokens"] > 0
+    assert usage.calls == 1
+    assert usage.records[0].turn_id == turns.items[0].turn_id
+    assert usage.records[0].category == "agent_inference"
+    assert usage.records[0].quality == "estimated"
+    assert context_usage.latest is not None
+    assert context_usage.latest.invocation_id == usage.records[0].invocation_id
+    assert {item.category for item in context_usage.latest.components} >= {
+        "system_prompt",
+        "conversation",
+    }
     await service.shutdown()
 
 
@@ -106,8 +130,12 @@ async def test_model_exception_marks_canonical_run_failed(tmp_path):
         await loop.run(ChatRequest("hi", session_id="s1", principal=principal))
 
     runs = await service.list_runs(principal, "s1")
+    usage = await service.usage(principal, "s1", UsageQuery())
     assert len(runs) == 1
     assert runs[0].status == "failed"
+    assert usage.calls == 1
+    assert usage.records[0].status == "failed"
+    assert usage.records[0].quality == "unavailable"
     await service.shutdown()
 
 
@@ -167,6 +195,9 @@ async def test_external_event_sink_and_canonical_run_share_one_run_id(tmp_path):
     assert all(event.payload["run_id"] == "run-external" for event in events.items)
     assert len(emitted) == len(sink.events)
     assert len(events.items) == len(sink.events)
+    event_types = [event.event_type for event in events.items]
+    assert event_types.count("context_usage_snapshot") == 2
+    assert event_types[-2:] == ["turn_usage", "done"]
     await service.shutdown()
 
 
@@ -262,7 +293,10 @@ async def test_canonical_heartbeat_converts_cancel_request_to_terminal_cancel(tm
 
     run = await service.get_run(principal, "run-cancel-live")
     events = await service.read_events(principal, "run-cancel-live", after_seq=0, limit=100)
+    usage = await service.usage(principal, "s1", UsageQuery())
     assert run.status == "cancelled"
+    assert usage.calls == 1
+    assert usage.records[0].status == "cancelled"
     assert events.items[-1].event_type == "error"
     assert events.items[-1].payload["code"] == "cancelled"
     await service.shutdown()

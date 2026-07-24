@@ -5,6 +5,7 @@ import {
   appendTextDelta,
   appendToolStart,
   hasOrderedTextSteps,
+  reconcileToolTrace,
   resolveToolResult,
 } from './agentActivityTimeline.ts';
 
@@ -61,5 +62,79 @@ test('detects ordered messages without treating legacy activity as ordered text'
   assert.equal(
     hasOrderedTextSteps(appendToolStart([], 'resolve_symbol', {}, 'call-1')),
     false,
+  );
+});
+
+test('reconciles a running tool from terminal done tool trace', () => {
+  const steps = appendToolStart(
+    [],
+    'portfolio_write_create',
+    { name: 'Income' },
+    'call-blocked',
+  );
+
+  const reconciled = reconcileToolTrace(
+    steps,
+    [
+      {
+        call_id: 'call-blocked',
+        tool: 'portfolio_write_create',
+        arguments: { name: 'Income' },
+        ok: false,
+        latency_ms: 0,
+        truncated: false,
+        error: 'Blocked by Harness policy',
+      },
+    ],
+    'en',
+  );
+
+  assert.equal(reconciled.length, 1);
+  assert.equal(reconciled[0]?.kind, 'tool');
+  assert.equal(
+    reconciled[0]?.kind === 'tool' ? reconciled[0].item.status : '',
+    'error',
+  );
+  assert.equal(
+    reconciled[0]?.kind === 'tool' ? reconciled[0].item.error : '',
+    'Blocked by Harness policy',
+  );
+});
+
+test('does not duplicate a tool already completed by live SSE', () => {
+  let steps = appendToolStart([], 'portfolio_read_detail', {}, 'call-1');
+  steps = resolveToolResult(
+    steps,
+    'portfolio_read_detail',
+    true,
+    12,
+    'en',
+    null,
+    'ok',
+    { id: 'p-1' },
+    undefined,
+    'call-1',
+  );
+
+  const reconciled = reconcileToolTrace(
+    steps,
+    [
+      {
+        call_id: 'call-1',
+        tool: 'portfolio_read_detail',
+        arguments: {},
+        ok: true,
+        latency_ms: 12,
+        truncated: false,
+        data: { id: 'p-1' },
+      },
+    ],
+    'en',
+  );
+
+  assert.equal(reconciled.length, 1);
+  assert.equal(
+    reconciled[0]?.kind === 'tool' ? reconciled[0].item.status : '',
+    'done',
   );
 });

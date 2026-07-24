@@ -104,7 +104,13 @@ async def classify_turn_intent(
         {"role": "user", "content": user_payload},
     ]
     try:
-        result = await llm_provider.chat(messages, tools=[], model=model)
+        from dojoagents.agent.usage import usage_scope
+
+        with usage_scope(
+            "turn_intent",
+            "turn_intent.financial",
+        ):
+            result = await llm_provider.chat(messages, tools=[], model=model)
         data = _parse_classifier_json(result.content)
         if data is None:
             LOGGER.warning("Turn intent classifier returned non-JSON content; using defaults")

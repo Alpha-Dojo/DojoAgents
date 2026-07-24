@@ -632,38 +632,100 @@ def create_app(  # noqa: C901
         }
 
     @app.get("/api/chat/sessions/{session_id}/tokens")
-    async def get_chat_session_tokens(session_id: str) -> Any:
-        from dojoagents.agent.token_ledger import SessionTokenState
+    async def get_chat_session_tokens(
+        session_id: str,
+        principal: SessionPrincipal = Depends(get_session_principal),
+    ) -> Any:
+        service = getattr(runtime, "session_service", None)
+        usage_summary = None
+        if service is not None:
+            from dojoagents.sessions.errors import SessionNotFoundError
+            from dojoagents.sessions.models import UsageQuery
 
-        ledger = SessionTokenLedger()
-        path = ledger._store.path_for(session_id)
-        if not path.exists():
-            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-        raw = ledger._store._read_sync(path, session_id)
-        if not isinstance(raw, dict):
-            return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
-        return SessionTokenState(**raw).snapshot()
+            try:
+                await service.get_session(principal, session_id)
+            except SessionNotFoundError:
+                return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
+            usage_summary = await service.usage(
+                principal,
+                session_id,
+                UsageQuery(include_records=False),
+            )
+
+        agent = getattr(runtime, "agent", None)
+        active_root = getattr(agent, "token_ledger_root", None)
+        ledgers = []
+        if active_root:
+            ledgers.append(SessionTokenLedger(active_root))
+        # Preserve ledgers created before canonical SessionService migration.
+        ledgers.append(SessionTokenLedger())
+        for ledger in ledgers:
+            state = ledger.load_existing(session_id)
+            if state is not None:
+                snapshot = state.snapshot()
+                if usage_summary is not None and usage_summary.calls:
+                    snapshot.update(
+                        {
+                            "cumulative_prompt_tokens": usage_summary.input_tokens,
+                            "cumulative_completion_tokens": usage_summary.output_tokens,
+                            "cumulative_total_tokens": usage_summary.total_tokens,
+                            "loop_count": usage_summary.calls,
+                        }
+                    )
+                return snapshot
+        if usage_summary is not None:
+            return {
+                "last_prompt_tokens": 0,
+                "last_completion_tokens": 0,
+                "last_total_tokens": 0,
+                "session_max_tokens": 0,
+                "compression_threshold_ratio": 0.8,
+                "utilization_ratio": 0.0,
+                "cumulative_prompt_tokens": usage_summary.input_tokens,
+                "cumulative_completion_tokens": usage_summary.output_tokens,
+                "cumulative_total_tokens": usage_summary.total_tokens,
+                "compression_count": 0,
+                "model_context_window": 0,
+                "loop_count": usage_summary.calls,
+            }
+        LOGGER.warning(
+            "Token ledger was not found for session: session_id=%s active_root=%s",
+            session_id,
+            active_root,
+        )
+        return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
 
     @app.get("/api/chat/runs/{run_id}")
     async def get_chat_run(
         run_id: str,
         principal: SessionPrincipal = Depends(get_session_principal),
     ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
+        manager: AgentRunManager = app.state.agent_run_manager
         service = getattr(runtime, "session_service", None)
         if service is not None:
             try:
                 record = await service.get_run(principal, run_id)
-            except Exception:
-                return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
-            return {
-                "run_id": record.run_id,
-                "status": record.status,
-                "model": record.model,
-                "metadata": {},
-            }
-        manager: AgentRunManager = app.state.agent_run_manager
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                LOGGER.info(
+                    "Canonical run is not persisted yet; returning local status: run_id=%s local_status=%s",
+                    run_id,
+                    local_record.status,
+                )
+                return local_record.to_status_dict()
+            else:
+                return {
+                    "run_id": record.run_id,
+                    "status": record.status,
+                    "model": record.model,
+                    "metadata": {},
+                }
         record = manager.get(run_id)
-        if record is None:
+        if record is None or not record.is_visible_to(principal):
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
         return record.to_status_dict()
 
@@ -672,13 +734,27 @@ def create_app(  # noqa: C901
         run_id: str,
         principal: SessionPrincipal = Depends(get_session_principal),
     ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
         manager: AgentRunManager = app.state.agent_run_manager
         service = getattr(runtime, "session_service", None)
         if service is not None:
             try:
                 await service.request_cancel(principal, run_id)
-            except Exception:
-                return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                cancelled_locally = await manager.cancel_run(run_id)
+                LOGGER.info(
+                    "Canonical run is not persisted yet; handled cancellation locally: run_id=%s local_status=%s cancelled=%s",
+                    run_id,
+                    local_record.status,
+                    cancelled_locally,
+                )
+                if cancelled_locally:
+                    return {"cancelled": True}
+                return JSONResponse(status_code=400, content={"error": f"Run is not active: {local_record.status}"})
             cancelled_locally = await manager.cancel_run(run_id)
             LOGGER.info(
                 "Dashboard canonical run cancellation requested: run_id=%s local_task_cancelled=%s",
@@ -686,10 +762,13 @@ def create_app(  # noqa: C901
                 cancelled_locally,
             )
             return {"cancelled": True}
+        record = manager.get(run_id)
+        if record is None or not record.is_visible_to(principal):
+            return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
         cancelled = await manager.cancel_run(run_id)
         if not cancelled:
             record = manager.get(run_id)
-            if record is None:
+            if record is None or not record.is_visible_to(principal):
                 return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
             return JSONResponse(status_code=400, content={"error": f"Run is not active: {record.status}"})
         return {"cancelled": True}
@@ -700,12 +779,29 @@ def create_app(  # noqa: C901
         cursor: int = 0,
         principal: SessionPrincipal = Depends(get_session_principal),
     ) -> Any:
+        from dojoagents.sessions.errors import SessionNotFoundError
+
+        manager: AgentRunManager = app.state.agent_run_manager
+        use_persisted_events = False
         service = getattr(runtime, "session_service", None)
         if service is not None:
             try:
                 await service.get_run(principal, run_id)
-            except Exception:
-                return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+            except SessionNotFoundError:
+                local_record = manager.get(run_id)
+                if local_record is None or not local_record.is_visible_to(principal):
+                    return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
+                LOGGER.info(
+                    "Canonical run is not persisted yet; streaming local events: run_id=%s local_status=%s event_count=%d cursor=%d",
+                    run_id,
+                    local_record.status,
+                    len(local_record.events),
+                    cursor,
+                )
+            else:
+                use_persisted_events = True
+
+        if use_persisted_events:
 
             async def _persisted():
                 iterator = stream_persisted_run_events(service, principal, run_id, after_seq=max(0, cursor)).__aiter__()
@@ -732,9 +828,8 @@ def create_app(  # noqa: C901
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
-        manager: AgentRunManager = app.state.agent_run_manager
         record = manager.get(run_id)
-        if record is None:
+        if record is None or not record.is_visible_to(principal):
             return JSONResponse(status_code=404, content={"error": f"Unknown run: {run_id}"})
 
         safe_cursor = max(0, cursor)
@@ -743,7 +838,7 @@ def create_app(  # noqa: C901
             index = safe_cursor
             while True:
                 current = manager.get(run_id)
-                if current is None:
+                if current is None or not current.is_visible_to(principal):
                     yield f'data: {{"type":"error","message":"Unknown run: {run_id}"}}\n\n'
                     return
 

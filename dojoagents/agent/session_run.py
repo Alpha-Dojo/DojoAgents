@@ -19,7 +19,6 @@ from dojoagents.sessions.models import (
     SessionMessageRecord,
     TurnQuery,
     TurnRecord,
-    UsageRecord,
 )
 from dojoagents.sessions.run_coordinator import RunCoordinator
 from dojoagents.sessions.service import SessionService
@@ -253,21 +252,6 @@ class CanonicalAgentRun:
             len(self.event_sink.events),
         )
         await self._prepare_terminal()
-        usage_payload = response.metadata.get("usage") or {}
-        usage: tuple[UsageRecord, ...] = ()
-        if any(int(usage_payload.get(key) or 0) for key in ("prompt_tokens", "completion_tokens", "total_tokens")):
-            usage = (
-                UsageRecord(
-                    usage_id=f"usage-{uuid.uuid4().hex}",
-                    session_uid=self.session_uid,
-                    run_id=self.coordinator.run_id,
-                    provider="agent",
-                    model=self.coordinator.model,
-                    input_tokens=int(usage_payload.get("prompt_tokens") or 0),
-                    output_tokens=int(usage_payload.get("completion_tokens") or 0),
-                    idempotency_key=f"{self.turn_id}:usage",
-                ),
-            )
         messages = (
             SessionMessageRecord(
                 self.session_uid,
@@ -299,7 +283,9 @@ class CanonicalAgentRun:
             completion={"stopped": response.metadata.get("stopped")},
             tool_trace=tuple(response.metadata.get("tool_trace") or ()),
         )
-        committed = await self.coordinator.commit(turn, messages=messages, usage=usage)
+        # Invocation-level usage is appended immediately by UsageCollector.
+        # Persisting the Turn aggregate here would double-count the same calls.
+        committed = await self.coordinator.commit(turn, messages=messages)
         LOGGER.info(
             "Canonical agent run committed: run_id=%s session_id=%s persisted_event_count=%d",
             self.coordinator.run_id,

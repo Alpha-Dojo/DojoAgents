@@ -79,7 +79,11 @@ async def create_session_store(config: StoreProviderConfig) -> SessionStore:
             secret = await asyncio.to_thread(_persistent_cursor_secret, root)
         else:
             secret = str(configured_secret).encode("utf-8")
-        store: Any = FileSessionStore(root, cursor_secret=secret)
+        store: Any = FileSessionStore(
+            root,
+            cursor_secret=secret,
+            context_usage_history_limit=int(options.get("context_usage_history_limit") or 1000),
+        )
     else:
         if not config.factory:
             raise ValueError(f"session store provider {config.provider!r} requires an explicit factory")

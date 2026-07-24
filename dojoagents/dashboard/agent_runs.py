@@ -61,6 +61,8 @@ class AgentRunRecord:
     id: str
     session_id: str
     model: str
+    owner_tenant_id: str = ""
+    owner_user_id: str = ""
     status: RunStatus = "running"
     events: list[dict[str, Any]] = field(default_factory=list)
     result_metadata: dict[str, Any] = field(default_factory=dict)
@@ -68,6 +70,11 @@ class AgentRunRecord:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     task: concurrent.futures.Future[Any] | None = None
+
+    def is_visible_to(self, principal: Any) -> bool:
+        if not self.owner_user_id:
+            return True
+        return self.owner_user_id == str(getattr(principal, "user_id", "") or "") and self.owner_tenant_id == str(getattr(principal, "tenant_id", "") or "")
 
     def append_event(self, payload: dict[str, Any]) -> None:
         self.events.append(payload)
@@ -164,7 +171,14 @@ class AgentRunManager:
         await self._prune_expired()
         await validate_request_modalities(request, agent)
         run_id = f"run-{uuid.uuid4().hex[:8]}"
-        record = AgentRunRecord(id=run_id, session_id=request.session_id, model=model)
+        principal = request.principal
+        record = AgentRunRecord(
+            id=run_id,
+            session_id=request.session_id,
+            model=model,
+            owner_tenant_id=str(getattr(principal, "tenant_id", "") or ""),
+            owner_user_id=str(getattr(principal, "user_id", "") or ""),
+        )
         async with self._lock:
             self._runs[run_id] = record
         if on_started is not None:

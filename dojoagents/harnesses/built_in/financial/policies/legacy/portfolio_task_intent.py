@@ -48,12 +48,36 @@ _LIQUIDATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_PORTFOLIO_WRITE_ACTION_RE = re.compile(
+    r"(?:"
+    r"创建|新建|建立|构建|生成|添加|加入|移除|删除|剔除|重命名|改名|"
+    r"买入|卖出|建仓|清仓|调仓|同步|"
+    r"create|build|make|set\s*up|add|remove|delete|rename|"
+    r"buy|sell|open|close|liquidate|rebalance|sync"
+    r")",
+    re.IGNORECASE,
+)
+
+_PORTFOLIO_WRITE_TARGET_RE = re.compile(
+    r"(?:" r"投资组合|组合|候选池|自选股?|持仓|仓位|订单|股票池|" r"portfolio|watchlist|candidate|holding|position|order" r")",
+    re.IGNORECASE,
+)
+
 
 def is_liquidation_intent(message: str) -> bool:
     text = (message or "").strip()
     if not text:
         return False
     return bool(_LIQUIDATE_RE.search(text))
+
+
+def has_explicit_portfolio_write_intent(message: str) -> bool:
+    """Return whether the current user message explicitly requests a portfolio mutation."""
+
+    text = (message or "").strip()
+    if not text:
+        return False
+    return bool(_PORTFOLIO_WRITE_ACTION_RE.search(text) and _PORTFOLIO_WRITE_TARGET_RE.search(text))
 
 
 def classify_portfolio_task(state: HarnessLoopState) -> PortfolioTaskKind:

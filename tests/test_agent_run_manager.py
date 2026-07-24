@@ -5,6 +5,7 @@ import base64
 import json
 from unittest.mock import MagicMock
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 
@@ -110,12 +111,40 @@ class FakeRuntime:
         )
 
 
+class NotYetPersistedSessionService:
+    async def get_run(self, principal, run_id):
+        from dojoagents.sessions.errors import SessionNotFoundError
+
+        raise SessionNotFoundError(f"run {run_id!r} is not persisted yet")
+
+    async def request_cancel(self, principal, run_id):
+        from dojoagents.sessions.errors import SessionNotFoundError
+
+        raise SessionNotFoundError(f"run {run_id!r} is not persisted yet")
+
+
+class HeaderPrincipalProvider:
+    async def resolve(self, request: Request):
+        from dojoagents.sessions.models import SessionPrincipal
+
+        return SessionPrincipal(
+            request.headers.get("x-user", "anonymous"),
+            request.headers.get("x-tenant", "default"),
+        )
+
+
 def _make_app(agent=None):
     from dojoagents.dashboard.server import create_app
     from dojoagents.dashboard.agent_runs import AgentRunManager
 
     app = create_app(FakeRuntime(agent))
     app.state.agent_run_manager = AgentRunManager()
+    return app
+
+
+def _make_app_with_delayed_canonical_run(agent=None):
+    app = _make_app(agent)
+    app.state.runtime.session_service = NotYetPersistedSessionService()
     return app
 
 
@@ -127,6 +156,38 @@ def _parse_sse_events(response) -> list[dict]:
             continue
         payloads.append(json.loads(line.replace("data: ", "", 1)))
     return payloads
+
+
+def test_session_tokens_use_the_active_agent_ledger_root(tmp_path):
+    from dojoagents.agent.token_ledger import SessionTokenLedger
+
+    agent = FakeBackgroundAgent()
+    agent.token_ledger_root = str(tmp_path / "canonical-sessions" / "_token_ledger")
+    ledger = SessionTokenLedger(agent.token_ledger_root)
+    state = ledger.load_or_create(
+        "sess-token",
+        provider="qwen",
+        model_id="deepseek-v4-pro",
+        model_context_window=131072,
+        session_max_tokens=131072,
+        compression_threshold_ratio=0.8,
+    )
+    state.record_loop(
+        {
+            "prompt_tokens": 1200,
+            "completion_tokens": 300,
+            "total_tokens": 1500,
+        }
+    )
+    ledger.save()
+    client = TestClient(_make_app(agent))
+
+    response = client.get("/api/chat/sessions/sess-token/tokens")
+
+    assert response.status_code == 200
+    assert response.json()["last_prompt_tokens"] == 1200
+    assert response.json()["last_completion_tokens"] == 300
+    assert response.json()["cumulative_total_tokens"] == 1500
 
 
 def test_create_background_run_and_fetch_status_and_events():
@@ -171,6 +232,49 @@ def test_create_background_run_and_fetch_status_and_events():
     assert final["metadata"]["usage"]["total_tokens"] == 2
     assert final["pipeline_completed"] is None
     assert final["content"] == "done"
+
+
+def test_run_events_fall_back_to_local_run_before_canonical_persistence():
+    app = _make_app_with_delayed_canonical_run()
+    app.state.principal_provider = HeaderPrincipalProvider()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/runs",
+        headers={"x-user": "alice"},
+        json={
+            "model": "gpt-4.1",
+            "messages": [{"role": "user", "content": "build portfolio"}],
+            "metadata": {"session_id": "sess-delayed-canonical"},
+        },
+    )
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+
+    status_response = client.get(
+        f"/api/chat/runs/{run_id}",
+        headers={"x-user": "alice"},
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["run_id"] == run_id
+
+    with client.stream(
+        "GET",
+        f"/api/chat/runs/{run_id}/events?cursor=0",
+        headers={"x-user": "alice"},
+    ) as events_response:
+        assert events_response.status_code == 200
+        payloads = _parse_sse_events(events_response)
+
+    assert payloads
+    assert payloads[-1]["type"] == "done"
+    assert (
+        client.get(
+            f"/api/chat/runs/{run_id}/events?cursor=0",
+            headers={"x-user": "bob"},
+        ).status_code
+        == 404
+    )
 
 
 def test_background_run_events_respect_cursor():

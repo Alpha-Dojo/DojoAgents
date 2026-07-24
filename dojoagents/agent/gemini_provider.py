@@ -216,11 +216,18 @@ def _extract_usage(payload: dict[str, Any]) -> dict[str, int] | None:
         return None
     prompt_i = int(prompt or 0)
     completion_i = int(completion or 0)
-    return {
+    result = {
         "prompt_tokens": prompt_i,
         "completion_tokens": completion_i,
         "total_tokens": int(total if isinstance(total, int) else prompt_i + completion_i),
     }
+    cached = usage.get("cachedContentTokenCount")
+    if isinstance(cached, int):
+        result["cache_read_tokens"] = cached
+    reasoning = usage.get("thoughtsTokenCount")
+    if isinstance(reasoning, int):
+        result["reasoning_tokens"] = reasoning
+    return result
 
 
 def _iter_candidate_parts(payload: dict[str, Any]) -> list[dict[str, Any]]:

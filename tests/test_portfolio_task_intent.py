@@ -7,6 +7,7 @@ from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio import Po
 from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_eval import PortfolioEvalSubmission, verify_eval_submission
 from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_task_intent import (
     classify_portfolio_task,
+    has_explicit_portfolio_write_intent,
     is_liquidation_intent,
     order_side_trace,
 )
@@ -35,6 +36,20 @@ def _make_request(*, message: str = "test") -> ChatRequest:
 )
 def test_is_liquidation_intent(message: str, expected: bool) -> None:
     assert is_liquidation_intent(message) is expected
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Pick 5 undervalued stocks and create a portfolio.", True),
+        ("创建一个高股息投资组合", True),
+        ("把 MO 和 VZ 加入候选池", True),
+        ("分析现有组合的风险", False),
+        ("Compare dividend stocks", False),
+    ],
+)
+def test_has_explicit_portfolio_write_intent(message: str, expected: bool) -> None:
+    assert has_explicit_portfolio_write_intent(message) is expected
 
 
 def test_order_side_trace_detects_buy_and_sell() -> None:

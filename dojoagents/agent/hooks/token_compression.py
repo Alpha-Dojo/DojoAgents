@@ -6,6 +6,7 @@ from dojoagents.agent.compressor import ContextCompressor, _estimate_tokens_roug
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
 from dojoagents.agent.token_policy import TokenCompressionPolicy
+from dojoagents.agent.usage import active_usage_collector
 from dojoagents.logging import LOGGER
 
 
@@ -50,11 +51,26 @@ class TokenCompressionHook:
         if ledger is None or ledger.state is None:
             return
 
-        usage = invocation_state.pop("_dojo_last_usage", None)
-        if isinstance(usage, dict):
-            ledger.state.record_loop(usage)
-        elif usage is None:
-            LOGGER.warning("LLM usage missing for session %s; skipping ledger update", ledger.session_id)
+        collector = active_usage_collector()
+        record = collector.last_record if collector is not None else None
+        if record is not None:
+            ledger.state.record_loop(
+                {
+                    "prompt_tokens": record.input_tokens,
+                    "completion_tokens": record.output_tokens,
+                    "total_tokens": record.effective_total_tokens,
+                }
+            )
+            invocation_state.pop("_dojo_last_usage", None)
+        else:
+            usage = invocation_state.pop("_dojo_last_usage", None)
+            if isinstance(usage, dict):
+                ledger.state.record_loop(usage)
+            else:
+                LOGGER.warning(
+                    "LLM usage missing for session %s; skipping ledger update",
+                    ledger.session_id,
+                )
 
         event_sink = invocation_state.get("_dojo_event_sink")
         if event_sink is not None:

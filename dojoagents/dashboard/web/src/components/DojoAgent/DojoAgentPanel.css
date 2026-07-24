@@ -1876,6 +1876,15 @@
   background: rgba(255, 255, 255, 0.85);
 }
 
+.dojo-agent-status__meter--segments {
+  display: flex;
+}
+
+.dojo-agent-status__meter--segments span {
+  flex: 0 0 auto;
+  min-width: 1px;
+}
+
 .dojo-agent-status__meter-meta {
   display: flex;
   justify-content: space-between;
@@ -1885,9 +1894,37 @@
   font-size: 10px;
 }
 
+.dojo-agent-status__breakdown {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dojo-agent-status__breakdown li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.dojo-agent-status__breakdown i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.dojo-agent-status__breakdown strong {
+  color: var(--text-primary);
+  font: 11px var(--font-mono);
+}
+
 .dojo-agent-status__details {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
   padding-top: 10px;

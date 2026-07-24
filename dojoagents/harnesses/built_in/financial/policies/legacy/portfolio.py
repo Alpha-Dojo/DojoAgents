@@ -11,6 +11,7 @@ from .portfolio_eval import (
 )
 from .portfolio_task_intent import (
     classify_portfolio_task,
+    has_explicit_portfolio_write_intent,
     order_side_trace,
 )
 from dojoagents.agent.models import ChatRequest, ToolCall
@@ -61,6 +62,7 @@ _ANALYSIS_BROWSE_TOOLS = {
 
 _MUTATING_BUILD_TOOLS = {
     "portfolio_write_create",
+    "portfolio_write_rename",
     *_ADD_CANDIDATE_TOOLS,
     *_CREATE_ORDER_TOOLS,
     "portfolio_write_remove_holding",
@@ -87,6 +89,8 @@ class PortfolioTaskHarness(TaskHarness):
         return state.any_ok_tool("portfolio_write_create", *_ADD_CANDIDATE_TOOLS, *_CREATE_ORDER_TOOLS)
 
     def _run_is_analysis_browse(self, state: HarnessLoopState) -> bool:
+        if has_explicit_portfolio_write_intent(state.request.message):
+            return False
         if state.any_ok_tool(*_PORTFOLIO_WRITE_TOOLS, "portfolio_eval_submit"):
             return False
         return state.any_ok_tool(*_ANALYSIS_BROWSE_TOOLS)

@@ -82,6 +82,19 @@ class SessionTokenLedger:
     def session_id(self) -> str:
         return self._session_id
 
+    def load_existing(self, session_id: str) -> SessionTokenState | None:
+        """Load a persisted session without creating an empty ledger entry."""
+
+        if self._store is None:
+            return None
+        path = self._store.path_for(session_id)
+        if not path.exists():
+            return None
+        raw = self._store._read_sync(path, session_id)
+        if not isinstance(raw, dict):
+            return None
+        return SessionTokenState(**{**raw, "session_id": session_id})
+
     def load_or_create(
         self,
         session_id: str,
@@ -93,12 +106,10 @@ class SessionTokenLedger:
         compression_threshold_ratio: float,
     ) -> SessionTokenState:
         self._session_id = session_id
-        path = self._store.path_for(session_id) if self._store is not None else None
-        if path is not None and path.exists():
-            raw = self._store._read_sync(path, session_id)
-            if isinstance(raw, dict):
-                self.state = SessionTokenState(**{**raw, "session_id": session_id})
-                return self.state
+        existing = self.load_existing(session_id)
+        if existing is not None:
+            self.state = existing
+            return self.state
         self.state = SessionTokenState(
             session_id=session_id,
             provider=provider,

@@ -15,19 +15,81 @@ export interface AgentModelsResponse {
   models: AgentModelItem[];
 }
 
-export interface AgentSessionTokenStatus {
-  last_prompt_tokens: number;
-  last_completion_tokens: number;
-  last_total_tokens: number;
-  session_max_tokens: number;
-  compression_threshold_ratio: number;
+export type AgentContextUsageCategory =
+  | 'system_prompt'
+  | 'tool_definitions'
+  | 'rules'
+  | 'skills'
+  | 'subagent_definitions'
+  | 'conversation'
+  | 'memory'
+  | 'attachments'
+  | 'protocol_overhead'
+  | 'other';
+
+export interface AgentContextUsageBreakdown {
+  category: AgentContextUsageCategory;
+  source?: string;
+  tokens: number;
+  character_count: number;
+  ratio: number;
+  quality: string;
+}
+
+export interface AgentContextUsageSnapshot {
+  snapshot_id?: string;
+  run_id?: string;
+  turn_id?: string;
+  invocation_id?: string;
+  invocation_category?: string;
+  operation?: string;
+  provider?: string;
+  model?: string;
+  context_window_tokens: number;
+  used_tokens: number;
+  used_tokens_source: string;
+  available_tokens: number;
   utilization_ratio: number;
-  cumulative_prompt_tokens: number;
-  cumulative_completion_tokens: number;
-  cumulative_total_tokens: number;
-  compression_count: number;
-  model_context_window: number;
-  loop_count: number;
+  categorized_estimated_tokens?: number;
+  reconciliation_delta_tokens?: number;
+  quality: string;
+  breakdown: AgentContextUsageBreakdown[];
+}
+
+export interface AgentConsumptionUsage {
+  totals: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    reasoning_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    calls: number;
+    cost_microunits: number;
+  };
+  groups: unknown[];
+  turns: unknown[];
+  coverage: {
+    actual_calls: number;
+    estimated_calls: number;
+    unavailable_calls: number;
+  };
+  records: unknown[];
+  next_cursor: string | null;
+}
+
+export interface AgentSessionUsage {
+  schema_version: 3;
+  session_id: string;
+  consumption: AgentConsumptionUsage | null;
+  context: {
+    latest: AgentContextUsageSnapshot | null;
+    turn_peak: AgentContextUsageSnapshot | null;
+    session_peak: AgentContextUsageSnapshot | null;
+    history: AgentContextUsageSnapshot[];
+    next_cursor: string | null;
+    has_breakdown: boolean;
+  } | null;
 }
 
 export type AgentChatRole = 'user' | 'assistant';
@@ -299,5 +361,10 @@ export type AgentStreamEvent =
       resource_changes?: Record<string, unknown>[];
     }
   | { type: 'eval_hint'; text: string; issues: string[] }
+  | {
+      type: 'context_usage_snapshot';
+      state: 'estimated' | 'reconciled';
+      snapshot: AgentContextUsageSnapshot;
+    }
   | { type: 'done'; model_id: string; tool_trace?: AgentToolTraceItem[]; tool_steps?: number }
   | { type: 'error'; message: string };

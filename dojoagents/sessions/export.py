@@ -57,6 +57,7 @@ class SessionExporter:
                 "turns": len(data["turns"]),
                 "events": len(data["events"]),
                 "usage": len(data["usage"]),
+                "context_usage": len(data["context_usage"]),
                 "checkpoints": len(data["checkpoints"]),
                 "objects": len(data["objects"]),
                 "blobs": len(blobs),

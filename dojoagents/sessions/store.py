@@ -8,6 +8,9 @@ from dojoagents.sessions.models import (
     CheckpointRecord,
     CheckpointWrite,
     CommitTurnCommand,
+    ContextUsageQuery,
+    ContextUsageSnapshot,
+    ContextUsageSummary,
     EventPage,
     FinishRunCommand,
     HistoryPage,
@@ -32,6 +35,7 @@ from dojoagents.sessions.models import (
     TurnQuery,
     TurnRecord,
     UsageQuery,
+    UsageRecord,
     UsageSummary,
     BlobRef,
 )
@@ -49,12 +53,15 @@ SESSION_STORE_METHODS = (
     "list_turns",
     "read_events",
     "get_usage",
+    "get_context_usage",
     "begin_run",
     "begin_run_with_lease",
     "get_run",
     "list_runs",
     "request_cancel",
     "append_events",
+    "append_usage",
+    "append_context_usage",
     "commit_turn",
     "fail_run",
     "cancel_run",
@@ -130,6 +137,13 @@ class SessionStore(Protocol):
         query: UsageQuery,
     ) -> UsageSummary: ...
 
+    async def get_context_usage(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        query: ContextUsageQuery,
+    ) -> ContextUsageSummary: ...
+
     async def begin_run(self, principal: SessionPrincipal, command: BeginRunCommand) -> RunRecord: ...
 
     async def begin_run_with_lease(self, principal: SessionPrincipal, command: BeginRunCommand) -> RunHandle: ...
@@ -146,6 +160,22 @@ class SessionStore(Protocol):
         run_id: str,
         events: Sequence[SessionEvent],
     ) -> None: ...
+
+    async def append_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        records: Sequence[UsageRecord],
+    ) -> tuple[UsageRecord, ...]: ...
+
+    async def append_context_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        snapshots: Sequence[ContextUsageSnapshot],
+    ) -> tuple[ContextUsageSnapshot, ...]: ...
 
     async def commit_turn(self, principal: SessionPrincipal, command: CommitTurnCommand) -> TurnRecord: ...
 

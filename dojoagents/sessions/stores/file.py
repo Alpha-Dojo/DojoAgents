@@ -25,6 +25,10 @@ from dojoagents.sessions.models import (
     CheckpointRecord,
     CheckpointWrite,
     CommitTurnCommand,
+    ContextComponent,
+    ContextUsageQuery,
+    ContextUsageSnapshot,
+    ContextUsageSummary,
     EventPage,
     FinishRunCommand,
     HistoryPage,
@@ -51,8 +55,10 @@ from dojoagents.sessions.models import (
     TurnQuery,
     TurnRecord,
     UsageQuery,
+    UsageGroup,
     UsageRecord,
     UsageSummary,
+    UsageTotals,
     cursor_scope_hash,
     decode_cursor,
     encode_cursor,
@@ -124,7 +130,25 @@ def _turn(data: dict[str, Any]) -> TurnRecord:
 
 
 def _usage(data: dict[str, Any]) -> UsageRecord:
-    return UsageRecord(**{**data, "created_at": _dt(data["created_at"])})
+    return UsageRecord(
+        **{
+            **data,
+            "created_at": _dt(data["created_at"]),
+            "started_at": _dt(data.get("started_at")),
+            "completed_at": _dt(data.get("completed_at")),
+        }
+    )
+
+
+def _context_usage(data: dict[str, Any]) -> ContextUsageSnapshot:
+    return ContextUsageSnapshot(
+        **{
+            **data,
+            "components": tuple(ContextComponent(**item) for item in data.get("components", ())),
+            "captured_at": _dt(data["captured_at"]),
+            "reconciled_at": _dt(data.get("reconciled_at")),
+        }
+    )
 
 
 def _checkpoint(data: dict[str, Any]) -> CheckpointRecord:
@@ -171,11 +195,20 @@ class FileSessionStore:
     owner index key; they are never joined into filesystem paths.
     """
 
-    def __init__(self, root: str | Path, *, cursor_secret: bytes) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        cursor_secret: bytes,
+        context_usage_history_limit: int = 1000,
+    ) -> None:
         if not cursor_secret:
             raise ValueError("cursor_secret must be non-empty")
+        if context_usage_history_limit <= 0:
+            raise ValueError("context_usage_history_limit must be positive")
         self.root = Path(root).expanduser().resolve()
         self.cursor_secret = cursor_secret
+        self.context_usage_history_limit = context_usage_history_limit
         self._documents = AtomicJsonStore(self.root, schema_version=1)
         self._state_path = self._documents.path_for("state")
         self._lock_path = self.root / ".session-store.lock"
@@ -191,6 +224,8 @@ class FileSessionStore:
             "events": {},
             "turns": {},
             "usage": {},
+            "context_usage": {},
+            "context_usage_idempotency": {},
             "checkpoints": {},
             "objects": {},
             "leases": {},
@@ -423,15 +458,212 @@ class FileSessionStore:
             session = self._session_for(state, principal, session_id)
             records = [_usage(item) for item in state["usage"].get(session.session_uid, [])]
             if query.run_id:
-                records = [item for item in records if item.run_id == query.run_id]
+                records = [item for item in records if item.run_id == query.run_id or (query.include_children and item.parent_run_id == query.run_id)]
             if query.provider:
                 records = [item for item in records if item.provider == query.provider]
+            if query.turn_id:
+                records = [item for item in records if item.turn_id == query.turn_id]
+            if query.model:
+                records = [item for item in records if item.model == query.model]
+            if query.category:
+                records = [item for item in records if item.category == query.category]
+            if query.quality:
+                records = [item for item in records if item.quality == query.quality]
+            if query.status:
+                records = [item for item in records if item.status == query.status]
+            if query.agent_id:
+                records = [item for item in records if item.agent_id == query.agent_id]
+            if query.from_time:
+                records = [item for item in records if (item.completed_at or item.created_at) >= query.from_time]
+            if query.to_time:
+                records = [item for item in records if (item.completed_at or item.created_at) <= query.to_time]
+            records.sort(key=lambda item: (item.completed_at or item.created_at, item.invocation_index, item.usage_id))
+
+            def totals(items: list[UsageRecord]) -> UsageTotals:
+                return UsageTotals(
+                    input_tokens=sum(item.input_tokens for item in items),
+                    output_tokens=sum(item.output_tokens for item in items),
+                    total_tokens=sum(item.effective_total_tokens for item in items),
+                    reasoning_tokens=sum(item.reasoning_tokens for item in items),
+                    cache_read_tokens=sum(item.cache_read_tokens for item in items),
+                    cache_write_tokens=sum(item.cache_write_tokens for item in items),
+                    calls=len(items),
+                    cost_microunits=sum(item.cost_microunits or 0 for item in items),
+                )
+
+            grouped: dict[tuple[str, ...], list[UsageRecord]] = {}
+            for item in records:
+                key = tuple(str(getattr(item, dimension) or "") for dimension in query.group_by)
+                grouped.setdefault(key, []).append(item)
+            groups = tuple(
+                UsageGroup(
+                    dimensions=dict(zip(query.group_by, key)),
+                    totals=totals(items),
+                )
+                for key, items in sorted(grouped.items())
+            )
+            all_totals = totals(records)
+            scope_filters = {
+                "session_id": session_id,
+                "run_id": query.run_id,
+                "turn_id": query.turn_id,
+                "provider": query.provider,
+                "model": query.model,
+                "category": query.category,
+                "quality": query.quality,
+                "status": query.status,
+                "agent_id": query.agent_id,
+                "group_by": list(query.group_by),
+            }
+            scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, scope_filters)
+            offset = 0
+            if query.cursor:
+                cursor = decode_cursor(query.cursor, self.cursor_secret, scope_hash)
+                sort = cursor.get("sort")
+                if not isinstance(sort, list) or not sort or not isinstance(sort[0], int):
+                    raise ValueError("invalid usage cursor")
+                offset = sort[0]
+            page = records[offset : offset + query.limit]
+            next_cursor = None
+            if offset + len(page) < len(records):
+                next_cursor = encode_cursor(
+                    {
+                        "sort": [offset + len(page)],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
+                    self.cursor_secret,
+                )
             return UsageSummary(
-                input_tokens=sum(item.input_tokens for item in records),
-                output_tokens=sum(item.output_tokens for item in records),
+                input_tokens=all_totals.input_tokens,
+                output_tokens=all_totals.output_tokens,
                 cache_tokens=sum(item.cache_tokens for item in records),
                 cost=sum(item.cost or 0 for item in records),
-                records=tuple(records),
+                records=tuple(page) if query.include_records else (),
+                total_tokens=all_totals.total_tokens,
+                reasoning_tokens=all_totals.reasoning_tokens,
+                cache_read_tokens=all_totals.cache_read_tokens,
+                cache_write_tokens=all_totals.cache_write_tokens,
+                calls=all_totals.calls,
+                cost_microunits=all_totals.cost_microunits,
+                groups=groups,
+                actual_calls=sum(item.quality == "actual" for item in records),
+                estimated_calls=sum(item.quality == "estimated" for item in records),
+                unavailable_calls=sum(item.quality == "unavailable" for item in records),
+                has_legacy_unattributed=any(item.category == "legacy_unattributed" for item in records),
+                tracking_started_at=(min(item.completed_at or item.created_at for item in records) if records else None),
+                next_cursor=next_cursor,
+            )
+
+        return await self._transaction(False, operation)
+
+    async def get_context_usage(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        query: ContextUsageQuery,
+    ) -> ContextUsageSummary:
+        def operation(state: dict[str, Any]) -> ContextUsageSummary:
+            session = self._session_for(state, principal, session_id)
+            records = [
+                _context_usage(item)
+                for item in state["context_usage"].get(
+                    session.session_uid,
+                    [],
+                )
+            ]
+            if query.run_id:
+                records = [item for item in records if item.run_id == query.run_id or (query.include_children and item.parent_run_id == query.run_id)]
+            if query.turn_id:
+                records = [item for item in records if item.turn_id == query.turn_id]
+            if query.provider:
+                records = [item for item in records if item.provider == query.provider]
+            if query.model:
+                records = [item for item in records if item.model == query.model]
+            if query.agent_id:
+                records = [item for item in records if item.agent_id == query.agent_id]
+            if query.from_time:
+                records = [item for item in records if item.captured_at >= query.from_time]
+            if query.to_time:
+                records = [item for item in records if item.captured_at <= query.to_time]
+            records.sort(
+                key=lambda item: (
+                    item.captured_at,
+                    item.invocation_index,
+                    item.snapshot_id,
+                )
+            )
+            primary_records = [item for item in records if item.invocation_category in {"agent_inference", "agent_recovery"}]
+            display_records = primary_records or records
+            latest = display_records[-1] if display_records else None
+            latest_turn_records = [item for item in display_records if item.turn_id == latest.turn_id] if latest is not None else []
+            turn_peak = (
+                max(
+                    latest_turn_records,
+                    key=lambda item: (
+                        item.used_tokens,
+                        item.captured_at,
+                        item.invocation_index,
+                    ),
+                )
+                if latest_turn_records
+                else None
+            )
+            session_peak = (
+                max(
+                    display_records,
+                    key=lambda item: (
+                        item.used_tokens,
+                        item.captured_at,
+                        item.invocation_index,
+                    ),
+                )
+                if display_records
+                else None
+            )
+            scope_filters = {
+                "session_id": session_id,
+                "run_id": query.run_id,
+                "turn_id": query.turn_id,
+                "provider": query.provider,
+                "model": query.model,
+                "agent_id": query.agent_id,
+                "include_children": query.include_children,
+                "detail": query.detail,
+            }
+            scope_hash = cursor_scope_hash(
+                principal.tenant_id,
+                principal.user_id,
+                scope_filters,
+            )
+            offset = 0
+            if query.cursor:
+                decoded = decode_cursor(
+                    query.cursor,
+                    self.cursor_secret,
+                    scope_hash,
+                )
+                sort = decoded.get("sort")
+                if not isinstance(sort, list) or not sort or not isinstance(sort[0], int):
+                    raise ValueError("invalid context usage cursor")
+                offset = sort[0]
+            page = records[offset : offset + query.limit] if query.include_history else []
+            next_cursor = None
+            if query.include_history and offset + len(page) < len(records):
+                next_cursor = encode_cursor(
+                    {
+                        "sort": [offset + len(page)],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
+                    self.cursor_secret,
+                )
+            return ContextUsageSummary(
+                latest=latest,
+                turn_peak=turn_peak,
+                session_peak=session_peak,
+                history=tuple(page),
+                next_cursor=next_cursor,
             )
 
         return await self._transaction(False, operation)
@@ -574,6 +806,129 @@ class FileSessionStore:
             stored.sort(key=lambda item: item["sequence"])
 
         await self._transaction(True, operation)
+
+    async def append_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        records,
+    ) -> tuple[UsageRecord, ...]:
+        def operation(state: dict[str, Any]) -> tuple[UsageRecord, ...]:
+            session, run = self._session_for_run(state, principal, run_id)
+            self._validate_lease(state, session.session_uid, lease)
+            if run.status not in {"running", "cancellation_requested"}:
+                raise SessionConflictError(f"run is already {run.status}")
+            stored = state["usage"].setdefault(session.session_uid, [])
+            persisted: list[UsageRecord] = []
+            for usage in records:
+                if usage.session_uid != session.session_uid or usage.run_id != run_id:
+                    raise SessionConflictError("usage does not belong to run session")
+                duplicate = next(
+                    (item for item in stored if item["usage_id"] == usage.usage_id or (usage.idempotency_key and item.get("idempotency_key") == usage.idempotency_key)),
+                    None,
+                )
+                encoded = _encode(usage)
+                if duplicate is not None:
+                    if duplicate != encoded:
+                        raise SessionConflictError("usage idempotency conflict")
+                    persisted.append(_usage(duplicate))
+                    continue
+                stored.append(encoded)
+                persisted.append(usage)
+            stored.sort(
+                key=lambda item: (
+                    item.get("completed_at") or item.get("created_at") or "",
+                    item.get("invocation_index", 0),
+                    item["usage_id"],
+                )
+            )
+            return tuple(persisted)
+
+        return await self._transaction(True, operation)
+
+    async def append_context_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        snapshots,
+    ) -> tuple[ContextUsageSnapshot, ...]:
+        def operation(
+            state: dict[str, Any],
+        ) -> tuple[ContextUsageSnapshot, ...]:
+            session, run = self._session_for_run(state, principal, run_id)
+            self._validate_lease(state, session.session_uid, lease)
+            if run.status not in {"running", "cancellation_requested"}:
+                raise SessionConflictError(f"run is already {run.status}")
+            stored = state["context_usage"].setdefault(
+                session.session_uid,
+                [],
+            )
+            idempotency_index = state["context_usage_idempotency"].setdefault(session.session_uid, {})
+            persisted: list[ContextUsageSnapshot] = []
+            for snapshot in snapshots:
+                if snapshot.session_uid != session.session_uid or snapshot.run_id != run_id:
+                    raise SessionConflictError("context usage does not belong to run session")
+                duplicate = next(
+                    (
+                        item
+                        for item in stored
+                        if item["snapshot_id"] == snapshot.snapshot_id or (snapshot.idempotency_key and item.get("idempotency_key") == snapshot.idempotency_key)
+                    ),
+                    None,
+                )
+                encoded = _encode(snapshot)
+                encoded_hash = hashlib.sha256(
+                    json.dumps(
+                        encoded,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                indexed_hash = idempotency_index.get(snapshot.idempotency_key)
+                if indexed_hash is not None:
+                    if indexed_hash != encoded_hash:
+                        raise SessionConflictError("context usage idempotency conflict")
+                    if duplicate is None:
+                        persisted.append(snapshot)
+                        continue
+                if duplicate is not None:
+                    if duplicate != encoded:
+                        raise SessionConflictError("context usage idempotency conflict")
+                    idempotency_index[snapshot.idempotency_key] = encoded_hash
+                    persisted.append(_context_usage(duplicate))
+                    continue
+                stored.append(encoded)
+                idempotency_index[snapshot.idempotency_key] = encoded_hash
+                persisted.append(snapshot)
+            stored.sort(
+                key=lambda item: (
+                    item.get("captured_at") or "",
+                    item.get("invocation_index", 0),
+                    item["snapshot_id"],
+                )
+            )
+            if len(stored) > self.context_usage_history_limit:
+                retained_ids = {item["snapshot_id"] for item in stored[-self.context_usage_history_limit :]}
+                by_turn: dict[str, list[dict[str, Any]]] = {}
+                for item in stored:
+                    by_turn.setdefault(
+                        str(item.get("turn_id") or ""),
+                        [],
+                    ).append(item)
+                for turn_items in by_turn.values():
+                    retained_ids.add(turn_items[-1]["snapshot_id"])
+                    peak = max(
+                        turn_items,
+                        key=lambda item: int(item.get("actual_input_tokens") if item.get("actual_input_tokens") is not None else item.get("estimated_input_tokens") or 0),
+                    )
+                    retained_ids.add(peak["snapshot_id"])
+                stored[:] = [item for item in stored if item["snapshot_id"] in retained_ids]
+            return tuple(persisted)
+
+        return await self._transaction(True, operation)
 
     async def commit_turn(self, principal: SessionPrincipal, command: CommitTurnCommand) -> TurnRecord:
         def operation(state: dict[str, Any]) -> TurnRecord:

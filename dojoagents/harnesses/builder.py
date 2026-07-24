@@ -34,6 +34,7 @@ _PROMPT_PHASES = (
     "identity",
     "temporal",
     "harness_instructions",
+    "subagent_definitions",
     "skills",
     "memory",
     "request_context",
@@ -100,6 +101,20 @@ class HarnessBuilder:
         self._add(self._request_context_codecs, spec, "request context codec")
 
     def add_prompt_contributor(self, spec: PromptContributorSpec) -> None:
+        if spec.usage_category not in {
+            None,
+            "system_prompt",
+            "tool_definitions",
+            "rules",
+            "skills",
+            "subagent_definitions",
+            "conversation",
+            "memory",
+            "attachments",
+            "protocol_overhead",
+            "other",
+        }:
+            raise ValueError(f"prompt contributor '{spec.component_id}' has invalid " f"usage_category '{spec.usage_category}'")
         self._add(self._prompts, spec, "prompt contributor")
 
     def add_skill_source(self, spec: SkillSourceSpec) -> None:

@@ -92,3 +92,26 @@ components:
 
     with pytest.raises(HarnessLoadError, match="mutually exclusive"):
         HarnessLoader().load(HarnessConfig(id="x", factory="a:b", manifest=str(missing)), context=context)
+
+
+def test_manifest_prompt_accepts_context_usage_category(tmp_path):
+    manifest = tmp_path / "usage-category.yaml"
+    manifest.write_text(
+        """apiVersion: dojoagents/v1alpha1
+kind: Harness
+metadata: {id: x, version: 1.0.0, display_name: X}
+components:
+  prompts:
+    - id: workflow
+      value: Follow the workflow.
+      usage_category: rules
+""",
+        encoding="utf-8",
+    )
+    config = HarnessConfig(id="x", factory=None, manifest=str(manifest))
+    context = _context(tmp_path, config)
+    loaded = HarnessLoader().load(config, context=context)
+    builder = HarnessBuilder(loaded.harness.descriptor)
+    loaded.harness.configure(builder, context)
+
+    assert builder.build().prompts[0].usage_category == "rules"

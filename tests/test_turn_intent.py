@@ -129,3 +129,52 @@ def test_portfolio_harness_blocks_create_during_analysis_run() -> None:
     )
     assert blocked is not None
     assert "portfolio_write_create" in blocked
+
+
+def test_portfolio_harness_allows_create_after_research_for_explicit_create_task() -> None:
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_request("Pick 5 undervalued US high-dividend stocks and create a portfolio."))
+    state.tool_results.append(
+        ToolResult(
+            call_id="c1",
+            name="screen_market_stocks",
+            ok=True,
+            data={"items": []},
+        )
+    )
+
+    blocked = harness.block_tool_call(
+        ToolCall(
+            id="c2",
+            name="portfolio_write_create",
+            arguments={"name": "US High Dividend"},
+        ),
+        state,
+    )
+
+    assert blocked is None
+
+
+def test_portfolio_harness_blocks_rename_during_analysis_run() -> None:
+    harness = PortfolioTaskHarness()
+    state = HarnessLoopState(request=_request("Analyze the existing portfolio."))
+    state.tool_results.append(
+        ToolResult(
+            call_id="c1",
+            name="portfolio_read_detail",
+            ok=True,
+            data={"id": "p-1"},
+        )
+    )
+
+    blocked = harness.block_tool_call(
+        ToolCall(
+            id="c2",
+            name="portfolio_write_rename",
+            arguments={"portfolio_id": "p-1", "name": "Renamed"},
+        ),
+        state,
+    )
+
+    assert blocked is not None
+    assert "read/analysis only" in blocked

@@ -7,6 +7,7 @@ from dojoagents.sessions.errors import SessionConflictError
 from dojoagents.sessions.models import (
     BeginRunCommand,
     CommitTurnCommand,
+    ContextUsageSnapshot,
     FinishRunCommand,
     HeartbeatResult,
     JsonValue,
@@ -101,6 +102,35 @@ class RunCoordinator:
         pending = tuple(self._buffer)
         await self.service.append_events(self.principal, handle.run.run_id, pending)
         del self._buffer[: len(pending)]
+
+    async def append_usage(self, records: Sequence[UsageRecord]) -> tuple[UsageRecord, ...]:
+        if not records:
+            return ()
+        if self._terminal is not None:
+            raise SessionConflictError("run is already terminal")
+        handle = self._active_handle()
+        return await self.service.append_usage(
+            self.principal,
+            handle.run.run_id,
+            handle.lease,
+            tuple(records),
+        )
+
+    async def append_context_usage(
+        self,
+        snapshots: Sequence[ContextUsageSnapshot],
+    ) -> tuple[ContextUsageSnapshot, ...]:
+        if not snapshots:
+            return ()
+        if self._terminal is not None:
+            raise SessionConflictError("run is already terminal")
+        handle = self._active_handle()
+        return await self.service.append_context_usage(
+            self.principal,
+            handle.run.run_id,
+            handle.lease,
+            tuple(snapshots),
+        )
 
     async def heartbeat(self) -> HeartbeatResult:
         handle = self._active_handle()

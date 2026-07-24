@@ -110,6 +110,20 @@ class TokenUsageEvent(AgentEvent):
 
 
 @dataclass
+class ContextUsageSnapshotEvent(AgentEvent):
+    state: str = "estimated"
+    snapshot: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TurnUsageEvent(AgentEvent):
+    turn_id: str = ""
+    totals: dict[str, int] = field(default_factory=dict)
+    groups: list[dict[str, Any]] = field(default_factory=list)
+    coverage: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class ContextCompactedEvent(AgentEvent):
     compression_count: int = 0
     estimated_prompt_tokens: int = 0
@@ -264,6 +278,29 @@ class AgentEventSink:
             compression_count=int(snapshot.get("compression_count", 0)),
             model_context_window=int(snapshot.get("model_context_window", 0)),
             loop_count=int(snapshot.get("loop_count", 0)),
+        )
+
+    def turn_usage(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        return self._dispatch(
+            TurnUsageEvent,
+            type="turn_usage",
+            turn_id=str(snapshot.get("turn_id") or ""),
+            totals=dict(snapshot.get("totals") or {}),
+            groups=list(snapshot.get("groups") or []),
+            coverage=dict(snapshot.get("coverage") or {}),
+        )
+
+    def context_usage_snapshot(
+        self,
+        snapshot: dict[str, Any],
+        *,
+        state: str,
+    ) -> dict[str, Any]:
+        return self._dispatch(
+            ContextUsageSnapshotEvent,
+            type="context_usage_snapshot",
+            state=state,
+            snapshot=dict(snapshot),
         )
 
     def context_compacted(self, compression_count: int, estimated_prompt_tokens: int) -> dict[str, Any]:

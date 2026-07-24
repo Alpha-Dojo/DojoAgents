@@ -30,6 +30,13 @@ def test_session_token_ledger_record_and_save(tmp_path):
     assert loaded.snapshot()["utilization_ratio"] > 0
 
 
+def test_session_token_ledger_load_existing_does_not_create_missing_state(tmp_path):
+    ledger = SessionTokenLedger(tmp_path)
+
+    assert ledger.load_existing("missing") is None
+    assert not (tmp_path / "missing.json").exists()
+
+
 def test_session_token_ledger_update_context_window(tmp_path):
     ledger = SessionTokenLedger(tmp_path)
     state = ledger.load_or_create(

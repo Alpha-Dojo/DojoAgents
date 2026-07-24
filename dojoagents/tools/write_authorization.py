@@ -169,7 +169,13 @@ async def classify_write_session_file(
         {"role": "user", "content": user_payload},
     ]
     try:
-        result = await llm_provider.chat(messages, tools=[], model=model)
+        from dojoagents.agent.usage import usage_scope
+
+        with usage_scope(
+            "safety_classifier",
+            "safety_classifier.write_session_file",
+        ):
+            result = await llm_provider.chat(messages, tools=[], model=model)
         data = _parse_classifier_json(result.content)
         if data is None:
             LOGGER.warning("write_session_file classifier returned non-JSON content; denying write")

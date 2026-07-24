@@ -14,17 +14,17 @@ _OPENROUTER_MODELS_CACHE_KEY = "__openrouter_models__"
 
 # ponytail: pattern table, not exhaustive — override via provider.context_window
 _MODEL_FALLBACKS: list[tuple[str, int]] = [
-    ("gpt-4o", 128000),
-    ("gpt-4.1", 128000),
-    ("gpt-4", 128000),
-    ("gpt-3.5", 16385),
-    ("deepseek", 65536),
-    ("qwen", 131072),
-    ("moonshot", 131072),
-    ("kimi", 131072),
-    ("glm", 128000),
-    ("claude", 200000),
-    ("gemini", 1048576),
+    ("gpt-4o", 512000),
+    ("gpt-4.1", 512000),
+    ("gpt-4", 512000),
+    ("gpt-3.5", 512000),
+    ("deepseek", 512000),
+    ("qwen", 512000),
+    ("moonshot", 512000),
+    ("kimi", 512000),
+    ("glm", 512000),
+    ("claude", 512000),
+    ("gemini", 512000),
 ]
 
 
@@ -284,19 +284,15 @@ class ModelContextRegistry:
 
     def _match_openrouter_info(self, infos: list[ModelContextInfo], provider_cfg: LLMProviderConfig, provider_name: str) -> ModelContextInfo | None:
         if provider_name == "model-router":
-            author = None
             slug = provider_cfg.model.split("/")[-1] if provider_cfg.model else None
         else:
-            author, slug = _openrouter_lookup_parts(provider_cfg)
+            _, slug = _openrouter_lookup_parts(provider_cfg)
 
         if not slug:
             return None
-        expected_author = _normalize_match_part(author) if author else None
         expected_slug = _normalize_match_part(slug)
         for info in infos:
             if _normalize_match_part(info.slug) != expected_slug:
-                continue
-            if expected_author and _normalize_match_part(info.author) != expected_author:
                 continue
             return info
         return None

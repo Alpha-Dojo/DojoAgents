@@ -41,6 +41,7 @@ class RequestContextCodecSpec(ComponentSpec):
 class PromptContributorSpec(ComponentSpec):
     phase: str = "harness_instructions"
     contributor: Any = None
+    usage_category: str | None = None
 
 
 @dataclass(frozen=True)

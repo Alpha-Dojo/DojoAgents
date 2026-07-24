@@ -23,8 +23,12 @@ from dojoagents.sessions.models import (
     SessionPrincipal,
     TurnQuery,
     UsageQuery,
+    UsageRecord,
     SessionEvent,
+    SessionLease,
     CommitTurnCommand,
+    ContextUsageQuery,
+    ContextUsageSnapshot,
     FinishRunCommand,
 )
 from dojoagents.sessions.store import SessionStore
@@ -268,6 +272,15 @@ class SessionService:
         self._enabled()
         return await self._store.get_usage(principal, session_id, query)
 
+    async def context_usage(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        query: ContextUsageQuery,
+    ):
+        self._enabled()
+        return await self._store.get_context_usage(principal, session_id, query)
+
     async def begin_run_with_lease(self, principal: SessionPrincipal, command: BeginRunCommand):
         self._enabled()
         return await self._store.begin_run_with_lease(principal, command)
@@ -287,6 +300,31 @@ class SessionService:
     async def append_events(self, principal: SessionPrincipal, run_id: str, events: tuple[SessionEvent, ...]):
         self._enabled()
         return await self._store.append_events(principal, run_id, events)
+
+    async def append_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        records: tuple[UsageRecord, ...],
+    ) -> tuple[UsageRecord, ...]:
+        self._enabled()
+        return await self._store.append_usage(principal, run_id, lease, records)
+
+    async def append_context_usage(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        snapshots: tuple[ContextUsageSnapshot, ...],
+    ) -> tuple[ContextUsageSnapshot, ...]:
+        self._enabled()
+        return await self._store.append_context_usage(
+            principal,
+            run_id,
+            lease,
+            snapshots,
+        )
 
     async def read_events(self, principal: SessionPrincipal, run_id: str, *, after_seq: int, limit: int):
         self._enabled()
@@ -393,6 +431,11 @@ class SessionService:
         history = await self._store.load_history(principal, session_id, HistoryQuery(limit=10_000))
         turns = await self._store.list_turns(principal, session_id, TurnQuery(limit=10_000))
         usage = await self._store.get_usage(principal, session_id, UsageQuery())
+        context_usage = await self._store.get_context_usage(
+            principal,
+            session_id,
+            ContextUsageQuery(include_history=True, limit=10_000),
+        )
         runs = await self._store.list_runs(principal, session_id)
         events = []
         for run in runs:
@@ -406,6 +449,7 @@ class SessionService:
             "messages": _jsonable(history.items),
             "turns": _jsonable(turns.items),
             "usage": _jsonable(usage.records),
+            "context_usage": _jsonable(context_usage.history),
             "runs": _jsonable(runs),
             "events": _jsonable(events),
             "checkpoints": _jsonable(checkpoints),

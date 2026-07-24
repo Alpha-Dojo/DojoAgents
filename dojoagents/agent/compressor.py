@@ -348,11 +348,17 @@ class ContextCompressor:
                 middle_prompt += f"Tool Calls: {json.dumps(tcs)}\n"
 
         try:
-            summary_result = await llm_provider.chat(
-                messages=[{"role": "user", "content": middle_prompt}],
-                tools=[],
-                model=model,
-            )
+            from dojoagents.agent.usage import usage_scope
+
+            with usage_scope(
+                "context_compression",
+                "context_compression.session_summary",
+            ):
+                summary_result = await llm_provider.chat(
+                    messages=[{"role": "user", "content": middle_prompt}],
+                    tools=[],
+                    model=model,
+                )
             content = summary_result.content
             if "[LONG-TERM FACTS]" in content:
                 parts = content.split("[LONG-TERM FACTS]")

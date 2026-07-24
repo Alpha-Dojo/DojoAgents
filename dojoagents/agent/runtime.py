@@ -478,7 +478,6 @@ class Runtime:
             )
             llm_provider.name = provider_name or "openai"
             model = self.config.agent.model or provider_cfg.model
-
         agent_config = replace(self.config.agent, model=model or "unconfigured")
         memory_worker = SessionMemorySyncWorker(self.session_service, memory) if self.config.sessions.sync_memory else None
         self.agent = AgentLoop(
@@ -763,7 +762,6 @@ class Runtime:
                 getattr(provider_cfg, "base_url", None),
                 bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
             )
-
         memory = MemoryManager()
         if config.memory.provider == "skill_summary":
             memory.add_provider(SkillSummaryMemoryProvider(config.memory.generated_skill_dir))
@@ -817,7 +815,7 @@ class Runtime:
             from dojoagents.planning.automation import AutoPlanManager
 
             # Instantiate to register with event_bus
-            _plan_manager = AutoPlanManager(llm_provider=provider, model=config.agent.model, plan_engine=plan_engine)  # noqa
+            _plan_manager = AutoPlanManager(llm_provider=agent.usage_llm_provider, model=config.agent.model, plan_engine=plan_engine)  # noqa
 
         # Register multi-agent trigger hooks in plugin system
         if config.multi_agent.enabled:

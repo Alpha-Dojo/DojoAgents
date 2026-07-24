@@ -70,7 +70,7 @@ class FinancialLegacyBehavior:
                 blocks.append(task_block)
         turn_anchor, _ = await build_turn_intent_anchor_async(
             request,
-            loop.llm_provider,
+            loop.usage_llm_provider,
             model=model_id,
         )
         if turn_anchor:
@@ -113,7 +113,7 @@ class FinancialLegacyBehavior:
         classification = await classify_execute_code(
             str(arguments.get("code") or ""),
             request.message,
-            loop.llm_provider,
+            loop.usage_llm_provider,
             model=model_id,
             request_metadata=request.metadata,
         )

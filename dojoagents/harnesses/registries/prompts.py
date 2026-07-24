@@ -11,6 +11,7 @@ _PHASES = (
     "identity",
     "temporal",
     "harness_instructions",
+    "subagent_definitions",
     "skills",
     "memory",
     "request_context",
@@ -28,6 +29,7 @@ class PromptBlock:
     content: str
     source: str
     priority: int = 0
+    usage_category: str | None = None
 
 
 async def _resolve(value: Any) -> Any:
@@ -48,7 +50,16 @@ class PromptRegistry:
                 raise CapabilityConflictError(f"duplicate prompt block '{spec.component_id}' from {existing.source} conflicts with {spec.source}")
             seen[spec.component_id] = spec
 
-        blocks = [PromptBlock("core.safety", "core_safety", core_safety, "core", priority=10_000)]
+        blocks = [
+            PromptBlock(
+                "core.safety",
+                "core_safety",
+                core_safety,
+                "core",
+                priority=10_000,
+                usage_category="rules",
+            )
+        ]
         ordered = sorted(
             self.contributors,
             key=lambda spec: (_ORDER.get(spec.phase, len(_ORDER)), -spec.priority, spec.component_id),
@@ -75,7 +86,16 @@ class PromptRegistry:
                     raise HarnessPolicyError(f"prompt contributor '{spec.component_id}' returned mismatched block ID '{content.block_id}'")
                 blocks.append(content)
             elif isinstance(content, str):
-                blocks.append(PromptBlock(spec.component_id, spec.phase, content, spec.source, spec.priority))
+                blocks.append(
+                    PromptBlock(
+                        spec.component_id,
+                        spec.phase,
+                        content,
+                        spec.source,
+                        spec.priority,
+                        spec.usage_category,
+                    )
+                )
             else:
                 raise HarnessPolicyError(f"prompt contributor '{spec.component_id}' must return str, PromptBlock or None")
         return tuple(blocks)

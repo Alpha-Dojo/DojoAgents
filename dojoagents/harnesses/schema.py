@@ -25,6 +25,7 @@ _COMMON = {
     "path",
     "value",
     "phase",
+    "usage_category",
     "tool_names",
     "exclusive",
     "match_kinds",
@@ -90,6 +91,20 @@ def load_manifest(path: str | Path) -> dict[str, Any]:
             seen.add(component_id)
             if entry.get("factory") and not _FACTORY.fullmatch(str(entry["factory"])):
                 raise HarnessLoadError(f"components.{kind}[{index}].factory is invalid")
+            if entry.get("usage_category") not in {
+                None,
+                "system_prompt",
+                "tool_definitions",
+                "rules",
+                "skills",
+                "subagent_definitions",
+                "conversation",
+                "memory",
+                "attachments",
+                "protocol_overhead",
+                "other",
+            }:
+                raise HarnessLoadError(f"components.{kind}[{index}].usage_category is invalid")
             if entry.get("path"):
                 _safe_path(manifest_path.parent, str(entry["path"]), f"components.{kind}[{index}].path")
             for forbidden in ("sql", "shell", "command"):

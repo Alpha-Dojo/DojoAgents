@@ -11,6 +11,24 @@ from typing import Any, Literal
 JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 RunStatus = Literal["running", "cancellation_requested", "completed", "failed", "cancelled"]
 ObjectStatus = Literal["pending", "committed", "deleted"]
+ContextCategory = Literal[
+    "system_prompt",
+    "tool_definitions",
+    "rules",
+    "skills",
+    "subagent_definitions",
+    "conversation",
+    "memory",
+    "attachments",
+    "protocol_overhead",
+    "other",
+]
+ContextUsageQuality = Literal[
+    "rough_estimate",
+    "model_tokenizer",
+    "provider_reconciled",
+    "unavailable",
+]
 
 
 def utc_now() -> datetime:
@@ -232,13 +250,75 @@ class UsageRecord:
     idempotency_key: str = ""
     created_at: datetime = field(default_factory=utc_now)
     schema_version: int = 1
+    turn_id: str = ""
+    invocation_id: str = ""
+    invocation_index: int = 0
+    category: str = "legacy_unattributed"
+    operation: str = ""
+    total_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    quality: Literal["actual", "estimated", "unavailable"] = "unavailable"
+    status: Literal["succeeded", "failed", "cancelled"] = "succeeded"
+    agent_id: str = ""
+    harness_id: str = ""
+    parent_run_id: str | None = None
+    cost_microunits: int | None = None
+    currency: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for value, name in ((self.usage_id, "usage_id"), (self.session_uid, "session_uid"), (self.run_id, "run_id"), (self.provider, "provider"), (self.model, "model")):
             _non_blank(value, name)
-        for value, name in ((self.input_tokens, "input_tokens"), (self.output_tokens, "output_tokens"), (self.cache_tokens, "cache_tokens")):
+        for value, name in (
+            (self.input_tokens, "input_tokens"),
+            (self.output_tokens, "output_tokens"),
+            (self.cache_tokens, "cache_tokens"),
+            (self.total_tokens, "total_tokens"),
+            (self.reasoning_tokens, "reasoning_tokens"),
+            (self.cache_read_tokens, "cache_read_tokens"),
+            (self.cache_write_tokens, "cache_write_tokens"),
+            (self.invocation_index, "invocation_index"),
+        ):
             _non_negative(value, name)
+        if self.cost_microunits is not None:
+            _non_negative(self.cost_microunits, "cost_microunits")
+        if self.schema_version >= 2:
+            for value, name in (
+                (self.turn_id, "turn_id"),
+                (self.invocation_id, "invocation_id"),
+                (self.category, "category"),
+            ):
+                _non_blank(value, name)
         _utc(self.created_at, "created_at")
+        if self.started_at is not None:
+            _utc(self.started_at, "started_at")
+        if self.completed_at is not None:
+            _utc(self.completed_at, "completed_at")
+
+    @property
+    def effective_total_tokens(self) -> int:
+        return self.total_tokens or self.input_tokens + self.output_tokens
+
+
+@dataclass(frozen=True)
+class UsageTotals:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    calls: int = 0
+    cost_microunits: int = 0
+
+
+@dataclass(frozen=True)
+class UsageGroup:
+    dimensions: dict[str, str]
+    totals: UsageTotals
 
 
 @dataclass(frozen=True)
@@ -248,6 +328,150 @@ class UsageSummary:
     cache_tokens: int = 0
     cost: float = 0.0
     records: tuple[UsageRecord, ...] = ()
+    total_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    calls: int = 0
+    cost_microunits: int = 0
+    groups: tuple[UsageGroup, ...] = ()
+    actual_calls: int = 0
+    estimated_calls: int = 0
+    unavailable_calls: int = 0
+    has_legacy_unattributed: bool = False
+    tracking_started_at: datetime | None = None
+    next_cursor: str | None = None
+
+
+@dataclass(frozen=True)
+class ContextComponent:
+    component_id: str
+    category: ContextCategory
+    source: str
+    content_hash: str
+    estimated_tokens: int
+    character_count: int
+    quality: ContextUsageQuality = "rough_estimate"
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.component_id, "component_id"),
+            (self.category, "category"),
+            (self.source, "source"),
+            (self.content_hash, "content_hash"),
+        ):
+            _non_blank(value, name)
+        if len(self.component_id) > 256:
+            raise ValueError("component_id must be at most 256 characters")
+        if len(self.source) > 512:
+            raise ValueError("source must be at most 512 characters")
+        if len(self.content_hash) > 256:
+            raise ValueError("content_hash must be at most 256 characters")
+        if self.category not in {
+            "system_prompt",
+            "tool_definitions",
+            "rules",
+            "skills",
+            "subagent_definitions",
+            "conversation",
+            "memory",
+            "attachments",
+            "protocol_overhead",
+            "other",
+        }:
+            raise ValueError("category is invalid")
+        if self.quality not in {
+            "rough_estimate",
+            "model_tokenizer",
+            "provider_reconciled",
+            "unavailable",
+        }:
+            raise ValueError("quality is invalid")
+        _non_negative(self.estimated_tokens, "estimated_tokens")
+        _non_negative(self.character_count, "character_count")
+        _json_value(self.metadata, "metadata")
+
+
+@dataclass(frozen=True)
+class ContextUsageSnapshot:
+    snapshot_id: str
+    session_uid: str
+    run_id: str
+    turn_id: str
+    invocation_id: str
+    invocation_index: int
+    agent_id: str
+    harness_id: str
+    provider: str
+    model: str
+    context_window_tokens: int
+    estimated_input_tokens: int
+    actual_input_tokens: int | None
+    reconciliation_delta_tokens: int
+    reserved_output_tokens: int
+    quality: ContextUsageQuality
+    components: tuple[ContextComponent, ...]
+    captured_at: datetime
+    idempotency_key: str
+    invocation_category: str = "agent_inference"
+    operation: str = "agent_inference"
+    status: Literal["estimated", "succeeded", "failed", "cancelled"] = "estimated"
+    reconciled_at: datetime | None = None
+    parent_run_id: str | None = None
+    manifest_mismatch: bool = False
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.snapshot_id, "snapshot_id"),
+            (self.session_uid, "session_uid"),
+            (self.run_id, "run_id"),
+            (self.turn_id, "turn_id"),
+            (self.invocation_id, "invocation_id"),
+            (self.agent_id, "agent_id"),
+            (self.provider, "provider"),
+            (self.model, "model"),
+            (self.idempotency_key, "idempotency_key"),
+            (self.invocation_category, "invocation_category"),
+            (self.operation, "operation"),
+        ):
+            _non_blank(value, name)
+        for value, name in (
+            (self.invocation_index, "invocation_index"),
+            (self.context_window_tokens, "context_window_tokens"),
+            (self.estimated_input_tokens, "estimated_input_tokens"),
+            (self.reserved_output_tokens, "reserved_output_tokens"),
+        ):
+            _non_negative(value, name)
+        if self.actual_input_tokens is not None:
+            _non_negative(self.actual_input_tokens, "actual_input_tokens")
+        if self.quality not in {
+            "rough_estimate",
+            "model_tokenizer",
+            "provider_reconciled",
+            "unavailable",
+        }:
+            raise ValueError("quality is invalid")
+        if self.status not in {"estimated", "succeeded", "failed", "cancelled"}:
+            raise ValueError("status is invalid")
+        object.__setattr__(self, "components", tuple(self.components))
+        _utc(self.captured_at, "captured_at")
+        if self.reconciled_at is not None:
+            _utc(self.reconciled_at, "reconciled_at")
+
+    @property
+    def used_tokens(self) -> int:
+        return self.actual_input_tokens if self.actual_input_tokens is not None else self.estimated_input_tokens
+
+
+@dataclass(frozen=True)
+class ContextUsageSummary:
+    latest: ContextUsageSnapshot | None = None
+    turn_peak: ContextUsageSnapshot | None = None
+    session_peak: ContextUsageSnapshot | None = None
+    history: tuple[ContextUsageSnapshot, ...] = ()
+    next_cursor: str | None = None
 
 
 @dataclass(frozen=True)
@@ -432,6 +656,76 @@ class TurnQuery:
 class UsageQuery:
     run_id: str | None = None
     provider: str | None = None
+    turn_id: str | None = None
+    model: str | None = None
+    category: str | None = None
+    quality: Literal["actual", "estimated", "unavailable"] | None = None
+    status: Literal["succeeded", "failed", "cancelled"] | None = None
+    agent_id: str | None = None
+    from_time: datetime | None = None
+    to_time: datetime | None = None
+    include_children: bool = True
+    include_records: bool = True
+    group_by: tuple[str, ...] = ()
+    limit: int = 100
+    cursor: str | None = None
+
+    def __post_init__(self) -> None:
+        _positive_limit(self.limit)
+        if self.quality not in {None, "actual", "estimated", "unavailable"}:
+            raise ValueError("quality must be actual, estimated, or unavailable")
+        if self.status not in {None, "succeeded", "failed", "cancelled"}:
+            raise ValueError("status must be succeeded, failed, or cancelled")
+        allowed = {
+            "turn_id",
+            "run_id",
+            "category",
+            "provider",
+            "model",
+            "quality",
+            "status",
+            "agent_id",
+            "harness_id",
+            "currency",
+        }
+        if len(self.group_by) > 3:
+            raise ValueError("group_by supports at most three dimensions")
+        invalid = sorted(set(self.group_by) - allowed)
+        if invalid:
+            raise ValueError(f"unsupported usage group_by dimensions: {', '.join(invalid)}")
+        if self.from_time is not None:
+            _utc(self.from_time, "from_time")
+        if self.to_time is not None:
+            _utc(self.to_time, "to_time")
+        if self.from_time is not None and self.to_time is not None and self.from_time > self.to_time:
+            raise ValueError("from_time must not be after to_time")
+
+
+@dataclass(frozen=True)
+class ContextUsageQuery:
+    run_id: str | None = None
+    turn_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    agent_id: str | None = None
+    from_time: datetime | None = None
+    to_time: datetime | None = None
+    include_children: bool = True
+    include_history: bool = False
+    detail: Literal["category", "source"] = "category"
+    limit: int = 50
+    cursor: str | None = None
+
+    def __post_init__(self) -> None:
+        _positive_limit(self.limit)
+        if self.detail not in {"category", "source"}:
+            raise ValueError("detail must be category or source")
+        if self.from_time is not None:
+            _utc(self.from_time, "from_time")
+        if self.to_time is not None:
+            _utc(self.to_time, "to_time")
+        if self.from_time is not None and self.to_time is not None and self.from_time > self.to_time:
+            raise ValueError("from_time must not be after to_time")
 
 
 @dataclass(frozen=True)

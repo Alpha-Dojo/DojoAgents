@@ -90,7 +90,14 @@ class DeclarativeHarness:
 
                 contributor = value_contributor
             builder.add_prompt_contributor(
-                PromptContributorSpec(entry["id"], source, phase=str(entry.get("phase") or "harness_instructions"), contributor=contributor, **self._common(entry))
+                PromptContributorSpec(
+                    entry["id"],
+                    source,
+                    phase=str(entry.get("phase") or "harness_instructions"),
+                    contributor=contributor,
+                    usage_category=entry.get("usage_category"),
+                    **self._common(entry),
+                )
             )
         for kind, method, spec_type, value_key in (
             ("skills", builder.add_skill_source, SkillSourceSpec, "provider"),

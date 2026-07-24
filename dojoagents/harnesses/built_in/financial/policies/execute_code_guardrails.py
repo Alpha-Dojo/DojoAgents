@@ -132,7 +132,13 @@ async def classify_execute_code(
         {"role": "user", "content": user_payload},
     ]
     try:
-        result = await llm_provider.chat(messages, tools=[], model=model)
+        from dojoagents.agent.usage import usage_scope
+
+        with usage_scope(
+            "safety_classifier",
+            "safety_classifier.execute_code",
+        ):
+            result = await llm_provider.chat(messages, tools=[], model=model)
         data = _parse_classifier_json(result.content)
         if data is None:
             LOGGER.warning("execute_code classifier returned non-JSON content; allowing execution")

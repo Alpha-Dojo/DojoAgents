@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from dataclasses import asdict
+from datetime import UTC, datetime
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from dojoagents.dashboard.deps import get_chat_session_service
@@ -33,7 +35,14 @@ from dojoagents.dashboard.services.session_outputs import (
     reveal_path_in_file_manager,
 )
 from dojoagents.logging import LOGGER
-from dojoagents.sessions.models import ObjectQuery, SessionPrincipal
+from dojoagents.sessions.errors import SessionNotFoundError
+from dojoagents.sessions.models import (
+    ContextUsageQuery,
+    ObjectQuery,
+    SessionPrincipal,
+    UsageQuery,
+)
+from dojoagents.agent.context_usage import context_snapshot_projection
 from dojoagents.sessions.paths import resolve_session_input_file
 
 router = APIRouter(prefix="/chat/sessions", tags=["chat-sessions"])
@@ -76,6 +85,216 @@ async def get_chat_session(
     if result is None:
         return JSONResponse(status_code=404, content={"error": f"Unknown session: {session_id}"})
     return result
+
+
+@router.get("/{session_id}/usage")
+async def get_chat_session_usage(
+    session_id: str,
+    run_id: str | None = None,
+    turn_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    category: str | None = None,
+    quality: str | None = None,
+    status: str | None = None,
+    agent_id: str | None = None,
+    from_time: datetime | None = None,
+    to_time: datetime | None = None,
+    include_children: bool = True,
+    group_by: str = "",
+    include_records: bool = False,
+    limit: int = 100,
+    cursor: str | None = None,
+    view: str = "all",
+    context_scope: str = "latest",
+    context_detail: str = "category",
+    context_limit: int = 50,
+    context_cursor: str | None = None,
+    service: ChatSessionService = Depends(get_chat_session_service),
+    principal: SessionPrincipal = Depends(get_session_principal),
+) -> Any:
+    if not service.canonical_backend:
+        raise HTTPException(
+            status_code=501,
+            detail="usage aggregation requires the canonical SessionService",
+        )
+    if view not in {"all", "consumption", "context"}:
+        raise HTTPException(
+            status_code=422,
+            detail="view must be all, consumption, or context",
+        )
+    if context_scope not in {
+        "latest",
+        "turn_last",
+        "turn_peak",
+        "session_peak",
+        "history",
+    }:
+        raise HTTPException(
+            status_code=422,
+            detail=("context_scope must be latest, turn_last, turn_peak, " "session_peak, or history"),
+        )
+    dimensions = tuple(item.strip() for item in group_by.split(",") if item.strip())
+    if from_time is not None and from_time.tzinfo is not None:
+        from_time = from_time.astimezone(UTC)
+    if to_time is not None and to_time.tzinfo is not None:
+        to_time = to_time.astimezone(UTC)
+    try:
+        summary = None
+        turn_summary = None
+        if view in {"all", "consumption"}:
+            query = UsageQuery(
+                run_id=run_id,
+                turn_id=turn_id,
+                provider=provider,
+                model=model,
+                category=category,
+                quality=quality,
+                status=status,
+                agent_id=agent_id,
+                from_time=from_time,
+                to_time=to_time,
+                include_children=include_children,
+                include_records=include_records,
+                group_by=dimensions,
+                limit=limit,
+                cursor=cursor,
+            )
+            summary = await service.session_manager.usage(
+                principal,
+                session_id,
+                query,
+            )
+            turn_summary = await service.session_manager.usage(
+                principal,
+                session_id,
+                UsageQuery(
+                    run_id=run_id,
+                    turn_id=turn_id,
+                    provider=provider,
+                    model=model,
+                    category=category,
+                    quality=quality,
+                    status=status,
+                    agent_id=agent_id,
+                    from_time=from_time,
+                    to_time=to_time,
+                    include_children=include_children,
+                    include_records=False,
+                    group_by=("turn_id", "run_id"),
+                    limit=1,
+                ),
+            )
+        context_summary = None
+        if view in {"all", "context"}:
+            context_summary = await service.session_manager.context_usage(
+                principal,
+                session_id,
+                ContextUsageQuery(
+                    run_id=run_id,
+                    turn_id=turn_id,
+                    provider=provider,
+                    model=model,
+                    agent_id=agent_id,
+                    from_time=from_time,
+                    to_time=to_time,
+                    include_children=include_children,
+                    include_history=context_scope == "history",
+                    detail=context_detail,
+                    limit=context_limit,
+                    cursor=context_cursor,
+                ),
+            )
+    except SessionNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Unknown session: {session_id}"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    consumption = None
+    if summary is not None and turn_summary is not None:
+        consumption = {
+            "totals": {
+                "input_tokens": summary.input_tokens,
+                "output_tokens": summary.output_tokens,
+                "total_tokens": summary.total_tokens,
+                "reasoning_tokens": summary.reasoning_tokens,
+                "cache_read_tokens": summary.cache_read_tokens,
+                "cache_write_tokens": summary.cache_write_tokens,
+                "calls": summary.calls,
+                "cost_microunits": summary.cost_microunits,
+            },
+            "groups": [asdict(group) for group in summary.groups],
+            "turns": [
+                {
+                    **group.dimensions,
+                    "totals": asdict(group.totals),
+                }
+                for group in turn_summary.groups
+            ],
+            "coverage": {
+                "actual_calls": summary.actual_calls,
+                "estimated_calls": summary.estimated_calls,
+                "unavailable_calls": summary.unavailable_calls,
+                "has_legacy_unattributed": (summary.has_legacy_unattributed),
+                "tracking_started_at": (summary.tracking_started_at.isoformat() if summary.tracking_started_at is not None else None),
+            },
+            "records": [asdict(record) for record in summary.records],
+            "next_cursor": summary.next_cursor,
+        }
+
+    context = None
+    if context_summary is not None:
+        latest = context_snapshot_projection(
+            context_summary.latest,
+            detail=context_detail,
+        )
+        context = {
+            "latest": latest,
+            "turn_peak": context_snapshot_projection(
+                context_summary.turn_peak,
+                detail=context_detail,
+            ),
+            "session_peak": context_snapshot_projection(
+                context_summary.session_peak,
+                detail=context_detail,
+            ),
+            "history": [
+                context_snapshot_projection(
+                    snapshot,
+                    detail=context_detail,
+                )
+                for snapshot in context_summary.history
+            ],
+            "next_cursor": context_summary.next_cursor,
+            "has_breakdown": latest is not None,
+        }
+
+    return {
+        "schema_version": 3,
+        "session_id": session_id,
+        "filters": {
+            "run_id": run_id,
+            "turn_id": turn_id,
+            "provider": provider,
+            "model": model,
+            "category": category,
+            "quality": quality,
+            "status": status,
+            "agent_id": agent_id,
+            "from_time": from_time.isoformat() if from_time else None,
+            "to_time": to_time.isoformat() if to_time else None,
+            "include_children": include_children,
+            "group_by": list(dimensions),
+            "view": view,
+            "context_scope": context_scope,
+            "context_detail": context_detail,
+        },
+        "consumption": consumption,
+        "context": context,
+    }
 
 
 @router.get("/{session_id}/messages", response_model=ChatSessionMessagesResponse)

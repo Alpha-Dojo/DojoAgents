@@ -123,6 +123,24 @@ class MemoryHookProvider:
             if mem_prompt and event.messages:
                 # Add as a system block
                 event.messages.insert(0, {"role": "system", "content": [{"type": "text", "text": mem_prompt}]})
+                from dojoagents.agent.context_usage import PromptContextSource
+
+                sources = list(event.invocation_state.get("_dojo_context_sources") or ())
+                dynamic_insert_at = min(
+                    int(event.invocation_state.get("_dojo_base_context_source_count") or len(sources)),
+                    len(sources),
+                )
+                sources.insert(
+                    dynamic_insert_at,
+                    PromptContextSource(
+                        component_id=f"memory.prefetch.{len(sources)}",
+                        phase="memory",
+                        content=mem_prompt,
+                        source="core:memory-hook",
+                        category="memory",
+                    ),
+                )
+                event.invocation_state["_dojo_context_sources"] = tuple(sources)
 
     async def _on_message_added(self, event: Any) -> None:
         pass
