@@ -47,7 +47,7 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
 
     current_default = llm_section.get("default", "openai")
     LOGGER.info(f"Current default provider: {current_default}")
-    LOGGER.info()
+    LOGGER.info("")
 
     # 1. Select Provider
     LOGGER.info("Select LLM Provider:")
@@ -139,7 +139,7 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
     raw.setdefault("agent", {})["model"] = selected_model
 
     store.save_raw(raw)
-    LOGGER.info()
+    LOGGER.info("")
     LOGGER.info(f"✓ Configuration successfully saved to {store.path}")
     LOGGER.info(f"  Active Provider: {provider_id}")
     LOGGER.info(f"  Active Model:    {selected_model}")

@@ -202,6 +202,112 @@ async def test_web_search_ddgs_adapter_parses_results(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_web_search_tavily_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.tavily.com/search"
+        assert request.headers.get("authorization") == "Bearer tvly-test"
+        body = request.read()
+        import json
+
+        payload = json.loads(body.decode("utf-8"))
+        assert payload["query"] == "dojo"
+        assert payload["max_results"] == 2
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "Tavily Dojo",
+                        "url": "https://example.com/tavily",
+                        "content": "Tavily snippet",
+                    }
+                ]
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor(
+        {
+            "tools": {
+                "web": {
+                    "search_backend": "tavily",
+                    "api_key": "tvly-test",
+                }
+            }
+        }
+    )
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 2})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "tavily"
+    assert result.data["web"][0]["title"] == "Tavily Dojo"
+    assert result.data["web"][0]["description"] == "Tavily snippet"
+
+
+@pytest.mark.asyncio
+async def test_web_search_tavily_without_api_key_returns_error():
+    executor = _make_executor({"tools": {"web": {"search_backend": "tavily"}}})
+    result = await executor.execute_one(ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"}))
+
+    assert result.ok is False
+    assert "api key" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_web_extract_tavily_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.tavily.com/extract"
+        assert request.headers.get("authorization") == "Bearer tvly-test"
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "url": "https://example.com/page",
+                        "title": "Extracted",
+                        "raw_content": "Full page content",
+                    }
+                ],
+                "failed_results": [],
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor(
+        {
+            "tools": {
+                "web": {
+                    "extract_backend": "tavily",
+                    "api_key": "tvly-test",
+                }
+            }
+        }
+    )
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_extract", arguments={"url": "https://example.com/page"})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "tavily"
+    assert result.data["results"][0]["title"] == "Extracted"
+    assert result.data["results"][0]["content"] == "Full page content"
+
+
+@pytest.mark.asyncio
 async def test_web_extract_fetch_adapter_parses_results(monkeypatch):
     from dojoagents.tools import web_searcher
 
