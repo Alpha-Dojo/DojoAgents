@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import re
 from dataclasses import asdict
@@ -39,6 +40,7 @@ from dojoagents.config.models import (
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_LOGGER = logging.getLogger("dojoagents")
 _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
@@ -333,11 +335,10 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 30)),
         event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
     )
-    explicit_sessions = (source_raw or raw).get("sessions", {})
+    explicit_raw = raw if source_raw is None else source_raw
+    explicit_sessions = explicit_raw.get("sessions", {})
     if isinstance(explicit_sessions, dict) and ({"provider", "root"} & set(explicit_sessions)):
-        from dojoagents.logging import LOGGER
-
-        LOGGER.warning(
+        _LOGGER.warning(
             "Deprecated flat session configuration converted to file store",
             extra={"event": "sessions.config.deprecated", "provider": legacy_provider},
         )
