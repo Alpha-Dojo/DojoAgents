@@ -1,5 +1,8 @@
+"""Kline segment helpers and sector member daily-return usability gates."""
+
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Dict, List, Optional
@@ -9,7 +12,8 @@ from dojoagents.dashboard.schemas.stock_kline import StockKlineBar
 # Split kline history when bars are farther apart (e.g. ticker reuse after delisting).
 MAX_BAR_GAP_DAYS = 30
 WINDOW_HISTORY_DAYS = 365
-# Cap-weighted sector daily returns exclude single-name outliers above this gain.
+# Cap-weighted sector daily returns exclude single-name outliers beyond this
+# absolute move (fraction). Same threshold applies symmetrically to gains and losses.
 MAX_SECTOR_MEMBER_DAILY_RETURN = 0.50
 
 
@@ -130,5 +134,20 @@ def member_daily_return(
 
 
 def sector_member_daily_return_usable(daily_return: float) -> bool:
-    """True when a constituent daily return may contribute to sector averages."""
-    return daily_return <= MAX_SECTOR_MEMBER_DAILY_RETURN
+    """True when a constituent daily return may contribute to sector averages.
+
+    ``daily_return`` must be a **fraction** (``0.50`` == +50%), not percentage points.
+    Callers that store percent (e.g. ``daily_return_pct``, ``change_percent``) must
+    divide by 100 before calling.
+
+    Excludes outliers with ``|daily_return| > MAX_SECTOR_MEMBER_DAILY_RETURN``.
+    Constituents stay in the basket; only that day's return is omitted and weights
+    are re-normalized over the remaining names.
+    """
+    try:
+        value = float(daily_return)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(value):
+        return False
+    return abs(value) <= MAX_SECTOR_MEMBER_DAILY_RETURN

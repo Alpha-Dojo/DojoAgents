@@ -9,6 +9,22 @@ from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker
 RECENT_VOLUME_LOOKBACK = 20
 
 
+def stock_is_us_warrant_by_name(stock: Stock) -> bool:
+    """True when a US listing's display name contains ``Warrant`` (case-insensitive).
+
+    Yahoo-style equity metadata labels warrants as EQUITY, so name text is the
+    reliable signal. Applied only to ``market == us`` to avoid CN false positives
+    (e.g. company names containing the English word Warrant).
+    """
+    if str(stock.market or "").strip().lower() != "us":
+        return False
+    parts = [stock.short_name or "", stock.long_name or ""]
+    quote = stock.stock_quote
+    if quote is not None and quote.name:
+        parts.append(quote.name)
+    return "warrant" in " ".join(parts).lower()
+
+
 def _quote_has_trading_activity(stock: Stock) -> bool:
     quote = stock.stock_quote
     if quote is None:
@@ -28,6 +44,8 @@ async def is_sector_constituent_eligible(
 ) -> bool:
     """Sector index constituents must clear the ticker cap floor, have klines, and trade."""
     if stock is None or stock.stock_quote is None:
+        return False
+    if stock_is_us_warrant_by_name(stock):
         return False
     if stock.stock_quote.market_cap <= 0:
         return False

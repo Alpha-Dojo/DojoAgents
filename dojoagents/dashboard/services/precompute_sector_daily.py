@@ -13,13 +13,17 @@ from collections.abc import Callable
 from typing import Any
 import pandas as pd
 
-from dojoagents.dashboard.services.constituent_filter import ConstituentEligibilityChecker
+from dojoagents.dashboard.services.constituent_filter import (
+    ConstituentEligibilityChecker,
+    stock_is_us_warrant_by_name,
+)
 from dojoagents.dashboard.services.stock_quote_filter import (
     filter_constituents_frame_by_ticker_cap_min,
     stock_passes_ticker_market_cap_min,
     ticker_cap_mins_snapshot,
 )
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_segment import sector_member_daily_return_usable
 from dojoagents.dashboard.services.sector_return_coverage import sector_day_return_coverage_ok
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath, SectorStore
 from dojoagents.dashboard.services.stock_sector_store import MARKETS, StockSectorStore
@@ -151,6 +155,7 @@ async def prepare_sector_precompute_input(
                 "missing_quote": 0,
                 "non_positive_cap": 0,
                 "below_ticker_cap_floor": 0,
+                "us_warrant_excluded": 0,
                 "missing_kline": 0,
             }
             for market in MARKETS
@@ -192,6 +197,9 @@ async def prepare_sector_precompute_input(
                         continue
                     if not stock_passes_ticker_market_cap_min(stock):
                         stats["markets"][assignment.market]["below_ticker_cap_floor"] += 1
+                        continue
+                    if stock_is_us_warrant_by_name(stock):
+                        stats["markets"][assignment.market]["us_warrant_excluded"] += 1
                         continue
                     if not await checker.is_eligible(stock):
                         stats["markets"][assignment.market]["missing_kline"] += 1
@@ -309,7 +317,7 @@ def _build_index_rows(
     rows: list[dict[str, Any]] = []
     index_level = 100.0
     for trade_date in returns_pivot.index:
-        available = []
+        available: list[tuple[float, float]] = []
         for column in valid_columns:
             value = returns_pivot.at[trade_date, column]
             if pd.isna(value):
@@ -320,18 +328,27 @@ def _build_index_rows(
             available.append((float(value), weight))
         if not available:
             continue
-        effective_weight_sum = float(sum(weight for _, weight in available))
+        # Drop extreme single-name days; keep the constituent in the basket, but omit
+        # that return and re-normalize weights over the remaining names.
+        usable = [
+            (value, weight)
+            for value, weight in available
+            if sector_member_daily_return_usable(value / 100.0)
+        ]
+        if not usable:
+            continue
+        effective_weight_sum = float(sum(weight for _, weight in usable))
         if effective_weight_sum == 0:
             continue
         # Sparse sessions (few names / little cap) are data gaps, not sector prints.
         if not sector_day_return_coverage_ok(
             member_count=member_count,
-            member_count_with_return=len(available),
+            member_count_with_return=len(usable),
             total_market_cap=total_market_cap,
             effective_weight_sum=effective_weight_sum,
         ):
             continue
-        daily_return_pct = sum(value * weight for value, weight in available) / effective_weight_sum
+        daily_return_pct = sum(value * weight for value, weight in usable) / effective_weight_sum
         index_level *= 1 + daily_return_pct / 100.0
         rows.append(
             {
@@ -342,7 +359,7 @@ def _build_index_rows(
                 "level2_id": path.level2_id if scope in {"L2", "L3"} else "",
                 "level3_id": path.level3_id if scope == "L3" else "",
                 "member_count": member_count,
-                "member_count_with_return": len(available),
+                "member_count_with_return": len(usable),
                 "total_market_cap": round(total_market_cap, 4),
                 "effective_weight_sum": round(effective_weight_sum, 4),
                 "weighted_pe": pe_value,
