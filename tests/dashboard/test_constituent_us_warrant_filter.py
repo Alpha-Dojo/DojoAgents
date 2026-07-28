@@ -71,6 +71,7 @@ def test_us_common_stock_without_warrant_passes() -> None:
         market="us",
         short_name="Sony Group Corporation",
         long_name="Sony Group Corporation",
+        quote_type="EQUITY",
         stock_quote=_quote(name="Sony Group Corporation"),
     )
     assert stock_is_us_warrant_by_name(stock) is False
@@ -82,6 +83,7 @@ def test_us_warrant_fails_sector_performance_weight() -> None:
         ticker="FGIWW",
         market="us",
         short_name="FGI Industries Ltd. Warrant",
+        quote_type="EQUITY",
         stock_quote=_quote(),
     )
     assert stock_passes_sector_performance_weight(stock) is False
@@ -111,6 +113,7 @@ async def test_us_warrant_not_constituent_eligible() -> None:
         ticker="FGIWW",
         market="us",
         short_name="FGI Industries Ltd. Warrant",
+        quote_type="EQUITY",
         stock_quote=_quote(),
     )
     assert await is_sector_constituent_eligible(stock, _KlineStore()) is False

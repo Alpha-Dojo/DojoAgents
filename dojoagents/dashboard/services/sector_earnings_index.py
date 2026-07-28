@@ -10,7 +10,10 @@ from dojoagents.dashboard.services.kline_segment import (
     member_daily_return,
     sector_member_daily_return_usable,
 )
-from dojoagents.dashboard.services.constituent_filter import stock_is_us_warrant_by_name
+from dojoagents.dashboard.services.constituent_filter import (
+    stock_is_equity_quote_type,
+    stock_is_us_warrant_by_name,
+)
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.stock import Stock
@@ -69,7 +72,9 @@ def market_cap_weighted_quote_change(
 
 
 def stock_passes_sector_performance_weight(stock: Stock) -> bool:
-    """DojoSphere index eligibility: cap/volume filter (same as DojoMesh)."""
+    """DojoSphere index eligibility: EQUITY + cap/volume filter (same as DojoMesh)."""
+    if not stock_is_equity_quote_type(stock):
+        return False
     if stock_is_us_warrant_by_name(stock):
         return False
     return stock_passes_ticker_market_cap_min(stock)

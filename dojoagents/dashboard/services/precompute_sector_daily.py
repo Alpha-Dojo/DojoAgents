@@ -15,6 +15,7 @@ import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import (
     ConstituentEligibilityChecker,
+    stock_is_equity_quote_type,
     stock_is_us_warrant_by_name,
 )
 from dojoagents.dashboard.services.stock_quote_filter import (
@@ -155,6 +156,7 @@ async def prepare_sector_precompute_input(
                 "missing_quote": 0,
                 "non_positive_cap": 0,
                 "below_ticker_cap_floor": 0,
+                "non_equity_excluded": 0,
                 "us_warrant_excluded": 0,
                 "missing_kline": 0,
             }
@@ -197,6 +199,9 @@ async def prepare_sector_precompute_input(
                         continue
                     if not stock_passes_ticker_market_cap_min(stock):
                         stats["markets"][assignment.market]["below_ticker_cap_floor"] += 1
+                        continue
+                    if not stock_is_equity_quote_type(stock):
+                        stats["markets"][assignment.market]["non_equity_excluded"] += 1
                         continue
                     if stock_is_us_warrant_by_name(stock):
                         stats["markets"][assignment.market]["us_warrant_excluded"] += 1
