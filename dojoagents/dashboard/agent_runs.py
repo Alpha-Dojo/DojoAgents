@@ -20,6 +20,10 @@ RunStatus = Literal["running", "done", "error", "cancelled"]
 _RUN_TTL_SECONDS = 60 * 60
 
 
+class UnsupportedInputModalityError(ValueError):
+    """The selected model cannot consume one or more request modalities."""
+
+
 def _content_input_modalities(content: Any) -> set[str]:
     if content is None:
         return set()
@@ -46,6 +50,7 @@ def _content_input_modalities(content: Any) -> set[str]:
 def _request_input_modalities(request: ChatRequest) -> set[str]:
     modalities = _content_input_modalities(request.message)
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    modalities.update(_content_input_modalities(request.runtime_content))
     modalities.update(_content_input_modalities(metadata.get("user_content")))
     history = metadata.get("history")
     if isinstance(history, list):
@@ -134,7 +139,9 @@ async def validate_request_modalities(request: ChatRequest, agent: Any) -> None:
     model_label = provider_cfg.model or "unknown"
     if provider_cfg.author:
         model_label = f"{provider_cfg.author}/{model_label}"
-    raise ValueError(f"Model '{model_label}' does not support input modalities: {', '.join(unsupported)}. " f"Supported input modalities: {', '.join(sorted(supported))}.")
+    raise UnsupportedInputModalityError(
+        f"Model '{model_label}' does not support input modalities: {', '.join(unsupported)}. " f"Supported input modalities: {', '.join(sorted(supported))}."
+    )
 
 
 class AgentRunManager:

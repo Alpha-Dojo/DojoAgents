@@ -72,6 +72,12 @@ from strands.types._events import ToolResultEvent
 T = TypeVar("T")
 
 
+def _current_user_content(request: ChatRequest) -> str | list[dict[str, Any]]:
+    if request.runtime_content is not None:
+        return request.runtime_content
+    return request.metadata.get("user_content", request.message)
+
+
 class GuardrailHaltException(Exception):
     def __init__(self, message: str, stopped_reason: str):
         super().__init__(message)
@@ -772,7 +778,7 @@ class AgentLoop:
 
         emit_phase("planning")
 
-        user_content = request.metadata.get("user_content", request.message)
+        user_content = _current_user_content(request)
         raw_attachments = request.metadata.get("session_attachments")
         session_attachments = [item for item in raw_attachments if isinstance(item, dict)] if isinstance(raw_attachments, list) else []
         if session_attachments:
@@ -785,7 +791,6 @@ class AgentLoop:
                     user_content = [*user_content, {"type": "text", "text": attachment_block}]
                 else:
                     user_content = combined
-                request.metadata["user_content"] = user_content
         image_turn = openai_content_has_images(user_content)
 
         model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
@@ -1057,7 +1062,7 @@ class AgentLoop:
         # Context token tracking & run-start compression
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        current_user_blocks = openai_content_to_strands_blocks(user_content)
         temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
         estimated_prompt = _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
@@ -1081,7 +1086,7 @@ class AgentLoop:
 
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        current_user_blocks = openai_content_to_strands_blocks(user_content)
         temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
         used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))

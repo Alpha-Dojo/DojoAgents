@@ -25,12 +25,13 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.16",
+    "dojosdk>=0.1.17",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
     "openpyxl>=3.1.0,<4",
     "pypdf>=5.0.0,<7",
+    "pillow>=10.0.0,<13",
 ]
 
 

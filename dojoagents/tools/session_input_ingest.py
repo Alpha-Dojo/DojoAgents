@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, UnidentifiedImageError
+
 from dojoagents.logging import LOGGER
 
 PREVIEW_CHAR_LIMIT = 8_000
@@ -66,9 +68,47 @@ CODE_EXTENSIONS = frozenset(
 )
 EXCEL_EXTENSIONS = frozenset({".xlsx", ".xls"})
 PDF_EXTENSIONS = frozenset({".pdf"})
+IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"})
+IMAGE_MIME_BY_FORMAT = {
+    "BMP": "image/bmp",
+    "GIF": "image/gif",
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
+IMAGE_FORMAT_BY_SUFFIX = {
+    ".bmp": "BMP",
+    ".gif": "GIF",
+    ".jpeg": "JPEG",
+    ".jpg": "JPEG",
+    ".png": "PNG",
+    ".webp": "WEBP",
+}
 
-SUPPORTED_UPLOAD_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | EXCEL_EXTENSIONS | PDF_EXTENSIONS
+SUPPORTED_UPLOAD_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | EXCEL_EXTENSIONS | PDF_EXTENSIONS | IMAGE_EXTENSIONS
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+DEFAULT_MAX_IMAGE_PIXELS = 25_000_000
+DEFAULT_MAX_IMAGE_FRAMES = 100
+
+
+class SessionInputImageError(ValueError):
+    pass
+
+
+class SessionInputImageInvalidError(SessionInputImageError):
+    pass
+
+
+class SessionInputImageTypeMismatchError(SessionInputImageError):
+    pass
+
+
+class SessionInputImageTooLargeError(SessionInputImageError):
+    pass
+
+
+class SessionInputImageAnimatedError(SessionInputImageError):
+    pass
 
 
 def detect_session_input_kind(filename: str) -> str:
@@ -85,9 +125,58 @@ def detect_session_input_kind(filename: str) -> str:
         return "excel"
     if suffix in PDF_EXTENSIONS:
         return "pdf"
+    if suffix in IMAGE_EXTENSIONS:
+        return "image"
     if suffix in TEXT_EXTENSIONS:
         return "text"
     return "binary"
+
+
+def inspect_session_input_image(
+    path: str | Path,
+    *,
+    max_pixels: int = DEFAULT_MAX_IMAGE_PIXELS,
+    animated_gif_enabled: bool = False,
+    max_frames: int = DEFAULT_MAX_IMAGE_FRAMES,
+) -> dict[str, Any]:
+    target = Path(path).resolve()
+    expected_format = IMAGE_FORMAT_BY_SUFFIX.get(target.suffix.lower())
+    if expected_format is None:
+        raise SessionInputImageTypeMismatchError("unsupported image extension")
+    try:
+        with Image.open(target) as image:
+            actual_format = str(image.format or "").upper()
+            if actual_format != expected_format:
+                raise SessionInputImageTypeMismatchError(f"image format {actual_format or 'unknown'} does not match {expected_format}")
+            mime_type = IMAGE_MIME_BY_FORMAT.get(actual_format)
+            if mime_type is None:
+                raise SessionInputImageTypeMismatchError(f"unsupported image format: {actual_format or 'unknown'}")
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                raise SessionInputImageInvalidError("image dimensions must be positive")
+            pixels = width * height
+            if pixels > max(1, int(max_pixels)):
+                raise SessionInputImageTooLargeError(f"image has {pixels} pixels, limit is {max_pixels}")
+            frame_count = int(getattr(image, "n_frames", 1) or 1)
+            if frame_count > max(1, int(max_frames)):
+                raise SessionInputImageTooLargeError(f"image has {frame_count} frames, limit is {max_frames}")
+            if frame_count > 1 and not animated_gif_enabled:
+                raise SessionInputImageAnimatedError("animated images are unsupported")
+            image.load()
+    except SessionInputImageError:
+        raise
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
+        raise SessionInputImageInvalidError("image content cannot be decoded") from exc
+    return {
+        "kind": "image",
+        "summary": (f"{mime_type} image, {width}x{height}, {frame_count} frame(s), " f"{target.stat().st_size:,} bytes"),
+        "preview_text": "",
+        "truncated": False,
+        "content_type": mime_type,
+        "width": width,
+        "height": height,
+        "frame_count": frame_count,
+    }
 
 
 def _truncate_text(text: str, *, char_limit: int = PREVIEW_CHAR_LIMIT) -> tuple[str, bool]:
@@ -199,6 +288,8 @@ def ingest_session_input_preview(path: str | Path) -> dict[str, Any]:
             payload = _preview_excel(target)
         elif suffix in PDF_EXTENSIONS:
             payload = _preview_pdf(target)
+        elif suffix in IMAGE_EXTENSIONS:
+            payload = inspect_session_input_image(target)
         elif suffix in {".csv", ".tsv"}:
             payload = _preview_csv(target)
         else:
@@ -230,6 +321,16 @@ def read_session_input_slice(
     safe_limit = max(1, min(int(limit or PREVIEW_LINE_LIMIT), 2_000))
     suffix = target.suffix.lower()
     kind = detect_session_input_kind(target.name)
+
+    if suffix in IMAGE_EXTENSIONS:
+        return {
+            "filename": target.name,
+            "path": str(target),
+            **inspect_session_input_image(
+                target,
+                animated_gif_enabled=True,
+            ),
+        }
 
     if suffix in EXCEL_EXTENSIONS:
         import pandas as pd

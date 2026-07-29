@@ -31,8 +31,9 @@ def test_rough_tokens_estimation_with_image_bytes():
             ],
         }
     ]
-    # text 8 chars + image 120 bytes -> 128 // 4 = 32
-    assert _estimate_tokens_rough(messages) == 32
+    # Image cost is a fixed conservative estimate; raw bytes/base64 length must
+    # not inflate prompt character accounting or be persisted as text.
+    assert _estimate_tokens_rough(messages) == 1026
 
 
 def test_args_truncation():

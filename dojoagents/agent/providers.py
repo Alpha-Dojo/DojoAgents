@@ -1,13 +1,20 @@
 import json
+import re
 from typing import Any, Protocol, Callable
 from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
+_IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
 
 
 def _redact_provider_metadata(value: Any) -> Any:
+    if isinstance(value, str):
+        match = _IMAGE_DATA_URL_RE.match(value)
+        if match:
+            return f"[image-data mime={match.group(1).lower()} encoded_chars={len(match.group(2))}]"
+        return value
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -232,6 +239,10 @@ class OpenAICompatibleProvider:
             full_reasoning = []
             tool_calls_buffer: dict[int, dict[str, Any]] = {}
             stream_usage: dict[str, int] | None = None
+            event_sink = (metadata or {}).get("_dojo_event_sink")
+            reasoning_started = False
+            reasoning_ended = False
+            content_started = False
             async for chunk in response:
                 chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
                 if chunk_usage is not None:
@@ -245,8 +256,17 @@ class OpenAICompatibleProvider:
                 )
                 if reasoning_delta:
                     full_reasoning.append(reasoning_delta)
+                    if event_sink is not None and not content_started:
+                        if not reasoning_started:
+                            event_sink.thinking_start()
+                            reasoning_started = True
+                        event_sink.thinking_delta(reasoning_delta)
                 content_delta = delta.content or ""
                 if content_delta:
+                    if event_sink is not None and reasoning_started and not reasoning_ended:
+                        event_sink.thinking_end()
+                        reasoning_ended = True
+                    content_started = True
                     full_content.append(content_delta)
                     stream_callback(content_delta)
                 if delta.tool_calls:
@@ -262,6 +282,9 @@ class OpenAICompatibleProvider:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
                         tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
+            if event_sink is not None and reasoning_started and not reasoning_ended:
+                event_sink.thinking_end()
+                reasoning_ended = True
             final_tool_calls = []
             for idx, tc in sorted(tool_calls_buffer.items()):
                 args_dict = {}
@@ -274,6 +297,9 @@ class OpenAICompatibleProvider:
             metadata: dict[str, Any] = {
                 "provider": self.name,
                 "reasoning_content": "".join(full_reasoning),
+                # Prevent the Strands bridge from replaying final reasoning
+                # after streamed answer deltas.
+                "reasoning_streamed": bool(full_reasoning),
             }
             if stream_usage is not None:
                 metadata["usage"] = stream_usage
