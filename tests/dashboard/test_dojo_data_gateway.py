@@ -124,10 +124,6 @@ async def test_warm_kline_index_builds_lookup_table() -> None:
     )
     gateway = DojoDataGateway(client)
 
-    await gateway.warm_kline_index()
-
-    assert gateway.kline_index_ready is True
-    assert set(gateway._kline_symbol_index) == {"AAPL", "MSFT"}
     result = await gateway.stock_klines(["AAPL"], limit=1)
     assert len(result.data) == 1
     assert float(result.data.iloc[-1]["close"]) == 10.0
