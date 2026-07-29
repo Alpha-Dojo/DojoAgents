@@ -15,7 +15,7 @@ required_tools:
   - web_extract
   - write_session_file
 outputs:
-  - filename: ticker_sector_labels.json
+  - filename: ticker_sector_labels_{ticker}.json
     format: json
     required: true
     schema: schema/ticker_sector_labels.schema.json

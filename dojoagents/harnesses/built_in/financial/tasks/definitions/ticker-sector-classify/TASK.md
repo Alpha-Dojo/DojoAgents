@@ -70,7 +70,9 @@ JSON 的 `ticker` 与写入文件名都必须是解析后的**规范代码**，�
 6. **立刻** `write_session_file`：
 
 ```text
-filename = ticker_sector_labels.json   # 以 ACTIVE TASK 注入块里的 Required output artifacts 为准
+filename = ticker_sector_labels_{ticker}.json
+# 规范 ticker，. → _ ；例：NVDA → ticker_sector_labels_NVDA.json
+#                          688825.SS → ticker_sector_labels_688825_SS.json
 ```
 
 ```json
@@ -95,7 +97,7 @@ filename = ticker_sector_labels.json   # 以 ACTIVE TASK 注入块里的 Require
 - 顶层**只能**有 `ticker` + `labels`，禁止 `market` / `company_name_*` / `sector_classification` / 财务字段等额外键
 - `labels` 必须是数组（禁止对象），1–3 条，且恰好 1 个 `Primary`
 - `type` 只能是 `Primary` 或 `Secondary`（注意大小写）；每条标签字段齐全且无额外键
-- **filename** 必须与 ACTIVE TASK 注入块中的 Required output artifacts 完全一致
+- **filename** 必须为 `ticker_sector_labels_{ticker}.json`（规范 ticker，`.` → `_`），禁止写裸的 `ticker_sector_labels.json`
 - 写入后返回的 `path` 必须在 `~/.dojo/tasks/outputs/ticker-sector-classify/` 下
 
 产出目录：`~/.dojo/tasks/outputs/ticker-sector-classify/`。  
