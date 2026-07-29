@@ -16,6 +16,7 @@ from dojoagents.tasks.models import (
     TaskSpec,
 )
 from dojoagents.tasks.preflight import parse_pipeline_preflight
+from dojoagents.tasks.write_contract import format_write_contract_block, load_json_schema
 
 
 def _artifact_specs(raw_items: Any) -> list[TaskArtifactSpec]:
@@ -179,9 +180,32 @@ class TaskPromptManager:
                 lines.append(f"- {filename} ({status})")
         if active.outputs:
             lines.append("")
-            lines.append("Required output artifacts (written under ~/.dojo/tasks/outputs/{task_id}/):")
+            lines.append(
+                "Required output artifacts (MUST write these exact basenames under "
+                f"~/.dojo/tasks/outputs/{spec.contract.id}/):"
+            )
             for item in active.outputs:
-                lines.append(f"- {item.get('filename', '?')} (format={item.get('format', 'json')})")
+                filename = str(item.get("filename") or "?")
+                fmt = str(item.get("format") or "json")
+                lines.append(f"- {filename} (format={fmt})")
+            # Generic write contract from each output schema — no per-task branches.
+            for item in active.outputs:
+                filename = str(item.get("filename") or "").strip()
+                fmt = str(item.get("format") or "json")
+                schema_ref = str(item.get("schema") or "").strip()
+                schema = None
+                if schema_ref:
+                    schema_path = self.resolve_schema_path(spec, schema_ref)
+                    if schema_path is not None:
+                        schema = load_json_schema(schema_path)
+                lines.append("")
+                lines.extend(
+                    format_write_contract_block(
+                        filename=filename or "?",
+                        fmt=fmt,
+                        schema=schema,
+                    )
+                )
 
         pipeline = PipelineState.from_metadata(request.metadata.get("pipeline"))
         if pipeline is not None:

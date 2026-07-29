@@ -73,18 +73,22 @@ class ToolOrchestratedHarness(TaskOutputHarnessMixin, TaskHarness):
                 stop_code="task_output_invalid",
             )
 
-        issues: list[str] = []
+        # Generic across all tool_orchestrated tasks: do NOT hardcode a single task's
+        # tool sequence here (e.g. sector-attribution movers). Progress guidance lives
+        # in each task's TASK.md; completion = valid required write_session_file output.
+        outputs = [str(item.get("filename") or "").strip() for item in active.outputs if item.get("filename")]
+        target = outputs[0] if outputs else "required output"
         if not state.tool_results:
-            issues.append("Start with get_market_overview using start_date/end_date.")
-        elif not self._has_tool(state, "get_sector_movers"):
-            issues.append("Call get_sector_movers before web_search.")
+            issue = f"Follow the active task workflow, then write {target} with write_session_file."
         elif not self._has_tool(state, "write_session_file"):
-            issues.append("Finish by writing the required output file with write_session_file.")
+            issue = f"Finish by writing {target} with write_session_file."
+        else:
+            issue = f"Rewrite a valid {target} with write_session_file (expected output not accepted yet)."
 
         return HarnessDecision(
             complete=False,
-            issues=issues,
-            next_steps=issues[:1],
+            issues=[issue],
+            next_steps=[issue],
             allow_extra_steps=True,
             stop_code="task_incomplete",
         )

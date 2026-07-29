@@ -70,6 +70,7 @@ def test_resolve_dated_filename() -> None:
 def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> None:
     assert "sector-attribution" in task_manager.list_tasks()
     assert "event-trigger" in task_manager.list_tasks()
+    assert "ticker-sector-classify" in task_manager.list_tasks()
     assert "daily-market-events" in task_manager.list_pipelines()
     spec = task_manager.get_task("sector-attribution")
     assert spec is not None
@@ -330,6 +331,32 @@ def test_tool_orchestrated_harness_blocks_days_usage() -> None:
     )
     assert blocked is not None
     assert "start_date" in blocked
+
+
+def test_tool_orchestrated_progress_is_generic_not_sector_attribution() -> None:
+    harness = ToolOrchestratedHarness()
+    request = ChatRequest(
+        message="run",
+        user_id="u1",
+        session_id="s1",
+        metadata={
+            "active_task": {
+                "task_id": "ticker-sector-classify",
+                "harness_profile": "tool_orchestrated",
+                "constraints": {"max_tool_calls_per_turn": 1},
+                "outputs": [{"filename": "ticker_sector_labels.json", "format": "json"}],
+            }
+        },
+    )
+    state = HarnessLoopState(request=request)
+    decision = harness.validate_progress(state)
+    assert decision.complete is False
+    assert decision.stop_code == "task_incomplete"
+    text = " ".join(decision.issues + decision.next_steps)
+    assert "get_market_overview" not in text
+    assert "get_sector_movers" not in text
+    assert "write_session_file" in text
+    assert "ticker_sector_labels.json" in text
 
 
 def test_artifact_synthesis_harness_blocks_write_before_read() -> None:

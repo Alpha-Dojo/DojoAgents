@@ -253,6 +253,26 @@ def write_session_file(
     }
 
 
+def _expected_payload_hint(
+    task_manager: TaskPromptManager | None,
+    active: dict[str, Any],
+    artifact_meta: dict[str, Any],
+) -> str:
+    from dojoagents.tasks.write_contract import compact_schema_hint, load_json_schema
+
+    task_id = str(active.get("task_id") or "")
+    schema_ref = str(artifact_meta.get("schema") or "").strip()
+    if task_manager is None or not schema_ref:
+        return compact_schema_hint(None)
+    spec = task_manager.get_task(task_id)
+    if spec is None:
+        return compact_schema_hint(None)
+    schema_path = task_manager.resolve_schema_path(spec, schema_ref)
+    if schema_path is None:
+        return compact_schema_hint(None)
+    return compact_schema_hint(load_json_schema(schema_path))
+
+
 def get_write_session_file_spec(
     sessions_root: str | Path,
     *,
@@ -269,15 +289,19 @@ def get_write_session_file_spec(
             raise RuntimeError("write_session_file requires an active agent session_id")
 
         guard_ctx = active_write_session_file_guard.get()
+        request_metadata = guard_ctx.request_metadata if guard_ctx is not None else None
+        content = args.get("content")
+        filename = str(args.get("filename") or "")
+        active = active_task_metadata(request_metadata)
+        artifact_meta = find_output_artifact(active, filename) if active is not None else None
+
         if guard_ctx is not None and guard_ctx.enabled:
-            filename = str(args.get("filename") or "")
-            if not should_allow_write_session_file_for_task(guard_ctx.request_metadata, filename=filename):
-                content = args.get("content")
+            if not should_allow_write_session_file_for_task(request_metadata, filename=filename):
                 classification = await classify_write_session_file(
                     guard_ctx.user_message,
                     guard_ctx.llm_provider,
                     model=guard_ctx.model,
-                    request_metadata=guard_ctx.request_metadata,
+                    request_metadata=request_metadata,
                     filename=filename,
                     content_preview=preview_write_content(content),
                     history=guard_ctx.history,
@@ -289,31 +313,75 @@ def get_write_session_file_spec(
                 if blocked:
                     raise RuntimeError(block_message)
 
-            active = active_task_metadata(guard_ctx.request_metadata if guard_ctx is not None else None)
-            if active is not None and task_manager is not None:
-                filename = str(args.get("filename") or "")
-                artifact_meta = find_output_artifact(active, filename)
-                if artifact_meta is not None:
-                    fmt = str(args.get("format") or artifact_meta.get("format") or "json")
-                    issues = validate_task_output_content(
-                        manager=task_manager,
-                        task_id=str(active.get("task_id") or ""),
-                        artifact_meta=artifact_meta,
-                        content=args.get("content"),
-                        fmt=fmt,
+            if active is not None and task_manager is not None and artifact_meta is not None:
+                fmt = str(args.get("format") or artifact_meta.get("format") or "json")
+                issues = validate_task_output_content(
+                    manager=task_manager,
+                    task_id=str(active.get("task_id") or ""),
+                    artifact_meta=artifact_meta,
+                    content=content,
+                    fmt=fmt,
+                )
+                if issues:
+                    example = _expected_payload_hint(task_manager, active, artifact_meta)
+                    detail = "; ".join(issues)
+                    raise RuntimeError(
+                        f"Task output validation failed for {filename}: {detail}. "
+                        f"Rewrite with format=json and EXACT shape: {example}"
                     )
-                    if issues:
-                        raise RuntimeError("Task output validation failed for " f"{filename}: {'; '.join(issues)}")
 
-        if session_service is not None:
+        fmt = str(args.get("format") or (artifact_meta or {}).get("format") or "text")
+        write_name = validate_output_filename(filename)
+
+        # Active task writes always land under ~/.dojo/tasks/outputs/{task_id}/.
+        if active is not None and task_root is not None:
+            payload = write_session_file(
+                sessions_root=root,
+                session_id=session_id,
+                filename=write_name,
+                content=content,
+                fmt=fmt,
+                append=bool(args.get("append", False)),
+                task_output_root=task_root,
+                request_metadata=request_metadata,
+            )
+            if session_service is not None and not bool(args.get("append", False)):
+                principal = active_session_principal.get()
+                if principal is not None:
+                    serialized = _serialize_content(content, fmt)
+                    content_type = {
+                        "json": "application/json",
+                        "jsonl": "application/x-ndjson",
+                        "text": "text/plain",
+                    }.get(fmt, "text/plain")
+                    try:
+                        record = await session_service.write_named_object(
+                            principal,
+                            session_id,
+                            kind="output",
+                            name=write_name,
+                            content_type=content_type,
+                            data=serialized.encode("utf-8"),
+                            metadata={"format": fmt, "task_path": payload.get("path")},
+                        )
+                        payload = {
+                            **payload,
+                            "object_id": record.object_id,
+                            "storage_kind": "task+session_object",
+                            "message": (
+                                f"Wrote {payload.get('bytes_written')} bytes to {payload.get('path')} "
+                                f"(also mirrored to session object {record.object_id})."
+                            ),
+                        }
+                    except Exception:
+                        pass
+        elif session_service is not None:
             if bool(args.get("append", False)):
                 raise RuntimeError("append is unavailable for immutable session objects")
             principal = active_session_principal.get()
             if principal is None:
                 raise RuntimeError("write_session_file requires an active session principal")
-            filename = validate_output_filename(str(args.get("filename") or ""))
-            fmt = str(args.get("format") or "text")
-            serialized = _serialize_content(args.get("content"), fmt)
+            serialized = _serialize_content(content, fmt)
             content_type = {
                 "json": "application/json",
                 "jsonl": "application/x-ndjson",
@@ -323,7 +391,7 @@ def get_write_session_file_spec(
                 principal,
                 session_id,
                 kind="output",
-                name=filename,
+                name=write_name,
                 content_type=content_type,
                 data=serialized.encode("utf-8"),
                 metadata={"format": fmt},
@@ -331,7 +399,7 @@ def get_write_session_file_spec(
             payload = {
                 "ok": True,
                 "session_id": session_id,
-                "filename": filename,
+                "filename": write_name,
                 "format": fmt,
                 "object_id": record.object_id,
                 "storage_kind": "session_object",
@@ -343,12 +411,12 @@ def get_write_session_file_spec(
             payload = write_session_file(
                 sessions_root=root,
                 session_id=session_id,
-                filename=str(args.get("filename") or ""),
-                content=args.get("content"),
-                fmt=str(args.get("format") or "text"),
+                filename=write_name,
+                content=content,
+                fmt=fmt,
                 append=bool(args.get("append", False)),
                 task_output_root=task_root,
-                request_metadata=guard_ctx.request_metadata if guard_ctx is not None else None,
+                request_metadata=request_metadata,
             )
         return {
             "content": json.dumps(payload, ensure_ascii=False, indent=2),
@@ -365,9 +433,9 @@ def get_write_session_file_spec(
     return ToolSpec(
         name="write_session_file",
         description=(
-            "Write session output files ONLY when the user explicitly asked to save, export, "
-            "or download a file. Returns absolute path and bytes_written. "
-            "Do NOT use proactively for routine analysis — put results in the assistant reply. "
+            "Write session/task output files. In active task mode, persists under "
+            "~/.dojo/tasks/outputs/{task_id}/ using the exact required filename and schema. "
+            "Returns absolute path and bytes_written. "
             "Also callable as dojo_tools.write_session_file(...) inside execute_code."
         ),
         parameters={
