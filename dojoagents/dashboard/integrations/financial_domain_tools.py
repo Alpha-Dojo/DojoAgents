@@ -6,7 +6,11 @@ import json
 from typing import Any
 
 from dojoagents.dashboard.services.domain_api import (
+    SECTOR_PATH_INVALID_FORMAT,
+    SECTOR_PATH_REJECTED_INDEX_GUESS,
+    SECTOR_PATH_UNKNOWN,
     SectorPathResolutionError,
+    _format_sector_path_suggestions,
     _looks_like_index_guess,
     build_market_overview,
     build_sector_analysis,
@@ -167,6 +171,35 @@ def _sector_path_kwargs(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_SECTOR_PATH_AGENT_HINTS: dict[str, str] = {
+    SECTOR_PATH_INVALID_FORMAT: (
+        "Copy a full three-segment sector_path_id (or level1_id/level2_id/level3_id) from "
+        "search_sector_taxonomy / get_taxonomy_tree. scope=L2 only widens constituents — "
+        "it does not shorten the path to two segments."
+    ),
+    SECTOR_PATH_REJECTED_INDEX_GUESS: (
+        "Do NOT use array indices or trial-and-error ids. Call search_sector_taxonomy, then "
+        "copy sector_path_id or level1_id/level2_id/level3_id verbatim from best_match. "
+        "For market-wide screens use screen_market_stocks instead."
+    ),
+    SECTOR_PATH_UNKNOWN: (
+        "Call search_sector_taxonomy with the concept keyword, pick the best match, then pass "
+        "sector_path_id or level1_id/level2_id/level3_id verbatim."
+    ),
+}
+
+
+def _agent_message_for_sector_path_error(exc: SectorPathResolutionError) -> str:
+    """Map typed domain path errors to agent-facing tool guidance."""
+    message = str(exc)
+    hint = _SECTOR_PATH_AGENT_HINTS.get(getattr(exc, "code", ""), "")
+    if hint and hint not in message:
+        message = f"{message} {hint}".strip()
+    if exc.suggestions and "Did you mean:" not in message:
+        message += " Did you mean: " + _format_sector_path_suggestions(exc.suggestions) + "?"
+    return message
+
+
 def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[str, Any]):
     kwargs = _sector_path_kwargs(args)
     id_keys = ("sector_path_id", "level1_id", "level2_id", "level3_id")
@@ -182,12 +215,7 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
         try:
             return resolve_sector_path(registry, **kwargs)
         except SectorPathResolutionError as exc:
-            message = str(exc)
-            if exc.suggestions and "Did you mean:" not in message:
-                from dojoagents.dashboard.services.domain_api import _format_sector_path_suggestions
-
-                message += " Did you mean: " + _format_sector_path_suggestions(exc.suggestions) + "?"
-            raise RuntimeError(message) from exc
+            raise RuntimeError(_agent_message_for_sector_path_error(exc)) from exc
 
     l1 = kwargs.get("level1_id") or ""
     l2 = kwargs.get("level2_id") or ""
@@ -197,20 +225,13 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
         if store.find_resolved_path(l1, l2, l3) is None and _looks_like_index_guess(l1, l2, l3):
             raise RuntimeError(
                 f"Rejected guessed sector path {l1}/{l2}/{l3}. "
-                "Do NOT use array indices or trial-and-error. "
-                "Call search_sector_taxonomy, then copy sector_path_id or level1_id/level2_id/level3_id "
-                "from best_match. For market-wide screens use screen_market_stocks instead."
+                + _SECTOR_PATH_AGENT_HINTS[SECTOR_PATH_REJECTED_INDEX_GUESS]
             )
 
     try:
         return resolve_sector_path(registry, **kwargs)
     except SectorPathResolutionError as exc:
-        message = str(exc)
-        if exc.suggestions and "Did you mean:" not in message:
-            from dojoagents.dashboard.services.domain_api import _format_sector_path_suggestions
-
-            message += " Did you mean: " + _format_sector_path_suggestions(exc.suggestions) + "?"
-        raise RuntimeError(message) from exc
+        raise RuntimeError(_agent_message_for_sector_path_error(exc)) from exc
 
 
 def register_dashboard_domain_tools(
@@ -429,9 +450,8 @@ def register_dashboard_domain_tools(
             name="search_sector_taxonomy",
             description=(
                 "Search L3 industry sectors by concept keyword (具身智能, 机器人, 半导体, robotics). "
-                "CALL THIS FIRST for theme/concept stock picking. "
-                "Returns sector_path_id + level1_id/level2_id/level3_id with match_score — "
-                "copy ids verbatim into filter_sector_constituents / get_sector_analysis."
+                "Returns sector_path_id + level1_id/level2_id/level3_id with match_score. "
+                "Ids are opaque — copy them verbatim when a follow-up tool needs a sector path."
             ),
             parameters={
                 "type": "object",
@@ -447,9 +467,9 @@ def register_dashboard_domain_tools(
         ToolSpec(
             name="get_taxonomy_tree",
             description=(
-                "Return the L1-L2-L3 sector taxonomy. CALL THIS FIRST before filter_sector_constituents "
-                "or get_sector_analysis. Response includes example_l3_paths and "
-                "filter_sector_constituents_example — copy those ids verbatim; never use 1/2/3 indices."
+                "Return the L1-L2-L3 sector taxonomy tree with opaque sector_id strings. "
+                "Use when you need the full tree or sample example_l3_paths; never treat "
+                "child array indices as sector ids."
             ),
             parameters={"type": "object", "properties": {}},
             handler=taxonomy_tree,

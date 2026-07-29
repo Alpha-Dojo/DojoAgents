@@ -331,8 +331,8 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     )
     session_runtime = SessionRuntimeConfig(
         require_user_id=bool(runtime_raw.get("require_user_id", True)),
-        lease_seconds=int(runtime_raw.get("lease_seconds", 90)),
-        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 30)),
+        lease_seconds=int(runtime_raw.get("lease_seconds", 300)),
+        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 15)),
         event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
     )
     explicit_raw = raw if source_raw is None else source_raw

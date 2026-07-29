@@ -123,5 +123,4 @@ class Stance(str, Enum):
 
     POSITIVE = "positive"
     NEGATIVE = "negative"
-    NEUTRAL = "neutral"
     MIXED = "mixed"

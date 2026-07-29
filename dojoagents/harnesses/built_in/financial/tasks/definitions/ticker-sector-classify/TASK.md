@@ -20,8 +20,6 @@
 /task ticker-sector-classify 600519.SS
 ```
 
-也兼容：`ticker=NVDA`、`name=贵州茅台`。用户输入的公司名**不是**规范 ticker。
-
 ---
 
 ## Strict Rules（严格打标规则）
@@ -49,11 +47,11 @@ JSON 的 `ticker` 与写入文件名都必须是解析后的**规范代码**，�
 
 ## 工作流程（短路径，禁止跑偏）
 
-合法工具**仅这 7 个**（系统会硬拦其它工具）：
+合法工具**仅这 8 个**（系统会硬拦其它工具）：
 
-`search_company_ticker` → `dojo.sdk.stock.ystock_info` →（可选）`web_search` / `web_extract` → `search_sector_taxonomy` / `get_taxonomy_tree` → `write_session_file`
+`search_company_ticker` → `dojo.sdk.stock.ystock_info` →（可选）`web_search` / `web_extract` → `search_sector_taxonomy` / `get_taxonomy_tree` →（可选）`execute_code` → `write_session_file`
 
-**禁止**：`execute_code`、`filter_sector_constituents`、报价/财务类行情接口。  
+**禁止**：`filter_sector_constituents`、报价/财务类行情接口。  
 **不要**用成分股列表验证归属（新股常未入成分股）。  
 每轮只调 1 个工具；拿到足够信息后立刻写文件，禁止先发长篇 Markdown。
 
@@ -65,7 +63,7 @@ JSON 的 `ticker` 与写入文件名都必须是解析后的**规范代码**，�
    - 用途仅限**业务画像**；分类名与 id 仍必须来自 taxonomy 工具，禁止用网页自造类目
 4. `search_sector_taxonomy(q=主业关键词)`（或 `get_taxonomy_tree`）→ 候选 L3 + opaque ids  
    - id 必须来自工具返回的 `level*_id` / `sector_path_id`  
-   - 不要把玩数组下标；不要为了对齐 id 去翻整棵树写 Python
+   - 可选：`execute_code` 解析 taxonomy artifact / 候选列表；分类名与 id 仍必须来自工具返回，禁止自造
 5. 裁决 1 Primary + 0–2 Secondary
 6. **立刻** `write_session_file`：
 

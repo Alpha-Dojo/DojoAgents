@@ -38,7 +38,7 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     assert event.contract.constraints["must_read_input_before_write"] is True
     assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]
     assert sector.contract.constraints["max_tool_calls_per_turn"] == 1
-    assert classify.contract.outputs[0].filename == "ticker_sector_labels.json"
+    assert classify.contract.outputs[0].filename == "ticker_sector_labels_{ticker}.json"
     assert classify.contract.harness_profile == "tool_orchestrated"
     assert "search_company_ticker" in classify.contract.required_tools
     assert "web_search" in classify.contract.required_tools
@@ -62,7 +62,8 @@ def test_ticker_sector_classify_activation(tmp_path):
     assert payload["task_id"] == "ticker-sector-classify"
     assert payload["params"]["ticker"] == "0700.HK"
     assert payload["harness_profile"] == "tool_orchestrated"
-    assert payload["outputs"][0]["filename"] == "ticker_sector_labels.json"
+    assert payload["outputs"][0]["filename"] == "ticker_sector_labels_0700_HK.json"
+    assert payload["outputs"][0]["base_filename"] == "ticker_sector_labels_{ticker}.json"
 
 
 def test_command_activation_keeps_task_profile_and_output_schema(tmp_path):

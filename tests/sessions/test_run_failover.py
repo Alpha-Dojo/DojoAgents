@@ -13,7 +13,6 @@ from dojoagents.sessions.stores.file import FileSessionStore
 
 @pytest.mark.asyncio
 async def test_cross_instance_failover_fences_old_coordinator(tmp_path, monkeypatch):
-    import dojoagents.sessions.run_coordinator as coordinator_module
     import dojoagents.sessions.stores.file as file_module
 
     root = tmp_path / "sessions"
@@ -34,13 +33,11 @@ async def test_cross_instance_failover_fences_old_coordinator(tmp_path, monkeypa
     await first_service.create_session(principal, SessionCreateSpec("s1", "financial", "1.0", 1))
     started = utc_now()
     monkeypatch.setattr(file_module, "utc_now", lambda: started)
-    monkeypatch.setattr(coordinator_module, "utc_now", lambda: started)
     first = RunCoordinator(first_service, principal, "s1", holder_id="worker-a", model="test-model")
     old_handle = await first.begin("run-1", idempotency_key="idem-1")
 
     advanced = started + timedelta(seconds=11)
     monkeypatch.setattr(file_module, "utc_now", lambda: advanced)
-    monkeypatch.setattr(coordinator_module, "utc_now", lambda: advanced)
     second = RunCoordinator(second_service, principal, "s1", holder_id="worker-b", model="test-model")
     replacement = await second.begin("run-1", idempotency_key="idem-1")
 

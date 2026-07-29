@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -168,19 +167,32 @@ class KlineStore:
         end_time: str | None = None,
         min_bar_time: str | None = None,
         limit: int = 0,
+        prepared: bool = False,
     ) -> Optional[StockKlineResponse]:
         if frame.empty:
             return None
-        prepared = _prepare_kline_df(frame, symbol=symbol)
+        working = frame if prepared else _prepare_kline_df(frame, symbol=symbol)
+        if working.empty:
+            return None
+        if "symbol" in working.columns:
+            working = working[working["symbol"].astype(str).str.upper() == symbol]
+        if working.empty:
+            return None
         filter_start = (start_time or min_bar_time or "")[:10]
         filter_end = (end_time or "")[:10]
         if filter_start:
-            prepared = prepared[prepared["bar_time"] >= filter_start]
+            working = working[working["bar_time"] >= filter_start]
         if filter_end:
-            prepared = prepared[prepared["bar_time"] <= filter_end]
+            working = working[working["bar_time"] <= filter_end]
+        # Enforce oldest-first before tail(): unsorted upstream rows would otherwise
+        # truncate/display the wrong bars (e.g. Jul 28 left of Jul 27 on the chart).
+        working = working.sort_values("bar_time").drop_duplicates(
+            subset=["bar_time"],
+            keep="last",
+        )
         if limit > 0:
-            prepared = prepared.tail(limit)
-        bars = [bar for row in prepared.to_dict(orient="records") if (bar := parse_kline_bar(row, default_symbol=symbol)) is not None]
+            working = working.tail(limit)
+        bars = [bar for row in working.to_dict(orient="records") if (bar := parse_kline_bar(row, default_symbol=symbol)) is not None]
         if not bars:
             return None
         response = StockKlineResponse(
@@ -286,28 +298,37 @@ class KlineStore:
         latest: Optional[str] = None
 
         canonical_symbols = [s.strip().upper() for s in symbols]
+        if not canonical_symbols:
+            return ConstituentKlineBatchResponse(as_of=None, items={})
 
         results = await self._gateway_klines(
             canonical_symbols,
             limit=resolved_limit,
         )
+        # Prepare the batch frame once, then slice by symbol. Re-running
+        # _prepare_kline_df on the full multi-symbol frame per ticker was O(N^2)
+        # and blocked the agent event loop (dojo-agent-runs) under GIL.
+        prepared = _prepare_kline_df(self._to_frame(results.data), symbol="")
+        if prepared.empty or "symbol" not in prepared.columns:
+            return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        async def build_response(s: str) -> None:
-            cache_key = f"{s}_None_None_None_None_{resolved_limit}"
+        grouped = {symbol: rows for symbol, rows in prepared.groupby("symbol", sort=False)}
+        for symbol in canonical_symbols:
+            subset = grouped.get(symbol)
+            if subset is None or subset.empty:
+                continue
+            cache_key = f"{symbol}_None_None_None_None_{resolved_limit}"
             response = self._cache_response(
                 cache_key,
-                s,
-                self._to_frame(results.data),
+                symbol,
+                subset,
                 limit=resolved_limit,
+                prepared=True,
             )
             if response is not None:
-                items[s] = response
-
-        await asyncio.gather(*(build_response(s) for s in canonical_symbols))
-
-        for s in items:
-            if items[s].as_of and (latest is None or items[s].as_of > latest):
-                latest = items[s].as_of
+                items[symbol] = response
+                if response.as_of and (latest is None or response.as_of > latest):
+                    latest = response.as_of
 
         return ConstituentKlineBatchResponse(as_of=latest, items=items)
 

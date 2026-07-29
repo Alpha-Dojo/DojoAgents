@@ -102,6 +102,73 @@ async def test_get_or_fetch_kline_filters_single_day_with_iso_bar_time() -> None
 
 
 @pytest.mark.asyncio
+async def test_get_klines_prepares_batch_once_and_slices_by_symbol() -> None:
+    """Batch path must not re-copy/re-prepare the full multi-symbol frame per ticker."""
+    rows = [
+        {"symbol": "AAPL", "bar_time": "2026-07-27", "open": 100.0, "close": 101.0},
+        {"symbol": "AAPL", "bar_time": "2026-07-28", "open": 101.0, "close": 102.0},
+        {"symbol": "MSFT", "bar_time": "2026-07-28", "open": 200.0, "close": 201.0},
+        {"symbol": "MSFT", "bar_time": "2026-07-27", "open": 199.0, "close": 200.0},
+        {"symbol": "NVDA", "bar_time": "2026-07-28", "open": 300.0, "close": 301.0},
+    ]
+    gateway = KlineGateway(rows)
+    store = _store(gateway)
+
+    result = await store.get_klines(["AAPL", "MSFT"], limit=10)
+
+    assert set(result.items) == {"AAPL", "MSFT"}
+    assert [bar.bar_time for bar in result.items["AAPL"].bars] == ["2026-07-27", "2026-07-28"]
+    assert [bar.bar_time for bar in result.items["MSFT"].bars] == ["2026-07-27", "2026-07-28"]
+    assert all(bar.symbol == "AAPL" for bar in result.items["AAPL"].bars)
+    assert all(bar.symbol == "MSFT" for bar in result.items["MSFT"].bars)
+    assert "NVDA" not in result.items
+    assert result.as_of == "2026-07-28"
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_kline_sorts_unsorted_bars_and_dedupes_by_date() -> None:
+    """Upstream may return newest-first or out-of-order rows; bars must be oldest-first."""
+    rows = [
+        {"symbol": "NVDA", "bar_time": "2026-07-28", "open": 195.0, "close": 197.81},
+        {"symbol": "NVDA", "bar_time": "2026-07-27", "open": 190.0, "close": 191.0},
+        {"symbol": "NVDA", "bar_time": "2026-07-26", "open": 188.0, "close": 189.0},
+        # Duplicate date: keep last (updated close).
+        {"symbol": "NVDA", "bar_time": "2026-07-27", "open": 190.5, "close": 192.0},
+    ]
+    gateway = KlineGateway(rows)
+    store = _store(gateway)
+
+    result = await store.get_or_fetch_kline("NVDA", market="us", limit=10)
+
+    assert result is not None
+    assert [bar.bar_time for bar in result.bars] == [
+        "2026-07-26",
+        "2026-07-27",
+        "2026-07-28",
+    ]
+    assert result.bars[1].close == 192.0
+    assert result.as_of == "2026-07-28"
+
+
+@pytest.mark.asyncio
+async def test_get_or_fetch_kline_tail_uses_latest_after_sort() -> None:
+    """Without sorting first, tail(limit) on unsorted rows would drop the wrong bars."""
+    rows = [
+        {"symbol": "NVDA", "bar_time": "2026-07-28", "open": 195.0, "close": 197.81},
+        {"symbol": "NVDA", "bar_time": "2026-07-25", "open": 180.0, "close": 181.0},
+        {"symbol": "NVDA", "bar_time": "2026-07-27", "open": 190.0, "close": 191.0},
+        {"symbol": "NVDA", "bar_time": "2026-07-26", "open": 188.0, "close": 189.0},
+    ]
+    gateway = KlineGateway(rows)
+    store = _store(gateway)
+
+    result = await store.get_or_fetch_kline("NVDA", market="us", limit=2)
+
+    assert result is not None
+    assert [bar.bar_time for bar in result.bars] == ["2026-07-27", "2026-07-28"]
+
+
+@pytest.mark.asyncio
 async def test_get_or_fetch_kline_historical_single_day_uses_date_window_on_gateway() -> None:
     rows = [
         {"symbol": "GOOGL", "bar_time": "2025-01-06", "open": 193.98, "close": 195.0},

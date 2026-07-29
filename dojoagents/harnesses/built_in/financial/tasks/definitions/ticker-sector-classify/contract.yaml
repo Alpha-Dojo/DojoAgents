@@ -13,6 +13,7 @@ required_tools:
   - search_sector_taxonomy
   - web_search
   - web_extract
+  - execute_code
   - write_session_file
 outputs:
   - filename: ticker_sector_labels_{ticker}.json
@@ -37,3 +38,4 @@ constraints:
     search_sector_taxonomy: 4
     web_search: 6
     web_extract: 4
+    execute_code: 4
