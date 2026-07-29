@@ -6,6 +6,10 @@ from dojoagents.dashboard.services.market_stats import display_valuation_ratio
 from dojoagents.dashboard.services.market_sector_lead import _stock_bilingual_name
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
+from dojoagents.dashboard.services.constituent_filter import (
+    stock_is_equity_quote_type,
+    stock_is_us_warrant_by_name,
+)
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_sphere import SectorConstituentItem, SectorConstituentsResponse
@@ -91,6 +95,10 @@ async def list_sector_constituents(
             continue
         # Same ≥10亿 universe as Phase A / theme_state / movers (live quote).
         if not stock_passes_ticker_market_cap_min(stock):
+            continue
+        if not stock_is_equity_quote_type(stock):
+            continue
+        if stock_is_us_warrant_by_name(stock):
             continue
 
         window_change_percent = ticker_return_map.get(ticker, 0.0)

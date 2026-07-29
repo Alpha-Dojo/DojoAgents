@@ -104,6 +104,7 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
         ticker="AAA",
         market="sh",
         short_name="AAA",
+        quote_type="EQUITY",
         stock_quote=StockQuote(
             ticker="AAA",
             name="AAA",

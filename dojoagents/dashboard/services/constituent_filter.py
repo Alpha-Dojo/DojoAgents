@@ -7,6 +7,28 @@ from dojoagents.dashboard.schemas.stock import Stock
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 
 RECENT_VOLUME_LOOKBACK = 20
+ALLOWED_SECTOR_QUOTE_TYPE = "EQUITY"
+
+
+def stock_is_equity_quote_type(stock: Stock) -> bool:
+    """True when stock_info ``quote_type`` is EQUITY (sector index universe only)."""
+    return str(stock.quote_type or "").strip().upper() == ALLOWED_SECTOR_QUOTE_TYPE
+
+
+def stock_is_us_warrant_by_name(stock: Stock) -> bool:
+    """True when a US listing's display name contains ``Warrant`` (case-insensitive).
+
+    Yahoo-style equity metadata labels warrants as EQUITY, so name text is the
+    reliable signal. Applied only to ``market == us`` to avoid CN false positives
+    (e.g. company names containing the English word Warrant).
+    """
+    if str(stock.market or "").strip().lower() != "us":
+        return False
+    parts = [stock.short_name or "", stock.long_name or ""]
+    quote = stock.stock_quote
+    if quote is not None and quote.name:
+        parts.append(quote.name)
+    return "warrant" in " ".join(parts).lower()
 
 
 def _quote_has_trading_activity(stock: Stock) -> bool:
@@ -26,8 +48,12 @@ async def is_sector_constituent_eligible(
     stock: Stock | None,
     kline_store: KlineStore,
 ) -> bool:
-    """Sector index constituents must clear the ticker cap floor, have klines, and trade."""
+    """Sector index constituents must be EQUITY, clear the ticker cap floor, have klines, and trade."""
     if stock is None or stock.stock_quote is None:
+        return False
+    if not stock_is_equity_quote_type(stock):
+        return False
+    if stock_is_us_warrant_by_name(stock):
         return False
     if stock.stock_quote.market_cap <= 0:
         return False
