@@ -31,8 +31,7 @@ class SkillManager:
         self.cache = None
         if enable_cache and self.skill_dirs:
             from dojoagents.skills.cache import SkillPromptCache
-            cache_file = self.skill_dirs[0] / ".skills_cache.json"
-            self.cache = SkillPromptCache(cache_file)
+            self.cache = SkillPromptCache()
 
     @staticmethod
     def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:

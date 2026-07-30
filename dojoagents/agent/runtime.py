@@ -344,7 +344,9 @@ class Runtime:
             core_safety_prompt=("Follow Core safety constraints. Never bypass tool schemas, SandboxPolicy, " "session identity boundaries, or explicit user authorization."),
             core_tool_authorizer=core_authorize,
             revalidate_tool_call=revalidate,
-            max_recovery_turns=min(3, max(0, self.config.agent.max_iterations - 1)),
+            # Task EVAL decides completion. Recovery budget = agent.max_iterations only
+            # (no separate artificial 3/8 recovery cap that truncates unfinished tasks).
+            max_recovery_turns=max(0, self.config.agent.max_iterations - 1),
         )
         memory = MemoryManager()
         for memory_spec in self.capabilities.memories:

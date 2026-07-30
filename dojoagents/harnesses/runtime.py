@@ -18,7 +18,7 @@ class HarnessRuntime:
         core_safety_prompt: str,
         core_tool_authorizer: Callable[[Any, Any], Any],
         revalidate_tool_call: Callable[[Any], Any],
-        max_recovery_turns: int = 3,
+        max_recovery_turns: int = 100,
     ) -> None:
         self.capabilities = capabilities
         self._core_safety_prompt = core_safety_prompt

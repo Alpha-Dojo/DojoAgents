@@ -108,7 +108,7 @@ Difference:
 ## Loading Behavior
 
 - With `agent.lazy_skills: true`, the agent first sees a skill catalog and must call `skill_view` to read full instructions.
-- With `agent.enable_skill_cache: true`, parsed skill content is cached in `.skills_cache.json` under the main skill directory.
+- With `agent.enable_skill_cache: true`, parsed skill content is cached in process memory (invalidated by path, mtime, and size).
 - `platforms` in frontmatter limits a skill to matching operating systems.
 - `requires_tools` in frontmatter requires named tools to be loaded before the skill is available.
 - Duplicate skill names load only the first discovered version; runtime path order decides precedence.

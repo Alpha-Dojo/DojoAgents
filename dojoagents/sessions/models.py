@@ -746,7 +746,7 @@ class BeginRunCommand:
     model: str
     idempotency_key: str
     holder_id: str
-    lease_seconds: int = 90
+    lease_seconds: int = 300
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -812,7 +812,7 @@ class SessionObjectSpec:
 class LeaseRequest:
     session_id: str
     holder_id: str
-    lease_seconds: int = 90
+    lease_seconds: int = 300
 
     def __post_init__(self) -> None:
         _non_blank(self.session_id, "session_id")

@@ -207,8 +207,9 @@ class StoreProviderConfig:
 @dataclass(frozen=True)
 class SessionRuntimeConfig:
     require_user_id: bool = True
-    lease_seconds: int = 90
-    heartbeat_seconds: int = 30
+    # Long agent/pipeline runs need headroom; heartbeat renews continuously.
+    lease_seconds: int = 300
+    heartbeat_seconds: int = 15
     event_batch_size: int = 20
 
 

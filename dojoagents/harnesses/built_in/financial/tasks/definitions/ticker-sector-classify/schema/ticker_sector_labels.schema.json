@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["ticker", "labels"],
+  "additionalProperties": false,
+  "properties": {
+    "ticker": {
+      "type": "string",
+      "description": "Canonical ticker: US bare/class share, HK with .HK, A-share with .SS/.SZ",
+      "pattern": "^(?:[A-Z]{1,6}(?:\\.[A-Z])?|[0-9]{4,5}\\.HK|[0-9]{6}\\.(?:SS|SZ))$"
+    },
+    "labels": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "contains": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "Primary" }
+        }
+      },
+      "minContains": 1,
+      "maxContains": 1,
+      "items": {
+        "type": "object",
+        "required": ["level_1", "level_2", "level_3", "level1_id", "level2_id", "level3_id", "type", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "level_1": { "type": "string", "minLength": 1 },
+          "level_2": { "type": "string", "minLength": 1 },
+          "level_3": { "type": "string", "minLength": 1 },
+          "level1_id": { "type": "string", "minLength": 1 },
+          "level2_id": { "type": "string", "minLength": 1 },
+          "level3_id": { "type": "string", "minLength": 1 },
+          "type": { "enum": ["Primary", "Secondary"] },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

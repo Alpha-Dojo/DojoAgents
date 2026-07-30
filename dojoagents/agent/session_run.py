@@ -31,6 +31,31 @@ def _history_message(record: SessionMessageRecord) -> dict[str, Any]:
     return message
 
 
+def _durable_run_id(*, event_sink: AgentEventSink | None, metadata: dict[str, Any]) -> str:
+    """Resolve the durable session-store run id for one agent.invoke.
+
+    Dashboard AgentRunManager reuses one outer ``event_sink.run_id`` across
+    pipeline steps for SSE. Each ``agent.run`` still commits the durable run as
+    completed, so continuation steps must mint a distinct durable id or
+    ``begin_run_with_lease`` raises SessionConflictError on the completed id.
+    """
+    base = str(
+        (event_sink.run_id if event_sink is not None else None)
+        or metadata.get("run_id")
+        or f"run-{uuid.uuid4().hex}"
+    ).strip()
+    pipeline = metadata.get("pipeline")
+    if not isinstance(pipeline, dict):
+        return base
+    try:
+        step = int(pipeline.get("step") or 1)
+    except (TypeError, ValueError):
+        step = 1
+    if step <= 1:
+        return base
+    return f"{base}:step:{step}"
+
+
 class _DurableEventWriter:
     """Persist AgentEventSink output in order while the run is still active."""
 
@@ -52,20 +77,46 @@ class _DurableEventWriter:
     async def _persist(self, events: list[AgentEvent]) -> None:
         if not events:
             return
-        await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events))
-        # RunCoordinator's size threshold reduces store calls for bursts, while
-        # this explicit flush guarantees that an idle SSE reader sees the burst
-        # before the Agent turn finishes.
-        await self.coordinator.flush()
-        LOGGER.debug(
-            "Canonical run events persisted: run_id=%s count=%d first_seq=%d last_seq=%d",
-            self.coordinator.run_id,
-            len(events),
-            events[0].seq,
-            events[-1].seq,
-        )
+        from dojoagents.sessions.errors import SessionLeaseLostError
+
+        last_exc: Exception | None = None
+        for attempt in range(1, 5):
+            try:
+                await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events))
+                # RunCoordinator's size threshold reduces store calls for bursts, while
+                # this explicit flush guarantees that an idle SSE reader sees the burst
+                # before the Agent turn finishes.
+                await self.coordinator.flush()
+                LOGGER.debug(
+                    "Canonical run events persisted: run_id=%s count=%d first_seq=%d last_seq=%d",
+                    self.coordinator.run_id,
+                    len(events),
+                    events[0].seq,
+                    events[-1].seq,
+                )
+                return
+            except SessionLeaseLostError:
+                LOGGER.exception(
+                    "Canonical run event persist lost lease: run_id=%s count=%d",
+                    self.coordinator.run_id,
+                    len(events),
+                )
+                raise
+            except Exception as exc:
+                last_exc = exc
+                LOGGER.warning(
+                    "Canonical run event persist retry %d/4: run_id=%s error=%s",
+                    attempt,
+                    self.coordinator.run_id,
+                    exc,
+                )
+                await asyncio.sleep(min(0.05 * (2 ** (attempt - 1)), 0.8))
+        assert last_exc is not None
+        raise last_exc
 
     async def _run(self) -> None:
+        from dojoagents.sessions.errors import SessionLeaseLostError
+
         while True:
             item = await self.queue.get()
             if item is None:
@@ -78,10 +129,16 @@ class _DurableEventWriter:
                 except asyncio.QueueEmpty:
                     break
                 if queued is None:
-                    await self._persist(pending)
+                    try:
+                        await self._persist(pending)
+                    except SessionLeaseLostError:
+                        return
                     return
                 pending.append(queued)
-            await self._persist(pending)
+            try:
+                await self._persist(pending)
+            except SessionLeaseLostError:
+                return
 
     async def close(self) -> None:
         if self._closed:
@@ -101,16 +158,44 @@ class _RunHeartbeat:
         self.owner_task = owner_task
         configured = float(coordinator.service.config.runtime.heartbeat_seconds)
         self.interval = max(0.1, configured)
+        self._transient_failures = 0
         self.task = asyncio.create_task(
             self._run(),
             name=f"dojo-heartbeat:{coordinator.run_id}",
         )
 
     async def _run(self) -> None:
+        from dojoagents.sessions.errors import SessionLeaseLostError
+
         try:
             while True:
-                await asyncio.sleep(self.interval)
-                result = await self.coordinator.heartbeat()
+                try:
+                    # Renew first, then sleep — do not burn the first interval unprotected.
+                    result = await self.coordinator.heartbeat()
+                except SessionLeaseLostError:
+                    LOGGER.exception(
+                        "Canonical run lost session lease during heartbeat: run_id=%s session_id=%s",
+                        self.coordinator.run_id,
+                        self.coordinator.session_id,
+                    )
+                    self.owner_task.cancel()
+                    return
+                except Exception:
+                    self._transient_failures += 1
+                    LOGGER.exception(
+                        "Canonical run heartbeat failed (attempt %d): run_id=%s session_id=%s",
+                        self._transient_failures,
+                        self.coordinator.run_id,
+                        self.coordinator.session_id,
+                    )
+                    # Store/lock blips should not kill long pipeline runs. Retry until
+                    # the next interval; only hard-cancel after repeated failures.
+                    if self._transient_failures >= 3:
+                        self.owner_task.cancel()
+                        return
+                    await asyncio.sleep(self.interval)
+                    continue
+                self._transient_failures = 0
                 if result.cancellation_requested:
                     LOGGER.info(
                         "Canonical run observed cancellation request: run_id=%s session_id=%s",
@@ -119,15 +204,9 @@ class _RunHeartbeat:
                     )
                     self.owner_task.cancel()
                     return
+                await asyncio.sleep(self.interval)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            LOGGER.exception(
-                "Canonical run heartbeat failed: run_id=%s session_id=%s",
-                self.coordinator.run_id,
-                self.coordinator.session_id,
-            )
-            self.owner_task.cancel()
 
     async def close(self) -> None:
         if not self.task.done():
@@ -199,7 +278,7 @@ class CanonicalAgentRun:
         message_sequence = max((item.sequence for item in history.items), default=0) + 1
         if event_sink is not None and event_sink.session_id != request.session_id:
             raise ValueError("event sink session_id does not match request session_id")
-        run_id = str((event_sink.run_id if event_sink is not None else None) or metadata.get("run_id") or f"run-{uuid.uuid4().hex}")
+        run_id = _durable_run_id(event_sink=event_sink, metadata=metadata)
         turn_id = str(metadata.get("turn_id") or f"turn-{uuid.uuid4().hex}")
         coordinator = RunCoordinator(
             service,

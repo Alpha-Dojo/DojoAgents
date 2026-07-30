@@ -12,6 +12,7 @@ required_tools:
   - web_search
   - web_extract
   - filter_sector_constituents
+  - execute_code
   - write_session_file
 outputs:
   - filename: market_news_raw_pack.json

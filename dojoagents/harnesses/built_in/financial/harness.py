@@ -109,8 +109,20 @@ class FinancialHarness:
         self.portfolio_escalation_policy = PortfolioEscalationPolicy()
         self.sector_session_policy = SectorSessionPolicy()
         self.visualization_policy = FinancialVisualizationPolicy()
-        self.tool_task_policy = ToolOrchestratedTaskPolicy(task_output_root=str(config.tasks.output_root))
-        self.artifact_task_policy = ArtifactSynthesisTaskPolicy(task_output_root=str(config.tasks.output_root))
+        from dojoagents.tasks.manager import TaskPromptManager
+
+        task_manager = TaskPromptManager(
+            task_dirs=list(financial_task_directories()),
+            pipeline_dirs=list(financial_pipeline_directories()),
+        )
+        self.tool_task_policy = ToolOrchestratedTaskPolicy(
+            task_output_root=str(config.tasks.output_root),
+            task_manager=task_manager,
+        )
+        self.artifact_task_policy = ArtifactSynthesisTaskPolicy(
+            task_output_root=str(config.tasks.output_root),
+            task_manager=task_manager,
+        )
         self.completion_policy = FinancialTurnCompletionPolicy()
         self.result_presenter = FinancialResultPresenter()
         self.artifact_adapter = FinancialArtifactAdapter()

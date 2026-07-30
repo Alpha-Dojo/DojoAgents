@@ -21,7 +21,13 @@ def request_context_prompt(context) -> str:
 
 
 def task_context_prompt(context) -> str:
-    value = context.request.metadata.get("active_task_prompt")
+    from dojoagents.tasks.run_context import PACK_TASK_BODY, RunContext
+
+    request = context.request
+    ctx = RunContext.resolve(request)
+    if not ctx.has_prompt_pack(PACK_TASK_BODY):
+        return ""
+    value = request.metadata.get("active_task_prompt")
     return value if isinstance(value, str) else ""
 
 

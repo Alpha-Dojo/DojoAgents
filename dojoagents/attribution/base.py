@@ -37,6 +37,7 @@ class AttributionFactor(BaseModel):
     mechanism: LocaleText | None = None
     event_time: str | None = None
     payload_status: PayloadStatus = PayloadStatus.DRAFT
+    stance: Stance | None = None
     attrs: dict[str, Any] = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None

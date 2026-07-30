@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 import uuid
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
@@ -265,12 +266,28 @@ class FileSessionStore:
 
     def _transaction_sync(self, write: bool, callback: Callable[[dict[str, Any]], T]) -> T:
         self.root.mkdir(parents=True, exist_ok=True)
-        with portalocker.Lock(str(self._lock_path), mode="a+", timeout=10):
-            state = self._read_state_sync()
-            result = callback(state)
-            if write:
-                self._documents._write_sync(self._state_path, state)
-            return result
+        # portalocker defaults to NON_BLOCKING; under heartbeat + event flush contention
+        # a short timeout surfaces as AlreadyLocked([Errno 35] Resource temporarily unavailable)
+        # and strands wraps that into a fatal EventLoopException.
+        last_exc: Exception | None = None
+        for attempt in range(1, 8):
+            try:
+                with portalocker.Lock(str(self._lock_path), mode="a+", timeout=60):
+                    state = self._read_state_sync()
+                    result = callback(state)
+                    if write:
+                        self._documents._write_sync(self._state_path, state)
+                    return result
+            except portalocker.exceptions.AlreadyLocked as exc:
+                last_exc = exc
+                LOGGER.warning(
+                    "Session store lock busy (attempt %d/7); retrying: path=%s",
+                    attempt,
+                    self._lock_path,
+                )
+                time.sleep(min(0.05 * (2 ** (attempt - 1)), 1.0))
+        assert last_exc is not None
+        raise last_exc
 
     async def _transaction(self, write: bool, callback: Callable[[dict[str, Any]], T]) -> T:
         return await asyncio.to_thread(self._transaction_sync, write, callback)
@@ -312,6 +329,31 @@ class FileSessionStore:
         if current.expires_at <= utc_now():
             raise SessionLeaseLostError("session lease has expired")
         return current
+
+    @staticmethod
+    def _matched_lease(state: dict[str, Any], session_uid: str, lease: SessionLease) -> SessionLease:
+        """Identity check without expiry — used to revive same-holder leases after expiry."""
+        current_data = state["leases"].get(session_uid)
+        if current_data is None:
+            raise SessionLeaseLostError("session lease is no longer active")
+        current = _lease(current_data)
+        if current.lease_id != lease.lease_id or current.fencing_token != lease.fencing_token:
+            raise SessionLeaseLostError("session lease fencing token is stale")
+        if current.holder_id != lease.holder_id:
+            raise SessionLeaseLostError("session lease holder mismatch")
+        return current
+
+    @staticmethod
+    def _lease_duration_seconds(lease: SessionLease) -> float:
+        return max((lease.expires_at - lease.heartbeat_at).total_seconds(), 60.0)
+
+    @classmethod
+    def _extend_lease(cls, state: dict[str, Any], session_uid: str, current: SessionLease, *, now: datetime | None = None) -> SessionLease:
+        moment = now or utc_now()
+        duration = cls._lease_duration_seconds(current)
+        renewed = replace(current, expires_at=moment + timedelta(seconds=duration), heartbeat_at=moment)
+        state["leases"][session_uid] = _encode(renewed)
+        return renewed
 
     async def startup(self) -> None:
         def initialize(state: dict[str, Any]) -> None:
@@ -792,7 +834,16 @@ class FileSessionStore:
                 current_lease = _lease(current_lease_data)
                 if event.lease_id != current_lease.lease_id or event.fencing_token != current_lease.fencing_token:
                     raise SessionLeaseLostError("event lease fencing token is stale")
-                self._validate_lease(state, session.session_uid, current_lease)
+                now = utc_now()
+                # Long agent runs can miss the heartbeat window while flushing large
+                # event batches. Same fencing token ⇒ extend instead of killing the run.
+                if current_lease.expires_at <= now:
+                    LOGGER.warning(
+                        "Extending expired session lease during event append: session_uid=%s run_id=%s",
+                        session.session_uid,
+                        run_id,
+                    )
+                    current_lease = self._extend_lease(state, session.session_uid, current_lease, now=now)
                 duplicate = next(
                     (item for item in stored if item["sequence"] == event.sequence or (event.idempotency_key and item.get("idempotency_key") == event.idempotency_key)),
                     None,
@@ -1176,12 +1227,18 @@ class FileSessionStore:
             session = _session(session_data)
             if session.owner != SessionScope.from_principal(principal):
                 raise SessionNotFoundError("session lease not found")
-            current = self._validate_lease(state, lease.session_uid, lease)
+            # Same holder + fencing token may renew even after expiry. Previously
+            # _validate_lease rejected expired leases, so heartbeat could only cancel
+            # the agent run — the failure mode behind SessionLeaseLost mid-pipeline.
+            current = self._matched_lease(state, lease.session_uid, lease)
             now = utc_now()
-            duration = max((lease.expires_at - lease.heartbeat_at).total_seconds(), 1)
-            renewed = replace(current, expires_at=now + timedelta(seconds=duration), heartbeat_at=now)
-            state["leases"][lease.session_uid] = _encode(renewed)
-            return renewed
+            if current.expires_at <= now:
+                LOGGER.warning(
+                    "Renewing expired session lease for same holder: session_uid=%s holder_id=%s",
+                    lease.session_uid,
+                    lease.holder_id,
+                )
+            return self._extend_lease(state, lease.session_uid, current, now=now)
 
         return await self._transaction(True, operation)
 
