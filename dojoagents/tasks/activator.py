@@ -50,8 +50,9 @@ def parse_task_params(arg: str) -> dict[str, Any]:
             if key:
                 params[key] = value
             continue
-        # Positional token: ticker / company name for classify-style tasks.
-        params.setdefault("ticker", token)
+        # Positional token: raw user query (company name / code fragment / etc.).
+        # Never treat this as a confirmed ticker.
+        params.setdefault("q", token)
     return params
 
 

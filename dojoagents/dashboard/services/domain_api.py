@@ -978,6 +978,53 @@ def build_taxonomy_tree(registry) -> dict[str, Any]:
     }
 
 
+def _build_l3_options_for_search_hits(store: Any, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """All L3 under L2 branches touched by ranked hits (flat menu; does not re-search)."""
+    if not items:
+        return []
+
+    hit_paths = {str(item.get("sector_path_id") or "") for item in items if item.get("sector_path_id")}
+    l2_keys: list[tuple[str, str]] = []
+    seen_l2: set[tuple[str, str]] = set()
+    for item in items:
+        key = (str(item.get("level1_id") or ""), str(item.get("level2_id") or ""))
+        if not key[0] or not key[1] or key in seen_l2:
+            continue
+        seen_l2.add(key)
+        l2_keys.append(key)
+
+    options: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for level1_id, level2_id in l2_keys:
+        for path in store.iter_resolved_paths():
+            if path.level1_id != level1_id or path.level2_id != level2_id:
+                continue
+            sector_path_id = _format_sector_path_id(path.level1_id, path.level2_id, path.level3_id)
+            if sector_path_id in seen_paths:
+                continue
+            seen_paths.add(sector_path_id)
+            options.append(
+                {
+                    "sector_path_id": sector_path_id,
+                    "name_zh": path.level3_zh or "",
+                    "name_en": path.level3_en or "",
+                    "level2_name_zh": path.level2_zh or "",
+                    "level2_name_en": path.level2_en or "",
+                    "hit": sector_path_id in hit_paths,
+                }
+            )
+
+    options.sort(
+        key=lambda row: (
+            not row.get("hit"),
+            str(row.get("level2_name_zh") or ""),
+            str(row.get("name_zh") or ""),
+            str(row.get("sector_path_id") or ""),
+        )
+    )
+    return options
+
+
 def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> dict[str, Any]:
     needle = str(query or "").strip()
     if not needle:
@@ -1003,6 +1050,7 @@ def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> di
         ),
     )[:cap]
     items = [_sector_search_item(hit.path, hit=hit) for hit in ranked]
+    l3_options = _build_l3_options_for_search_hits(store, items)
 
     top = items[0] if items else None
     return {
@@ -1011,10 +1059,13 @@ def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> di
         "count": len(items),
         "id_note": (
             "sector_path_id and level1_id/level2_id/level3_id are opaque ids resolved by exact "
-            "lookup. Copy them verbatim; do not construct ids or use array indices."
+            "lookup. Copy them verbatim; do not construct ids or use array indices. "
+            "l3_options lists every L3 under L2 branches touched by items (hit=true means "
+            "also present in items)."
         ),
         "best_match": top,
         "items": items,
+        "l3_options": l3_options,
     }
 
 

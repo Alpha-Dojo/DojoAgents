@@ -62,13 +62,20 @@ def _write_task_file(
 
 
 def test_resolve_dated_filename() -> None:
-    assert resolve_dated_filename("market_news_raw_pack.json", {"trading_date": "2026-07-03"}) == "market_news_raw_pack_2026-07-03.json"
-    assert resolve_dated_filename("market_event_triggers.jsonl", {"trading_date": "2026-07-03"}) == "market_event_triggers_2026-07-03.jsonl"
+    assert (
+        resolve_dated_filename("market_news_raw_pack_{trading_date}.json", {"trading_date": "2026-07-03"})
+        == "market_news_raw_pack_2026-07-03.json"
+    )
+    assert (
+        resolve_dated_filename("market_event_triggers_{trading_date}.jsonl", {"trading_date": "2026-07-03"})
+        == "market_event_triggers_2026-07-03.jsonl"
+    )
     assert resolve_dated_filename("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
     assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "688825.SS"}) == "ticker_sector_labels_688825_SS.json"
     assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "0700.HK"}) == "ticker_sector_labels_0700_HK.json"
     assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "NVDA"}) == "ticker_sector_labels_NVDA.json"
     assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {}) == "ticker_sector_labels_{ticker}.json"
+    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"q": "长鑫科技"}) == "ticker_sector_labels_{ticker}.json"
 
 
 def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> None:
@@ -149,8 +156,9 @@ def test_command_router_activates_ticker_sector_classify_allowlist(
     assert "write_session_file" in allowed
     assert "execute_code" in allowed
     assert "filter_sector_constituents" not in allowed
-    assert active["params"].get("ticker") == "688825.SS"
-    assert active["outputs"][0]["filename"] == "ticker_sector_labels_688825_SS.json"
+    assert active["params"].get("q") == "688825.SS"
+    assert "ticker" not in active["params"]
+    assert active["outputs"][0]["filename"] == "ticker_sector_labels_{ticker}.json"
     assert active["outputs"][0]["base_filename"] == "ticker_sector_labels_{ticker}.json"
     from dojoagents.tasks.run_context import PACK_DASHBOARD_PROTOCOL, PACK_TASK_BODY, RunContext
 

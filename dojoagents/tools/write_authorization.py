@@ -80,17 +80,8 @@ def should_allow_write_session_file_for_task(
     *,
     filename: str = "",
 ) -> bool:
-    """Task/pipeline runs declare required output artifacts; those writes are always allowed."""
-    active = active_task_metadata(request_metadata)
-    if active is None:
-        return False
-    required = task_required_output_filenames(request_metadata)
-    if not required:
-        return True
-    safe_name = str(filename or "").strip()
-    if not safe_name:
-        return True
-    return safe_name in required
+    """Active task/pipeline runs may always write required session outputs."""
+    return active_task_metadata(request_metadata) is not None
 
 
 def _parse_classifier_json(content: str) -> dict[str, Any] | None:

@@ -33,7 +33,7 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     event = manager.get_task("event-trigger")
     classify = manager.get_task("ticker-sector-classify")
     pipeline = manager.get_pipeline("daily-market-events")
-    assert sector.contract.outputs[0].filename == "market_news_raw_pack.json"
+    assert sector.contract.outputs[0].filename == "market_news_raw_pack_{trading_date}.json"
     assert event.contract.inputs[0].schema.endswith("market_news_raw_pack.schema.json")
     assert event.contract.constraints["must_read_input_before_write"] is True
     assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]

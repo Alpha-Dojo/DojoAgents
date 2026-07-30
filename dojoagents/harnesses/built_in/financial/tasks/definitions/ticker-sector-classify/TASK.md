@@ -49,7 +49,7 @@ JSON 的 `ticker` 与写入文件名都必须是解析后的**规范代码**，�
 
 合法工具**仅这 8 个**（系统会硬拦其它工具）：
 
-`search_company_ticker` → `dojo.sdk.stock.ystock_info` →（可选）`web_search` / `web_extract` → `search_sector_taxonomy` / `get_taxonomy_tree` →（可选）`execute_code` → `write_session_file`
+`search_company_ticker` → `dojo.sdk.stock.ystock_info` →（可选）`web_search` / `web_extract` → `search_sector_taxonomy` →（可选）`execute_code` → `write_session_file`
 
 **禁止**：`filter_sector_constituents`、报价/财务类行情接口。  
 **不要**用成分股列表验证归属（新股常未入成分股）。  
@@ -61,7 +61,7 @@ JSON 的 `ticker` 与写入文件名都必须是解析后的**规范代码**，�
    - `web_search(query=<公司名或 ticker + 主营业务/业务概况/招股说明书>)` → 挑可信来源（官网、招股书/年报、交易所披露）  
    - `web_extract(urls=[...])` → 读取页面正文，确认核心主业与独立次要条线  
    - 用途仅限**业务画像**；分类名与 id 仍必须来自 taxonomy 工具，禁止用网页自造类目
-4. `search_sector_taxonomy(q=主业关键词)`（或 `get_taxonomy_tree`）→ 候选 L3 + opaque ids  
+4. `search_sector_taxonomy(q=主业关键词)`→ 候选 L3 + opaque ids  
    - id 必须来自工具返回的 `level*_id` / `sector_path_id`  
    - 可选：`execute_code` 解析 taxonomy artifact / 候选列表；分类名与 id 仍必须来自工具返回，禁止自造
 5. 裁决 1 Primary + 0–2 Secondary
