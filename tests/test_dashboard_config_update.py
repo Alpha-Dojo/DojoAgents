@@ -9,7 +9,10 @@ import yaml
 from fastapi.testclient import TestClient
 
 from dojoagents.config.loader import ConfigStore
-from dojoagents.dashboard.server import create_app
+from dojoagents.dashboard.server import (
+    _sync_runtime_agent_from_config,
+    create_app,
+)
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -295,6 +298,40 @@ def test_put_config_default_provider_updates_agent_model(tmp_path):
     assert body["agent"]["model"] == "deepseek-chat"
 
 
+def test_put_config_uses_first_candidate_when_provider_model_is_omitted(tmp_path):
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {"model": "gpt-4.1"},
+                },
+            },
+        },
+    )
+    client = TestClient(create_app(runtime))
+
+    response = client.put(
+        "/api/config",
+        json={
+            "llm_provider": {
+                "default": "deepseek",
+                "providers": {
+                    "deepseek": {
+                        "models": ["deepseek-chat", "deepseek-reasoner"],
+                    }
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["agent"]["model"] == "deepseek-chat"
+    assert client.get("/api/v1/models").json()["default_model_id"] == "deepseek:deepseek-chat"
+
+
 def test_get_config_redacted_marks_api_key_configured(tmp_path, monkeypatch):
     """GET /api/config exposes per-provider api_key_configured without leaking secrets."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -321,6 +358,119 @@ def test_get_config_redacted_marks_api_key_configured(tmp_path, monkeypatch):
     assert providers["openai"]["api_key"] == "***"
     assert providers["glm"]["api_key_configured"] is True
     assert providers["glm"]["api_key"] == "***"
+
+
+def test_get_models_lists_all_configured_candidates_without_secrets(tmp_path):
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {
+                        "model": "gpt-4.1",
+                        "models": ["gpt-4.1", "gpt-4o"],
+                        "api_key": "secret",
+                    },
+                    "deepseek": {
+                        "model": "deepseek-chat",
+                    },
+                },
+            },
+        },
+    )
+    client = TestClient(create_app(runtime))
+
+    response = client.get("/api/v1/models")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "default_model_id": "openai:gpt-4.1",
+        "gemini_configured": False,
+        "zhipu_configured": False,
+        "agent_ready": True,
+        "models": [
+            {
+                "id": "openai:gpt-4.1",
+                "label": "OpenAI · gpt-4.1",
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "available": True,
+                "unavailable_reason": None,
+            },
+            {
+                "id": "openai:gpt-4o",
+                "label": "OpenAI · gpt-4o",
+                "provider": "openai",
+                "model": "gpt-4o",
+                "available": True,
+                "unavailable_reason": None,
+            },
+            {
+                "id": "deepseek:deepseek-chat",
+                "label": "DeepSeek · deepseek-chat",
+                "provider": "deepseek",
+                "model": "deepseek-chat",
+                "available": False,
+                "unavailable_reason": "API key is not configured",
+            },
+        ],
+    }
+    assert "secret" not in response.text
+
+
+def test_runtime_selects_candidate_model_and_keeps_provider_credentials(tmp_path):
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {
+                        "model": "gpt-4.1",
+                        "models": ["gpt-4.1", "gpt-4o"],
+                        "base_url": "https://api.openai.test/v1",
+                        "api_key": "secret",
+                    }
+                },
+            }
+        },
+    )
+
+    selected = _sync_runtime_agent_from_config(runtime, "openai:gpt-4o")
+
+    assert selected == "gpt-4o"
+    assert runtime.agent.provider_config.model == "gpt-4o"
+    assert runtime.agent.provider_config.base_url == "https://api.openai.test/v1"
+    assert runtime.agent.provider_config.api_key == "secret"
+
+
+def test_chat_rejects_unknown_explicit_provider_model(tmp_path):
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {
+                        "models": ["gpt-4.1"],
+                    }
+                },
+            }
+        },
+    )
+    response = TestClient(create_app(runtime)).post(
+        "/api/chat",
+        json={
+            "model": "openai:not-configured",
+            "messages": [{"role": "user", "content": "hello"}],
+            "user": "user",
+            "metadata": {"session_id": "session"},
+        },
+    )
+    assert response.status_code == 422
+    assert "not configured" in response.json()["error"]
 
 
 def test_put_config_marks_harness_and_session_store_changes_for_restart(tmp_path):

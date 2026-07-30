@@ -18,6 +18,7 @@ from dojoagents.dashboard.routers import (
     dojo_sphere,
     market,
     markets,
+    model_options,
     portfolio,
     sector,
     sectors,
@@ -76,6 +77,9 @@ def _sync_agent_model_with_default_provider(config: dict[str, Any]) -> dict[str,
     if not isinstance(provider, dict):
         return config
     model = provider.get("model")
+    if not isinstance(model, str) or not model.strip():
+        models = provider.get("models")
+        model = models[0] if isinstance(models, list) and models else None
     if not isinstance(model, str) or not model.strip():
         return config
     agent = config.setdefault("agent", {})
@@ -359,6 +363,7 @@ def create_app(  # noqa: C901
         dojo_mesh.router,
         dojo_sphere.router,
         markets.router,
+        model_options.router,
         sectors.router,
         chat_sessions.router,
     ):
@@ -484,7 +489,10 @@ def create_app(  # noqa: C901
         is_stream = info["stream"]
         model = info["model"]
         event_format = info.get("event_format", "openai.v1")
-        _sync_runtime_agent_from_config(runtime, model)
+        try:
+            _sync_runtime_agent_from_config(runtime, model)
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         sessions = getattr(runtime, "sessions", None)
         try:
             await validate_request_modalities(req, runtime.agent)
@@ -580,7 +588,13 @@ def create_app(  # noqa: C901
             return JSONResponse(status_code=422, content={"error": str(exc)})
         req = replace(req, principal=principal, user_id=principal.user_id)
         manager: AgentRunManager = app.state.agent_run_manager
-        _sync_runtime_agent_from_config(runtime, info.get("model", "default"))
+        try:
+            _sync_runtime_agent_from_config(
+                runtime,
+                info.get("model", "default"),
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=422, content={"error": str(exc)})
         sessions = getattr(runtime, "sessions", None)
         canonical_sessions = sessions is not None and hasattr(sessions, "history")
         session_handle_ref: dict[str, Any] = {}

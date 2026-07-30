@@ -24,6 +24,9 @@ dojoagents model --config ./agents.yaml
 
 交互流程会引导你选择 provider、输入 base URL、输入 API key、探测模型列表，并将配置写入 YAML。
 
+探测到的模型会保存为该 provider 的 `models` 候选列表，选中的模型继续作为 `model`
+默认值。Dashboard 通过 `GET /api/v1/models` 返回当前已配置的可选模型。
+
 ## 配置原则
 
 - 运行时代码读取配置时应通过 `ConfigStore.snapshot()`。
@@ -33,4 +36,3 @@ dojoagents model --config ./agents.yaml
 ## 下一步
 
 完成模型配置后，阅读 [第一次 Agent 运行](first-agent-run.md)。
-

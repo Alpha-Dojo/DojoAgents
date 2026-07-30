@@ -268,6 +268,10 @@ def test_model_setup_writes_config(tmp_path, monkeypatch):
     data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert data["llm_provider"]["default"] == "openai"
     assert data["llm_provider"]["providers"]["openai"]["model"] == "gpt-4o"
+    assert data["llm_provider"]["providers"]["openai"]["models"] == [
+        "gpt-4o",
+        "gpt-4o-mini",
+    ]
     assert data["llm_provider"]["providers"]["openai"]["base_url"] == "https://api.openai.com/v1"
     assert data["llm_provider"]["providers"]["openai"]["api_key"] == "fake-openai-key"
     assert data["agent"]["model"] == "gpt-4o"

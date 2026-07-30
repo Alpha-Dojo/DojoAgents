@@ -197,7 +197,8 @@ class OpenAICompatibleProvider:
         client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
         actual_model = model
-        if self.name == "model-router" and self.author and not model.startswith(f"{self.author}/"):
+        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower()
+        if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
         try:

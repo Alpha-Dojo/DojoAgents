@@ -19,6 +19,9 @@ llm_provider:
     openai:
       author: openai
       model: gpt-4.1
+      models:
+        - gpt-4.1
+        - gpt-4o
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       context_window: 128000
@@ -113,6 +116,13 @@ API keys can be configured in two ways:
 - `api_key`: direct config file value; only suitable for local private environments.
 
 Dashboard and API responses must expose config through `ConfigStore.redacted()`. Provider keys, DojoSDK keys, and gateway tokens must not be returned to the frontend in plaintext.
+
+Each provider may define multiple candidate models with `models`. `model`
+remains the provider default for backward compatibility. If `model` is
+omitted, the first `models` item becomes the default. Chat clients select a
+candidate with the ID returned by `GET /api/v1/models`, for example
+`openai:gpt-4o`; the legacy provider name `openai` still selects that
+provider's default.
 
 ## Update Rules
 

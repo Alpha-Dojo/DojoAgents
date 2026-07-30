@@ -74,7 +74,14 @@ export function AgentModelProvider({ children }: { children: ReactNode }) {
       setError(null);
       setSelectedModelIdState(modelId);
       try {
-        await updateSettingsConfig({ llm_provider: { default: modelId } });
+        await updateSettingsConfig({
+          llm_provider: {
+            default: model.provider,
+            providers: {
+              [model.provider]: { model: model.model },
+            },
+          },
+        });
       } catch (err) {
         setSelectedModelIdState(previousModelId);
         setError(err instanceof Error ? err.message : 'Failed to update default model');

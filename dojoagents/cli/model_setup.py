@@ -124,6 +124,17 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
     # 5. Save settings to agents.yaml
     prov_cfg = {
         "model": selected_model,
+        "models": list(
+            dict.fromkeys(
+                model
+                for model in (
+                    selected_model,
+                    *available_models,
+                    *(current_prov_cfg.get("models", []) if isinstance(current_prov_cfg.get("models"), list) else []),
+                )
+                if isinstance(model, str) and model.strip()
+            )
+        ),
         "base_url": base_url,
     }
     if effective_key:

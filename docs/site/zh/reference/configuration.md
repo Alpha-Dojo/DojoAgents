@@ -19,6 +19,9 @@ llm_provider:
     openai:
       author: openai
       model: gpt-4.1
+      models:
+        - gpt-4.1
+        - gpt-4o
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       context_window: 128000
@@ -113,6 +116,11 @@ API key 可以通过两种方式配置：
 - `api_key`：直接写入配置文件，仅适合本地私有环境。
 
 Dashboard 和 API 对外展示配置时必须使用 `ConfigStore.redacted()`。不要把 provider key、DojoSDK key 或 gateway token 原样返回给前端。
+
+每个 provider 可以通过 `models` 配置多个候选模型。`model` 继续表示该厂家的默认模型，
+以兼容旧配置；省略 `model` 时使用 `models` 第一项。Chat 客户端使用
+`GET /api/v1/models` 返回的 ID 选择候选模型，例如 `openai:gpt-4o`。继续传旧的厂家名
+（例如 `openai`）时，仍选择该厂家的默认模型。
 
 ## 更新规则
 
