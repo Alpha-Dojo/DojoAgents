@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from dojoagents.sessions.errors import SessionConflictError
+from dojoagents.logging import LOGGER
+from dojoagents.sessions.errors import SessionConflictError, SessionLeaseLostError
 from dojoagents.sessions.models import (
     BeginRunCommand,
     CommitTurnCommand,
@@ -134,8 +135,12 @@ class RunCoordinator:
 
     async def heartbeat(self) -> HeartbeatResult:
         handle = self._active_handle()
+        lease_seconds = float(self.service.config.runtime.lease_seconds)
         remaining = (handle.lease.expires_at - utc_now()).total_seconds()
-        if remaining <= self.service.config.runtime.lease_seconds / 3:
+        # Renew when half the lease is gone, or if already expired (same-holder revive).
+        # Always-renewing every heartbeat fought event flush for the file lock and
+        # produced portalocker AlreadyLocked → [Errno 35] under load.
+        if remaining <= max(lease_seconds * 0.5, 30.0) or remaining <= 0:
             renewed = await self.service.renew_lease(self.principal, handle.lease)
             self.handle = RunHandle(run=handle.run, lease=renewed)
             handle = self.handle
@@ -166,26 +171,44 @@ class RunCoordinator:
     async def fail(self, error: dict[str, JsonValue] | None = None):
         if self._terminal is not None:
             return self._terminal
-        await self.flush()
-        handle = self._active_handle()
-        result = await self.service.fail_run(
-            self.principal,
-            FinishRunCommand(handle.run.run_id, handle.lease, error),
-        )
-        self._terminal = result
-        return result
+        try:
+            await self.flush()
+            handle = self._active_handle()
+            result = await self.service.fail_run(
+                self.principal,
+                FinishRunCommand(handle.run.run_id, handle.lease, error),
+            )
+            self._terminal = result
+            return result
+        except SessionLeaseLostError:
+            LOGGER.warning(
+                "Cannot mark run failed; session lease already lost: run_id=%s session_id=%s",
+                self.handle.run.run_id if self.handle is not None else None,
+                self.session_id,
+            )
+            self._terminal = self.handle.run if self.handle is not None else True
+            return self._terminal
 
     async def cancel(self, error: dict[str, JsonValue] | None = None):
         if self._terminal is not None:
             return self._terminal
-        await self.flush()
-        handle = self._active_handle()
-        result = await self.service.cancel_run(
-            self.principal,
-            FinishRunCommand(handle.run.run_id, handle.lease, error),
-        )
-        self._terminal = result
-        return result
+        try:
+            await self.flush()
+            handle = self._active_handle()
+            result = await self.service.cancel_run(
+                self.principal,
+                FinishRunCommand(handle.run.run_id, handle.lease, error),
+            )
+            self._terminal = result
+            return result
+        except SessionLeaseLostError:
+            LOGGER.warning(
+                "Cannot mark run cancelled; session lease already lost: run_id=%s session_id=%s",
+                self.handle.run.run_id if self.handle is not None else None,
+                self.session_id,
+            )
+            self._terminal = self.handle.run if self.handle is not None else True
+            return self._terminal
 
     async def request_cancel(self, run_id: str | None = None):
         target = run_id or self._active_handle().run.run_id

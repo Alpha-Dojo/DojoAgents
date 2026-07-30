@@ -9,8 +9,7 @@ from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
 
 
 def test_skill_prompt_cache(tmp_path):
-    cache_file = tmp_path / ".skills_cache.json"
-    cache = SkillPromptCache(cache_file)
+    cache = SkillPromptCache()
 
     skill_file = tmp_path / "SKILL.md"
     skill_file.write_text(

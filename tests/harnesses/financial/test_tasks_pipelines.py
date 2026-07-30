@@ -27,16 +27,43 @@ def _manager():
 
 def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     manager = _manager()
-    assert manager.list_tasks() == ["event-trigger", "sector-attribution"]
+    assert manager.list_tasks() == ["event-trigger", "sector-attribution", "ticker-sector-classify"]
     assert manager.list_pipelines() == ["daily-market-events"]
     sector = manager.get_task("sector-attribution")
     event = manager.get_task("event-trigger")
+    classify = manager.get_task("ticker-sector-classify")
     pipeline = manager.get_pipeline("daily-market-events")
     assert sector.contract.outputs[0].filename == "market_news_raw_pack.json"
     assert event.contract.inputs[0].schema.endswith("market_news_raw_pack.schema.json")
     assert event.contract.constraints["must_read_input_before_write"] is True
     assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]
     assert sector.contract.constraints["max_tool_calls_per_turn"] == 1
+    assert classify.contract.outputs[0].filename == "ticker_sector_labels_{ticker}.json"
+    assert classify.contract.harness_profile == "tool_orchestrated"
+    assert "search_company_ticker" in classify.contract.required_tools
+    assert "web_search" in classify.contract.required_tools
+    assert "web_extract" in classify.contract.required_tools
+
+
+def test_ticker_sector_classify_activation(tmp_path):
+    manager = _manager()
+    activator = TaskActivator(
+        manager=manager,
+        sessions_root=str(tmp_path / "sessions"),
+        task_output_root=str(tmp_path / "exports"),
+    )
+    request = ChatRequest("classify", session_id="s-1", principal=SessionPrincipal("alice"))
+    active = activator.activate_task(
+        request,
+        task_id="ticker-sector-classify",
+        params={"ticker": "0700.HK", "market": "hk"},
+    )
+    payload = active.metadata["active_task"]
+    assert payload["task_id"] == "ticker-sector-classify"
+    assert payload["params"]["ticker"] == "0700.HK"
+    assert payload["harness_profile"] == "tool_orchestrated"
+    assert payload["outputs"][0]["filename"] == "ticker_sector_labels_0700_HK.json"
+    assert payload["outputs"][0]["base_filename"] == "ticker_sector_labels_{ticker}.json"
 
 
 def test_command_activation_keeps_task_profile_and_output_schema(tmp_path):

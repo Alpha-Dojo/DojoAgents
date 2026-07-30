@@ -39,6 +39,14 @@ class FinancialLegacyBehavior:
         return TurnCompletionHook()
 
     async def build_prompt_blocks(self, loop: Any, request: ChatRequest, model_id: str) -> list[str]:
+        from dojoagents.tasks.run_context import (
+            PACK_DASHBOARD_PROTOCOL,
+            PACK_DASHBOARD_VIZ,
+            PACK_TASK_BODY,
+            RunContext,
+        )
+
+        ctx = RunContext.resolve(request, task_manager=getattr(loop, "task_manager", None))
         blocks = [
             "You are DojoAgents, a full-market finance analysis agent.",
             build_temporal_context_block(request.metadata),
@@ -52,20 +60,21 @@ class FinancialLegacyBehavior:
         if request.quant is not None:
             blocks.append(request.quant.prompt_block())
             blocks.append(loop.extension_registry.prompt_context(request.quant))
-        if request.channel == "dashboard":
+        if ctx.has_prompt_pack(PACK_DASHBOARD_PROTOCOL) or ctx.has_prompt_pack(PACK_DASHBOARD_VIZ):
             locale = str(request.metadata.get("locale") or "en")
-            blocks.extend(
-                [
-                    DASHBOARD_VIZ_PROTOCOL,
-                    DASHBOARD_TOOL_PROTOCOL,
-                    build_viz_policy_catalog(locale),
-                ]
-            )
-            anchor = build_viz_policy_turn_anchor(request, locale)
-            if anchor:
-                blocks.append(anchor)
-        if loop.task_manager is not None:
-            task_block = loop.task_manager.build_injection_block(request)
+            if ctx.has_prompt_pack(PACK_DASHBOARD_VIZ):
+                blocks.append(DASHBOARD_VIZ_PROTOCOL)
+                blocks.append(build_viz_policy_catalog(locale))
+                anchor = build_viz_policy_turn_anchor(request, locale)
+                if anchor:
+                    blocks.append(anchor)
+            if ctx.has_prompt_pack(PACK_DASHBOARD_PROTOCOL):
+                blocks.append(DASHBOARD_TOOL_PROTOCOL)
+        if ctx.has_prompt_pack(PACK_TASK_BODY):
+            task_block = request.metadata.get("active_task_prompt")
+            if not isinstance(task_block, str) or not task_block.strip():
+                task_manager = getattr(loop, "task_manager", None)
+                task_block = task_manager.build_injection_block(request) if task_manager is not None else ""
             if task_block:
                 blocks.append(task_block)
         turn_anchor, _ = await build_turn_intent_anchor_async(

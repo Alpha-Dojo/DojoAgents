@@ -15,7 +15,15 @@ from dojoagents.sessions.identifiers import validate_session_id
 LOGGER = get_logger(__name__)
 
 ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
-ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset({"execute_code", "code_execution"})
+ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
+    {
+        "execute_code",
+        "code_execution",
+        # File reads exist to put artifact bytes into the model turn; pointerizing
+        # them requires execute_code + load_tool_result, which many task allowlists omit.
+        "read_session_output",
+    }
+)
 _CALL_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 

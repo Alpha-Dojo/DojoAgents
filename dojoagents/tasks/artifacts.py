@@ -10,13 +10,28 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def resolve_dated_filename(base_filename: str, params: dict[str, Any] | None) -> str:
-    """Insert trading_date into artifact basename: foo.json -> foo_2026-07-03.json."""
+    """Resolve artifact basename placeholders / trading_date.
+
+    - ``ticker_sector_labels_{ticker}.json`` + ticker=688825.SS
+      → ``ticker_sector_labels_688825_SS.json`` (``.`` → ``_``)
+    - ``foo.json`` + trading_date → ``foo_2026-07-03.json`` (existing behavior)
+    """
     name = str(base_filename or "").strip()
     if not name:
         return name
-    trading_date = str((params or {}).get("trading_date") or "").strip()
+    params = params or {}
+
+    if "{ticker}" in name:
+        ticker = str(params.get("ticker") or "").strip()
+        if ticker:
+            name = name.replace("{ticker}", ticker.replace(".", "_"))
+
+    trading_date = str(params.get("trading_date") or "").strip()
     if not trading_date or not _DATE_RE.fullmatch(trading_date):
         return name
+
+    if "{trading_date}" in name:
+        return name.replace("{trading_date}", trading_date)
 
     path = Path(name)
     suffix = "".join(path.suffixes) or path.suffix

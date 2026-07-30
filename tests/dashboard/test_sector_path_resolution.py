@@ -48,13 +48,22 @@ def test_resolve_sector_path_accepts_taxonomy_ids(sector_registry) -> None:
 def test_resolve_sector_path_rejects_guessed_numeric_path_id(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError) as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="1/12/120")
+    assert exc.value.code == domain_api.SECTOR_PATH_REJECTED_INDEX_GUESS
     assert "Rejected guessed sector_path_id" in str(exc.value)
     assert "1/12/120" in str(exc.value)
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
-def test_build_sector_taxonomy_search_usage_forbids_constructing_ids(sector_registry) -> None:
+def test_build_sector_taxonomy_search_returns_facts_without_playbook(sector_registry) -> None:
     payload = domain_api.build_sector_taxonomy_search(sector_registry, query="软件")
-    assert "do NOT construct sector_path_id" in payload["usage"]
+    assert "do not construct ids" in payload["id_note"]
+    assert "usage" not in payload
+    assert "id_resolution" not in payload
+    first = payload["items"][0]
+    assert "next_call" not in first
+    assert "scope_hint" not in first
+    assert "get_sector_analysis_example" not in first
+    assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
 
 
 def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
@@ -65,7 +74,9 @@ def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
             level2_id="9",
             level3_id="9",
         )
+    assert exc.value.code == domain_api.SECTOR_PATH_REJECTED_INDEX_GUESS
     assert "Rejected guessed sector path" in str(exc.value)
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
 def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
@@ -90,13 +101,15 @@ def test_build_sector_taxonomy_search_returns_filter_examples(sector_registry) -
     first = payload["items"][0]
     assert first["level1_id"]
     assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
-    assert first["next_call"]["arguments"]["level3_id"] == first["level3_id"]
+    assert "next_call" not in first
     assert payload["best_match"]["level3_id"] == first["level3_id"]
     assert first["match_score"] >= 1
 
     payload = domain_api.build_taxonomy_tree(sector_registry)
     assert payload.get("example_l3_paths")
-    assert payload.get("filter_sector_constituents_example")
+    assert "playbook" not in payload
+    assert "filter_sector_constituents_example" not in payload
+    assert "opaque" in payload["id_note"]
     first = payload["example_l3_paths"][0]
     assert first["level1_id"] == "1"
     assert first["level2_id"] == "2"
@@ -109,14 +122,18 @@ def test_resolve_sector_path_accepts_sector_path_id(sector_registry) -> None:
 
 
 def test_resolve_sector_path_rejects_invalid_sector_path_id(sector_registry) -> None:
-    with pytest.raises(domain_api.SectorPathResolutionError, match="Invalid sector_path_id"):
+    with pytest.raises(domain_api.SectorPathResolutionError, match="Invalid sector_path_id") as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="bad-format")
+    assert exc.value.code == domain_api.SECTOR_PATH_INVALID_FORMAT
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
 def test_resolve_sector_path_rejects_two_segment_sector_path_id(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError, match="three segments") as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="1/2")
+    assert exc.value.code == domain_api.SECTOR_PATH_INVALID_FORMAT
     assert "scope=L2" in str(exc.value)
+    assert "search_sector_taxonomy" not in str(exc.value)
 
 
 def test_resolve_sector_path_accepts_level1_level2_anchor(sector_registry) -> None:
@@ -131,18 +148,44 @@ def test_resolve_sector_path_accepts_level1_level2_anchor(sector_registry) -> No
 
 
 def test_resolve_sector_path_rejects_unknown_level1_level2_pair(sector_registry) -> None:
-    with pytest.raises(domain_api.SectorPathResolutionError, match="unknown sector path: 9/9"):
+    with pytest.raises(domain_api.SectorPathResolutionError, match="unknown sector path: 9/9") as exc:
         domain_api.resolve_sector_path(
             sector_registry,
             level1_id="9",
             level2_id="9",
         )
+    assert exc.value.code == domain_api.SECTOR_PATH_UNKNOWN
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
 def test_expand_sector_search_queries_includes_synonyms() -> None:
-    expanded = domain_api._expand_sector_search_queries("具身智能")
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("具身智能")
     assert "机器人" in expanded
     assert "robotics" in expanded
+    # domain_api keeps a thin alias for older imports
+    assert domain_api._expand_sector_search_queries("具身智能") == expanded
+
+
+def test_tool_layer_translates_sector_path_errors(sector_registry) -> None:
+    import asyncio
+
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, sector_registry)
+    spec = registry.get("filter_sector_constituents")
+    assert spec is not None
+
+    with pytest.raises(RuntimeError, match="Call search_sector_taxonomy") as exc:
+        asyncio.run(
+            spec.handler(
+                {
+                    "sector_path_id": "1/12/120",
+                    "market": "us",
+                }
+            )
+        )
+    assert "Rejected guessed sector_path_id" in str(exc.value)
 
 
 def test_enrich_indicator_valuation_merges_quote_pe_pb() -> None:

@@ -108,7 +108,7 @@ skills:
 ## 加载行为
 
 - `agent.lazy_skills: true` 时，Agent 先看到 skill catalog，需要通过 `skill_view` 读取完整内容。
-- `agent.enable_skill_cache: true` 时，解析结果会缓存在主 skill 目录的 `.skills_cache.json`。
+- `agent.enable_skill_cache: true` 时，解析结果会缓存在进程内存中（按文件路径、mtime、size 校验失效）。
 - frontmatter 中的 `platforms` 可限制 skill 只在指定系统加载。
 - frontmatter 中的 `requires_tools` 可要求指定工具可用后才加载。
 - 同名 skill 只加载第一次出现的版本；路径顺序由 runtime 组装顺序决定。

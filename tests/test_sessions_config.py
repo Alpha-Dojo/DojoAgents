@@ -52,7 +52,8 @@ def test_sessions_config_defaults_are_runtime_level():
     assert cfg.sessions.store.provider == "file"
     assert cfg.sessions.blob_store.provider == "file"
     assert cfg.sessions.runtime.require_user_id is True
-    assert cfg.sessions.runtime.lease_seconds == 90
+    assert cfg.sessions.runtime.lease_seconds == 300
+    assert cfg.sessions.runtime.heartbeat_seconds == 15
     assert cfg.sessions.provider == "dojo_repository"
     assert cfg.sessions.root == "~/.dojo/agents/strands_sessions"
     assert cfg.sessions.agent_id == "dojo-agent"

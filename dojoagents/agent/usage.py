@@ -280,7 +280,15 @@ class UsageCollector:
             completed_at=completed_at,
         )
         if self.coordinator is not None:
-            await self.coordinator.append_usage((record,))
+            try:
+                await self.coordinator.append_usage((record,))
+            except Exception:
+                LOGGER.exception(
+                    "Usage persistence failed (non-fatal): run_id=%s turn_id=%s invocation_id=%s",
+                    self.run_id,
+                    self.turn_id,
+                    pending.invocation_id,
+                )
         self.records.append(record)
         actual_input = record.input_tokens if record.quality == "actual" else None
         context_snapshot = reconcile_context_snapshot(
