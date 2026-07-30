@@ -10,6 +10,10 @@ from dojoagents.dashboard.services.kline_segment import (
     member_daily_return,
     sector_member_daily_return_usable,
 )
+from dojoagents.dashboard.services.constituent_filter import (
+    stock_is_equity_quote_type,
+    stock_is_us_warrant_by_name,
+)
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.stock import Stock
@@ -68,7 +72,11 @@ def market_cap_weighted_quote_change(
 
 
 def stock_passes_sector_performance_weight(stock: Stock) -> bool:
-    """DojoSphere index eligibility: cap/volume filter (same as DojoMesh)."""
+    """DojoSphere index eligibility: EQUITY + cap/volume filter (same as DojoMesh)."""
+    if not stock_is_equity_quote_type(stock):
+        return False
+    if stock_is_us_warrant_by_name(stock):
+        return False
     return stock_passes_ticker_market_cap_min(stock)
 
 
@@ -253,6 +261,8 @@ async def market_cap_weighted_quote_session_return(
             quote = stock.stock_quote
             if quote is None:
                 continue
+            if not sector_member_daily_return_usable(quote.change_percent / 100.0):
+                continue
             kline_date, kline_close = _latest_kline_close(batch_items.get(ticker))
             if not kline_date or not _pre_close_matches_kline(quote.pre_close, kline_close):
                 continue
@@ -374,8 +384,9 @@ async def compute_market_index_series(
 
     Weights are market_cap from the current quote. Only the latest contiguous kline
     segment is used (ticker reuse after long gaps is ignored). Listing day uses
-    close/open; later days use close-to-close within the segment. Names with a
-    single-day gain above 50% are excluded from the daily cap-weighted average.
+    close/open; later days use close-to-close within the segment. Names with an
+    absolute single-day move above 50% are excluded from that day's cap-weighted
+    average (weights re-normalized over remaining names).
     """
     members: List[_IndexMember] = []
     chunk_size = 50

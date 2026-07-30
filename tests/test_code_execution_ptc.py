@@ -493,6 +493,38 @@ async def test_executor_keeps_execute_code_stdout_when_large(tmp_path):
     assert "GOOG summary" in loaded["content"]
 
 
+@pytest.mark.asyncio
+async def test_executor_keeps_read_session_output_when_large(tmp_path):
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+
+    body = json.dumps({"news_items": [{"title": f"n{i}"} for i in range(200)]}, indent=2)
+    assert len(body) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
+
+    async def fake_read(_: dict) -> dict:
+        return {"content": body, "data": {"ok": True}}
+
+    registry.register(
+        ToolSpec(
+            name="read_session_output",
+            description="mock read",
+            parameters={"type": "object", "properties": {}},
+            handler=fake_read,
+        )
+    )
+    executor = ToolExecutor(registry, policy, artifact_store=store)
+    result = await executor.execute_one(
+        ToolCall(id="call-read", name="read_session_output", arguments={"filename": "pack.json"}),
+        session_id="session-read",
+    )
+    assert result.ok
+    assert "news_items" in result.content
+    assert '"artifact": true' not in result.content
+    loaded = store.load("session-read", "call-read")
+    assert loaded is not None
+
+
 def test_build_artifact_pointer_message_includes_call_id():
     message = build_artifact_pointer_message(
         tool_name="get_ticker_price_trends",

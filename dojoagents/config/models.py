@@ -57,6 +57,8 @@ class WebToolsConfig:
     user_agent: str | None = None
     search_base_url: str | None = None
     extract_base_url: str | None = None
+    api_key: str | None = None
+    api_key_env: str | None = None
     max_extract_urls: int = 5
     max_content_bytes: int = 2_000_000
     summary_threshold_chars: int = 6000
@@ -204,8 +206,9 @@ class StoreProviderConfig:
 @dataclass(frozen=True)
 class SessionRuntimeConfig:
     require_user_id: bool = True
-    lease_seconds: int = 90
-    heartbeat_seconds: int = 30
+    # Long agent/pipeline runs need headroom; heartbeat renews continuously.
+    lease_seconds: int = 300
+    heartbeat_seconds: int = 15
     event_batch_size: int = 20
 
 

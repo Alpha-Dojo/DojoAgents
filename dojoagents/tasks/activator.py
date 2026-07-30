@@ -21,6 +21,12 @@ class TaskActivationError(ValueError):
     pass
 
 
+def _has_tool_sequence(raw: Any) -> bool:
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return False
+    return any(str(item).strip() for item in raw)
+
+
 def _normalize_task_id(raw: str) -> str:
     return normalize_task_id(raw)
 
@@ -43,6 +49,9 @@ def parse_task_params(arg: str) -> dict[str, Any]:
             value = value.strip()
             if key:
                 params[key] = value
+            continue
+        # Positional token: ticker / company name for classify-style tasks.
+        params.setdefault("ticker", token)
     return params
 
 
@@ -98,11 +107,17 @@ class TaskActivator:
         self._validate_params(merged_params)
         self._validate_inputs(spec, merged_params)
 
+        constraints = dict(spec.contract.constraints)
+        # Stamp allowlist onto the active task so authorize/prompt layers do not
+        # need a live TaskPromptManager lookup on every tool call.
+        if not _has_tool_sequence(constraints.get("allowed_tools")) and spec.contract.required_tools:
+            constraints["allowed_tools"] = list(spec.contract.required_tools)
+
         active = ActiveTask(
             task_id=spec.contract.id,
             params=merged_params,
             harness_profile=spec.contract.harness_profile,
-            constraints=dict(spec.contract.constraints),
+            constraints=constraints,
             inputs=_artifact_dicts(self.manager, spec, kind="input", params=merged_params),
             outputs=_artifact_dicts(self.manager, spec, kind="output", params=merged_params),
         )
@@ -111,6 +126,11 @@ class TaskActivator:
         if pipeline is not None:
             metadata["pipeline"] = pipeline.to_metadata()
         metadata["task_mode"] = True
+        task_prompt = self.manager.build_injection_block(
+            replace(request, metadata=metadata),
+        )
+        if task_prompt:
+            metadata["active_task_prompt"] = task_prompt
         return replace(request, metadata=metadata)
 
     def try_keyword_activation(self, request: ChatRequest) -> ChatRequest | None:

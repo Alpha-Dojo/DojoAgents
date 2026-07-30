@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import re
 from dataclasses import asdict
@@ -39,6 +40,7 @@ from dojoagents.config.models import (
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_LOGGER = logging.getLogger("dojoagents")
 _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
@@ -126,6 +128,17 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         api_key=api_key,
         context_window=int(context_window) if context_window is not None else None,
     )
+
+
+def _resolve_optional_api_key(raw: dict[str, Any]) -> str | None:
+    api_key = raw.get("api_key")
+    api_key_env = raw.get("api_key_env")
+    if not api_key and api_key_env:
+        api_key = os.getenv(str(api_key_env))
+    if api_key is None:
+        return None
+    text = str(api_key).strip()
+    return text or None
 
 
 def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -> tuple[str | None, LLMProviderConfig | None]:
@@ -217,6 +230,8 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             user_agent=web_raw.get("user_agent"),
             search_base_url=web_raw.get("search_base_url"),
             extract_base_url=web_raw.get("extract_base_url"),
+            api_key=_resolve_optional_api_key(web_raw),
+            api_key_env=web_raw.get("api_key_env"),
             max_extract_urls=int(web_raw.get("max_extract_urls", 5)),
             max_content_bytes=int(web_raw.get("max_content_bytes", 2_000_000)),
             summary_threshold_chars=int(web_raw.get("summary_threshold_chars", 6000)),
@@ -316,15 +331,14 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     )
     session_runtime = SessionRuntimeConfig(
         require_user_id=bool(runtime_raw.get("require_user_id", True)),
-        lease_seconds=int(runtime_raw.get("lease_seconds", 90)),
-        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 30)),
+        lease_seconds=int(runtime_raw.get("lease_seconds", 300)),
+        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 15)),
         event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
     )
-    explicit_sessions = (source_raw or raw).get("sessions", {})
+    explicit_raw = raw if source_raw is None else source_raw
+    explicit_sessions = explicit_raw.get("sessions", {})
     if isinstance(explicit_sessions, dict) and ({"provider", "root"} & set(explicit_sessions)):
-        from dojoagents.logging import LOGGER
-
-        LOGGER.warning(
+        _LOGGER.warning(
             "Deprecated flat session configuration converted to file store",
             extra={"event": "sessions.config.deprecated", "provider": legacy_provider},
         )
@@ -475,6 +489,14 @@ class ConfigStore:
         data["harness"]["config"] = redact_options(data["harness"]["config"])
         data["sessions"]["store"]["options"] = redact_options(data["sessions"]["store"]["options"])
         data["sessions"]["blob_store"]["options"] = redact_options(data["sessions"]["blob_store"]["options"])
+        web = data.get("tools", {}).get("web")
+        if isinstance(web, dict):
+            web["api_key_configured"] = bool(web.get("api_key"))
+            if web.get("api_key") or web.get("api_key_env"):
+                web["api_key"] = "***"
+        dojosdk = data.get("dojosdk")
+        if isinstance(dojosdk, dict) and (dojosdk.get("api_key") or dojosdk.get("api_key_env")):
+            dojosdk["api_key"] = "***"
         return data
 
     def raw(self) -> dict[str, Any]:

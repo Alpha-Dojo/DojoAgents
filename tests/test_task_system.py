@@ -65,11 +65,16 @@ def test_resolve_dated_filename() -> None:
     assert resolve_dated_filename("market_news_raw_pack.json", {"trading_date": "2026-07-03"}) == "market_news_raw_pack_2026-07-03.json"
     assert resolve_dated_filename("market_event_triggers.jsonl", {"trading_date": "2026-07-03"}) == "market_event_triggers_2026-07-03.jsonl"
     assert resolve_dated_filename("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
+    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "688825.SS"}) == "ticker_sector_labels_688825_SS.json"
+    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "0700.HK"}) == "ticker_sector_labels_0700_HK.json"
+    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "NVDA"}) == "ticker_sector_labels_NVDA.json"
+    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {}) == "ticker_sector_labels_{ticker}.json"
 
 
 def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> None:
     assert "sector-attribution" in task_manager.list_tasks()
     assert "event-trigger" in task_manager.list_tasks()
+    assert "ticker-sector-classify" in task_manager.list_tasks()
     assert "daily-market-events" in task_manager.list_pipelines()
     spec = task_manager.get_task("sector-attribution")
     assert spec is not None
@@ -111,6 +116,47 @@ def test_command_router_activates_task(task_manager: TaskPromptManager, task_out
     assert active["task_id"] == "sector-attribution"
     assert active["params"]["trading_date"] == "2026-07-02"
     assert active["outputs"][0]["filename"] == "market_news_raw_pack_2026-07-02.json"
+    assert "get_sector_movers" in active["constraints"]["allowed_tools"]
+    assert "write_session_file" in active["constraints"]["allowed_tools"]
+    assert "ACTIVE TASK:" in str(processed.metadata.get("active_task_prompt") or "")
+    assert "filter_sector_constituents" in active["constraints"]["allowed_tools"]
+
+
+def test_command_router_activates_ticker_sector_classify_allowlist(
+    task_manager: TaskPromptManager,
+    task_output_root: Path,
+) -> None:
+    activator = TaskActivator(
+        manager=task_manager,
+        sessions_root="/tmp",
+        task_output_root=str(task_output_root),
+        auto_detect=False,
+    )
+    router = CommandRouter(manager=task_manager, activator=activator, skill_manager=None)
+    processed = router.preprocess(
+        ChatRequest(
+            message="/task ticker-sector-classify 688825.SS",
+            user_id="u1",
+            session_id="sess-classify",
+            channel="dashboard",
+        )
+    )
+    active = processed.metadata.get("active_task")
+    assert isinstance(active, dict)
+    allowed = set(active["constraints"]["allowed_tools"])
+    assert "search_company_ticker" in allowed
+    assert "search_sector_taxonomy" in allowed
+    assert "write_session_file" in allowed
+    assert "execute_code" in allowed
+    assert "filter_sector_constituents" not in allowed
+    assert active["params"].get("ticker") == "688825.SS"
+    assert active["outputs"][0]["filename"] == "ticker_sector_labels_688825_SS.json"
+    assert active["outputs"][0]["base_filename"] == "ticker_sector_labels_{ticker}.json"
+    from dojoagents.tasks.run_context import PACK_DASHBOARD_PROTOCOL, PACK_TASK_BODY, RunContext
+
+    ctx = RunContext.resolve(processed)
+    assert ctx.has_prompt_pack(PACK_TASK_BODY)
+    assert not ctx.has_prompt_pack(PACK_DASHBOARD_PROTOCOL)
 
 
 def test_command_router_activates_pipeline(task_manager: TaskPromptManager, task_output_root: Path) -> None:
@@ -330,6 +376,32 @@ def test_tool_orchestrated_harness_blocks_days_usage() -> None:
     )
     assert blocked is not None
     assert "start_date" in blocked
+
+
+def test_tool_orchestrated_progress_is_generic_not_sector_attribution() -> None:
+    harness = ToolOrchestratedHarness()
+    request = ChatRequest(
+        message="run",
+        user_id="u1",
+        session_id="s1",
+        metadata={
+            "active_task": {
+                "task_id": "ticker-sector-classify",
+                "harness_profile": "tool_orchestrated",
+                "constraints": {"max_tool_calls_per_turn": 1},
+                "outputs": [{"filename": "ticker_sector_labels.json", "format": "json"}],
+            }
+        },
+    )
+    state = HarnessLoopState(request=request)
+    decision = harness.validate_progress(state)
+    assert decision.complete is False
+    assert decision.stop_code == "task_incomplete"
+    text = " ".join(decision.issues + decision.next_steps)
+    assert "get_market_overview" not in text
+    assert "get_sector_movers" not in text
+    assert "write_session_file" in text
+    assert "ticker_sector_labels.json" in text
 
 
 def test_artifact_synthesis_harness_blocks_write_before_read() -> None:

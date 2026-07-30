@@ -1,7 +1,42 @@
+import os
+import subprocess
+import sys
+
 import pytest
 
 from dojoagents.config.loader import ConfigStore, _to_config
 from dojoagents.config.models import AgentsConfig
+
+
+@pytest.mark.parametrize(
+    ("config", "expects_warning"),
+    [
+        (None, False),
+        ("sessions:\n  provider: strands_file\n", True),
+    ],
+)
+def test_logging_imports_without_config_cycle(tmp_path, config, expects_warning):
+    if config is not None:
+        config_path = tmp_path / ".dojo" / "agents.yaml"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text(config, encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from dojoagents.logging import LOGGER; print(LOGGER.name)",
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "HOME": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "dojoagents"
+    assert ("Deprecated flat session configuration" in result.stderr) is expects_warning
 
 
 def test_tasks_config_defaults_include_output_root():
@@ -17,7 +52,8 @@ def test_sessions_config_defaults_are_runtime_level():
     assert cfg.sessions.store.provider == "file"
     assert cfg.sessions.blob_store.provider == "file"
     assert cfg.sessions.runtime.require_user_id is True
-    assert cfg.sessions.runtime.lease_seconds == 90
+    assert cfg.sessions.runtime.lease_seconds == 300
+    assert cfg.sessions.runtime.heartbeat_seconds == 15
     assert cfg.sessions.provider == "dojo_repository"
     assert cfg.sessions.root == "~/.dojo/agents/strands_sessions"
     assert cfg.sessions.agent_id == "dojo-agent"

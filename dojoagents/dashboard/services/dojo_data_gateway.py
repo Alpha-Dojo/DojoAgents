@@ -168,22 +168,10 @@ class DojoDataGateway:
         if kwargs.get("start_time") or kwargs.get("end_time"):
             return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
-        await self.warm_kline_index()
-        index = self._kline_symbol_index or {}
         frames: list[pd.DataFrame] = []
-        missing: list[str] = []
-        limit = int(kwargs.get("limit") or 0)
-        for symbol in canonical_symbols:
-            frame = index.get(symbol)
-            if frame is None or frame.empty:
-                missing.append(symbol)
-                continue
-            frames.append(frame.tail(limit) if limit > 0 else frame)
-
-        if missing:
-            fetched = await self._fetch_klines_per_symbol(missing, kwargs)
-            if not fetched.data.empty:
-                frames.append(fetched.data)
+        fetched = await self._fetch_klines_per_symbol(symbols, kwargs)
+        if not fetched.data.empty:
+            frames.append(fetched.data)
 
         if not frames:
             return _df_result(pd.DataFrame())
@@ -258,19 +246,6 @@ class DojoDataGateway:
                 raise GatewayBadResponseError("stock_all_klines: upstream rows have no symbol")
         frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
         return frame[frame["symbol"] != ""].reset_index(drop=True)
-
-    async def warm_kline_index(self) -> None:
-        if self._kline_symbol_index is not None:
-            return
-        async with self._kline_index_lock:
-            if self._kline_symbol_index is not None:
-                return
-            result = await self.stock_all_klines()
-            frame = self._normalize_kline_frame(result.data)
-            if frame.empty:
-                self._kline_symbol_index = {}
-                return
-            self._kline_symbol_index = {symbol: rows.reset_index(drop=True) for symbol, rows in frame.groupby("symbol", sort=False)}
 
     async def stock_events(
         self,

@@ -132,7 +132,6 @@ async def test_financial_prompt_graph_orders_blocks_and_filters_dashboard_channe
             context={"financial": {"market": "us", "symbols": ["AAPL"], "timeframe": "1d"}},
             metadata={
                 "locale": "zh",
-                "active_task_prompt": "## ACTIVE TASK: research",
                 "history": [{"role": "user", "content": "创建组合"}],
                 "_turn_intent_result": {
                     "continue_unfinished": False,
@@ -155,7 +154,6 @@ async def test_financial_prompt_graph_orders_blocks_and_filters_dashboard_channe
         "financial.request-context",
         "financial.dashboard-tools",
         "financial.dashboard-visualization",
-        "financial.task-context",
         "financial.turn-scope",
     ]
     text = "\n".join(block.content for block in blocks)
@@ -164,7 +162,6 @@ async def test_financial_prompt_graph_orders_blocks_and_filters_dashboard_channe
     assert "Dashboard Tool Calling Protocol" in text
     assert "viz_blocks" in text
     assert "禁止" in text and "agent_viz_build" in text
-    assert "ACTIVE TASK: research" in text
     assert "当前任务" in text
     assert dashboard.turn_state.values["request_contexts"]["financial.context-codec"].market == "us"
 
@@ -173,6 +170,49 @@ async def test_financial_prompt_graph_orders_blocks_and_filters_dashboard_channe
     assert "financial.dashboard-tools" not in cli_ids
     assert "financial.dashboard-visualization" not in cli_ids
 
+
+@pytest.mark.asyncio
+async def test_financial_prompt_graph_task_mode_skips_dashboard_protocol(tmp_path):
+    _harness_instance, capabilities = _harness(tmp_path)
+
+    async def allow(call, context):
+        return ToolControlDecision("allow", "test")
+
+    runtime = HarnessRuntime(
+        capabilities,
+        core_safety_prompt="CORE SAFETY",
+        core_tool_authorizer=allow,
+        revalidate_tool_call=lambda call: None,
+    )
+    task_turn = _turn(
+        _request(
+            metadata={
+                "locale": "zh",
+                "task_mode": True,
+                "active_task": {
+                    "task_id": "ticker-sector-classify",
+                    "harness_profile": "tool_orchestrated",
+                    "constraints": {
+                        "allowed_tools": [
+                            "search_company_ticker",
+                            "write_session_file",
+                        ]
+                    },
+                },
+                "active_task_prompt": "## ACTIVE TASK: ticker-sector-classify\n短路径 only",
+            },
+            message="/task ticker-sector-classify 688825",
+        )
+    )
+    blocks = await runtime.before_turn(task_turn)
+    text = "\n".join(block.content for block in blocks)
+    ids = {block.block_id for block in blocks}
+    assert "financial.dashboard-tools" not in ids
+    assert "financial.dashboard-visualization" not in ids
+    assert "financial.task-context" in ids
+    assert "Dashboard Tool Calling Protocol" not in text
+    assert "ACTIVE TASK: ticker-sector-classify" in text
+    assert "短路径 only" in text
 
 def test_financial_harness_registers_memory_and_skill_sources_explicitly(tmp_path):
     harness_instance, capabilities = _harness(tmp_path)

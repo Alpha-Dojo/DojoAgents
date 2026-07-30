@@ -243,6 +243,7 @@ export const zhMessages = {
     phaseTools: '执行工具中…',
     phaseAnswering: '生成回答中…',
     phaseDone: '已完成',
+    phaseElapsed: '已等待 {seconds}s',
     retrying: '模型调用失败，正在重试 ({attempt}/{max})…',
     toolsComplete: '工具执行已完成，请查看上方步骤与组合更新。',
     responseComplete: '回复已完成。',

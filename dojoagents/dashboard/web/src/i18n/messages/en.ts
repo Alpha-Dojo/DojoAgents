@@ -248,6 +248,7 @@ export const enMessages: MessageTree = {
     phaseTools: 'Running tools…',
     phaseAnswering: 'Writing answer…',
     phaseDone: 'Done',
+    phaseElapsed: 'Waiting {seconds}s',
     retrying: 'Model call failed, retrying ({attempt}/{max})…',
     toolsComplete: 'Tools finished. See steps above and any portfolio updates.',
     responseComplete: 'Response complete.',

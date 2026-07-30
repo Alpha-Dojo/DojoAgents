@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.1.9"
+version = "0.2.0"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -13,7 +13,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.20.0,<2",
-    "fastapi>=0.110.0,<0.112",
+    "fastapi>=0.115.2,<0.116",
     "uvicorn>=0.31.1,<0.33.0",
     "httpx>=0.27.0,<1",
     "pyyaml>=6.0.1,<7",
@@ -25,12 +25,13 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.15",
+    "dojosdk>=0.1.17",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
     "openpyxl>=3.1.0,<4",
     "pypdf>=5.0.0,<7",
+    "pillow>=10.0.0,<13",
 ]
 
 

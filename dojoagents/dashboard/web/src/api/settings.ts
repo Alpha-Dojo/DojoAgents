@@ -59,6 +59,8 @@ let mockConfig: SettingsConfig = {
       extract_backend: '',
       search_base_url: '',
       extract_base_url: '',
+      api_key: '',
+      api_key_env: '',
       max_extract_urls: 5,
       max_content_bytes: 2000000,
       summary_threshold_chars: 6000,

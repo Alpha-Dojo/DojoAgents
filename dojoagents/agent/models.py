@@ -18,6 +18,9 @@ class ChatRequest:
     # Compatibility payload retained until every surface uses ``context``.
     # Core intentionally does not import a Harness-owned request-context type.
     quant: Any = None
+    # Request-scoped model input. It may contain image data URLs and must never
+    # be persisted or logged verbatim; durable history uses message/context.
+    runtime_content: str | list[dict[str, Any]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     principal: SessionPrincipal | None = None
     context: dict[str, Any] = field(default_factory=dict)
@@ -34,6 +37,12 @@ class ChatRequest:
         elif self.user_id is not None and self.user_id != principal.user_id:
             raise ValueError("legacy user_id does not match principal.user_id")
         object.__setattr__(self, "user_id", principal.user_id)
+        if isinstance(self.runtime_content, list):
+            object.__setattr__(
+                self,
+                "runtime_content",
+                [dict(part) for part in self.runtime_content if isinstance(part, dict)],
+            )
         object.__setattr__(self, "metadata", dict(self.metadata))
         object.__setattr__(self, "context", dict(self.context))
 

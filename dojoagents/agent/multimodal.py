@@ -3,8 +3,11 @@ from __future__ import annotations
 import base64
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 _DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", re.DOTALL)
+MAX_DATA_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_DATA_IMAGE_ENCODED_CHARS = ((MAX_DATA_IMAGE_BYTES + 2) // 3) * 4
 
 IMAGE_TURN_EXCLUDED_TOOLS = frozenset(
     {
@@ -44,11 +47,14 @@ def parse_data_image_url(url: str) -> tuple[str, bytes] | None:
     image_format = _OPENAI_IMAGE_FORMATS.get(mime)
     if image_format is None:
         return None
+    encoded = match.group(2)
+    if len(encoded) > MAX_DATA_IMAGE_ENCODED_CHARS:
+        return None
     try:
-        payload = base64.b64decode(match.group(2), validate=True)
+        payload = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError):
         return None
-    if not payload:
+    if not payload or len(payload) > MAX_DATA_IMAGE_BYTES:
         return None
     return image_format, payload
 
@@ -57,7 +63,10 @@ def openai_image_url_to_strands_block(url: str) -> dict[str, Any] | None:
     parsed = parse_data_image_url(url)
     if parsed is None:
         stripped = str(url or "").strip()
-        if not stripped:
+        if not stripped or stripped.startswith("data:"):
+            return None
+        parsed_url = urlsplit(stripped)
+        if parsed_url.scheme.lower() != "https" or not parsed_url.netloc:
             return None
         return {
             "image": {

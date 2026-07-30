@@ -72,6 +72,12 @@ from strands.types._events import ToolResultEvent
 T = TypeVar("T")
 
 
+def _current_user_content(request: ChatRequest) -> str | list[dict[str, Any]]:
+    if request.runtime_content is not None:
+        return request.runtime_content
+    return request.metadata.get("user_content", request.message)
+
+
 class GuardrailHaltException(Exception):
     def __init__(self, message: str, stopped_reason: str):
         super().__init__(message)
@@ -641,7 +647,13 @@ class AgentLoop:
                 return response
             except asyncio.CancelledError:
                 if canonical_run is not None:
-                    await canonical_run.cancel()
+                    try:
+                        await canonical_run.cancel()
+                    except SessionLeaseLostError:
+                        LOGGER.warning(
+                            "Canonical run cancel skipped; session lease already lost: session_id=%s",
+                            active_request.session_id,
+                        )
                 raise
             except SessionLeaseLostError:
                 # The fencing token is no longer ours. Do not attempt any further
@@ -653,7 +665,13 @@ class AgentLoop:
                 raise
             except BaseException as exc:
                 if canonical_run is not None:
-                    await canonical_run.fail(exc)
+                    try:
+                        await canonical_run.fail(exc)
+                    except SessionLeaseLostError:
+                        LOGGER.warning(
+                            "Canonical run fail skipped; session lease already lost: session_id=%s",
+                            active_request.session_id,
+                        )
                 raise
             finally:
                 if not after_turn_attempted and self.harness_runtime is not None and turn_context is not None:
@@ -772,7 +790,7 @@ class AgentLoop:
 
         emit_phase("planning")
 
-        user_content = request.metadata.get("user_content", request.message)
+        user_content = _current_user_content(request)
         raw_attachments = request.metadata.get("session_attachments")
         session_attachments = [item for item in raw_attachments if isinstance(item, dict)] if isinstance(raw_attachments, list) else []
         if session_attachments:
@@ -785,7 +803,6 @@ class AgentLoop:
                     user_content = [*user_content, {"type": "text", "text": attachment_block}]
                 else:
                     user_content = combined
-                request.metadata["user_content"] = user_content
         image_turn = openai_content_has_images(user_content)
 
         model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
@@ -1057,7 +1074,7 @@ class AgentLoop:
         # Context token tracking & run-start compression
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        current_user_blocks = openai_content_to_strands_blocks(user_content)
         temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
         estimated_prompt = _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
@@ -1081,7 +1098,7 @@ class AgentLoop:
 
         temp_messages = [{"role": "system", "content": system}]
         temp_messages.extend(history_msgs)
-        current_user_blocks = openai_content_to_strands_blocks(request.metadata.get("user_content", request.message))
+        current_user_blocks = openai_content_to_strands_blocks(user_content)
         temp_with_prompt = temp_messages + [{"role": "user", "content": current_user_blocks or request.message}]
 
         used_tokens = token_state.last_prompt_tokens or _estimate_tokens_rough(flatten_messages_for_compress(temp_with_prompt))
@@ -1623,26 +1640,60 @@ class AgentLoop:
             turn_context.final_response = response_text
             decision = await self.harness_runtime.evaluate_completion(turn_context)
             recovery_turns = 0
+            # Incomplete tasks: EVAL is the only stop condition. Keep recovering until
+            # validate_progress accepts the deliverable, or max_iterations is exhausted.
             while decision.action == "recover" and recovery_turns < decision.max_extra_turns:
                 recovery_turns += 1
+                LOGGER.info(
+                    "Task incomplete — recovery %d/%d for session_id=%s code=%s",
+                    recovery_turns,
+                    decision.max_extra_turns,
+                    request.session_id,
+                    decision.code,
+                )
                 if event_sink is not None:
                     event_sink.eval_hint(decision.recovery_prompt, list(decision.issues))
                 with usage_scope(
                     "agent_recovery",
                     "agent_recovery.harness_completion",
                 ):
+                    # Fresh turn budget per recovery so a long first invoke cannot starve
+                    # the remaining workflow (web_search loops, write_session_file, etc.).
+                    recovery_limits = Limits(turns=self.config.max_iterations)
                     result = await agent.invoke_async(
                         prompt=decision.recovery_prompt,
                         invocation_state=invocation_state,
-                        limits=limits,
+                        limits=recovery_limits,
                     )
                 response_text = _scrub_response_text(str(result).strip())
                 turn_context.final_response = response_text
+                if result.metrics:
+                    iterations = (metadata.get("iterations") or 0) + int(result.metrics.cycle_count or 0)
+                    metadata["iterations"] = iterations
+                if result.stop_reason == "limit_turns":
+                    # Single invoke hit cycle limit; keep recovering if EVAL still fails.
+                    LOGGER.warning(
+                        "Recovery invoke hit iteration_limit; re-checking task EVAL session_id=%s",
+                        request.session_id,
+                    )
                 decision = await self.harness_runtime.evaluate_completion(turn_context)
-            if decision.action in {"blocked", "needs_user_input", "recover"}:
+            if decision.action in {"blocked", "needs_user_input"}:
                 metadata["stopped"] = decision.code
                 metadata["harness_issues"] = list(decision.issues)
                 if decision.recovery_prompt and not response_text:
+                    response_text = decision.recovery_prompt
+            elif decision.action == "recover":
+                # Only reachable after max_iterations-worth of recoveries.
+                metadata["stopped"] = decision.code
+                metadata["harness_issues"] = list(decision.issues)
+                metadata["harness_recovery_exhausted"] = True
+                LOGGER.error(
+                    "Task still incomplete after %d recoveries (session_id=%s); issues=%s",
+                    recovery_turns,
+                    request.session_id,
+                    list(decision.issues),
+                )
+                if decision.recovery_prompt:
                     response_text = decision.recovery_prompt
             harness_state.final_response = response_text
         active_harness = _resolve_active_harness()
@@ -1706,7 +1757,11 @@ class AgentLoop:
         if event_sink is not None:
             if usage_summary:
                 event_sink.turn_usage(usage_summary)
-            event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
+            # Pipeline orchestration may invoke agent.run multiple times under one
+            # outer SSE sink. Emitting done here would close the stream after step 1.
+            defer_done = bool(request.metadata.get("pipeline")) or bool(request.metadata.get("defer_run_done"))
+            if not defer_done:
+                event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
         LOGGER.info(
             "AgentLoop.run complete: session_id=%s response_len=%d saw_content_delta=%s tool_steps=%d stopped=%s",
             request.session_id,

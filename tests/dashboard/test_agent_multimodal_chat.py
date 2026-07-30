@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 
 from dojoagents.agent.multimodal import (
+    MAX_DATA_IMAGE_BYTES,
     normalize_openai_message_content,
     openai_content_has_images,
     openai_content_has_payload,
@@ -48,7 +49,8 @@ def test_completion_request_accepts_image_only_user_message():
     }
     req, info = _completion_request(payload)
     assert req.message == ""
-    assert req.metadata["user_content"][0]["type"] == "image_url"
+    assert req.runtime_content[0]["type"] == "image_url"
+    assert "user_content" not in req.metadata
     assert info["messages"][0]["content"][0]["type"] == "image_url"
 
 
@@ -73,6 +75,18 @@ def test_openai_content_helpers():
     assert openai_content_has_images("plain text") is False
     normalized = normalize_openai_message_content([{"type": "text", "text": "only text"}])
     assert normalized == "only text"
+
+
+def test_multimodal_rejects_unsafe_or_oversized_image_urls():
+    from dojoagents.agent.multimodal import (
+        openai_image_url_to_strands_block,
+        parse_data_image_url,
+    )
+
+    oversized = "data:image/png;base64," + base64.b64encode(b"x" * (MAX_DATA_IMAGE_BYTES + 1)).decode("ascii")
+    assert parse_data_image_url(oversized) is None
+    assert openai_image_url_to_strands_block("http://example.test/image.png") is None
+    assert openai_image_url_to_strands_block("data:image/png;base64,%%%") is None
 
 
 def test_gemini_provider_preserves_image_parts():

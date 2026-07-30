@@ -1,0 +1,41 @@
+id: ticker-sector-classify
+name: 标的行业多标签分类
+version: 1
+harness_profile: tool_orchestrated
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - search_company_ticker
+  - dojo.sdk.stock.ystock_info
+  - get_taxonomy_tree
+  - search_sector_taxonomy
+  - web_search
+  - web_extract
+  - execute_code
+  - write_session_file
+outputs:
+  - filename: ticker_sector_labels_{ticker}.json
+    format: json
+    required: true
+    schema: schema/ticker_sector_labels.schema.json
+triggers:
+  keywords:
+    - 新股分类
+    - 标的分类
+    - ticker分类
+    - 行业打标
+    - sector classify
+  commands:
+    - /task ticker-sector-classify
+constraints:
+  max_tool_calls_per_turn: 1
+  tool_budget:
+    search_company_ticker: 5
+    dojo.sdk.stock.ystock_info: 2
+    get_taxonomy_tree: 1
+    search_sector_taxonomy: 4
+    web_search: 6
+    web_extract: 4
+    execute_code: 4

@@ -87,7 +87,14 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     principal = SessionPrincipal("alice")
     loop = _loop(StaticLLMProvider([LLMResult("hello")]), service)
 
-    response = await loop.run(ChatRequest("hi", session_id="s1", principal=principal))
+    response = await loop.run(
+        ChatRequest(
+            "hi",
+            session_id="s1",
+            principal=principal,
+            runtime_content=[{"type": "text", "text": "transient runtime content"}],
+        )
+    )
 
     sessions = await service.list_sessions(principal, SessionListQuery())
     turns = await service.turns(principal, "s1", TurnQuery())
@@ -105,6 +112,9 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     assert turns.items[0].input == {"message": "hi", "context": {}}
     assert turns.items[0].output == {"content": "hello"}
     assert [message.role for message in history.items] == ["user", "assistant"]
+    assert history.items[0].content == "hi"
+    assert "transient runtime content" not in repr(turns.items)
+    assert "transient runtime content" not in repr(history.items)
     assert runs[0].status == "completed"
     assert response.metadata["usage"]["total_tokens"] > 0
     assert usage.calls == 1

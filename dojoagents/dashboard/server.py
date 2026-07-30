@@ -245,7 +245,6 @@ def _completion_request(
 
         quant = _decode_request_context(surface, metadata.get("quant"))
         metadata["history"] = messages[:last_user_index]
-        metadata["user_content"] = last_user_content
         metadata["locale"] = locale
         metadata["event_format"] = event_format
 
@@ -255,6 +254,7 @@ def _completion_request(
             session_id=session_id,
             channel=channel,
             quant=quant,
+            runtime_content=last_user_content,
             metadata=metadata,
         )
         return req, {"stream": stream, "model": model, "messages": messages, "event_format": event_format}

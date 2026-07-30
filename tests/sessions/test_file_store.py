@@ -91,6 +91,45 @@ async def test_expired_lease_takeover_invalidates_old_fencing_token(tmp_path, mo
 
 
 @pytest.mark.asyncio
+async def test_same_holder_can_renew_and_append_after_lease_expires(tmp_path, monkeypatch):
+    """Regression: expired lease used to make heartbeat cancel long agent runs."""
+    import dojoagents.sessions.stores.file as file_module
+
+    root = tmp_path / "sessions"
+    store = FileSessionStore(root, cursor_secret=b"secret")
+    principal = SessionPrincipal(user_id="alice")
+    await store.startup()
+    await store.create_session(principal, _spec("session"))
+    started = utc_now()
+    monkeypatch.setattr(file_module, "utc_now", lambda: started)
+    handle = await store.begin_run_with_lease(
+        principal,
+        BeginRunCommand("session", "run-1", "test-model", "idem-1", "worker-a", lease_seconds=10),
+    )
+    monkeypatch.setattr(file_module, "utc_now", lambda: started + timedelta(seconds=11))
+
+    renewed = await store.renew_lease(principal, handle.lease)
+    assert renewed.lease_id == handle.lease.lease_id
+    assert renewed.fencing_token == handle.lease.fencing_token
+    assert renewed.expires_at > started + timedelta(seconds=11)
+
+    await store.append_events(
+        principal,
+        "run-1",
+        [
+            SessionEvent(
+                "run-1",
+                1,
+                "content.delta",
+                {"text": "still-alive"},
+                renewed.lease_id,
+                renewed.fencing_token,
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
 async def test_corrupt_file_store_is_rejected(tmp_path):
     root = tmp_path / "sessions"
     root.mkdir()

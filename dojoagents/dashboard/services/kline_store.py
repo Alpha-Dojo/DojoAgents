@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -158,43 +157,6 @@ class KlineStore:
         self.raw_by_symbol = {symbol: rows.to_dict(orient="records") for symbol, rows in self._in_memory_updates.items()}
         self.member_symbols = len(self._in_memory_updates)
 
-    def _merge_memory(self, frame: pd.DataFrame) -> None:
-        if frame.empty:
-            return
-        prepared = _prepare_kline_df(frame, symbol="")
-        for symbol, rows in prepared.groupby("symbol", sort=False):
-            current = self._in_memory_updates.get(symbol)
-            merged = rows if current is None or current.empty else pd.concat([current, rows], ignore_index=True)
-            merged = merged.sort_values("bar_time").drop_duplicates(
-                subset=["bar_time"],
-                keep="last",
-            )
-            self._in_memory_updates[symbol] = merged.reset_index(drop=True)
-            self.raw_by_symbol[symbol] = merged.to_dict(orient="records")
-        self.member_symbols = len(self._in_memory_updates)
-
-    def _persist_memory(self) -> None:
-        path = self._parquet_path
-        frames = [frame for frame in self._in_memory_updates.values() if not frame.empty]
-        if path is None or not frames:
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".parquet.tmp")
-        pd.concat(frames, ignore_index=True).to_parquet(temporary, index=False)
-        temporary.replace(path)
-
-    def load_all(self, symbol: str) -> list[dict[str, Any]]:
-        self._load_disk_once()
-        canonical = symbol.strip().upper()
-        if canonical in self.raw_by_symbol:
-            return list(self.raw_by_symbol[canonical])
-        frame = self._in_memory_updates.get(canonical)
-        return [] if frame is None else frame.to_dict(orient="records")
-
-    def _memory_frame(self, symbol: str) -> pd.DataFrame:
-        rows = self.load_all(symbol)
-        return self._to_frame(rows)
-
     def _cache_response(
         self,
         cache_key: str,
@@ -205,19 +167,32 @@ class KlineStore:
         end_time: str | None = None,
         min_bar_time: str | None = None,
         limit: int = 0,
+        prepared: bool = False,
     ) -> Optional[StockKlineResponse]:
         if frame.empty:
             return None
-        prepared = _prepare_kline_df(frame, symbol=symbol)
+        working = frame if prepared else _prepare_kline_df(frame, symbol=symbol)
+        if working.empty:
+            return None
+        if "symbol" in working.columns:
+            working = working[working["symbol"].astype(str).str.upper() == symbol]
+        if working.empty:
+            return None
         filter_start = (start_time or min_bar_time or "")[:10]
         filter_end = (end_time or "")[:10]
         if filter_start:
-            prepared = prepared[prepared["bar_time"] >= filter_start]
+            working = working[working["bar_time"] >= filter_start]
         if filter_end:
-            prepared = prepared[prepared["bar_time"] <= filter_end]
+            working = working[working["bar_time"] <= filter_end]
+        # Enforce oldest-first before tail(): unsorted upstream rows would otherwise
+        # truncate/display the wrong bars (e.g. Jul 28 left of Jul 27 on the chart).
+        working = working.sort_values("bar_time").drop_duplicates(
+            subset=["bar_time"],
+            keep="last",
+        )
         if limit > 0:
-            prepared = prepared.tail(limit)
-        bars = [bar for row in prepared.to_dict(orient="records") if (bar := parse_kline_bar(row, default_symbol=symbol)) is not None]
+            working = working.tail(limit)
+        bars = [bar for row in working.to_dict(orient="records") if (bar := parse_kline_bar(row, default_symbol=symbol)) is not None]
         if not bars:
             return None
         response = StockKlineResponse(
@@ -256,8 +231,6 @@ class KlineStore:
         if not refresh and cache_key in self._cache:
             return self._cache[cache_key]
 
-        self._load_disk_once()
-        local_frame = self._memory_frame(symbol)
         try:
             if resolved_limit > 0:
                 fetch_limit = resolved_limit
@@ -294,14 +267,10 @@ class KlineStore:
             LOGGER.exception("Failed to fetch kline for %s: %s", symbol, e)
             raise e
 
-        if not df.empty:
-            self._merge_memory(df)
-            self._persist_memory()
-            local_frame = self._memory_frame(symbol)
         return self._cache_response(
             cache_key,
             symbol,
-            local_frame,
+            df,
             start_time=start_time,
             end_time=end_time,
             min_bar_time=min_bar_time,
@@ -315,34 +284,6 @@ class KlineStore:
         # resolved_limit = limit if limit is not None else KLINE_MAX_LIMIT
         self.initial_load_in_progress = True
         try:
-            # if hasattr(self.gateway, "warm_kline_index"):
-            #     await self.gateway.warm_kline_index()
-            # index = getattr(self.gateway, "_kline_symbol_index", None)
-            # frames = list((index or {}).values())
-            # if frames:
-            #     self._replace_memory(pd.concat(frames, ignore_index=True))
-            # else:
-            # result = await self.gateway.stock_all_klines()
-            # df = self._to_frame(result.data)
-            # if df.empty:
-            #     return
-            # df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
-            # df = df[df["symbol"] != ""]
-            # df = df.sort_values(by=["symbol", "bar_time"]).drop_duplicates(subset=["symbol", "bar_time"], keep="last")
-
-            # if resolved_limit > 0:
-            #     df = df.groupby("symbol").tail(resolved_limit).reset_index(drop=True)
-            # self._replace_memory(df)
-            # self._persist_memory()
-            # self._cache.clear()
-            # for symbol, frame in self._in_memory_updates.items():
-            #     cache_key = f"{symbol}_None_None_None_None_{resolved_limit}"
-            #     self._cache_response(
-            #         cache_key,
-            #         symbol,
-            #         frame,
-            #         limit=resolved_limit,
-            #     )
             self.initial_load_complete = True
         finally:
             self.initial_load_in_progress = False
@@ -357,33 +298,37 @@ class KlineStore:
         latest: Optional[str] = None
 
         canonical_symbols = [s.strip().upper() for s in symbols]
+        if not canonical_symbols:
+            return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        self._load_disk_once()
-        missing_cache = [symbol for symbol in canonical_symbols if self._memory_frame(symbol).empty]
-        if missing_cache:
-            results = await self._gateway_klines(
-                missing_cache,
-                limit=resolved_limit,
-            )
-            self._merge_memory(self._to_frame(results.data))
-            self._persist_memory()
+        results = await self._gateway_klines(
+            canonical_symbols,
+            limit=resolved_limit,
+        )
+        # Prepare the batch frame once, then slice by symbol. Re-running
+        # _prepare_kline_df on the full multi-symbol frame per ticker was O(N^2)
+        # and blocked the agent event loop (dojo-agent-runs) under GIL.
+        prepared = _prepare_kline_df(self._to_frame(results.data), symbol="")
+        if prepared.empty or "symbol" not in prepared.columns:
+            return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        async def build_response(s: str) -> None:
-            cache_key = f"{s}_None_None_None_None_{resolved_limit}"
+        grouped = {symbol: rows for symbol, rows in prepared.groupby("symbol", sort=False)}
+        for symbol in canonical_symbols:
+            subset = grouped.get(symbol)
+            if subset is None or subset.empty:
+                continue
+            cache_key = f"{symbol}_None_None_None_None_{resolved_limit}"
             response = self._cache_response(
                 cache_key,
-                s,
-                self._memory_frame(s),
+                symbol,
+                subset,
                 limit=resolved_limit,
+                prepared=True,
             )
             if response is not None:
-                items[s] = response
-
-        await asyncio.gather(*(build_response(s) for s in canonical_symbols))
-
-        for s in items:
-            if items[s].as_of and (latest is None or items[s].as_of > latest):
-                latest = items[s].as_of
+                items[symbol] = response
+                if response.as_of and (latest is None or response.as_of > latest):
+                    latest = response.as_of
 
         return ConstituentKlineBatchResponse(as_of=latest, items=items)
 
