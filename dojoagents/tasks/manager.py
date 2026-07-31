@@ -181,16 +181,24 @@ class TaskPromptManager:
         if active.outputs:
             lines.append("")
             lines.append(
-                "Required output artifacts (MUST write these exact basenames under "
+                "Required output artifacts (MUST write under "
                 f"~/.dojo/tasks/outputs/{spec.contract.id}/):"
             )
             for item in active.outputs:
                 filename = str(item.get("filename") or "?")
+                base = str(item.get("base_filename") or filename)
                 fmt = str(item.get("format") or "json")
-                lines.append(f"- {filename} (format={fmt})")
+                if "{" in filename:
+                    lines.append(
+                        f"- template `{base}` → write a concrete basename after values are confirmed "
+                        f"(format={fmt}); do not leave `{{...}}` placeholders in the filename"
+                    )
+                else:
+                    lines.append(f"- {filename} (format={fmt})")
             # Generic write contract from each output schema — no per-task branches.
             for item in active.outputs:
                 filename = str(item.get("filename") or "").strip()
+                base = str(item.get("base_filename") or filename).strip()
                 fmt = str(item.get("format") or "json")
                 schema_ref = str(item.get("schema") or "").strip()
                 schema = None
@@ -199,9 +207,10 @@ class TaskPromptManager:
                     if schema_path is not None:
                         schema = load_json_schema(schema_path)
                 lines.append("")
+                display_name = base if "{" in filename else (filename or "?")
                 lines.extend(
                     format_write_contract_block(
-                        filename=filename or "?",
+                        filename=display_name or "?",
                         fmt=fmt,
                         schema=schema,
                     )

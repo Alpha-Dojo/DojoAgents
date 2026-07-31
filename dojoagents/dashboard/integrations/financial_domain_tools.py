@@ -450,8 +450,10 @@ def register_dashboard_domain_tools(
             name="search_sector_taxonomy",
             description=(
                 "Search L3 industry sectors by concept keyword (具身智能, 机器人, 半导体, robotics). "
-                "Returns sector_path_id + level1_id/level2_id/level3_id with match_score. "
-                "Ids are opaque — copy them verbatim when a follow-up tool needs a sector path."
+                "Returns ranked items + best_match with sector_path_id / level*_id / match_score. "
+                "Also returns l3_options: every L3 under the L2 branches touched by items "
+                "(hit=true if that path is in items) — use as a local menu when picking a label. "
+                "Ids are opaque — copy them verbatim; do not invent ids."
             ),
             parameters={
                 "type": "object",

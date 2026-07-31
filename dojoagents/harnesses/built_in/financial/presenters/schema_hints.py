@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import copy
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Dict, Mapping, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
-_PREFERRED_ROWS_KEYS = (
+# Single priority list: default_table selection AND preferred rows_key order.
+DEFAULT_TABLE_PRIORITY = (
+    "sectors",
     "items",
     "klines",
     "bars",
@@ -16,199 +20,110 @@ _PREFERRED_ROWS_KEYS = (
     "candidates",
     "rows",
     "indicators",
-    "tree",
+    "markets",
+    "benchmarks",
     "news",
     "events",
+    "tree",
 )
 
 _TOOL_TABLE_PANDAS = "dojo_tools.tool_print(res)"
 _TOOL_MULTI_TABLE_PANDAS = "meta = dojo_tools.tool_meta(res); " "dojo_tools.tool_print(res, table='markets'); " "dojo_tools.tool_print(res, table='benchmarks')"
-
-TOOL_RESPONSE_MODELS: dict[str, type[BaseModel]] = {}
-
-
-def _static_list_hint(
-    rows_key: str,
-    row_fields: list[str],
-    *,
-    top_level_keys: list[str] | None = None,
-    expand_bilingual: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "shape": "tabular",
-        "rows_key": rows_key,
-        "top_level_keys": list(top_level_keys or [rows_key]),
-        "default_table": rows_key,
-        "tables": {
-            rows_key: {
-                "type": "list",
-                "path": rows_key,
-                "expand_bilingual": list(expand_bilingual or []),
-                "row_fields": row_fields,
-            }
-        },
-        "row_fields": row_fields,
-        "pandas_example": _TOOL_TABLE_PANDAS,
-    }
+_TOOL_TREE_PANDAS = "data = dojo_tools.tool_json(res); tree = data.get('tree') or []"
+_TOOL_TREE_NOTES = (
+    "Nested L1→L2→L3 via children[]; do NOT flatten with tool_print/tool_df. "
+    "Use dojo_tools.tool_json(res)['tree']. Prefer search_sector_taxonomy for keyword lookup."
+)
 
 
-STATIC_TOOL_SCHEMA_HINTS: dict[str, dict[str, Any]] = {
-    "screen_market_stocks": _static_list_hint(
-        "items",
-        [
-            "ticker",
-            "market",
-            "name_zh",
-            "name_en",
-            "last_price",
-            "change_percent",
-            "window_change_percent",
-            "market_cap",
-            "pe",
-            "pb",
-        ],
-        top_level_keys=[
-            "days",
-            "market",
-            "window_start",
-            "as_of",
-            "universe_count",
-            "match_count",
-            "items",
-        ],
-        expand_bilingual=["name"],
-    ),
-    "filter_sector_constituents": _static_list_hint(
-        "items",
-        [
-            "ticker",
-            "market",
-            "name_zh",
-            "name_en",
-            "currency",
-            "last_price",
-            "change_percent",
-            "window_change_percent",
-            "turn_rate",
-            "market_cap",
-            "pe",
-            "pb",
-            "amount",
-        ],
-        top_level_keys=[
-            "level1_id",
-            "level2_id",
-            "level3_id",
-            "scope",
-            "market",
-            "count",
-            "items",
-        ],
-        expand_bilingual=["name"],
-    ),
-    "get_ticker_price_trends": _static_list_hint(
-        "klines",
-        ["datetime", "open", "high", "low", "close", "volume"],
-        top_level_keys=["ticker", "market", "as_of", "klines", "pe_band"],
-    ),
-    "get_ticker_financials": _static_list_hint(
-        "indicators",
-        [],
-        top_level_keys=[
-            "ticker",
-            "market",
-            "report_type",
-            "as_of",
-            "indicators",
-            "income_distributions",
-        ],
-    ),
-    "get_market_overview": {
-        "shape": "nested",
-        "top_level_keys": [
-            "days",
-            "window_mode",
-            "window_start",
-            "window_end",
-            "as_of",
-            "markets",
-            "benchmarks",
-        ],
-        "default_table": "markets",
-        "tables": {
-            "markets": {
-                "type": "dict_records",
-                "path": "markets",
-                "group_key": "market",
-                "row_fields": [
-                    "market",
-                    "listed_count",
-                    "total_market_cap",
-                    "weighted_pe",
-                    "simple_pe",
-                    "pe_sample_count",
-                ],
-            },
-            "benchmarks": {
-                "type": "dict_list_records",
-                "path": "benchmarks",
-                "group_key": "market",
-                "row_fields": [
-                    "market",
-                    "symbol",
-                    "name_zh",
-                    "name_en",
-                    "price",
-                    "change_percent",
-                    "window_start",
-                    "window_end",
-                ],
-            },
-        },
-        "pandas_example": _TOOL_MULTI_TABLE_PANDAS,
-    },
-    "get_sector_movers": {
-        "shape": "nested",
-        "top_level_keys": [
-            "days",
-            "window_mode",
-            "window_start",
-            "window_end",
-            "markets",
-        ],
-        "default_table": "sectors",
-        "tables": {
-            "sectors": {
-                "type": "dict_side_lists",
-                "path": "markets",
-                "group_key": "market",
-                "side_column": "side",
-                "sides": ["gainers", "losers"],
-                "rank_by": ["market", "side"],
-                "row_fields": [
-                    "market",
-                    "side",
-                    "rank",
-                    "level1_id",
-                    "level2_id",
-                    "level3_id",
-                    "name_zh",
-                    "name_en",
-                    "change_percent",
-                    "member_count",
-                ],
-            }
-        },
-        "pandas_example": _TOOL_TABLE_PANDAS,
-    },
-}
+class SchemaHintRegistry:
+    """Explicit tool_name → response model map."""
+
+    def __init__(self) -> None:
+        self._models: dict[str, type[BaseModel]] = {}
+
+    def register(self, tool_name: str, model: type[BaseModel]) -> None:
+        name = str(tool_name or "").strip()
+        if not name:
+            raise ValueError("tool_name is required")
+        if not isinstance(model, type) or not issubclass(model, BaseModel):
+            raise TypeError(f"model must be a BaseModel subclass, got {model!r}")
+        self._models[name] = model
+
+    def register_many(self, mapping: Mapping[str, type[BaseModel]]) -> None:
+        for tool_name, model in mapping.items():
+            self.register(tool_name, model)
+
+    def get_model(self, tool_name: str) -> type[BaseModel] | None:
+        return self._models.get(str(tool_name or "").strip())
+
+    def clear(self) -> None:
+        self._models.clear()
+
+    def items(self) -> list[tuple[str, type[BaseModel]]]:
+        return sorted(self._models.items(), key=lambda item: item[0])
+
+
+_REGISTRY = SchemaHintRegistry()
+_DEFAULTS_REGISTERED = False
+
+
+def get_schema_hint_registry() -> SchemaHintRegistry:
+    return _REGISTRY
+
+
+def register_financial_response_models(registry: SchemaHintRegistry | None = None) -> SchemaHintRegistry:
+    """Bind financial tool names to Pydantic response models (idempotent)."""
+    from dojoagents.dashboard.schemas.domain_api import (
+        CompanyTickerSearchResponse,
+        MarketOverviewResponse,
+        SectorAnalysisResponse,
+        SectorConstituentsResponse,
+        SectorMoversResponse,
+        StockScreenResponse,
+        TaxonomyTreeResponse,
+        TickerFinancialsBatchResponseV1,
+        TickerNewsEventsResponseV1,
+        TickerPriceTrendsResponseV1,
+        TickerQuotesBatchResponseV1,
+    )
+
+    reg = registry if registry is not None else _REGISTRY
+    reg.register_many(
+        {
+            "search_company_ticker": CompanyTickerSearchResponse,
+            "get_taxonomy_tree": TaxonomyTreeResponse,
+            "get_market_overview": MarketOverviewResponse,
+            "get_sector_movers": SectorMoversResponse,
+            "screen_market_stocks": StockScreenResponse,
+            "get_sector_analysis": SectorAnalysisResponse,
+            "filter_sector_constituents": SectorConstituentsResponse,
+            "get_ticker_realtime_quote": TickerQuotesBatchResponseV1,
+            "get_ticker_financials": TickerFinancialsBatchResponseV1,
+            "get_ticker_news_and_events": TickerNewsEventsResponseV1,
+            "get_ticker_price_trends": TickerPriceTrendsResponseV1,
+        }
+    )
+    return reg
+
+
+def _ensure_default_models_registered() -> None:
+    global _DEFAULTS_REGISTERED
+    if _DEFAULTS_REGISTERED:
+        return
+    register_financial_response_models(_REGISTRY)
+    _DEFAULTS_REGISTERED = True
+
+
+# Fallback only for tools without a registered ResponseModel.
+STATIC_TOOL_SCHEMA_HINTS: dict[str, dict[str, Any]] = {}
 
 TOOL_NAME_ALIASES: dict[str, str] = {
     "dojo.sdk.stock.kline": "get_ticker_price_trends",
     "code_execution": "execute_code",
 }
 
-# Only for tools whose runtime shape varies (single vs batch) — not for column naming.
+# Usage notes, first_list fallbacks, and tools with no ResponseModel.
 MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "get_ticker_price_trends": {
         "pandas_example": ("df = dojo_tools.tool_df(res); " "df['date'] = pd.to_datetime(df['datetime'])"),
@@ -267,7 +182,7 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "search_sector_taxonomy": {
         "shape": "tabular",
         "rows_key": "items",
-        "top_level_keys": ["query", "count", "expanded_queries"],
+        "top_level_keys": ["query", "count", "expanded_queries", "l3_options"],
         "default_table": "items",
         "tables": {
             "items": {
@@ -287,8 +202,35 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
                     "matched_level",
                 ],
             },
+            "l3_options": {
+                "type": "list",
+                "path": "l3_options",
+                "expand_bilingual": [],
+                "row_fields": [
+                    "sector_path_id",
+                    "name_zh",
+                    "name_en",
+                    "level2_name_zh",
+                    "level2_name_en",
+                    "hit",
+                ],
+            },
         },
-        "pandas_example": "dojo_tools.tool_print(res, table='items')",
+        "pandas_example": (
+            "dojo_tools.tool_print(res, table='items'); "
+            "dojo_tools.tool_print(res, table='l3_options')"
+        ),
+        "usage_notes": (
+            "items/best_match = ranked keyword hits. "
+            "l3_options = full L3 menu under those L2 branches (hit marks items overlap). "
+            "Copy sector_path_id verbatim from items or l3_options."
+        ),
+    },
+    "get_taxonomy_tree": {
+        "shape": "tree",
+        "tree_key": "tree",
+        "pandas_example": _TOOL_TREE_PANDAS,
+        "usage_notes": _TOOL_TREE_NOTES,
     },
 }
 
@@ -308,11 +250,16 @@ def _unwrap_annotation(annotation: Any) -> Any:
     return current
 
 
+def _is_list_annotation(annotation: Any) -> bool:
+    return annotation is list or get_origin(annotation) is list
+
+
+def _is_dict_annotation(annotation: Any) -> bool:
+    return annotation in (dict, Dict) or get_origin(annotation) is dict
+
+
 def _is_basemodel_type(annotation: Any) -> bool:
-    try:
-        return isinstance(annotation, type) and issubclass(annotation, BaseModel)
-    except TypeError:
-        return False
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
 
 
 def _is_bilingual_text_type(annotation: Any) -> bool:
@@ -321,8 +268,7 @@ def _is_bilingual_text_type(annotation: Any) -> bool:
 
 
 def _is_list_of_rows(annotation: Any) -> bool:
-    origin = get_origin(annotation)
-    if origin is not list:
+    if not _is_list_annotation(annotation):
         return False
     args = get_args(annotation)
     if not args:
@@ -330,12 +276,11 @@ def _is_list_of_rows(annotation: Any) -> bool:
     inner = _unwrap_annotation(args[0])
     if _is_basemodel_type(inner):
         return True
-    inner_origin = get_origin(inner)
-    return inner_origin is dict or inner in (dict, Any)
+    return get_origin(inner) is dict or inner in (dict, Any)
 
 
 def _inner_list_model(annotation: Any) -> type[BaseModel] | None:
-    if get_origin(annotation) is not list:
+    if not _is_list_annotation(annotation):
         return None
     args = get_args(annotation)
     if not args:
@@ -347,6 +292,10 @@ def _inner_list_model(annotation: Any) -> type[BaseModel] | None:
 def _dict_value_type(dict_ann: Any) -> Any:
     args = get_args(dict_ann)
     return _unwrap_annotation(args[1]) if len(args) >= 2 else Any
+
+
+def _is_untyped_dict(annotation: Any) -> bool:
+    return _is_dict_annotation(annotation) and not get_args(annotation)
 
 
 def _bilingual_field_names(model: type[BaseModel]) -> list[str]:
@@ -376,15 +325,15 @@ def _row_fields_for_model(
                     fields.append(col)
                     seen.add(col)
             continue
-        origin = get_origin(_unwrap_annotation(field.annotation))
-        if origin is list:
+        ann = _unwrap_annotation(field.annotation)
+        if _is_list_annotation(ann):
             continue
         fields.append(name)
         seen.add(name)
     return fields
 
 
-def _list_table(name: str, path: str, row_model: type[BaseModel] | None) -> dict[str, Any]:
+def _list_table(path: str, row_model: type[BaseModel] | None) -> dict[str, Any]:
     return {
         "type": "list",
         "path": path,
@@ -393,7 +342,7 @@ def _list_table(name: str, path: str, row_model: type[BaseModel] | None) -> dict
     }
 
 
-def _dict_records_table(name: str, path: str, row_model: type[BaseModel] | None, *, group_key: str) -> dict[str, Any]:
+def _dict_records_table(path: str, row_model: type[BaseModel] | None, *, group_key: str) -> dict[str, Any]:
     return {
         "type": "dict_records",
         "path": path,
@@ -403,7 +352,7 @@ def _dict_records_table(name: str, path: str, row_model: type[BaseModel] | None,
     }
 
 
-def _dict_list_records_table(name: str, path: str, item_model: type[BaseModel] | None, *, group_key: str) -> dict[str, Any]:
+def _dict_list_records_table(path: str, item_model: type[BaseModel] | None, *, group_key: str) -> dict[str, Any]:
     return {
         "type": "dict_list_records",
         "path": path,
@@ -421,7 +370,6 @@ def _dict_side_lists_table(
     side_column: str = "side",
     sides: tuple[str, ...] = ("gainers", "losers"),
 ) -> dict[str, Any]:
-    expand = _bilingual_field_names(item_model)
     return {
         "type": "dict_side_lists",
         "path": path,
@@ -429,7 +377,7 @@ def _dict_side_lists_table(
         "side_column": side_column,
         "sides": list(sides),
         "rank_by": [group_key, side_column],
-        "expand_bilingual": expand,
+        "expand_bilingual": _bilingual_field_names(item_model),
         "row_fields": _row_fields_for_model(
             item_model,
             extra=[group_key, side_column, "rank"],
@@ -443,6 +391,47 @@ def _model_has_gainers_losers(model: type[BaseModel]) -> bool:
     return "gainers" in names and "losers" in names
 
 
+def _model_has_children_list(model: type[BaseModel]) -> bool:
+    children = model.model_fields.get("children")
+    if children is None:
+        return False
+    return _is_list_annotation(_unwrap_annotation(children.annotation))
+
+
+def _is_tree_list_annotation(annotation: Any) -> bool:
+    row_model = _inner_list_model(annotation)
+    return row_model is not None and _model_has_children_list(row_model)
+
+
+def _pick_default_table(tables: Mapping[str, Any]) -> str | None:
+    if not tables:
+        return None
+    for name in DEFAULT_TABLE_PRIORITY:
+        if name in tables:
+            return name
+    return sorted(tables.keys())[0]
+
+
+def _pick_rows_key(tables: Mapping[str, Any]) -> str | None:
+    for name in DEFAULT_TABLE_PRIORITY:
+        spec = tables.get(name)
+        if isinstance(spec, dict) and spec.get("type") == "list":
+            return name
+    for name, spec in tables.items():
+        if isinstance(spec, dict) and spec.get("type") == "list":
+            return name
+    return None
+
+
+def _infer_shape(tables: Mapping[str, Any], tree_keys: list[str]) -> str:
+    """tabular = only list tables; nested = any dict_* / side_lists; tree = tree only."""
+    if not tables:
+        return "tree" if tree_keys else "record"
+    if all(spec.get("type") == "list" for spec in tables.values()):
+        return "tabular"
+    return "nested"
+
+
 def _finalize_hint(hint: dict[str, Any]) -> dict[str, Any]:
     tables = hint.get("tables") or {}
     default_table = hint.get("default_table")
@@ -450,110 +439,123 @@ def _finalize_hint(hint: dict[str, Any]) -> dict[str, Any]:
         hint.setdefault("row_fields", tables[default_table].get("row_fields", []))
     if tables and default_table:
         hint.setdefault("pandas_example", _TOOL_TABLE_PANDAS)
+    elif hint.get("shape") == "tree":
+        hint.setdefault("pandas_example", _TOOL_TREE_PANDAS)
+        hint.setdefault("usage_notes", _TOOL_TREE_NOTES)
     return hint
+
+
+def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge dicts recursively; lists and scalars from override replace base."""
+    out = dict(base)
+    for key, value in override.items():
+        existing = out.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            out[key] = _deep_merge_dicts(existing, value)
+        else:
+            out[key] = value
+    return out
+
+
+@dataclass
+class _CollectedSpecs:
+    top_level_keys: list[str]
+    tables: dict[str, dict[str, Any]] = field(default_factory=dict)
+    tree_keys: list[str] = field(default_factory=list)
+    untyped_fields: list[str] = field(default_factory=list)
+
+
+def _collect_field_specs(model: type[BaseModel]) -> _CollectedSpecs:
+    """Walk model fields once and emit table / tree / untyped specs."""
+    specs = _CollectedSpecs(top_level_keys=list(model.model_fields.keys()))
+
+    for name, field_info in model.model_fields.items():
+        ann = _unwrap_annotation(field_info.annotation)
+
+        if _is_list_annotation(ann):
+            if _is_tree_list_annotation(ann):
+                specs.tree_keys.append(name)
+            elif _is_list_of_rows(ann):
+                specs.tables[name] = _list_table(name, _inner_list_model(ann))
+            continue
+
+        if not _is_dict_annotation(ann):
+            continue
+
+        if _is_untyped_dict(ann):
+            specs.untyped_fields.append(name)
+            continue
+
+        val_type = _dict_value_type(ann)
+        if _is_basemodel_type(val_type) and _model_has_gainers_losers(val_type):
+            gainers_field = val_type.model_fields.get("gainers")
+            item_model = _inner_list_model(gainers_field.annotation) if gainers_field is not None else None
+            specs.tables["sectors"] = _dict_side_lists_table(name, item_model or BaseModel)
+            continue
+
+        if _is_list_annotation(val_type):
+            specs.tables[name] = _dict_list_records_table(name, _inner_list_model(val_type), group_key="market")
+        elif _is_basemodel_type(val_type):
+            specs.tables[name] = _dict_records_table(name, val_type, group_key="market")
+        else:
+            specs.untyped_fields.append(name)
+
+    return specs
+
+
+def _assemble_hint(model_name: str, specs: _CollectedSpecs) -> dict[str, Any]:
+    """Build a single hint dict from collected specs (one exit path)."""
+    tables = specs.tables
+    tree_keys = specs.tree_keys
+    shape = _infer_shape(tables, tree_keys)
+
+    hint: dict[str, Any] = {
+        "shape": shape,
+        "top_level_keys": specs.top_level_keys,
+        "response_model": model_name,
+    }
+
+    if shape == "tree":
+        tree_key = next((name for name in DEFAULT_TABLE_PRIORITY if name in tree_keys), tree_keys[0])
+        hint["tree_key"] = tree_key
+        hint["pandas_example"] = _TOOL_TREE_PANDAS
+        hint["usage_notes"] = _TOOL_TREE_NOTES
+    elif tables:
+        default_table = _pick_default_table(tables)
+        rows_key = _pick_rows_key(tables)
+        hint["default_table"] = default_table
+        hint["tables"] = tables
+        if rows_key:
+            hint["rows_key"] = rows_key
+            other_lists = [name for name, spec in tables.items() if spec.get("type") == "list" and name != rows_key]
+            if other_lists:
+                hint["other_list_keys"] = other_lists
+        if tree_keys:
+            hint["tree_keys"] = tree_keys
+            hint.setdefault("usage_notes", _TOOL_TREE_NOTES)
+    else:
+        hint["pandas_example"] = "data = dojo_tools.tool_json(res)"
+
+    if specs.untyped_fields:
+        hint["untyped_fields"] = list(specs.untyped_fields)
+    return _finalize_hint(hint)
 
 
 def infer_schema_hint_from_model(model: type[BaseModel]) -> dict[str, Any]:
     """Build schema hint with machine-readable `tables` specs for dojo_tools.tool_table()."""
-    fields = model.model_fields
-    top_level_keys = list(fields.keys())
-    tables: dict[str, dict[str, Any]] = {}
-
-    list_fields: list[tuple[str, Any]] = []
-    dict_fields: list[tuple[str, Any]] = []
-
-    for name, field in fields.items():
-        ann = _unwrap_annotation(field.annotation)
-        origin = get_origin(ann)
-        if origin is list:
-            list_fields.append((name, ann))
-        elif origin is dict:
-            dict_fields.append((name, ann))
-
-    for dict_name, dict_ann in dict_fields:
-        val_type = _dict_value_type(dict_ann)
-        if _is_basemodel_type(val_type) and _model_has_gainers_losers(val_type):
-            gainers_field = val_type.model_fields.get("gainers")
-            item_model = _inner_list_model(gainers_field.annotation) if gainers_field is not None else None
-            tables["sectors"] = _dict_side_lists_table(
-                dict_name,
-                item_model or BaseModel,
-            )
-            return _finalize_hint(
-                {
-                    "shape": "nested",
-                    "top_level_keys": top_level_keys,
-                    "response_model": model.__name__,
-                    "default_table": "sectors",
-                    "tables": tables,
-                }
-            )
-
-    dict_object_specs: list[tuple[str, type[BaseModel] | None]] = []
-    dict_list_specs: list[tuple[str, type[BaseModel] | None]] = []
-    for dict_name, dict_ann in dict_fields:
-        val_type = _dict_value_type(dict_ann)
-        val_origin = get_origin(val_type)
-        if val_origin is list:
-            item_model = _inner_list_model(val_type)
-            dict_list_specs.append((dict_name, item_model))
-        elif _is_basemodel_type(val_type):
-            dict_object_specs.append((dict_name, val_type))
-
-    if dict_object_specs or dict_list_specs:
-        for dict_name, row_model in dict_object_specs:
-            tables[dict_name] = _dict_records_table(dict_name, dict_name, row_model, group_key="market")
-        for dict_name, item_model in dict_list_specs:
-            tables[dict_name] = _dict_list_records_table(dict_name, dict_name, item_model, group_key="market")
-        default_table = dict_object_specs[0][0] if dict_object_specs else dict_list_specs[0][0]
-        return _finalize_hint(
-            {
-                "shape": "nested",
-                "top_level_keys": top_level_keys,
-                "response_model": model.__name__,
-                "default_table": default_table,
-                "tables": tables,
-            }
-        )
-
-    tabular_names = [name for name, ann in list_fields if _is_list_of_rows(ann)]
-    if tabular_names:
-        rows_key = next((name for name in _PREFERRED_ROWS_KEYS if name in tabular_names), tabular_names[0])
-        row_model = _inner_list_model(next(ann for name, ann in list_fields if name == rows_key))
-        tables[rows_key] = _list_table(rows_key, rows_key, row_model)
-        hint: dict[str, Any] = {
-            "shape": "tabular",
-            "rows_key": rows_key,
-            "top_level_keys": top_level_keys,
-            "response_model": model.__name__,
-            "default_table": rows_key,
-            "tables": tables,
-        }
-        if len(tabular_names) > 1:
-            for name in tabular_names:
-                if name != rows_key:
-                    inner = _inner_list_model(next(ann for n, ann in list_fields if n == name))
-                    tables[name] = _list_table(name, name, inner)
-            hint["other_list_keys"] = [name for name in tabular_names if name != rows_key]
-        return _finalize_hint(hint)
-
-    return _finalize_hint(
-        {
-            "shape": "record",
-            "top_level_keys": top_level_keys,
-            "response_model": model.__name__,
-            "pandas_example": "data = dojo_tools.tool_json(res)",
-        }
-    )
+    try:
+        model.model_rebuild()
+    except Exception:
+        pass
+    return _assemble_hint(model.__name__, _collect_field_specs(model))
 
 
 def _merge_hints(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
-        if key == "tables" and isinstance(value, dict):
-            tables = dict(merged.get("tables") or {})
-            tables.update(value)
-            merged["tables"] = tables
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge_dicts(existing, value)
         else:
             merged[key] = value
     return _finalize_hint(merged)
@@ -566,21 +568,26 @@ def _cached_model_hint(model: type[BaseModel]) -> dict[str, Any]:
 
 def get_tool_schema_hint(tool_name: str) -> dict[str, Any] | None:
     """Resolve schema hint for a tool (auto from Pydantic + minimal overrides)."""
+    _ensure_default_models_registered()
     normalized = str(tool_name or "").strip()
     if not normalized:
         return None
     normalized = TOOL_NAME_ALIASES.get(normalized, normalized)
 
-    model = TOOL_RESPONSE_MODELS.get(normalized)
-    base: dict[str, Any] | None = _cached_model_hint(model) if model is not None else None
-    if base is None and normalized in STATIC_TOOL_SCHEMA_HINTS:
-        base = dict(STATIC_TOOL_SCHEMA_HINTS[normalized])
+    model = _REGISTRY.get_model(normalized)
+    base: dict[str, Any] | None = None
+    if model is not None:
+        base = _cached_model_hint(model)
+    elif normalized in STATIC_TOOL_SCHEMA_HINTS:
+        base = STATIC_TOOL_SCHEMA_HINTS[normalized]
 
     override = MANUAL_TOOL_SCHEMA_OVERRIDES.get(normalized)
     if base and override:
-        return _merge_hints(base, override)
-    if override:
-        return _finalize_hint(dict(override))
-    if base:
-        return dict(base)
-    return None
+        result = _merge_hints(base, override)
+    elif override:
+        result = _finalize_hint(dict(override))
+    elif base:
+        result = base
+    else:
+        return None
+    return copy.deepcopy(result)
