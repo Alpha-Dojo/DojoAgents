@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
+import dojoagents
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.harnesses.capabilities import ServiceSpec
 from dojoagents.harnesses.capabilities import (
@@ -79,6 +81,8 @@ FINANCIAL_PROJECTOR_SERVICE_ID = "financial-result-projector"
 
 
 class FinancialHarness:
+    identity = FINANCIAL_IDENTITY
+    source = "harness:financial"
     descriptor = HarnessDescriptor(
         id="financial",
         version="1.0.0",
@@ -88,8 +92,22 @@ class FinancialHarness:
         supported_channels=("dashboard", "cli", "gateway", "api"),
     )
 
-    def __init__(self, config: FinancialHarnessConfig) -> None:
+    def __init__(
+        self,
+        config: FinancialHarnessConfig,
+        *,
+        builtin_operations: bool = True,
+    ) -> None:
         self.config = config
+        self._builtin_operations = builtin_operations
+        self.tool_backend = None
+        self.context_codec = FinancialRequestContextCodec()
+        self.memory_provider = create_skill_summary_provider(config.memory_generated_skill_dir)
+        self.state_codec = FinancialSessionStateCodec()
+        self.turn_scope_policy = FinancialTurnScopePolicy()
+        self.completion_policy = FinancialTurnCompletionPolicy()
+        if not builtin_operations:
+            return
         if config.backend == "http":
             self.tool_backend = HTTPFinancialToolBackend(
                 config.dashboard_base_url or "",
@@ -100,10 +118,6 @@ class FinancialHarness:
             self.tool_backend = SDKFinancialToolBackend(config.sdk)
         else:
             raise ValueError("financial harness backend must be 'sdk' or 'http'")
-        self.context_codec = FinancialRequestContextCodec()
-        self.memory_provider = create_skill_summary_provider(config.memory_generated_skill_dir)
-        self.state_codec = FinancialSessionStateCodec()
-        self.turn_scope_policy = FinancialTurnScopePolicy()
         self.portfolio_flow_policy = PortfolioFlowPolicy()
         self.portfolio_repair_policy = PortfolioToolRepairPolicy()
         self.portfolio_escalation_policy = PortfolioEscalationPolicy()
@@ -123,14 +137,17 @@ class FinancialHarness:
             task_output_root=str(config.tasks.output_root),
             task_manager=task_manager,
         )
-        self.completion_policy = FinancialTurnCompletionPolicy()
         self.result_presenter = FinancialResultPresenter()
         self.artifact_adapter = FinancialArtifactAdapter()
         self.result_projector = FinancialResultProjector()
 
     def configure(self, builder: Any, context: HarnessBuildContext) -> None:
-        source = "harness:financial"
-        builder.set_identity(IdentitySpec("financial.identity", source, priority=100, identity=FINANCIAL_IDENTITY))
+        self.configure_core_capabilities(builder, context)
+        self.configure_operational_capabilities(builder, context)
+
+    def configure_core_capabilities(self, builder: Any, context: HarnessBuildContext) -> None:
+        source = self.source
+        builder.set_identity(IdentitySpec("financial.identity", source, priority=100, identity=self.identity))
         builder.add_request_context_codec(RequestContextCodecSpec("financial.context-codec", source, priority=100, codec=self.context_codec))
         for spec in (
             PromptContributorSpec("core.temporal", source, phase="temporal", contributor=temporal_prompt),
@@ -153,6 +170,42 @@ class FinancialHarness:
                 contributor=request_context_prompt,
             ),
             PromptContributorSpec(
+                "financial.turn-scope",
+                source,
+                phase="turn_policy",
+                contributor=turn_scope_prompt,
+            ),
+        ):
+            builder.add_prompt_contributor(spec)
+        builder.add_memory_provider(
+            MemoryProviderSpec(
+                "financial.memory.skill-summary",
+                source,
+                provider=lambda _runtime: self.memory_provider,
+            )
+        )
+        built_in_skills = Path(dojoagents.__file__).resolve().parent / "skills" / "built_in"
+        builder.add_skill_source(SkillSourceSpec("financial.skills.built-in", source, provider=built_in_skills))
+        builder.add_skill_source(SkillSourceSpec("financial.skills.user", source, provider=context.config.skills.dir))
+        builder.add_skill_source(
+            SkillSourceSpec(
+                "financial.skills.generated",
+                source,
+                provider=context.config.skills.generated_skill_dir,
+            )
+        )
+        for index, directory in enumerate(context.config.skills.external_dirs):
+            builder.add_skill_source(SkillSourceSpec(f"financial.skills.external.{index}", source, provider=directory))
+        builder.add_state_codec(StateCodecSpec("financial.state", source, codec=self.state_codec))
+        builder.add_flow_policy(FlowPolicySpec("financial.turn-scope", source, priority=900, policy=self.turn_scope_policy))
+        builder.add_flow_policy(FlowPolicySpec("financial.completion", source, priority=100, policy=self.completion_policy))
+
+    def configure_operational_capabilities(self, builder: Any, context: HarnessBuildContext) -> None:
+        if not self._builtin_operations or self.tool_backend is None:
+            raise RuntimeError("FinancialHarness subclass must override configure_operational_capabilities when builtin_operations=False")
+        source = self.source
+        for spec in (
+            PromptContributorSpec(
                 "financial.dashboard-tools",
                 source,
                 priority=100,
@@ -174,33 +227,8 @@ class FinancialHarness:
                 phase="task_context",
                 contributor=task_context_prompt,
             ),
-            PromptContributorSpec(
-                "financial.turn-scope",
-                source,
-                phase="turn_policy",
-                contributor=turn_scope_prompt,
-            ),
         ):
             builder.add_prompt_contributor(spec)
-        builder.add_memory_provider(
-            MemoryProviderSpec(
-                "financial.memory.skill-summary",
-                source,
-                provider=lambda _runtime: self.memory_provider,
-            )
-        )
-        built_in_skills = context.workdir / "dojoagents" / "skills" / "built_in"
-        builder.add_skill_source(SkillSourceSpec("financial.skills.built-in", source, provider=built_in_skills))
-        builder.add_skill_source(SkillSourceSpec("financial.skills.user", source, provider=context.config.skills.dir))
-        builder.add_skill_source(
-            SkillSourceSpec(
-                "financial.skills.generated",
-                source,
-                provider=context.config.skills.generated_skill_dir,
-            )
-        )
-        for index, directory in enumerate(context.config.skills.external_dirs):
-            builder.add_skill_source(SkillSourceSpec(f"financial.skills.external.{index}", source, provider=directory))
         for component_id, names, provider in (
             ("financial.tools.domain", DOMAIN_TOOL_NAMES, get_domain_tool_specs),
             ("financial.tools.portfolio", PORTFOLIO_TOOL_NAMES, get_portfolio_tool_specs),
@@ -223,20 +251,17 @@ class FinancialHarness:
                 tool_names=VISUALIZATION_TOOL_NAMES,
             )
         )
-        builder.add_state_codec(StateCodecSpec("financial.state", source, codec=self.state_codec))
         for index, directory in enumerate(financial_task_directories()):
             builder.add_task_source(TaskSourceSpec(f"financial.tasks.{index}", source, provider=directory))
         for index, directory in enumerate(financial_pipeline_directories()):
             builder.add_pipeline_source(PipelineSourceSpec(f"financial.pipelines.{index}", source, provider=directory))
         flow_policies = (
-            ("financial.turn-scope", 900, self.turn_scope_policy),
             ("financial.portfolio-flow", 800, self.portfolio_flow_policy),
             ("financial.portfolio-escalation", 750, self.portfolio_escalation_policy),
             ("financial.sector-session", 700, self.sector_session_policy),
             ("financial.visualization", 600, self.visualization_policy),
             ("financial.task.tool-orchestrated", 500, self.tool_task_policy),
             ("financial.task.artifact-synthesis", 400, self.artifact_task_policy),
-            ("financial.completion", 100, self.completion_policy),
         )
         for component_id, priority, policy in flow_policies:
             builder.add_flow_policy(FlowPolicySpec(component_id, source, priority=priority, policy=policy))
