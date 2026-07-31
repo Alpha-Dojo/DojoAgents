@@ -5,6 +5,8 @@ from dojoagents.logging import LOGGER
 
 import argparse
 import asyncio
+from types import FrameType
+from typing import Callable
 
 import uvicorn
 
@@ -14,6 +16,21 @@ from dojoagents.cli.gateway_setup import configure_gateway_adapters
 from dojoagents.dashboard.server import create_app as create_dashboard_app
 from dojoagents.gateway.server import create_runner_app as create_gateway_app
 from dojoagents.sessions.models import SessionPrincipal
+
+
+class _InterruptibleDashboardServer(uvicorn.Server):
+    """Forward termination signals into an in-flight Dashboard startup."""
+
+    def __init__(self, config: uvicorn.Config, *, cancel_startup: Callable[[], None]) -> None:
+        super().__init__(config)
+        self._cancel_startup = cancel_startup
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        self._cancel_startup()
+        lifespan = getattr(self, "lifespan", None)
+        if lifespan is not None:
+            lifespan.should_exit = True
+        super().handle_exit(sig, frame)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -210,12 +227,29 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_run_chat(args))
     if args.command == "dashboard":
         from dojoagents.config.loader import ConfigStore
-
-        uvicorn.run(
-            create_dashboard_app(config_store=ConfigStore()),
-            host=args.host,
-            port=args.port,
+        from dojoagents.dashboard.services.app_container import (
+            DashboardAppServices,
+            DashboardAppServicesConfig,
         )
+
+        config_store = ConfigStore()
+        services = DashboardAppServices(
+            DashboardAppServicesConfig.from_agents_config(config_store.snapshot()),
+        )
+        app = create_dashboard_app(
+            app_services=services,
+            app_services_owned=True,
+            config_store=config_store,
+        )
+        server = _InterruptibleDashboardServer(
+            uvicorn.Config(
+                app,
+                host=args.host,
+                port=args.port,
+            ),
+            cancel_startup=services.cancel_startup,
+        )
+        server.run()
         return 0
     if args.command == "sessions":
         return _run_sessions(args)

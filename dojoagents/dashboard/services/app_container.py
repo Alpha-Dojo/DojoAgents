@@ -16,6 +16,7 @@ from dojoagents.dashboard.services.constituent_kline_refresh_state import Refres
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.services.market_refresh_jobs import start_refresh_loop
 from dojoagents.config.models import AgentsConfig
+from dojoagents.logging import LOGGER
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,8 @@ class DashboardAppServices:
         self._ready = False
         self._stopped = False
         self._previous_environment: dict[str, str | None] | None = None
+        self._startup_task: asyncio.Task[Any] | None = None
+        self._startup_loop: asyncio.AbstractEventLoop | None = None
 
     def replace_factories_for_testing(
         self,
@@ -104,49 +107,72 @@ class DashboardAppServices:
     async def startup(self) -> None:
         if self._ready:
             return
+        self._startup_task = asyncio.current_task()
+        self._startup_loop = asyncio.get_running_loop()
         self._stopped = False
-        self._previous_environment = {
-            "DOJO_CACHE_DIR": os.environ.get("DOJO_CACHE_DIR"),
-            "DOJO_ONLINE": os.environ.get("DOJO_ONLINE"),
-        }
-        os.environ["DOJO_CACHE_DIR"] = str(self.config.sdk_cache_dir)
-        os.environ["DOJO_ONLINE"] = "0" if self.config.offline_mode else "1"
-        self.client = self._client_factory(
-            api_key=self.config.api_key,
-            base_url=self.config.base_url,
-            timeout=self.config.timeout,
-            max_retries=self.config.max_retries,
-        )
-        self.registry = self._registry_factory()
-
-        if self.config.preload_offline_data and hasattr(self.client, "preload_offline_data"):
-            preload = self.client.preload_offline_data
-            if inspect.iscoroutinefunction(preload):
-                await preload()
-            else:
-                await asyncio.to_thread(preload)
-        await self.registry.init_and_load_all(
-            self.client,
-            data_root=self.config.data_root,
-            preload=self.config.preload_registry,
-            portfolio_data_root=self.config.portfolio_data_root,
-        )
-        self.gateway = getattr(self.registry, "gateway", None)
-        self.portfolio_store = getattr(self.registry, "portfolio_store", None)
-        self.portfolio_service = getattr(self.registry, "portfolio_service", None)
-        if self.config.preload_offline_data:
-            await self.refresh_store.set_last_refresh_date_async("preload_offline_data", datetime.date.today())
-        self.market_data_revision = self.refresh_store.get_market_data_revision()
-        if self.config.refresh_enabled:
-            self.refresh_task = asyncio.create_task(
-                self._refresh_loop(
-                    runtime_dir=self.config.data_root / "runtime",
-                    registry=self.registry,
-                    poll_interval=self.config.refresh_poll_seconds,
-                ),
-                name="financial-market-refresh",
+        try:
+            self._previous_environment = {
+                "DOJO_CACHE_DIR": os.environ.get("DOJO_CACHE_DIR"),
+                "DOJO_ONLINE": os.environ.get("DOJO_ONLINE"),
+            }
+            os.environ["DOJO_CACHE_DIR"] = str(self.config.sdk_cache_dir)
+            os.environ["DOJO_ONLINE"] = "0" if self.config.offline_mode else "1"
+            self.client = self._client_factory(
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                timeout=self.config.timeout,
+                max_retries=self.config.max_retries,
             )
-        self._ready = True
+            self.registry = self._registry_factory()
+
+            if self.config.preload_offline_data and hasattr(self.client, "preload_offline_data"):
+                preload = self.client.preload_offline_data
+                if inspect.iscoroutinefunction(preload):
+                    await preload()
+                else:
+                    await asyncio.to_thread(preload)
+            await self.registry.init_and_load_all(
+                self.client,
+                data_root=self.config.data_root,
+                preload=self.config.preload_registry,
+                portfolio_data_root=self.config.portfolio_data_root,
+            )
+            self.gateway = getattr(self.registry, "gateway", None)
+            self.portfolio_store = getattr(self.registry, "portfolio_store", None)
+            self.portfolio_service = getattr(self.registry, "portfolio_service", None)
+            if self.config.preload_offline_data:
+                await self.refresh_store.set_last_refresh_date_async("preload_offline_data", datetime.date.today())
+            self.market_data_revision = self.refresh_store.get_market_data_revision()
+            if self.config.refresh_enabled:
+                self.refresh_task = asyncio.create_task(
+                    self._refresh_loop(
+                        runtime_dir=self.config.data_root / "runtime",
+                        registry=self.registry,
+                        poll_interval=self.config.refresh_poll_seconds,
+                    ),
+                    name="financial-market-refresh",
+                )
+            self._ready = True
+        except BaseException:
+            try:
+                await self.shutdown()
+            except Exception:
+                LOGGER.exception("Failed to clean up interrupted Dashboard financial startup")
+            raise
+        finally:
+            self._startup_task = None
+            self._startup_loop = None
+
+    def cancel_startup(self) -> None:
+        """Cancel startup safely when the CLI receives Ctrl+C."""
+        client = self.client
+        cancel_preload = getattr(client, "cancel_preload_offline_data", None)
+        if callable(cancel_preload):
+            cancel_preload()
+        task = self._startup_task
+        loop = self._startup_loop
+        if task is not None and not task.done() and loop is not None:
+            loop.call_soon_threadsafe(task.cancel)
 
     async def health(self) -> DashboardServiceHealth:
         client_ready = self.client is not None
