@@ -70,9 +70,16 @@ def find_output_artifact(active: dict[str, Any], filename: str) -> dict[str, Any
     if not isinstance(outputs, list):
         return None
     safe_name = str(filename or "").strip()
+    matched: list[dict[str, Any]] = []
     for item in outputs:
-        if isinstance(item, dict) and str(item.get("filename") or "").strip() == safe_name:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("filename") or "").strip() == safe_name:
             return item
+        matched.append(item)
+    # Single-output tasks: concrete basename may resolve after activation (e.g. {ticker}).
+    if safe_name and len(matched) == 1:
+        return matched[0]
     return None
 
 

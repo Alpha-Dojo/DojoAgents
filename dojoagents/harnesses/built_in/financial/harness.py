@@ -140,6 +140,9 @@ class FinancialHarness:
         self.result_presenter = FinancialResultPresenter()
         self.artifact_adapter = FinancialArtifactAdapter()
         self.result_projector = FinancialResultProjector()
+        from .presenters.schema_hints import register_financial_response_models
+
+        register_financial_response_models()
 
     def configure(self, builder: Any, context: HarnessBuildContext) -> None:
         self.configure_core_capabilities(builder, context)
