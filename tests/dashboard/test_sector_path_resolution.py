@@ -66,6 +66,19 @@ def test_build_sector_taxonomy_search_returns_facts_without_playbook(sector_regi
     assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
 
 
+def test_build_sector_taxonomy_search_by_sector_path_id(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(
+        sector_registry,
+        sector_path_id="1/2/3",
+        query="ignored",
+    )
+    assert payload["count"] == 1
+    best = payload["best_match"]
+    assert best["sector_path_id"] == "1/2/3"
+    assert best["level3_name_en"] == "Application Software"
+    assert best["match_score"] == 100
+
+
 def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError) as exc:
         domain_api.resolve_sector_path(
@@ -79,7 +92,7 @@ def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
     assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
-def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
         sector_name="应用软件",
@@ -87,10 +100,10 @@ def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
     assert path.level3_id == "3"
 
 
-def test_resolve_sector_path_accepts_english_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_english_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
-        level3_name="Application Software",
+        sector_name="Application Software",
     )
     assert path.level2_id == "2"
 
@@ -257,9 +270,6 @@ async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> Non
             level2_id=str(kwargs.get("level2_id") or ""),
             level3_id=str(kwargs.get("level3_id") or ""),
             sector_name=kwargs.get("sector_name"),
-            level1_name=kwargs.get("level1_name"),
-            level2_name=kwargs.get("level2_name"),
-            level3_name=kwargs.get("level3_name"),
             market=kwargs.get("market"),
         )
         return {"count": 1, "level3_id": path.level3_id, "items": []}

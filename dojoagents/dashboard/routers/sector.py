@@ -55,6 +55,8 @@ async def sector_constituents(
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
     scope: Literal["L1", "L2", "L3"] = Query("L3"),
     days: int = Query(1, ge=1, le=90),
+    start_date: Optional[str] = Query(None, description="Optional window start YYYY-MM-DD; requires end_date"),
+    end_date: Optional[str] = Query(None, description="Optional window end YYYY-MM-DD; requires start_date"),
     registry=Depends(get_financial_registry),
 ) -> SectorConstituentsResponseV1:
     try:
@@ -66,6 +68,8 @@ async def sector_constituents(
             scope=scope,
             market=market,
             days=days,
+            start_date=start_date,
+            end_date=end_date,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

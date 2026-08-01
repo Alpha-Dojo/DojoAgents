@@ -19,7 +19,7 @@ from dojoagents.dashboard.client.tasks import (
 from dojoagents.config.loader import ConfigStore
 from dojoagents.logging import LOGGER, configure_logging
 from dojoagents.tasks.activator import TaskActivationError
-from dojoagents.tasks.artifacts import resolve_dated_filename
+from dojoagents.tasks.artifacts import resolve_filename_template
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.models import TaskArtifactSpec, TaskSpec
 from dojoagents.tasks.output_paths import resolve_task_output_file
@@ -346,7 +346,7 @@ def eval_task_output(args: argparse.Namespace) -> int:
 
     total_issues = 0
     for artifact in artifacts:
-        filename = resolve_dated_filename(artifact.filename, params)
+        filename = resolve_filename_template(artifact.filename, params)
         try:
             path = resolve_task_output_file(output_root, task.contract.id, filename)
         except ValueError as exc:

@@ -11,7 +11,7 @@ from dojoagents.harnesses.built_in.financial.policies.legacy.tool_orchestrated i
 from dojoagents.agent.models import ChatRequest, ToolCall, ToolResult
 from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
 from dojoagents.tasks.activator import TaskActivator, TaskActivationError
-from dojoagents.tasks.artifacts import resolve_dated_filename
+from dojoagents.tasks.artifacts import resolve_filename_template
 from dojoagents.tasks.command_router import CommandRouter
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.output_paths import resolve_task_output_file
@@ -61,27 +61,42 @@ def _write_task_file(
     return path
 
 
-def test_resolve_dated_filename() -> None:
+def test_resolve_filename_template() -> None:
     assert (
-        resolve_dated_filename("market_news_raw_pack_{trading_date}.json", {"trading_date": "2026-07-03"})
+        resolve_filename_template("market_news_raw_pack_{trading_date}.json", {"trading_date": "2026-07-03"})
         == "market_news_raw_pack_2026-07-03.json"
     )
     assert (
-        resolve_dated_filename("market_event_triggers_{trading_date}.jsonl", {"trading_date": "2026-07-03"})
+        resolve_filename_template("market_event_triggers_{trading_date}.jsonl", {"trading_date": "2026-07-03"})
         == "market_event_triggers_2026-07-03.jsonl"
     )
-    assert resolve_dated_filename("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
-    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "688825.SS"}) == "ticker_sector_labels_688825_SS.json"
-    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "0700.HK"}) == "ticker_sector_labels_0700_HK.json"
-    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"ticker": "NVDA"}) == "ticker_sector_labels_NVDA.json"
-    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {}) == "ticker_sector_labels_{ticker}.json"
-    assert resolve_dated_filename("ticker_sector_labels_{ticker}.json", {"q": "长鑫科技"}) == "ticker_sector_labels_{ticker}.json"
+    assert resolve_filename_template("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "688825.SS"}) == "ticker_sector_labels_688825_SS.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "0700.HK"}) == "ticker_sector_labels_0700_HK.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "NVDA"}) == "ticker_sector_labels_NVDA.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {}) == "ticker_sector_labels_{ticker}.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"q": "长鑫科技"}) == "ticker_sector_labels_{ticker}.json"
+    assert (
+        resolve_filename_template(
+            "attribution_factors_{market}_{sector_id}_{trading_date}.jsonl",
+            {"market": "cn", "sector_id": "1/2/6", "trading_date": "2026-07-22"},
+        )
+        == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
+    )
+    assert (
+        resolve_filename_template(
+            "attribution_factors_{market}_{sector_id}_{trading_date}.jsonl",
+            {"market": "cn", "trading_date": "2026-07-22"},
+        )
+        == "attribution_factors_cn_{sector_id}_2026-07-22.jsonl"
+    )
 
 
 def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> None:
     assert "sector-attribution" in task_manager.list_tasks()
     assert "event-trigger" in task_manager.list_tasks()
     assert "ticker-sector-classify" in task_manager.list_tasks()
+    assert "attribution-factor-crawl" in task_manager.list_tasks()
     assert "daily-market-events" in task_manager.list_pipelines()
     spec = task_manager.get_task("sector-attribution")
     assert spec is not None

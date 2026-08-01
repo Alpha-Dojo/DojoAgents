@@ -148,6 +148,14 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             "Copy level1_id/level2_id/level3_id into filter_sector_constituents or get_sector_analysis."
         ),
     },
+    "filter_sector_constituents": {
+        "usage_notes": (
+            "Default (omit dates): change_percent = live quote; window_change_percent from optional days "
+            "(1–90). Historical: pass start_date+end_date (YYYY-MM-DD, both required; single day: set equal; "
+            "max 126 calendar-day span) — dates override days and fill both change_percent and "
+            "window_change_percent with the window return."
+        ),
+    },
     "get_ticker_financials": {
         "tables": {
             "rows": {
