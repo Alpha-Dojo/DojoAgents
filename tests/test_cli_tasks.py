@@ -7,6 +7,7 @@ import pytest
 from dojoagents.agent.models import AgentResponse
 from dojoagents.cli.main import build_parser
 from dojoagents.dashboard.cli.tasks import (
+    _build_task_slash_message,
     _metadata_exit_code,
     _response_exit_code,
     _run_status_exit_code,
@@ -20,10 +21,66 @@ def test_tasks_run_cli_parser() -> None:
     assert args.command == "tasks"
     assert args.tasks_command == "run"
     assert args.pipeline == "daily-market-events"
+    assert args.task is None
     assert args.date == "2026-06-01"
+    assert args.task_args == []
     assert args.local is False
     assert args.force is False
     assert args.dashboard_url == ""
+
+
+def test_tasks_run_task_cli_parser() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--task",
+            "attribution-factor-crawl",
+            "--date",
+            "2026-07-22",
+            "--local",
+            "market=cn",
+            "sector_path_id=1/2/6",
+        ]
+    )
+    assert args.task == "attribution-factor-crawl"
+    assert args.pipeline is None
+    assert args.date == "2026-07-22"
+    assert args.local is True
+    assert args.task_args == ["market=cn", "sector_path_id=1/2/6"]
+
+
+def test_tasks_run_requires_pipeline_or_task() -> None:
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["tasks", "run", "--date", "2026-07-22"])
+
+
+def test_build_task_slash_message() -> None:
+    assert (
+        _build_task_slash_message(
+            "attribution-factor-crawl",
+            trading_date="2026-07-22",
+            task_args=["market=cn", "sector_path_id=1/2/6"],
+        )
+        == "/task attribution-factor-crawl 2026-07-22 market=cn sector_path_id=1/2/6"
+    )
+    assert (
+        _build_task_slash_message(
+            "ticker-sector-classify",
+            trading_date=None,
+            task_args=["NVDA"],
+        )
+        == "/task ticker-sector-classify NVDA"
+    )
+    assert (
+        _build_task_slash_message(
+            "event-trigger",
+            trading_date="2026-07-22",
+            task_args=["2026-07-22"],
+        )
+        == "/task event-trigger 2026-07-22"
+    )
 
 
 def test_tasks_run_local_flag() -> None:
@@ -84,6 +141,21 @@ def test_metadata_exit_code(metadata: dict, expected: int) -> None:
 
 
 @pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({}, 0),
+        ({"tool_trace": [{"name": "web_search"}]}, 0),
+        ({"stopped": "task_incomplete"}, 1),
+        ({"error": "task_activation", "task_activation_error": "Unknown task"}, 1),
+    ],
+)
+def test_metadata_exit_code_for_single_task(metadata: dict, expected: int) -> None:
+    assert _metadata_exit_code(metadata, require_pipeline_completed=False) == expected
+    response = AgentResponse(content="", session_id="s1", metadata=metadata)
+    assert _response_exit_code(response, require_pipeline_completed=False) == expected
+
+
+@pytest.mark.parametrize(
     ("status", "metadata", "expected"),
     [
         ("done", {"pipeline_completed": True}, 0),
@@ -100,7 +172,18 @@ def test_run_status_exit_code(status: str, metadata: dict, expected: int) -> Non
 
 @pytest.mark.asyncio
 async def test_tasks_run_remote_invokes_dashboard_client() -> None:
-    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--force-rerun",
+            "--skip-upload",
+        ]
+    )
     fake_record = {
         "run_id": "run-1",
         "status": "done",
@@ -159,7 +242,20 @@ async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
 
 @pytest.mark.asyncio
 async def test_tasks_run_remote_returns_nonzero_on_validation_failure() -> None:
-    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--force-rerun",
+            "--skip-upload",
+            "--max-retries",
+            "1",
+        ]
+    )
     fake_record = {
         "run_id": "run-1",
         "status": "done",
@@ -185,6 +281,8 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
             "--date",
             "2026-06-01",
             "--local",
+            "--force-rerun",
+            "--skip-upload",
         ]
     )
     fake_response = AgentResponse(
@@ -212,6 +310,82 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--task",
+            "attribution-factor-crawl",
+            "--date",
+            "2026-07-22",
+            "market=cn",
+            "sector_path_id=1/2/6",
+        ]
+    )
+    fake_record = {
+        "run_id": "run-1",
+        "status": "done",
+        "metadata": {},
+        "content": "done",
+    }
+
+    with patch("dojoagents.dashboard.cli.tasks.load_task_manager") as load_manager:
+        manager = MagicMock()
+        manager.get_task.return_value = object()
+        load_manager.return_value = manager
+        with patch("dojoagents.dashboard.cli.tasks.run_task_via_dashboard", new_callable=AsyncMock) as remote:
+            remote.return_value = fake_record
+            code = await run_tasks_command(args)
+
+    assert code == 0
+    remote.assert_awaited_once()
+    kwargs = remote.await_args.kwargs
+    assert kwargs["message"] == "/task attribution-factor-crawl 2026-07-22 market=cn sector_path_id=1/2/6"
+    assert kwargs["session_id"].startswith("cli-task-attribution-factor-crawl-")
+    assert kwargs["session_id"] != "cli-task-attribution-factor-crawl-2026-07-22"
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_task_local_invokes_agent() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--task",
+            "ticker-sector-classify",
+            "--local",
+            "NVDA",
+        ]
+    )
+    fake_response = AgentResponse(
+        content="done",
+        session_id="cli-task-ticker-sector-classify-deadbeef",
+        metadata={},
+    )
+
+    with patch("dojoagents.dashboard.cli.tasks.load_task_manager") as load_manager:
+        manager = MagicMock()
+        manager.get_task.return_value = object()
+        load_manager.return_value = manager
+        with patch("dojoagents.dashboard.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+            runtime = AsyncMock()
+            runtime.task_manager = MagicMock()
+            runtime.task_manager.get_task.return_value = object()
+            runtime.agent.run = AsyncMock()
+            prepare.return_value = (runtime, AsyncMock())
+            with patch("dojoagents.dashboard.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock) as run_tasks:
+                run_tasks.return_value = fake_response
+                code = await run_tasks_command(args)
+
+    assert code == 0
+    run_tasks.assert_awaited_once()
+    request = run_tasks.await_args.args[1]
+    assert request.message == "/task ticker-sector-classify NVDA"
+    assert request.channel == "cli"
+
+
+@pytest.mark.asyncio
 async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
     args = build_parser().parse_args(
         [
@@ -222,6 +396,10 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
             "--date",
             "2026-06-01",
             "--local",
+            "--force-rerun",
+            "--skip-upload",
+            "--max-retries",
+            "1",
         ]
     )
     fake_response = AgentResponse(

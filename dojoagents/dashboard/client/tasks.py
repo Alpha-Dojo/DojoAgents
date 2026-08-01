@@ -134,6 +134,30 @@ async def wait_for_chat_run(
         await asyncio.sleep(max(0.5, float(poll_interval)))
 
 
+async def run_message_via_dashboard(
+    *,
+    base_url: str,
+    message: str,
+    session_id: str,
+    poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
+    log_label: str = "message",
+) -> dict[str, Any]:
+    if not await check_dashboard_health(base_url):
+        raise DashboardTaskClientError(f"Dashboard is not reachable at {base_url}. " "Start it with `dojoagents dashboard` or pass --local.")
+
+    LOGGER.info(
+        "Submitting %s to dashboard: base_url=%s session_id=%s message=%s",
+        log_label,
+        base_url,
+        session_id,
+        message,
+    )
+    created = await create_chat_run(base_url=base_url, message=message, session_id=session_id)
+    run_id = str(created["run_id"])
+    LOGGER.info("Dashboard run created: run_id=%s", run_id)
+    return await wait_for_chat_run(base_url, run_id, poll_interval=poll_interval)
+
+
 async def run_pipeline_via_dashboard(
     *,
     base_url: str,
@@ -142,18 +166,27 @@ async def run_pipeline_via_dashboard(
     session_id: str,
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
-    if not await check_dashboard_health(base_url):
-        raise DashboardTaskClientError(f"Dashboard is not reachable at {base_url}. " "Start it with `dojoagents dashboard` or pass --local.")
-
     message = f"/pipeline {pipeline_id} {trading_date}"
-    LOGGER.info(
-        "Submitting pipeline to dashboard: base_url=%s pipeline=%s date=%s session_id=%s",
-        base_url,
-        pipeline_id,
-        trading_date,
-        session_id,
+    return await run_message_via_dashboard(
+        base_url=base_url,
+        message=message,
+        session_id=session_id,
+        poll_interval=poll_interval,
+        log_label=f"pipeline {pipeline_id}",
     )
-    created = await create_chat_run(base_url=base_url, message=message, session_id=session_id)
-    run_id = str(created["run_id"])
-    LOGGER.info("Dashboard run created: run_id=%s", run_id)
-    return await wait_for_chat_run(base_url, run_id, poll_interval=poll_interval)
+
+
+async def run_task_via_dashboard(
+    *,
+    base_url: str,
+    message: str,
+    session_id: str,
+    poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
+) -> dict[str, Any]:
+    return await run_message_via_dashboard(
+        base_url=base_url,
+        message=message,
+        session_id=session_id,
+        poll_interval=poll_interval,
+        log_label="task",
+    )
