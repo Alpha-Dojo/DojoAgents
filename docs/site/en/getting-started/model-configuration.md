@@ -29,3 +29,5 @@ configured choices through `GET /api/v1/models`.
 - Runtime code should read typed config through `ConfigStore.snapshot()`.
 - Dashboard/API exposure must use redacted config.
 - YAML may reference environment variables such as `${OPENAI_API_KEY}`.
+- A provider can add request headers with an `extra_headers` string mapping;
+  environment placeholders are supported in header values.

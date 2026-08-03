@@ -16,6 +16,7 @@ class LLMProviderConfig:
     base_url: str | None = None
     api_key_env: str | None = None
     api_key: str | None = None
+    extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
 
 

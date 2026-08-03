@@ -29,9 +29,10 @@ class _FakeAsyncClient:
     last_url: str | None = None
     last_params: dict | None = None
     last_json: dict | None = None
+    last_headers: dict | None = None
 
     def __init__(self, *args, **kwargs) -> None:
-        pass
+        type(self).last_headers = kwargs.get("headers")
 
     async def __aenter__(self):
         return self
@@ -173,7 +174,11 @@ async def test_gemini_native_provider_reuses_native_history_and_records_state() 
         arguments={"market": "cn"},
         native_model_content=native_content,
     )
-    provider = GeminiNativeProvider(api_key="test-key", base_url="https://generativelanguage.googleapis.com/v1beta/openai")
+    provider = GeminiNativeProvider(
+        api_key="test-key",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        extra_headers={"X-Tenant-ID": "tenant-42"},
+    )
 
     with patch("dojoagents.agent.gemini_provider.httpx.AsyncClient", _FakeAsyncClient):
         result = await provider.chat(
@@ -199,6 +204,7 @@ async def test_gemini_native_provider_reuses_native_history_and_records_state() 
 
     assert _FakeAsyncClient.last_url == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
     assert _FakeAsyncClient.last_params == {"key": "test-key"}
+    assert _FakeAsyncClient.last_headers == {"X-Tenant-ID": "tenant-42"}
     assert _FakeAsyncClient.last_json["systemInstruction"]["parts"][0]["text"] == "System prompt"
     assert _FakeAsyncClient.last_json["contents"][0] == native_content
     assert _FakeAsyncClient.last_json["contents"][1]["parts"][0]["functionResponse"]["name"] == "portfolio_read_list"

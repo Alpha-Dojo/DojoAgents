@@ -162,6 +162,10 @@ def test_put_config_redacts_api_keys(tmp_path):
                     "openai": {
                         "model": "gpt-4.1",
                         "api_key": "sk-secret-123",
+                        "extra_headers": {
+                            "Authorization": "Bearer proxy-secret",
+                            "X-Tenant-ID": "tenant-42",
+                        },
                     }
                 },
             },
@@ -175,6 +179,10 @@ def test_put_config_redacts_api_keys(tmp_path):
     body = resp.json()
     provider = body["llm_provider"]["providers"]["openai"]
     assert provider["api_key"] == "***"
+    assert provider["extra_headers"] == {
+        "Authorization": "***",
+        "X-Tenant-ID": "***",
+    }
 
 
 def test_put_config_invalid_json_returns_422(tmp_path):
@@ -185,6 +193,70 @@ def test_put_config_invalid_json_returns_422(tmp_path):
 
     resp = client.put("/api/config", content="not json", headers={"Content-Type": "text/plain"})
     assert resp.status_code == 422
+
+
+def test_put_config_preserves_redacted_extra_header_values(tmp_path):
+    runtime, _ = _make_runtime_with_config(
+        tmp_path,
+        {
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {
+                        "model": "gpt-4.1",
+                        "extra_headers": {
+                            "Authorization": "Bearer real-secret",
+                            "X-Tenant-ID": "tenant-old",
+                        },
+                    }
+                },
+            }
+        },
+    )
+    client = TestClient(create_app(runtime))
+
+    response = client.put(
+        "/api/config",
+        json={
+            "llm_provider": {
+                "providers": {
+                    "openai": {
+                        "extra_headers": {
+                            "Authorization": "***",
+                            "X-Tenant-ID": "tenant-new",
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    headers = runtime.config_store.raw()["llm_provider"]["providers"]["openai"]["extra_headers"]
+    assert headers == {
+        "Authorization": "Bearer real-secret",
+        "X-Tenant-ID": "tenant-new",
+    }
+
+    delete_response = client.put(
+        "/api/config",
+        json={
+            "llm_provider": {
+                "providers": {
+                    "openai": {
+                        "extra_headers": {
+                            "X-Tenant-ID": "***",
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    assert delete_response.status_code == 200
+    assert runtime.config_store.raw()["llm_provider"]["providers"]["openai"]["extra_headers"] == {
+        "X-Tenant-ID": "tenant-new",
+    }
 
 
 def test_put_config_multiple_sections(tmp_path):
@@ -432,6 +504,7 @@ def test_runtime_selects_candidate_model_and_keeps_provider_credentials(tmp_path
                         "models": ["gpt-4.1", "gpt-4o"],
                         "base_url": "https://api.openai.test/v1",
                         "api_key": "secret",
+                        "extra_headers": {"X-Tenant-ID": "tenant-42"},
                     }
                 },
             }
@@ -444,6 +517,8 @@ def test_runtime_selects_candidate_model_and_keeps_provider_credentials(tmp_path
     assert runtime.agent.provider_config.model == "gpt-4o"
     assert runtime.agent.provider_config.base_url == "https://api.openai.test/v1"
     assert runtime.agent.provider_config.api_key == "secret"
+    assert runtime.agent.provider_config.extra_headers == {"X-Tenant-ID": "tenant-42"}
+    assert runtime.agent.llm_provider.extra_headers == {"X-Tenant-ID": "tenant-42"}
 
 
 def test_chat_rejects_unknown_explicit_provider_model(tmp_path):

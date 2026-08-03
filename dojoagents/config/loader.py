@@ -136,6 +136,19 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         models.insert(0, raw_model)
     parsed_author, parsed_model = _split_author_and_model(raw_model)
     author = _as_non_empty_string(raw.get("author")) or parsed_author or _DEFAULT_PROVIDER_AUTHORS.get(name, "")
+    raw_extra_headers = raw.get("extra_headers", {})
+    if raw_extra_headers is None:
+        raw_extra_headers = {}
+    if not isinstance(raw_extra_headers, dict):
+        raise ValueError(f"llm_provider.providers.{name}.extra_headers must be a mapping")
+    extra_headers: dict[str, str] = {}
+    for raw_header_name, raw_header_value in raw_extra_headers.items():
+        header_name = _as_non_empty_string(raw_header_name)
+        if header_name is None:
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers keys must be non-empty strings")
+        if not isinstance(raw_header_value, str):
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
+        extra_headers[header_name] = raw_header_value
     return LLMProviderConfig(
         model=parsed_model,
         models=tuple(models),
@@ -143,6 +156,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
     )
 
@@ -528,6 +542,8 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+            if provider.get("extra_headers"):
+                provider["extra_headers"] = {key: "***" for key in provider["extra_headers"]}
         sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")
 
         def redact_options(value: Any) -> Any:

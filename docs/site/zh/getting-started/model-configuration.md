@@ -32,6 +32,7 @@ dojoagents model --config ./agents.yaml
 - 运行时代码读取配置时应通过 `ConfigStore.snapshot()`。
 - Dashboard 暴露配置时必须使用 redacted config，避免泄露密钥。
 - 可以在 YAML 中使用环境变量占位，例如 `${OPENAI_API_KEY}`。
+- Provider 可通过 `extra_headers` 字符串映射添加请求 header，header 值支持环境变量占位符。
 
 ## 下一步
 

@@ -38,6 +38,23 @@ async def test_openai_provider_non_stream_usage():
 
 
 @pytest.mark.asyncio
+async def test_openai_provider_adds_configured_extra_headers():
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="http://example",
+        extra_headers={"X-Tenant-ID": "tenant-42"},
+    )
+    message = MagicMock(content="hello", tool_calls=None, reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=message)], usage=None)
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], [], model="gpt-4.1", stream=False)
+
+    assert client_cls.call_args.kwargs["default_headers"] == {"X-Tenant-ID": "tenant-42"}
+
+
+@pytest.mark.asyncio
 async def test_openai_provider_stream_usage():
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
 

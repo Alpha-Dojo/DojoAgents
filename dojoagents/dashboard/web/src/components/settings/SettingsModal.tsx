@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type React
 import { fetchSettingsConfig, updateSettingsConfig } from '../../api/settings';
 import { useAgentModel } from '../../agent/AgentModelContext';
 import { useTranslation } from '../../hooks/useTranslation';
-import type { SettingsConfig, SettingsFormState, ProviderForm } from '../../types/settings';
+import type { ProviderForm, ProviderHeaderForm, SettingsConfig, SettingsFormState } from '../../types/settings';
 import { DojoButton, DojoInput, DojoSelect } from '../ui';
 import './SettingsModal.css';
 
@@ -195,6 +195,27 @@ function asBool(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function providerHeaders(value: unknown): ProviderHeaderForm[] {
+  return Object.entries(asRecord(value)).map(([name, rawValue], index) => ({
+    id: `${name}:${index}`,
+    name,
+    value: rawValue === '***' ? '' : asString(rawValue),
+    configured: rawValue === '***',
+  }));
+}
+
+function emptyProviderForm(): ProviderForm {
+  return {
+    persisted: false,
+    model: '',
+    author: '',
+    base_url: '',
+    api_key_env: '',
+    api_key: '',
+    extra_headers: [],
+  };
+}
+
 function arrToLines(value: unknown): string {
   return Array.isArray(value) ? value.join('\n') : String(value ?? '');
 }
@@ -262,23 +283,25 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   const providers: Record<string, ProviderForm> = {};
 
   for (const name of KNOWN_PROVIDERS) {
-    providers[name] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[name] = emptyProviderForm();
   }
 
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
     const provider = asRecord(value);
     providers[name] = normalizeProviderForm(name, {
+      persisted: true,
       model: asString(provider.model),
       author: asString(provider.author),
       base_url: asString(provider.base_url),
       api_key_env: asString(provider.api_key_env),
       api_key: provider.api_key === '***' ? '' : asString(provider.api_key),
+      extra_headers: providerHeaders(provider.extra_headers),
     });
   }
 
   const defaultProvider = asString(llm.default, 'openai');
   if (!providers[defaultProvider]) {
-    providers[defaultProvider] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[defaultProvider] = emptyProviderForm();
   }
 
   const agent = asRecord(cfg.agent);
@@ -383,7 +406,16 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
   const providers: Record<string, unknown> = {};
   for (const [name, rawProvider] of Object.entries(form.llm_provider.providers)) {
     const provider = normalizeProviderForm(name, rawProvider);
-    if (!provider.model && !provider.author && !provider.base_url && !provider.api_key_env && !provider.api_key && name !== form.llm_provider.default) {
+    if (
+      !provider.model
+      && !provider.author
+      && !provider.base_url
+      && !provider.api_key_env
+      && !provider.api_key
+      && provider.extra_headers.length === 0
+      && !provider.persisted
+      && name !== form.llm_provider.default
+    ) {
       continue;
     }
     const next: Record<string, unknown> = { model: provider.model };
@@ -391,6 +423,12 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
     if (provider.base_url) next.base_url = provider.base_url;
     if (provider.api_key_env) next.api_key_env = provider.api_key_env;
     if (provider.api_key) next.api_key = provider.api_key;
+    next.extra_headers = Object.fromEntries(
+      provider.extra_headers.map((header) => [
+        header.name.trim(),
+        header.value || (header.configured ? '***' : ''),
+      ]),
+    );
     providers[name] = next;
   }
 
@@ -454,6 +492,31 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
       })),
     },
   };
+}
+
+interface ProviderHeaderValidationError {
+  kind: 'name_required' | 'duplicate' | 'value_required';
+  providerName: string;
+  headerName?: string;
+}
+
+function validateProviderHeaders(form: SettingsFormState): ProviderHeaderValidationError | null {
+  for (const [providerName, provider] of Object.entries(form.llm_provider.providers)) {
+    const names = new Set<string>();
+    for (const header of provider.extra_headers) {
+      const name = header.name.trim();
+      if (!name) return { kind: 'name_required', providerName };
+      const normalizedName = name.toLowerCase();
+      if (names.has(normalizedName)) {
+        return { kind: 'duplicate', providerName, headerName: name };
+      }
+      names.add(normalizedName);
+      if (!header.value && !header.configured) {
+        return { kind: 'value_required', providerName, headerName: name };
+      }
+    }
+  }
+  return null;
 }
 
 function Section({ title, open, children }: { title: string; open?: boolean; children: ReactNode }) {
@@ -583,6 +646,18 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   const handleSave = async () => {
     if (!form) return;
+    const headerError = validateProviderHeaders(form);
+    if (headerError) {
+      const provider = providerLabel(headerError.providerName);
+      const header = headerError.headerName ? ` “${headerError.headerName}”` : '';
+      const message = headerError.kind === 'name_required'
+        ? t('settings.headerNameRequired')
+        : headerError.kind === 'duplicate'
+          ? `${t('settings.duplicateHeader')}${header}`
+          : `${t('settings.headerValueRequired')}${header}`;
+      setSaveStatus({ type: 'error', message: `${provider}: ${message}` });
+      return;
+    }
     setSaving(true);
     setSaveStatus(null);
     try {
@@ -740,6 +815,70 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                         {textInput(provider.api_key, (value) =>
                           updateField((draft) => { draft.llm_provider.providers[name].api_key = value; }), '***', 'password')}
                       </Field>
+                      <div className="settings-extra-headers">
+                        <div className="settings-extra-headers__title">
+                          <div>
+                            <span>{t('settings.extraHeaders')}</span>
+                            <small>{t('settings.extraHeadersHelp')}</small>
+                          </div>
+                          <DojoButton
+                            size="xs"
+                            variant="secondary"
+                            onClick={() => updateField((draft) => {
+                              draft.llm_provider.providers[name].extra_headers.push({
+                                id: `new:${Date.now()}:${Math.random()}`,
+                                name: '',
+                                value: '',
+                                configured: false,
+                              });
+                            })}
+                          >
+                            {t('settings.addHeader')}
+                          </DojoButton>
+                        </div>
+                        {provider.extra_headers.length === 0 ? (
+                          <p className="settings-extra-headers__empty">{t('settings.noExtraHeaders')}</p>
+                        ) : (
+                          <div className="settings-extra-headers__rows">
+                            {provider.extra_headers.map((header, index) => (
+                              <div className="settings-extra-header-row" key={header.id}>
+                                <DojoInput
+                                  size="sm"
+                                  aria-label={`Header ${index + 1} name`}
+                                  placeholder={t('settings.headerName')}
+                                  value={header.name}
+                                  onChange={(event) => updateField((draft) => {
+                                    const target = draft.llm_provider.providers[name].extra_headers[index];
+                                    target.name = event.target.value;
+                                    target.configured = false;
+                                  })}
+                                />
+                                <DojoInput
+                                  size="sm"
+                                  type="password"
+                                  aria-label={`Header ${index + 1} value`}
+                                  placeholder={header.configured ? t('settings.configuredHeader') : t('settings.headerValue')}
+                                  value={header.value}
+                                  onChange={(event) => updateField((draft) => {
+                                    draft.llm_provider.providers[name].extra_headers[index].value = event.target.value;
+                                  })}
+                                />
+                                <button
+                                  className="settings-extra-header-row__remove"
+                                  type="button"
+                                  aria-label={`Remove header ${header.name || index + 1}`}
+                                  title={t('settings.removeHeader')}
+                                  onClick={() => updateField((draft) => {
+                                    draft.llm_provider.providers[name].extra_headers.splice(index, 1);
+                                  })}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </form>
                   );
                 })}

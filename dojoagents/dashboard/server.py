@@ -88,6 +88,54 @@ def _sync_agent_model_with_default_provider(config: dict[str, Any]) -> dict[str,
     return config
 
 
+def _restore_redacted_provider_headers(
+    payload: dict[str, Any],
+    current_raw: dict[str, Any],
+) -> None:
+    payload_llm = payload.get("llm_provider")
+    current_llm = current_raw.get("llm_provider")
+    if not isinstance(payload_llm, dict) or not isinstance(current_llm, dict):
+        return
+    payload_providers = payload_llm.get("providers")
+    current_providers = current_llm.get("providers")
+    if not isinstance(payload_providers, dict) or not isinstance(current_providers, dict):
+        return
+    for provider_name, provider_patch in payload_providers.items():
+        if not isinstance(provider_patch, dict):
+            continue
+        header_patch = provider_patch.get("extra_headers")
+        current_provider = current_providers.get(provider_name)
+        if not isinstance(header_patch, dict) or not isinstance(current_provider, dict):
+            continue
+        current_headers = current_provider.get("extra_headers")
+        if not isinstance(current_headers, dict):
+            continue
+        for header_name, header_value in header_patch.items():
+            if header_value == "***" and header_name in current_headers:
+                header_patch[header_name] = current_headers[header_name]
+
+
+def _replace_provider_headers(
+    merged: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    payload_llm = payload.get("llm_provider")
+    merged_llm = merged.get("llm_provider")
+    if not isinstance(payload_llm, dict) or not isinstance(merged_llm, dict):
+        return
+    payload_providers = payload_llm.get("providers")
+    merged_providers = merged_llm.get("providers")
+    if not isinstance(payload_providers, dict) or not isinstance(merged_providers, dict):
+        return
+    for provider_name, provider_patch in payload_providers.items():
+        merged_provider = merged_providers.get(provider_name)
+        if not isinstance(provider_patch, dict) or not isinstance(merged_provider, dict):
+            continue
+        header_patch = provider_patch.get("extra_headers")
+        if isinstance(header_patch, dict):
+            merged_provider["extra_headers"] = dict(header_patch)
+
+
 def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> str:
     store = getattr(runtime, "config_store", None)
     agent = getattr(runtime, "agent", None)
@@ -106,12 +154,14 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
             api_key=provider_cfg.api_key,
             api_key_env=provider_cfg.api_key_env,
             base_url=provider_cfg.base_url,
+            extra_headers=provider_cfg.extra_headers,
         )
     else:
         llm_provider = OpenAICompatibleProvider(
             api_key=provider_cfg.api_key,
             base_url=provider_cfg.base_url,
             author=provider_cfg.author,
+            extra_headers=provider_cfg.extra_headers,
         )
         llm_provider.name = selected_provider
     LOGGER.info(
@@ -432,7 +482,9 @@ def create_app(  # noqa: C901
         from dojoagents.config.loader import _deep_merge
 
         current_raw = store.raw()
+        _restore_redacted_provider_headers(payload, current_raw)
         merged = _deep_merge(current_raw, payload)
+        _replace_provider_headers(merged, payload)
         restart_paths = (
             ("harness",),
             ("sessions", "store"),

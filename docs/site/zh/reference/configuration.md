@@ -24,6 +24,9 @@ llm_provider:
         - gpt-4o
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
+      extra_headers:
+        X-Tenant-ID: ${OPENAI_TENANT_ID}
+        X-Request-Source: dojoagents
       context_window: 128000
 
 agent:
@@ -116,6 +119,11 @@ API key 可以通过两种方式配置：
 - `api_key`：直接写入配置文件，仅适合本地私有环境。
 
 Dashboard 和 API 对外展示配置时必须使用 `ConfigStore.redacted()`。不要把 provider key、DojoSDK key 或 gateway token 原样返回给前端。
+
+每个 provider 可以通过 `extra_headers` 配置 HTTP header 名称到字符串值的映射。
+DojoAgents 会把这些 header 添加到该 provider 的聊天请求和 provider 元数据请求中。
+Header 值支持环境变量占位符。Dashboard/API 返回配置时会遮蔽所有
+`extra_headers` 值，避免代理鉴权 token 等敏感信息泄露。
 
 每个 provider 可以通过 `models` 配置多个候选模型。`model` 继续表示该厂家的默认模型，
 以兼容旧配置；省略 `model` 时使用 `models` 第一项。Chat 客户端使用
