@@ -229,5 +229,10 @@ async def build_turn_intent_anchor_async(
     *,
     model: str,
 ) -> tuple[str, TurnIntentResult]:
+    # There is nothing to classify as a continuation when the request has no
+    # prior turns.  Avoid an unnecessary model call whose result would be
+    # discarded by build_turn_intent_anchor() anyway.
+    if not request.metadata.get("history"):
+        return "", DEFAULT_TURN_INTENT
     intent = await classify_turn_intent(request, llm_provider, model=model)
     return build_turn_intent_anchor(request, intent), intent

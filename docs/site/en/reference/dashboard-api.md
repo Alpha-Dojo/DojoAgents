@@ -5,6 +5,15 @@ The Dashboard API is registered by `dojoagents/dashboard/server.py` and `dojoage
 !!! note
     `/api/v1` REST route names are **not** agent `ToolSpec` names. The target finance-read path for agents is `dojo.sdk.*` (see [DojoSDK](dojo-sdk.md)). Domain tools are legacy / UI companions.
 
+## Access Control and Security Boundary
+
+The Dashboard API currently has **no built-in authentication or route-level authorization**. No route, including chat, session queries, configuration updates, or generated-memory deletion, validates a bearer token, API key, user identity, or role. Any caller that can reach the Dashboard listen address and port can send requests directly.
+
+- The CLI listens on `127.0.0.1:8765` by default, so only local processes can connect by default. This is not user-level authorization; other users or processes on the same host may still call the API.
+- With `--host 0.0.0.0`, container port publishing, a reverse proxy, or a public endpoint, any network-reachable caller may also invoke `/api/chat` and the other backend APIs.
+- CORS currently allows every origin, method, and header. CORS is a browser control, not server authentication, and does not block curl, scripts, or server-to-server requests.
+- Do not expose an unprotected Dashboard to an untrusted network. Production deployments should add authentication and authorization at the ingress layer, such as an identity-aware reverse proxy or API gateway, along with TLS, network access controls, and request auditing.
+
 ## Base Entrypoints
 
 | Method | Path | Description |
@@ -97,6 +106,47 @@ Export request body:
 ```
 
 Omit `session_id` to export all visible sessions.
+
+## Memory API
+
+### `DELETE /api/v1/memory/generated-skills`
+
+Force-clears the generated memory skill directory. The target comes from the current `memory.generated_skill_dir` setting and defaults to `~/.dojo/skills/generated`.
+
+Behavior:
+
+- Recursively deletes every file, subdirectory, and symbolic link inside the target while preserving the target directory itself.
+- Attempts to add owner read, write, and execute permissions to read-only directories before continuing.
+- Removes symbolic links without following them outside the target directory.
+- Creates an empty directory and returns `deleted_count: 0` when the target does not exist.
+- Refuses to clear the filesystem root or the current user's home directory.
+- Verifies that the directory is empty after deletion and returns an error instead of success if anything remains.
+
+This operation is irreversible and currently has no built-in authorization. Ensure that only trusted callers can reach the Dashboard before invoking it.
+
+Request:
+
+```bash
+curl -X DELETE http://127.0.0.1:8765/api/v1/memory/generated-skills
+```
+
+Successful response (HTTP 200):
+
+```json
+{
+  "ok": true,
+  "directory": "/home/user/.dojo/skills/generated",
+  "deleted_count": 3
+}
+```
+
+Error responses:
+
+| HTTP status | Scenario |
+| --- | --- |
+| `400` | Configured target is the filesystem root, home directory, a symbolic link, or not a directory |
+| `500` | Permission or filesystem failure, or entries remain after deletion |
+| `503` | The Dashboard runtime has no available `ConfigStore` |
 
 ## Domain Routers
 

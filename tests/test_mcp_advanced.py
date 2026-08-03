@@ -31,12 +31,6 @@ def test_sanitize_error():
 @pytest.mark.asyncio
 async def test_circuit_breaker():
     from dojoagents.tools.mcp_tool import (
-        _server_error_counts,
-        _server_breaker_opened_at,
-        _CIRCUIT_BREAKER_THRESHOLD,
-        _CIRCUIT_BREAKER_COOLDOWN_SEC,
-        _bump_server_error,
-        _reset_server_error,
         make_mcp_tool_handler,
     )
     import dojoagents.tools.mcp_tool as mcp_tool
@@ -154,3 +148,103 @@ async def test_sse_oauth_and_sampling():
         res = await handler(None, params)
         assert res.content.text == "Hello from Dojo LLM"
         assert res.model == "gpt-4"
+
+
+@pytest.mark.asyncio
+async def test_sampling_handler_preserves_provider_routing_and_output_limit():
+    from dojoagents.agent.models import LLMResult
+    from dojoagents.config.models import AgentsConfig, LLMConfig, LLMProviderConfig
+    from dojoagents.tools.mcp_tool import SamplingHandler
+    from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
+
+    config = AgentsConfig(
+        llm_provider=LLMConfig(
+            default="model-router",
+            providers={
+                "model-router": LLMProviderConfig(
+                    model="example-model",
+                    author="example-author",
+                    base_url="https://api.example.com/v1",
+                    api_key="test-key",
+                    max_tokens=8_192,
+                )
+            },
+        )
+    )
+    params = CreateMessageRequestParams(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(type="text", text="analyze"),
+            )
+        ],
+        maxTokens=100,
+    )
+
+    with patch("dojoagents.config.loader.ConfigStore.snapshot", return_value=config), patch(
+        "dojoagents.agent.providers.OpenAICompatibleProvider"
+    ) as provider_cls:
+        provider_cls.return_value.chat = AsyncMock(
+            return_value=LLMResult(content="done")
+        )
+        response = await SamplingHandler("example", {})(None, params)
+
+    provider_cls.assert_called_once_with(
+        api_key="test-key",
+        base_url="https://api.example.com/v1",
+        author="example-author",
+        max_tokens=100,
+    )
+    provider_cls.return_value.chat.assert_awaited_once()
+    assert provider_cls.return_value.chat.await_args.kwargs["model"] == "example-model"
+    assert response.content.text == "done"
+
+
+@pytest.mark.asyncio
+async def test_production_mcp_handler_returns_content_and_resets_breaker():
+    import dojoagents.tools.mcp_tool as mcp_tool
+    from dojoagents.tools.mcp_tool import make_mcp_tool_handler
+
+    class FakeMCPClient:
+        async def call_tool_async(self, **kwargs):
+            assert kwargs["name"] == "quote"
+            assert kwargs["arguments"] == {"ticker": "AAPL"}
+            assert kwargs["tool_use_id"].startswith("tooluse_")
+            return {
+                "status": "success",
+                "content": [{"type": "text", "text": "189.25"}],
+            }
+
+    task = MagicMock()
+    task.name = "market"
+    task.mcp_client = FakeMCPClient()
+    mcp_tool._server_error_counts["market"] = 2
+
+    result = await make_mcp_tool_handler(task, "quote")({"ticker": "AAPL"})
+
+    assert result == {
+        "content": "189.25",
+        "metadata": {"server": "market", "mcp_tool": "quote"},
+    }
+    assert mcp_tool._server_error_counts["market"] == 0
+
+
+@pytest.mark.asyncio
+async def test_production_mcp_handler_redacts_error_and_trips_breaker():
+    import dojoagents.tools.mcp_tool as mcp_tool
+    from dojoagents.tools.mcp_tool import make_mcp_tool_handler
+
+    class FailingMCPClient:
+        async def call_tool_async(self, **_kwargs):
+            raise RuntimeError("request failed with API_KEY=secret-value")
+
+    task = MagicMock()
+    task.name = "private-market"
+    task.mcp_client = FailingMCPClient()
+    mcp_tool._reset_server_error(task.name)
+    handler = make_mcp_tool_handler(task, "quote")
+
+    with pytest.raises(Exception, match=r"request failed with \[REDACTED\]"):
+        await handler({})
+
+    assert mcp_tool._server_error_counts[task.name] == 1

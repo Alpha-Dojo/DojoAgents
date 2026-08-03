@@ -80,7 +80,7 @@ async def test_wechat_qr_login_client_uses_async_httpx(monkeypatch):
     assert calls[1]["headers"]["ilink-app-id"] == "bot"
 
 
-def test_gateway_setup_single_adapter_writes_config(tmp_path, monkeypatch, capsys):
+def test_gateway_setup_single_adapter_writes_config(tmp_path, monkeypatch, caplog):
     from dojoagents.cli.main import main
 
     config_path = tmp_path / "agents.yaml"
@@ -97,7 +97,7 @@ def test_gateway_setup_single_adapter_writes_config(tmp_path, monkeypatch, capsy
         "bot_token": "telegram-token",
         "home_channel": "123456",
     }
-    output = capsys.readouterr().out + capsys.readouterr().err
+    output = caplog.text
     assert "Telegram configured" in output
     assert str(config_path) in output
 
@@ -151,7 +151,7 @@ def test_gateway_setup_all_adapters_writes_every_hook(tmp_path, monkeypatch):
     assert fake_wechat.started is True
 
 
-def test_gateway_setup_wechat_uses_qr_url_flow(tmp_path, monkeypatch, capsys):
+def test_gateway_setup_wechat_uses_qr_url_flow(tmp_path, monkeypatch, capsys, caplog):
     from dojoagents.cli.gateway_setup import configure_gateway_adapters
 
     config_path = tmp_path / "agents.yaml"
@@ -171,7 +171,7 @@ def test_gateway_setup_wechat_uses_qr_url_flow(tmp_path, monkeypatch, capsys):
     assert hook["dm_policy"] == "open"
     assert hook["group_policy"] == "disabled"
     assert hook["home_channel"] == "manual-home"
-    output = capsys.readouterr().out + capsys.readouterr().err
+    output = capsys.readouterr().out + caplog.text
     assert "WeChat QR login URL: https://login.example/qr" in output
     assert "WeChat configured via QR login" in output
 

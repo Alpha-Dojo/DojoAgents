@@ -25,3 +25,7 @@ Multi-Agent 不应替代通用 Agent Loop。它是更高层的编排能力，用
 
 - [Event-driven](event-driven.md)
 - [配置](../reference/configuration.md)
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：`AgentLoop.run()` 中的显式发布点如何通过 `TaskComplexityHigh`、`DataVolumeLarge` 等事件连接 Planning 与 Multi-Agent 订阅者。

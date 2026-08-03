@@ -246,6 +246,38 @@ def test_put_config_updates_web_tool_settings(tmp_path):
     assert body["tools"]["sandbox"]["timeout_seconds"] == 120
 
 
+def test_put_config_syncs_agent_model_from_new_default_provider(tmp_path):
+    runtime, cfg_file = _make_runtime_with_config(
+        tmp_path,
+        {
+            "version": 1,
+            "llm_provider": {
+                "default": "openai",
+                "providers": {
+                    "openai": {"model": "gpt-4.1"},
+                    "model-router": {
+                        "model": "glm-5.2",
+                        "author": "z-ai",
+                    },
+                },
+            },
+            "agent": {"model": "gpt-4.1", "max_iterations": 8},
+        },
+    )
+    client = TestClient(create_app(runtime))
+
+    response = client.put(
+        "/api/config",
+        json={"llm_provider": {"default": "model-router"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["agent"]["model"] == "glm-5.2"
+    saved = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert saved["agent"]["model"] == "glm-5.2"
+    assert saved["agent"]["max_iterations"] == 8
+
+
 def test_get_config_still_works_after_put(tmp_path):
     """GET /api/config reflects changes made by PUT."""
     runtime, _ = _make_runtime_with_config(

@@ -15,3 +15,7 @@ Multi-agent and planning modules support delegation, plan persistence, plan exec
 
 Multi-agent orchestration is a higher-level capability and should not replace the generic agent loop.
 
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): how explicit publishers in `AgentLoop.run()` connect planning and multi-agent subscribers through events such as `TaskComplexityHigh` and `DataVolumeLarge`.

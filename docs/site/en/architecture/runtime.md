@@ -18,3 +18,7 @@ Runtime should not reimplement config parsing, logging, or tool execution. New c
 - Extensions: `DojoExtension`
 - Dashboard services: `dojoagents/dashboard/deps.py`
 
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): how the providers / tools / skills / memory / plugins assembled by `Runtime` are consumed by the agent loop.

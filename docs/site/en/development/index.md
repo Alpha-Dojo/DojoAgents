@@ -6,6 +6,7 @@ Start with:
 
 - [Repository Map](repository-map.md)
 - [Local Development](local-development.md)
+- [Known Limitations](known-limitations.md)
 - [Testing](testing.md)
 
 Extension guides:

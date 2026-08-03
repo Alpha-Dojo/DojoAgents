@@ -13,3 +13,7 @@ Memory provides pluggable session memory, summaries, and longer-context continui
 
 Do not store provider secrets, API keys, or sensitive user configuration in memory.
 
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): how memory enters the system prompt and when `MemoryHookProvider` runs inside the loop.

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from dojoagents.config.models import AgentsConfig, LLMConfig, LLMProviderConfig, MultiAgentConfig, PlanConfig
 from dojoagents.config.loader import ConfigStore
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
+from dojoagents.agent.providers import OpenAICompatibleProvider
 from dojoagents.agent.runtime import Runtime
 
 
@@ -46,6 +47,33 @@ class TestRuntimeGeminiProvider:
         )
         rt = Runtime.from_config_store(_make_store(config))
         assert isinstance(rt.agent.llm_provider, GeminiNativeProvider)
+
+
+class TestRuntimeOpenAICompatibleProvider:
+    def test_runtime_preserves_provider_routing_and_output_limit(self):
+        config = AgentsConfig(
+            llm_provider=LLMConfig(
+                default="model-router",
+                providers={
+                    "model-router": LLMProviderConfig(
+                        model="glm-5.2",
+                        author="z-ai",
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key="test-key",
+                        context_window=1_048_576,
+                        max_tokens=384_000,
+                    )
+                },
+            )
+        )
+
+        rt = Runtime.from_config_store(_make_store(config))
+
+        assert isinstance(rt.agent.llm_provider, OpenAICompatibleProvider)
+        assert rt.agent.llm_provider.name == "model-router"
+        assert rt.agent.llm_provider.author == "z-ai"
+        assert rt.agent.llm_provider.max_tokens == 384_000
+        assert rt.agent.provider_config.context_window == 1_048_576
 
 
 class TestRuntimeMultiAgentEnabled:

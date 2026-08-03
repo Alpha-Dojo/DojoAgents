@@ -182,6 +182,63 @@ def test_sync_runtime_agent_from_config_uses_native_gemini_provider():
     assert isinstance(runtime.agent.llm_provider, GeminiNativeProvider)
 
 
+def test_sync_runtime_agent_from_config_preserves_openai_provider_limits():
+    from dojoagents.agent.model_context import ModelContextRegistry
+    from dojoagents.agent.providers import OpenAICompatibleProvider
+    from dojoagents.config.models import AgentConfig, AgentsConfig, LLMConfig, LLMProviderConfig
+    from dojoagents.dashboard.server import _sync_runtime_agent_from_config
+
+    class FakeStore:
+        def snapshot(self):
+            return AgentsConfig(
+                llm_provider=LLMConfig(
+                    default="model-router",
+                    providers={
+                        "model-router": LLMProviderConfig(
+                            model="glm-5.2",
+                            author="z-ai",
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key="test-key",
+                            context_window=1_048_576,
+                            max_tokens=384_000,
+                        )
+                    },
+                ),
+                agent=AgentConfig(
+                    model="old-model",
+                    compression_threshold_ratio=0.75,
+                    session_max_tokens_cap=500_000,
+                    default_context_window=65_536,
+                ),
+            )
+
+    class FakeAgent:
+        def __init__(self):
+            self.llm_provider = None
+            self.provider_config = None
+            self.config = AgentConfig(model="old-model")
+            self.model_context_registry = None
+
+    runtime = MagicMock()
+    runtime.config_store = FakeStore()
+    runtime.agent = FakeAgent()
+
+    model = _sync_runtime_agent_from_config(runtime, "model-router")
+
+    assert model == "glm-5.2"
+    assert isinstance(runtime.agent.llm_provider, OpenAICompatibleProvider)
+    assert runtime.agent.llm_provider.name == "model-router"
+    assert runtime.agent.llm_provider.author == "z-ai"
+    assert runtime.agent.llm_provider.max_tokens == 384_000
+    assert runtime.agent.provider_config.context_window == 1_048_576
+    assert runtime.agent.config.model == "glm-5.2"
+    assert runtime.agent.config.compression_threshold_ratio == 0.75
+    assert runtime.agent.config.session_max_tokens_cap == 500_000
+    assert runtime.agent.config.default_context_window == 65_536
+    assert isinstance(runtime.agent.model_context_registry, ModelContextRegistry)
+    assert runtime.agent.model_context_registry.default_context_window == 65_536
+
+
 # ── Non-streaming /api/chat tests ────────────────────────────────────
 
 

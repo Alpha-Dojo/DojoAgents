@@ -46,10 +46,12 @@ plugins:
             任务与流水线: Tasks and Pipelines
             架构: Architecture
             总览: Overview
+            Agent 实现内幕: Agent Internals
             配置: Configuration
             开发: Development
             仓库地图: Repository Map
             本地开发: Local Development
+            已知限制: Known Limitations
             测试: Testing
             添加工具: Adding Tools
             添加 Dashboard 路由: Adding Dashboard Routes
@@ -88,6 +90,7 @@ nav:
       - 总览: architecture/overview.md
       - Runtime: architecture/runtime.md
       - Agent Loop: architecture/agent-loop.md
+      - Agent 实现内幕: architecture/agent-internals.md
       - Tools 与 Sandbox: architecture/tools-and-sandbox.md
       - Dashboard: architecture/dashboard.md
       - Gateway: architecture/gateway.md
@@ -110,6 +113,7 @@ nav:
       - development/index.md
       - 仓库地图: development/repository-map.md
       - 本地开发: development/local-development.md
+      - 已知限制: development/known-limitations.md
       - 测试: development/testing.md
       - Session 设计与集成: development/session-history-design.md
       - 添加工具: development/adding-tools.md

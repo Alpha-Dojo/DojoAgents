@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -194,7 +194,10 @@ class PortfolioStore:
     @staticmethod
     def _to_v2(payload: dict[str, Any]) -> dict[str, Any]:
         migrated = dict(payload)
-        migrated["version"] = STORE_VERSION
+        # Keep this intermediate document at v2.  Marking it as the current
+        # version would make _normalize_document() discard legacy holdings
+        # before they can be converted to v3 candidates.
+        migrated["version"] = 2
         migrated.setdefault("pinned", False)
         holdings = migrated.get("holdings")
         normalized_holdings: list[dict[str, Any]] = []

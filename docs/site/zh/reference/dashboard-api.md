@@ -5,6 +5,15 @@ Dashboard API 由 `dojoagents/dashboard/server.py` 和 `dojoagents/dashboard/rou
 !!! note
     `/api/v1` 的 REST 路由名 **不等于** Agent `ToolSpec` 名。Agent 金融只读的目标主路径是 `dojo.sdk.*`（见 [DojoSDK](dojo-sdk.md)）。Domain tools 为 legacy / UI 配套。
 
+## 访问控制与安全边界
+
+当前 Dashboard API **没有内置身份认证或接口级授权**。所有路由（包括对话、session 查询、配置修改以及删除 generated memory）均不校验 Bearer token、API key、用户身份或角色。只要调用方能够连接 Dashboard 的监听地址和端口，就可以直接发起请求。
+
+- CLI 默认监听 `127.0.0.1:8765`，因此默认只有本机进程可以连接；这不是用户级鉴权，同一主机上的其他用户或进程仍可能调用。
+- 如果使用 `--host 0.0.0.0`、容器端口映射、反向代理或公网入口，网络可达的调用方也可以调用 `/api/chat` 和其他后端接口。
+- CORS 当前允许任意 origin、method 和 header。CORS 只约束浏览器，不是服务端鉴权，也不能阻止 curl、脚本或服务端请求。
+- 不要把未加保护的 Dashboard 直接暴露到不可信网络。生产部署应在入口层增加认证和授权（例如带身份校验的反向代理或 API gateway）、TLS、网络访问控制和请求审计。
+
 ## 基础入口
 
 | Method | Path | 说明 |
@@ -97,6 +106,47 @@ Session API 由 `chat_sessions` router 挂在 `/api/v1/chat/sessions`。
 ```
 
 不传 `session_id` 时导出所有可见 session。
+
+## Memory API
+
+### `DELETE /api/v1/memory/generated-skills`
+
+强制清空 generated memory skill 目录。目标目录来自当前配置的 `memory.generated_skill_dir`，默认值为 `~/.dojo/skills/generated`。
+
+接口行为：
+
+- 递归删除目标目录中的所有文件、子目录和符号链接，但保留目标目录本身。
+- 遇到只读目录时尝试为 owner 补充读、写、执行权限后继续删除。
+- 符号链接本身会被删除，但不会跟随链接删除目标目录之外的内容。
+- 目标目录不存在时会创建空目录，并返回 `deleted_count: 0`。
+- 拒绝清空文件系统根目录或当前用户 Home 目录。
+- 删除后再次检查目录；存在残留时返回错误，不会报告成功。
+
+该操作不可恢复，并且当前没有内置鉴权。调用前应确保 Dashboard 仅对可信调用方可达。
+
+请求：
+
+```bash
+curl -X DELETE http://127.0.0.1:8765/api/v1/memory/generated-skills
+```
+
+成功响应（HTTP 200）：
+
+```json
+{
+  "ok": true,
+  "directory": "/home/user/.dojo/skills/generated",
+  "deleted_count": 3
+}
+```
+
+错误响应：
+
+| HTTP 状态 | 场景 |
+| --- | --- |
+| `400` | 配置目录是根目录、Home 目录、符号链接或非目录 |
+| `500` | 权限、文件系统错误，或删除后仍有残留 |
+| `503` | Dashboard runtime 没有可用的 `ConfigStore` |
 
 ## Domain Routers
 

@@ -169,8 +169,8 @@ async def test_integrated_history_formatting_and_reasoning():
     await loop.run(ChatRequest(user_id="local", session_id="s1", message="What now?", metadata={"history": history}))
 
     # Inspect the messages sent to the LLM
-    assert len(llm.calls) == 1
-    sent_messages = llm.calls[0]["messages"]
+    assert len(llm.calls) == 2
+    sent_messages = llm.calls[-1]["messages"]
 
     # system message, 2 history messages, and 1 user message
     # Let's check history assistant message:
@@ -393,6 +393,6 @@ async def test_history_tool_calls_enriched_from_provider_state() -> None:
         )
     )
 
-    sent_messages = llm.calls[0]["messages"]
+    sent_messages = llm.calls[-1]["messages"]
     assistant_msg = next(message for message in sent_messages if message["role"] == "assistant")
     assert assistant_msg["tool_calls"][0]["metadata"]["native_model_content"]["parts"][0]["functionCall"]["thoughtSignature"] == "sig-prev"

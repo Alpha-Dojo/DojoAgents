@@ -24,11 +24,15 @@ dojoagents/
 └── utils/            # Event bus and shared utilities
 ```
 
+## 技术底座
+
+Agent 循环内核复用 [Strands Agents](https://github.com/strands-agents/sdk-python)（`strands-agents`），DojoAgents 通过**模型桥 + 工具桥 + Hook**把自有的 provider、`ToolSpec`、skills、memory、plugins 接入内核；模型访问走 `openai` SDK 的 OpenAI 兼容协议，外部工具走 `mcp`，金融数据走 `dojosdk`。详见 [Agent 实现内幕](agent-internals.md)。
+
 ## 核心流程
 
 1. CLI、Dashboard 或 Gateway 构造请求。
 2. `Runtime` 从 `ConfigStore` 读取配置并组装 provider、tools、skills、memory、scheduler。
-3. `AgentLoop` 调用 LLM provider。
+3. `AgentLoop` 拼装系统提示词、桥接模型与工具，交由 Strands 内核驱动多轮 tool-use。
 4. 如果模型请求工具，`ToolExecutor` 经过 sandbox policy 后执行 `ToolSpec.handler`。
 5. 工具结果被规范化为 `ToolResult`，再进入 Agent history、事件流和 Dashboard UI。
 6. Dashboard 通过 OpenAI-compatible response 或 SSE `dojo_event` 将结果返回前端。
@@ -45,6 +49,7 @@ dojoagents/
 
 - [Runtime](runtime.md)
 - [Agent Loop](agent-loop.md)
+- [Agent 实现内幕](agent-internals.md)
 - [Tools 与 Sandbox](tools-and-sandbox.md)
 - [Dashboard](dashboard.md)
 - [Gateway](gateway.md)

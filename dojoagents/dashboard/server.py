@@ -21,6 +21,7 @@ from dojoagents.dashboard.routers import (
     chat_sessions,
     market,
     markets,
+    memory,
     portfolio,
     sector,
     sectors,
@@ -112,6 +113,7 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
             api_key=provider_cfg.api_key,
             base_url=provider_cfg.base_url,
             author=provider_cfg.author,
+            max_tokens=provider_cfg.max_tokens,
         )
         llm_provider.name = selected_provider
     LOGGER.info(
@@ -396,6 +398,7 @@ def create_app(
     app.include_router(markets.router, prefix="/api/v1")
     app.include_router(sectors.router, prefix="/api/v1")
     app.include_router(chat_sessions.router, prefix="/api/v1")
+    app.include_router(memory.router, prefix="/api/v1")
 
     app.add_middleware(
         CORSMiddleware,

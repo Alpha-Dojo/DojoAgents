@@ -8,7 +8,7 @@
 
 | 目录 | 说明 |
 | --- | --- |
-| `dojoagents/agent/` | Agent loop、runtime、provider、events、guardrails |
+| `dojoagents/agent/` | Agent loop、runtime、provider、events、guardrails；含 `harnesses/`（领域约束）、`hooks/`（循环切面），实现剖析见 [Agent 实现内幕](../architecture/agent-internals.md) |
 | `dojoagents/config/` | ConfigStore 和配置 schema |
 | `dojoagents/tools/` | Tool registry、executor、sandbox；含 `dojo_sdk_tool.py`、web、session |
 | `dojoagents/tasks/` | 结构化 Task / Pipeline（contract、TASK.md、schema、pipelines） |
@@ -28,6 +28,7 @@
 - 配置：`ConfigStore`
 - 日志：`dojoagents.logging`
 - 工具：`ToolRegistry`、`ToolSpec`、`ToolExecutor`
+- Agent 循环：复用 `AgentLoop` 与 Strands 内核，不要另起循环；扩展请走 tool / harness / hook / plugin（见 [Agent 实现内幕](../architecture/agent-internals.md) 的扩展点速查）
 - 金融 Agent 只读：优先 `dojo.sdk.*`（见 [DojoSDK](../reference/dojo-sdk.md)）
 - Dashboard 存储：`AtomicJsonStore`、`AtomicJsonlStore`
 - Dashboard services：通过 `dojoagents/dashboard/deps.py` 获取

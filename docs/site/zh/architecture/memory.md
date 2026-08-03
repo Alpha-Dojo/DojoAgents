@@ -22,3 +22,7 @@ Memory 模块为 Agent 提供可插拔的会话记忆、摘要和长期上下文
 ## 深入阅读
 
 - [Session 设计与集成](../development/session-history-design.md)
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：记忆如何进入系统提示词，以及 `MemoryHookProvider` 在循环中的挂载时机。

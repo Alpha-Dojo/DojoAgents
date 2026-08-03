@@ -21,3 +21,7 @@
 
 - [dojo.v2 协议](../reference/dojo-v2-protocol.md)
 - [Dashboard API](../reference/dashboard-api.md)
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：主循环在哪些位置 `publish` 事件，订阅者又如何改写工具结果。

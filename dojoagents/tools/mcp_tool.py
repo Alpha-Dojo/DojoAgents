@@ -148,10 +148,21 @@ class SamplingHandler:
             provider = UnconfiguredLLMProvider()
             model = ""
         else:
+            configured_max = getattr(provider_cfg, "max_tokens", None)
+            if not isinstance(configured_max, int) or configured_max <= 0:
+                configured_max = None
+            requested_max = getattr(params, "maxTokens", None)
+            if not isinstance(requested_max, int) or requested_max <= 0:
+                requested_max = None
+            if configured_max is not None and requested_max is not None:
+                max_tokens = min(configured_max, requested_max)
+            else:
+                max_tokens = configured_max or requested_max
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
-                author=provider_cfg.author,
+                author=getattr(provider_cfg, "author", None),
+                max_tokens=max_tokens,
             )
             model = provider_cfg.model or ""
 
@@ -275,6 +286,9 @@ class MCPServerTask:
         sampling_handler = SamplingHandler(self.name, self.config)
 
         if url or self.config.get("transport") == "sse":
+            # 与生产路径一致：显式导入，便于单测 patch `mcp.client.sse.sse_client`
+            from mcp.client.sse import sse_client
+
             headers = self.config.get("headers", {})
 
             oauth_auth = None

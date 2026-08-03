@@ -43,3 +43,7 @@ Tools 是 Agent 执行外部动作的标准接口；Sandbox 负责在执行前�
 - [DojoSDK](../reference/dojo-sdk.md)
 - [任务与流水线](../user-guide/tasks-and-pipelines.md)
 - [添加工具](../development/adding-tools.md)
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：工具如何被桥接为 Strands 工具，以及调用前后被哪些 Hook 拦截（参数修复、护栏拦截、失败自愈、富结果回收）。

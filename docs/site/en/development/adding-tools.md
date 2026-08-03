@@ -34,3 +34,7 @@ Registration: `register_dashboard_domain_tools` / `register_dashboard_portfolio_
 - Let the executor normalize result shapes.
 - Side-effect tools should return `resource_changes`.
 - Visualization tools should return `viz_blocks`.
+
+## Further Reading
+
+- [Agent Internals](../architecture/agent-internals.md): how a `ToolSpec` is bridged to the model by `DojoBridgedTool`, how structured fields such as `resource_changes` / `viz_blocks` are recovered through the `invocation_state` side channel, and how tool names are sanitised and restored.

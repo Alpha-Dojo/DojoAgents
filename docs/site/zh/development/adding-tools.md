@@ -46,3 +46,7 @@ ToolSpec(
 - 有副作用的工具应返回 `resource_changes`。
 - 可视化结果应返回 `viz_blocks`。
 - 阻塞 I/O 应放到 async client 或 bounded executor 中。
+
+## 延伸阅读
+
+- [Agent 实现内幕](../architecture/agent-internals.md)：`ToolSpec` 如何被 `DojoBridgedTool` 桥接给模型、`resource_changes` / `viz_blocks` 等结构化字段如何经 `invocation_state` 侧信道回收，以及工具名清洗与还原机制。

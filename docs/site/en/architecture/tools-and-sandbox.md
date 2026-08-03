@@ -39,3 +39,7 @@ Tool handlers return `dict[str, Any]` or strings. Results are normalized into `T
 - [DojoSDK](../reference/dojo-sdk.md)
 - [Tasks and Pipelines](../user-guide/tasks-and-pipelines.md)
 - [Adding Tools](../development/adding-tools.md)
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): how tools are bridged into Strands tools and which hooks intercept them (argument repair, guardrails, failure self-healing, rich-result recovery).

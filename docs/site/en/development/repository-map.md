@@ -4,7 +4,7 @@
 
 | Directory | Purpose |
 | --- | --- |
-| `dojoagents/agent/` | Agent loop, runtime, providers, events |
+| `dojoagents/agent/` | Agent loop, runtime, providers, events, guardrails; includes `harnesses/` (domain constraints) and `hooks/` (loop aspects) — see [Agent Internals](../architecture/agent-internals.md) |
 | `dojoagents/config/` | ConfigStore and config schema |
 | `dojoagents/tools/` | Tool registry, executor, sandbox; includes `dojo_sdk_tool.py`, web, session |
 | `dojoagents/tasks/` | Structured tasks / pipelines (contracts, TASK.md, schemas, pipelines) |
@@ -20,3 +20,5 @@
 | `docs/` | MkDocs site and `docs/plans/` design notes |
 
 Reuse `ConfigStore`, `dojoagents.logging`, `ToolRegistry`, `ToolExecutor`, and dashboard dependency accessors. Prefer `dojo.sdk.*` for agent finance reads ([DojoSDK](../reference/dojo-sdk.md)).
+
+Never write a second agent loop: reuse `AgentLoop` and the Strands kernel, and extend through tools / harnesses / hooks / plugins — see the extension cheatsheet in [Agent Internals](../architecture/agent-internals.md).

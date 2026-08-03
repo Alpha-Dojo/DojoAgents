@@ -1,5 +1,9 @@
 # Agent Loop
 
+!!! tip "想看真实实现？"
+    本页是**概念视角**的一轮对话说明。代码里的 Agent 循环内核实际上由 [Strands Agents](https://github.com/strands-agents/sdk-python) 驱动，DojoAgents 通过模型桥、工具桥和 Hook 接入自有能力。
+    完整的实现剖析（框架选型、`run()` 七阶段、系统提示词拼装、护栏/压缩/Harness 拦截链、代码索引）见 **[Agent 实现内幕](agent-internals.md)**。
+
 ## 目标
 
 Agent Loop 负责一轮或多轮模型调用、工具调用、工具结果回填和最终回答生成。

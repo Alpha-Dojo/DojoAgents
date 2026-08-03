@@ -265,6 +265,7 @@ class Runtime:
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
+                max_tokens=provider_cfg.max_tokens,
             )
             provider.name = provider_name or "openai"
             LOGGER.info(
