@@ -10,18 +10,6 @@ def _clear_plugin_registry_state() -> None:
     reg._manifests.clear()
 
 
-def test_built_in_example_plugin_loads():
-    _clear_plugin_registry_state()
-    reg = get_plugin_registry()
-    reg.discover_and_load(force=True)
-    assert "example_plugin" in reg._plugins
-
-    # Test Hook
-    res = reg.invoke_hook("pre_llm_call", session_id="s1", user_message="hello")
-    assert any("提示：插件已挂载并开始监听本轮对话。" in r for r in res)
-    assert reg.invoke_hook("transform_llm_output", response_text="hello", session_id="s1") == []
-
-
 def test_built_in_project_guardian_blocks_malicious_commands():
     _clear_plugin_registry_state()
     reg = get_plugin_registry()

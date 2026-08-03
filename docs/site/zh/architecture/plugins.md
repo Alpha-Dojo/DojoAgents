@@ -28,3 +28,7 @@ Plugin 系统允许 DojoAgents 从内置插件和用户插件目录中加载 too
 
 - [Plugin Manifest Reference](../reference/plugin-manifest.md)
 - [添加工具](../development/adding-tools.md)
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：插件声明的 hook 如何通过 `DojoPluginBridge` 挂载到 Agent 循环。

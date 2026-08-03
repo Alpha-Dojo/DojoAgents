@@ -13,6 +13,27 @@ from dojoagents.config.loader import _to_config, resolve_provider_config
 from dojoagents.config.models import LLMConfig, LLMProviderConfig
 
 
+def test_llm_provider_parses_max_tokens() -> None:
+    config = _to_config(
+        {
+            "llm_provider": {
+                "default": "finance-gateway",
+                "providers": {
+                    "finance-gateway": {
+                        "model": "DeepSeek-V4-Flash",
+                        "context_window": 1_000_000,
+                        "max_tokens": 384_000,
+                    }
+                },
+            }
+        }
+    )
+
+    provider = config.llm_provider.providers["finance-gateway"]
+    assert provider.context_window == 1_000_000
+    assert provider.max_tokens == 384_000
+
+
 class TestMultiAgentConfig:
     def test_defaults(self):
         cfg = MultiAgentConfig()

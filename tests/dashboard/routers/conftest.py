@@ -105,6 +105,10 @@ class KlineStore:
 
 
 class StockStore:
+    def resolve(self, ticker, market=None):
+        resolved_market = market or self.find_market(ticker)
+        return self.get(resolved_market, ticker.strip().upper())
+
     def get(self, market, ticker):
         return SimpleNamespace(market=market, ticker=ticker)
 
@@ -164,6 +168,9 @@ class PortfolioService:
         return True
 
     async def add_holding(self, _portfolio_id, _body):
+        return self.detail
+
+    async def add_holdings_batch(self, _portfolio_id, _bodies):
         return self.detail
 
     async def auto_allocate(self, _portfolio_id, _body):

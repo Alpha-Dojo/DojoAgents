@@ -16,6 +16,7 @@ class LLMProviderConfig:
     api_key_env: str | None = None
     api_key: str | None = None
     context_window: int | None = None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -52,8 +53,8 @@ class SandboxConfig:
 
 @dataclass(frozen=True)
 class WebToolsConfig:
-    search_backend: str = "ddgs"
-    extract_backend: str = "fetch"
+    search_backend: str | None = "ddgs"
+    extract_backend: str | None = "fetch"
     user_agent: str | None = None
     search_base_url: str | None = None
     extract_base_url: str | None = None

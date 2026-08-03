@@ -6,6 +6,7 @@
 
 - [仓库地图](repository-map.md)
 - [本地开发](local-development.md)
+- [已知限制](known-limitations.md)
 - [测试](testing.md)
 
 扩展能力时再读：

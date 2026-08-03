@@ -1,5 +1,9 @@
 # Agent Loop
 
+!!! tip "Looking for the real implementation?"
+    This page is the **conceptual** view of a turn. In code, the loop kernel is [Strands Agents](https://github.com/strands-agents/sdk-python); DojoAgents plugs its own stack in through a model bridge, a tool bridge and hooks.
+    For the full walk-through (framework choice, the seven stages of `run()`, system-prompt composition, guardrail/compaction/harness interception, code index) see **[Agent Internals](agent-internals.md)**.
+
 The agent loop coordinates model calls, tool calls, tool result feedback, and final answer generation.
 
 ## Core Objects

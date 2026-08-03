@@ -4,6 +4,7 @@ Architecture docs explain module boundaries and runtime flow. Start with [Overvi
 
 - [Runtime](runtime.md)
 - [Agent Loop](agent-loop.md)
+- [Agent Internals](agent-internals.md) (framework choice, Strands bridging, hooks/guardrails/compaction/harness at code level)
 - [Tools and Sandbox](tools-and-sandbox.md)
 - [Dashboard](dashboard.md)
 - [Gateway](gateway.md)

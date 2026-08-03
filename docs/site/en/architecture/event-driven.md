@@ -12,3 +12,7 @@ Event-driven architecture decouples agents, tools, planning, multi-agent flows, 
 
 Events should include stable identifiers such as `run_id`, `seq`, timestamp, and `call_id` for tool correlation.
 
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): where the loop publishes events and how subscribers rewrite tool results.

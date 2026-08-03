@@ -120,6 +120,39 @@ class DojoDataGateway:
     def kline_index_ready(self) -> bool:
         return self._kline_symbol_index is not None
 
+    async def warm_kline_index(self) -> None:
+        """Load the bulk kline snapshot once and index rows by symbol."""
+        if self._kline_symbol_index is not None:
+            return
+        async with self._kline_index_lock:
+            if self._kline_symbol_index is not None:
+                return
+            payload_df = await self._call(
+                "stock_all_klines",
+                self.client.stocks.get_all_klines_with_df(),
+            )
+            if not isinstance(payload_df, pd.DataFrame):
+                raise GatewayBadResponseError(
+                    "stock_all_klines: upstream response is not a DataFrame"
+                )
+
+            symbol_index: dict[str, pd.DataFrame] = {}
+            if "symbol" in payload_df.columns:
+                normalized = payload_df.copy()
+                normalized["symbol"] = normalized["symbol"].map(
+                    lambda value: _canonical_symbol(str(value))
+                )
+                for symbol, rows in normalized.groupby("symbol", sort=False):
+                    symbol_index[symbol] = rows.copy()
+            else:
+                for raw_symbol in payload_df.index.unique():
+                    symbol = _canonical_symbol(str(raw_symbol))
+                    rows = payload_df.loc[[raw_symbol]].copy()
+                    if "symbol" not in rows.columns:
+                        rows.insert(0, "symbol", symbol)
+                    symbol_index[symbol] = rows
+            self._kline_symbol_index = symbol_index
+
     async def _call(self, operation: str, awaitable: Any) -> Any:
         try:
             return await awaitable
@@ -164,39 +197,35 @@ class DojoDataGateway:
         **window: Any,
     ) -> GatewayResult["pd.DataFrame"]:
         kwargs = {key: value for key, value in window.items() if value is not None}
+        canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
+
+        # A bulk snapshot cannot be assumed to cover an arbitrary date range.
+        if kwargs.get("start_time") is not None or kwargs.get("end_time") is not None:
+            return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
         try:
-            payload_df = await self._call(
-                "stock_klines",
-                self.client.stocks.get_all_klines_with_df(),
-            )
-            canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
-            df = payload_df.loc[canonical_symbols]
-            if kwargs.get("start_time"):
-                df = df[df.bar_time >= kwargs.get("start_time")]
-            if kwargs.get("end_time"):
-                df = df[df.bar_time <= kwargs.get("end_time")]
-            if limit := kwargs.get("limit"):
-                limit = int(limit)
-                df = df.iloc[-limit:]
-            return _df_result(df)
-        except Exception:
-            pass
+            await self.warm_kline_index()
+        except GatewayError:
+            return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
-        async def fetch_one(symbol: str) -> GatewayResult[list[dict[str, Any]]]:
-            payload = await self._call(
-                "stock_klines",
-                self.client.stocks.get_kline(symbol=_canonical_symbol(symbol), **kwargs),
-            )
-            return _list_result(payload, "stock_klines", "klines")
-
-        results = await asyncio.gather(*(fetch_one(s) for s in symbols), return_exceptions=True)
-        rows: list[dict[str, Any]] = []
-        for res in results:
-            if isinstance(res, Exception):
+        index = self._kline_symbol_index or {}
+        limit = int(kwargs["limit"]) if kwargs.get("limit") is not None else None
+        frames: list[pd.DataFrame] = []
+        missing: list[str] = []
+        for symbol in canonical_symbols:
+            frame = index.get(symbol)
+            if frame is None:
+                missing.append(symbol)
                 continue
-            rows.extend(res.data)
-        return _df_result(pd.DataFrame(rows))
+            frames.append(frame.iloc[-limit:] if limit is not None else frame)
+
+        if missing:
+            fallback = await self._fetch_klines_per_symbol(missing, kwargs)
+            if not fallback.data.empty:
+                frames.append(fallback.data)
+        if not frames:
+            return _df_result(pd.DataFrame())
+        return _df_result(pd.concat(frames, ignore_index=True))
 
     async def _fetch_kline_rows(self, symbols: list[str], kwargs: dict[str, Any]) -> list[dict[str, Any]]:
         async def fetch_one(symbol: str) -> list[dict[str, Any]]:
@@ -229,15 +258,18 @@ class DojoDataGateway:
         symbols: list[str] | None = None,
     ) -> GatewayResult["pd.DataFrame"]:
         try:
-            payload_df = await self._call(
-                "stock_all_klines",
-                self.client.stocks.get_all_klines_with_df(),
+            await self.warm_kline_index()
+            index = self._kline_symbol_index or {}
+            selected = (
+                list(index)
+                if symbols is None
+                else [_canonical_symbol(symbol) for symbol in symbols]
             )
-            if symbols is not None:
-                canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols if _canonical_symbol(symbol) in payload_df.index]
-                payload_df = payload_df.loc[canonical_symbols]
-            return _df_result(payload_df)
-        except Exception:
+            frames = [index[symbol] for symbol in selected if symbol in index]
+            if not frames:
+                return _df_result(pd.DataFrame())
+            return _df_result(pd.concat(frames, ignore_index=True))
+        except GatewayError:
             pass
 
         kwargs: dict[str, Any] = {}

@@ -7,6 +7,7 @@ from dojoagents.agent.harnesses.portfolio import PortfolioTaskHarness
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall, ToolResult
 from dojoagents.agent.providers import StaticLLMProvider
 from dojoagents.agent.turn_intent import (
+    DEFAULT_TURN_INTENT,
     TurnIntentResult,
     build_turn_intent_anchor,
     build_turn_intent_anchor_async,
@@ -113,6 +114,21 @@ async def test_build_turn_intent_anchor_async() -> None:
     assert "不要继续执行旧任务" in anchor
     assert "execute_code 本轮不可用" not in anchor
     assert "execute_code unavailable" not in anchor
+
+
+@pytest.mark.asyncio
+async def test_build_turn_intent_anchor_skips_classifier_without_history() -> None:
+    provider = StaticLLMProvider([LLMResult(content="main response")])
+
+    anchor, intent = await build_turn_intent_anchor_async(
+        _request("Analyze this request"),
+        provider,
+        model="test-model",
+    )
+
+    assert anchor == ""
+    assert intent == DEFAULT_TURN_INTENT
+    assert provider.calls == []
 
 
 def test_portfolio_harness_does_not_match_folio_tab_alone() -> None:

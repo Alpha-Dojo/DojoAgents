@@ -18,3 +18,7 @@ Plugins let DojoAgents load tools, hooks, skills, MCP config, and agent config f
 
 Hooks must use names from `VALID_HOOKS` in `dojoagents/plugins/registry.py`.
 
+
+## Further Reading
+
+- [Agent Internals](agent-internals.md): how plugin hooks are attached to the agent loop through `DojoPluginBridge`.

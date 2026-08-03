@@ -6,6 +6,7 @@
 
 - [Runtime](runtime.md)
 - [Agent Loop](agent-loop.md)
+- [Agent 实现内幕](agent-internals.md)（框架选型、Strands 桥接、Hook/护栏/压缩/Harness 的代码级剖析）
 - [Tools 与 Sandbox](tools-and-sandbox.md)
 - [Dashboard](dashboard.md)
 - [Gateway](gateway.md)

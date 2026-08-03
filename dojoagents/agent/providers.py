@@ -139,10 +139,29 @@ class StaticLLMProvider:
 class OpenAICompatibleProvider:
     name = "openai"
 
-    def __init__(self, *, api_key: str | None = None, base_url: str | None = None, author: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        author: str | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.author = author
+        self.max_tokens = max_tokens
+
+    @staticmethod
+    def _reasoning_text(message: Any) -> str:
+        for field in ("reasoning_content", "reasoning"):
+            reasoning = getattr(message, field, None)
+            if isinstance(reasoning, str) and reasoning:
+                return reasoning
+        model_extra = getattr(message, "model_extra", None)
+        if isinstance(model_extra, dict):
+            return str(model_extra.get("reasoning_content") or model_extra.get("reasoning") or "")
+        return ""
 
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
@@ -191,6 +210,8 @@ class OpenAICompatibleProvider:
                 "tools": [{"type": "function", "function": tool} for tool in tools] or None,
                 "stream": stream,
             }
+            if self.max_tokens is not None:
+                create_kwargs["max_tokens"] = self.max_tokens
             if stream:
                 create_kwargs["stream_options"] = {"include_usage": True}
             response = await client.chat.completions.create(**create_kwargs)
@@ -231,9 +252,7 @@ class OpenAICompatibleProvider:
                     continue
                 choice = chunk.choices[0]
                 delta = choice.delta
-                reasoning_delta = getattr(delta, "reasoning_content", None) or (
-                    delta.model_extra.get("reasoning_content") if hasattr(delta, "model_extra") and delta.model_extra else None
-                )
+                reasoning_delta = self._reasoning_text(delta)
                 if reasoning_delta:
                     full_reasoning.append(reasoning_delta)
                 content_delta = delta.content or ""
@@ -277,9 +296,7 @@ class OpenAICompatibleProvider:
             )
         else:
             message = response.choices[0].message
-            reasoning_content = getattr(message, "reasoning_content", None) or (
-                message.model_extra.get("reasoning_content") if hasattr(message, "model_extra") and message.model_extra else None
-            )
+            reasoning_content = self._reasoning_text(message)
             final_tool_calls = []
             if message.tool_calls:
                 for tc in message.tool_calls:

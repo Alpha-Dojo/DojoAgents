@@ -262,7 +262,15 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   const providers: Record<string, ProviderForm> = {};
 
   for (const name of KNOWN_PROVIDERS) {
-    providers[name] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[name] = {
+      model: '',
+      author: '',
+      base_url: '',
+      api_key_env: '',
+      api_key: '',
+      context_window: null,
+      max_tokens: null,
+    };
   }
 
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
@@ -273,12 +281,28 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
       base_url: asString(provider.base_url),
       api_key_env: asString(provider.api_key_env),
       api_key: provider.api_key === '***' ? '' : asString(provider.api_key),
+      context_window:
+        provider.context_window === null || provider.context_window === undefined
+          ? null
+          : asNumber(provider.context_window, 32768),
+      max_tokens:
+        provider.max_tokens === null || provider.max_tokens === undefined
+          ? null
+          : asNumber(provider.max_tokens, 4096),
     });
   }
 
   const defaultProvider = asString(llm.default, 'openai');
   if (!providers[defaultProvider]) {
-    providers[defaultProvider] = { model: '', author: '', base_url: '', api_key_env: '', api_key: '' };
+    providers[defaultProvider] = {
+      model: '',
+      author: '',
+      base_url: '',
+      api_key_env: '',
+      api_key: '',
+      context_window: null,
+      max_tokens: null,
+    };
   }
 
   const agent = asRecord(cfg.agent);
@@ -383,7 +407,16 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
   const providers: Record<string, unknown> = {};
   for (const [name, rawProvider] of Object.entries(form.llm_provider.providers)) {
     const provider = normalizeProviderForm(name, rawProvider);
-    if (!provider.model && !provider.author && !provider.base_url && !provider.api_key_env && !provider.api_key && name !== form.llm_provider.default) {
+    if (
+      !provider.model &&
+      !provider.author &&
+      !provider.base_url &&
+      !provider.api_key_env &&
+      !provider.api_key &&
+      provider.context_window === null &&
+      provider.max_tokens === null &&
+      name !== form.llm_provider.default
+    ) {
       continue;
     }
     const next: Record<string, unknown> = { model: provider.model };
@@ -391,6 +424,8 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
     if (provider.base_url) next.base_url = provider.base_url;
     if (provider.api_key_env) next.api_key_env = provider.api_key_env;
     if (provider.api_key) next.api_key = provider.api_key;
+    if (provider.context_window !== null) next.context_window = provider.context_window;
+    if (provider.max_tokens !== null) next.max_tokens = provider.max_tokens;
     providers[name] = next;
   }
 
@@ -731,6 +766,18 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                       </Field>
                       <Field label="Author">
                         {textInput(provider.author, () => {}, providerDefaultAuthor(name), 'text', true)}
+                      </Field>
+                      <Field label="Context Window">
+                        {numberInput(provider.context_window ?? 0, (value) =>
+                          updateField((draft) => {
+                            draft.llm_provider.providers[name].context_window = value > 0 ? value : null;
+                          }), 0)}
+                      </Field>
+                      <Field label="Max Output Tokens">
+                        {numberInput(provider.max_tokens ?? 0, (value) =>
+                          updateField((draft) => {
+                            draft.llm_provider.providers[name].max_tokens = value > 0 ? value : null;
+                          }), 0)}
                       </Field>
                       <Field label="API Key Env">
                         {textInput(provider.api_key_env, (value) =>

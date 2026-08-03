@@ -22,6 +22,7 @@ llm_provider:
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       context_window: 128000
+      max_tokens: 32768
 
 agent:
   max_iterations: 100
@@ -104,6 +105,8 @@ sessions:
 | `multi_agent` | `MultiAgentConfig` | 多智能体开关、worker 数和默认 agent 定义 |
 | `planning` | `PlanConfig` | plan 工具开关、自动规划阈值、plan store 和最大 step |
 | `sessions` | `SessionsConfig` | runtime session 存储、恢复、memory 同步和导出目录 |
+
+把 `tools.web.search_backend` 或 `tools.web.extract_backend` 显式设为 `null` 可以禁用对应工具；省略字段时继续使用默认值（`ddgs` 或 `fetch`）。`max_content_bytes` 目前只是已声明的限制，读取响应体时尚未执行，详见 [DA-KI-003](../development/known-limitations.md#da-ki-003)。
 
 ## 敏感字段
 

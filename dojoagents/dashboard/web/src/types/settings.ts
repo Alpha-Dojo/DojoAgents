@@ -4,6 +4,8 @@ export interface ProviderForm {
   base_url: string;
   api_key_env: string;
   api_key: string;
+  context_window: number | null;
+  max_tokens: number | null;
 }
 
 export interface SettingsFormState {

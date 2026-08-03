@@ -26,3 +26,7 @@ Runtime 不应重复实现配置解析、日志初始化或工具执行逻辑。
 - `dojoagents/config/loader.py`
 - `dojoagents/config/models.py`
 
+
+## 延伸阅读
+
+- [Agent 实现内幕](agent-internals.md)：Runtime 装配出的 provider / tools / skills / memory / plugins，最终如何被 Agent 循环消费。

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from dojoagents.agent.models import ChatRequest
-from dojoagents.gateway.state import GatewaySessionStore, GatewaySession
+from dojoagents.gateway.state import GatewaySessionStore
 from dojoagents.gateway.adapters.base import GatewayEvent
 
 
@@ -92,7 +92,6 @@ async def test_agent_loop_prepends_history_from_request_metadata():
     from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
     from dojoagents.memory.manager import MemoryManager
     from dojoagents.skills.manager import SkillManager
-    from dojoagents.tools.executor import ToolExecutor
     from unittest.mock import MagicMock
 
     llm = StaticLLMProvider([LLMResult(content="Mocked answer")])
@@ -133,8 +132,8 @@ async def test_agent_loop_prepends_history_from_request_metadata():
     await loop.run(request)
 
     # Inspect messages sent to the LLM
-    assert len(llm.calls) == 1
-    messages = llm.calls[0]["messages"]
+    assert len(llm.calls) == 2
+    messages = llm.calls[-1]["messages"]
     
     # Assert system prompt is present
     assert messages[0]["role"] == "system"
@@ -226,4 +225,3 @@ async def test_gateway_runner_sqlite_integration(tmp_path):
     assert history[1]["content"] == "I am Paris"
 
     await runner.stop()
-

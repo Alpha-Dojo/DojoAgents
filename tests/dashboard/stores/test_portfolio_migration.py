@@ -32,12 +32,17 @@ def _write_v1(root) -> tuple[object, bytes]:
     return path, path.read_bytes()
 
 
-def test_v1_portfolio_load_does_not_mutate_detail_file(tmp_path) -> None:
+def test_v1_portfolio_load_normalizes_in_memory_without_mutating_detail_file(tmp_path) -> None:
     path, original = _write_v1(tmp_path)
 
     store = PortfolioStore(tmp_path)
 
-    assert store.get_raw("p1")["version"] == 1
+    payload = store.get_raw("p1")
+    assert payload["version"] == 3
+    assert payload["candidates"] == [
+        {"ticker": "AAPL", "market": "us", "added_at": payload["candidates"][0]["added_at"]}
+    ]
+    assert payload["orders"] == []
     assert path.read_bytes() == original
 
 
@@ -54,23 +59,22 @@ def test_portfolio_migration_dry_run_reports_without_writing(tmp_path) -> None:
     assert not (path.parent / "p1.json.v1.bak").exists()
 
 
-def test_portfolio_migration_backs_up_and_applies_v2_mapping(tmp_path) -> None:
+def test_portfolio_migration_backs_up_and_applies_current_mapping(tmp_path) -> None:
     path, original = _write_v1(tmp_path)
     store = PortfolioStore(tmp_path)
 
     report = store.migrate_to_v2(dry_run=False)
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    holding = payload["holdings"][0]
     assert report["migrated"] == ["p1"]
-    assert payload["version"] == 2
+    assert payload["version"] == 3
     assert payload["pinned"] is False
-    assert holding["shares_locked"] is True
-    assert holding["open_date_locked"] is False
-    assert holding["cost_override"] is None
-    assert holding["cost_locked"] is False
+    assert payload["candidates"][0]["ticker"] == "AAPL"
+    assert payload["candidates"][0]["market"] == "us"
+    assert payload["orders"] == []
+    assert "holdings" not in payload
     assert (path.parent / "p1.json.v1.bak").read_bytes() == original
-    assert json.loads((path.parent / "index.json").read_text(encoding="utf-8"))["version"] == 2
+    assert json.loads((path.parent / "index.json").read_text(encoding="utf-8"))["version"] == 3
 
 
 def test_corrupt_portfolio_is_reported_and_preserved(tmp_path) -> None:

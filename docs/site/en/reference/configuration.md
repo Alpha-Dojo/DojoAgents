@@ -22,6 +22,7 @@ llm_provider:
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       context_window: 128000
+      max_tokens: 32768
 
 agent:
   max_iterations: 100
@@ -104,6 +105,8 @@ sessions:
 | `multi_agent` | `MultiAgentConfig` | Multi-agent switch, worker count, default agents |
 | `planning` | `PlanConfig` | Planning tools, auto-plan threshold, plan store, max steps |
 | `sessions` | `SessionsConfig` | Runtime session storage, restore, memory sync, export directory |
+
+Set `tools.web.search_backend` or `tools.web.extract_backend` to `null` to disable that tool explicitly. Omitting a key keeps its default (`ddgs` or `fetch`). `max_content_bytes` is currently a declared limit but is not yet enforced while reading response bodies; see [DA-KI-003](../development/known-limitations.md#da-ki-003).
 
 ## Secrets
 

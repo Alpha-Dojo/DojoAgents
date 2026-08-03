@@ -101,6 +101,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
+    max_tokens = raw.get("max_tokens")
     raw_model = _as_non_empty_string(raw.get("model"))
     parsed_author, parsed_model = _split_author_and_model(raw_model)
     author = _as_non_empty_string(raw.get("author")) or parsed_author or _DEFAULT_PROVIDER_AUTHORS.get(name, "")
@@ -111,6 +112,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         api_key_env=api_key_env,
         api_key=api_key,
         context_window=int(context_window) if context_window is not None else None,
+        max_tokens=int(max_tokens) if max_tokens is not None else None,
     )
 
 
@@ -180,8 +182,8 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             timeout_seconds=float(sandbox_raw.get("timeout_seconds", 120)),
         ),
         web=WebToolsConfig(
-            search_backend=web_raw.get("search_backend") or "ddgs",
-            extract_backend=web_raw.get("extract_backend") or "fetch",
+            search_backend=web_raw.get("search_backend", "ddgs"),
+            extract_backend=web_raw.get("extract_backend", "fetch"),
             user_agent=web_raw.get("user_agent"),
             search_base_url=web_raw.get("search_base_url"),
             extract_base_url=web_raw.get("extract_base_url"),
