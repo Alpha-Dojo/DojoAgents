@@ -13,6 +13,7 @@ from dojoagents.attribution.enums import (
     MarketCode,
     PayloadStatus,
     PriceDirection,
+    Stance,
 )
 from dojoagents.attribution.value_objects import EvidenceSpan, LocaleText
 
@@ -29,13 +30,13 @@ class AttributionFactor(BaseModel):
     sector_id: str = Field(min_length=1)
     market: MarketCode
     factor_topic: FactorTopic
+    event_time: str = Field(min_length=16)
     evidence: tuple[EvidenceSpan, ...] = ()
     affected_tickers: tuple[str, ...] = ()
     role: FactorRole = FactorRole.EXPLAINS_MOVE
     price_direction: PriceDirection | None = None
     importance: Importance | None = None
     mechanism: LocaleText | None = None
-    event_time: str | None = None
     payload_status: PayloadStatus = PayloadStatus.DRAFT
     stance: Stance | None = None
     attrs: dict[str, Any] = Field(default_factory=dict)
@@ -48,3 +49,11 @@ class AttributionFactor(BaseModel):
         if not (value.zh or value.en).strip():
             raise ValueError("claim must have zh or en text")
         return value
+
+    @field_validator("event_time")
+    @classmethod
+    def _event_time_has_clock(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if "T" not in text or len(text) < 16:
+            raise ValueError("event_time must be ISO8601 datetime with time (not date-only)")
+        return text

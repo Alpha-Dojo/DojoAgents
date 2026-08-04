@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SectorThemeBrief",
+  "description": "Slim sector theme card synthesized from AttributionFactors. Event-level detail lives in AF API, not here.",
+  "type": "object",
+  "required": [
+    "market",
+    "sector_id",
+    "as_of_date",
+    "key_drivers",
+    "key_risks",
+    "top_components"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "market": { "enum": ["us", "cn", "hk"] },
+    "sector_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact L1/L2/L3 taxonomy path."
+    },
+    "as_of_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "key_drivers": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["title", "importance", "price_direction"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 24 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 60 }
+            }
+          },
+          "detail": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          },
+          "importance": { "enum": ["high", "medium", "low"] },
+          "price_direction": { "enum": ["up", "down", "mixed"] }
+        }
+      }
+    },
+    "key_risks": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["title", "importance"],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 24 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 60 }
+            }
+          },
+          "detail": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          },
+          "importance": { "enum": ["high", "medium", "low"] }
+        }
+      }
+    },
+    "top_components": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["ticker", "role_label", "thesis"],
+        "additionalProperties": false,
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "pattern": "^[A-Za-z0-9.]+$"
+          },
+          "role_label": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 8 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 24 }
+            }
+          },
+          "thesis": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "additionalProperties": false,
+            "properties": {
+              "zh": { "type": "string", "minLength": 1, "maxLength": 24 },
+              "en": { "type": "string", "minLength": 1, "maxLength": 60 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

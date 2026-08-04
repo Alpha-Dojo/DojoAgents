@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from dojoagents.dashboard.services.attribution_factor_service import (
+    build_sector_attribution_factors,
+)
 from dojoagents.dashboard.services.domain_api import (
     SECTOR_PATH_INVALID_FORMAT,
     SECTOR_PATH_REJECTED_INDEX_GUESS,
@@ -335,6 +338,41 @@ def register_dashboard_domain_tools(
             days=_int_arg(args, "days", 1),
             start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
             end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
+        )
+        return _json_content(result)
+
+    async def sector_attribution_factors(args: dict[str, Any]) -> dict[str, Any]:
+        _service_ready(registry)
+        client = registry.client
+        if client is None:
+            raise RuntimeError("Dojo client is not initialized")
+        market = _str_arg(args, "market")
+        if not market:
+            raise RuntimeError("market is required")
+        start_date = _optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time")
+        end_date = _optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time")
+        if not start_date or not end_date:
+            raise RuntimeError("start_date and end_date are required")
+        sector = _str_arg(args, "sector_id") or _str_arg(args, "sector_path_id")
+        if not sector:
+            level1_id = _str_arg(args, "level1_id")
+            level2_id = _str_arg(args, "level2_id")
+            level3_id = _str_arg(args, "level3_id")
+            if level1_id and level2_id and level3_id:
+                sector = f"{level1_id}/{level2_id}/{level3_id}"
+            else:
+                raise RuntimeError("sector_id or level1_id/level2_id/level3_id is required")
+        locale = _str_arg(args, "locale", "zh")
+        if locale not in {"zh", "en"}:
+            raise RuntimeError("locale must be zh or en")
+        result = await build_sector_attribution_factors(
+            client,
+            market=market,
+            sector_id=sector,
+            start_date=start_date,
+            end_date=end_date,
+            locale=locale,  # type: ignore[arg-type]
+            limit=_optional_int_arg(args, "limit"),
         )
         return _json_content(result)
 
@@ -669,6 +707,48 @@ def register_dashboard_domain_tools(
                 },
             },
             handler=sector_constituents,
+        ),
+        ToolSpec(
+            name="get_sector_attribution_factors",
+            description=(
+                "List sector attribution factors for ONE exact taxonomy path and event_time date window. "
+                "Pass market + sector_id (or sector_path_id / level1_id+level2_id+level3_id from "
+                "search_sector_taxonomy) + start_date + end_date (YYYY-MM-DD). "
+                "locale=zh|en projects claim/mechanism to a single string. "
+                "Rows without event_time are dropped; sector_id is exact-match (not path prefix)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
+                    "sector_id": {
+                        "type": "string",
+                        "description": "Exact L1/L2/L3 path (alias of sector_path_id).",
+                    },
+                    **_SECTOR_ID_PROPERTIES,
+                    "start_date": {
+                        "type": "string",
+                        "description": "Inclusive lower bound YYYY-MM-DD (event_time calendar day).",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Inclusive upper bound YYYY-MM-DD (event_time calendar day).",
+                    },
+                    "locale": {
+                        "type": "string",
+                        "enum": ["zh", "en"],
+                        "description": "Project bilingual claim/mechanism to this locale (default zh).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "description": "Optional post-filter safety cap (do not use as history bound).",
+                    },
+                },
+                "required": ["market", "start_date", "end_date"],
+            },
+            handler=sector_attribution_factors,
         ),
         ToolSpec(
             name="get_ticker_realtime_quote",
