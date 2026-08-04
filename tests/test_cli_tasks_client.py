@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -23,11 +24,31 @@ def test_dashboard_base_url_from_config_override() -> None:
 
 
 @pytest.mark.parametrize(
+    ("configured_host", "expected"),
+    [
+        ("0.0.0.0", "http://127.0.0.1:8765"),
+        ("::", "http://[::1]:8765"),
+        ("::1", "http://[::1]:8765"),
+    ],
+)
+def test_dashboard_base_url_converts_wildcard_bind_hosts_to_loopback(
+    configured_host: str,
+    expected: str,
+) -> None:
+    config = SimpleNamespace(dashboard=SimpleNamespace(host=configured_host, port=8765))
+    store = SimpleNamespace(snapshot=lambda: config)
+    with patch("dojoagents.dashboard.client.tasks.ConfigStore", return_value=store):
+        assert dashboard_base_url_from_config("agents.yaml") == expected
+
+
+@pytest.mark.parametrize(
     ("base_url", "expected"),
     [
         ("http://127.0.0.1:8765", True),
         ("http://localhost:8765", True),
         ("http://[::1]:8765", True),
+        ("http://0.0.0.0:8765", True),
+        ("http://[::]:8765", True),
         ("http://10.0.0.5:8765", False),
     ],
 )

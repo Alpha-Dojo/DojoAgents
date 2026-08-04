@@ -23,6 +23,7 @@ dojoagents
 | `mcp serve` | none | Start the MCP server |
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | Precompute sector daily metrics and returns |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | Read a `precompute-sector` snapshot, publish the unified theme-state bundle, and optionally upload it to `dojo_sector_precomputed` |
+| `attribution-factor-crawl` | `--date`, `--concurrency`, `--top-n`, `--min-cap`, `--force-rerun`, `--write-only`, `--skip-write` | Crawl daily sector factors and batch-write them through `create_attribution_factor` |
 | `tasks run` | `--pipeline`, `--date`, `--config`, `--local`, `--force`, `--force-rerun`, … | Run a task pipeline (`tasks.enabled` required) |
 | `tasks eval` | `--task`, `--date`, `--config`, `--artifact` | Validate a task artifact against its contract schema |
 
@@ -37,6 +38,8 @@ dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
 dojoagents precompute-sector --start-date 2025-01-01
 dojoagents precompute-sector-theme-state --upload
+dojoagents attribution-factor-crawl --date 2026-07-31
+dojoagents attribution-factor-crawl  # local date by default
 dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
 dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
@@ -47,6 +50,23 @@ the Phase A snapshot and the unified published bundle must be kept separate.
 
 Precompute outputs are consumed by agent-side **`dojo.sdk.sector.precomputed_*`** tools (see [DojoSDK](dojo-sdk.md)).  
 Task pipelines: [Tasks and Pipelines](../user-guide/tasks-and-pipelines.md).
+
+`attribution-factor-crawl` validates the daily JSONL outputs and batch-writes them with
+`analysis.create_attribution_factor`. It no longer downloads, merges, or uploads the
+`dojo_attribution_factor` HF/ModelScope dataset, and no HF/ModelScope tokens are required.
+Writing stops when any sector task fails unless `--allow-partial` is explicit. Use
+`--write-only` to retry API writing without rerunning agents, or `--skip-write` for local
+validation. The legacy `--merge-only` and `--skip-upload` spellings remain aliases.
+Valid non-empty outputs already present for the selected date are reused per sector;
+use `--force-rerun` to regenerate all selected sector outputs.
+Omitting `--date`,
+or passing bare `--date`, uses today's date in the machine's local timezone.
+Regular crawls require a Dashboard runtime. The command reuses a healthy local
+Dashboard or starts a temporary one with the same `agents.yaml`, waits until it is
+ready, and shuts it down when the crawl ends. The temporary process skips the
+full SDK offline preload and periodic refresh, while retaining normal Dashboard
+registry loading for the crawl APIs and task runtime. `--write-only` does not start a
+Dashboard. A remote `--dashboard-url` must already be running.
 
 ## Session Export
 
