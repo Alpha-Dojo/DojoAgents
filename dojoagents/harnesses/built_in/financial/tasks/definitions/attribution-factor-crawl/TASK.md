@@ -90,6 +90,7 @@ format = jsonl
 
 | 字段 | 要求 | 含义 |
 | --- | --- | --- |
+| `event_time` | **必填** | **事件发生时刻**（日期+时间）；见下方规范 |
 | `claim` | 必填 | **标题级**一句话/短语：这条因子是什么；zh/en 至少一侧非空 |
 | `sector_id` | 必填 | L1/L2/L3，与 taxonomy / 任务输入一致 |
 | `market` | 必填 | = 任务 `market` |
@@ -100,7 +101,6 @@ format = jsonl
 | `mechanism` | 强烈建议 | **机制**：如何影响板块走势（相对 claim 更详细） |
 | `evidence` | 主因建议 ≥1 | `{quote, url?, title?}`；来自 web_extract/search |
 | `affected_tickers` | 建议填 | 本条相关核心股（非全成分表） |
-| `event_time` | 有新闻时刻则**必须**填 | **事件发生时刻**（日期+时间），≠ `trading_date`；见下方规范 |
 | `attrs` | 按需 | topic 专属细节 |
 
 **本任务可省略（回填）**：`payload_status`、`stance`、`created_at`、`updated_at`。
@@ -118,15 +118,19 @@ format = jsonl
 
 ### `event_time` 规范
 
-- **必须**是完整时刻：日期 **+** 时间（优先 ISO8601，如 `2026-07-22T15:30:00+08:00` / `2026-07-22T07:30:00Z`）
-- **禁止**只写日期（如 `2026-07-22`）——新闻/公告几乎都有发布时间，应取自 `web_search` 的 `published_at` 或 `web_extract` 页面上的发布时间
-- 时区：能确定则带 offset / `Z`；不确定时用来源标注的本地时并保留时间部分，勿丢弃到日粒度
-- 找不到任何发布时间时：省略 `event_time`（不要用 `trading_date` 冒充）
+- **每条因子必填**；禁止缺字段、禁止 `null`、禁止只写日期（如 `2026-07-22`）
+- 完整时刻：日期 **+** 时间（ISO8601，如 `2026-07-22T15:30:00+08:00` / `2026-07-22T07:30:00Z`）
+- 优先取自 `web_search` 的 `published_at` 或 `web_extract` 页面发布时间
+- 找不到发布时间时，用任务 `trading_date` + 市场默认收盘时刻兜底（仍须带时间）：
+  - `us` → `{trading_date}T16:00:00-04:00`
+  - `cn` → `{trading_date}T15:00:00+08:00`
+  - `hk` → `{trading_date}T16:00:00+08:00`
 
 ### 单行形状（占位）
 
 ```json
 {
+  "event_time": "2026-07-22T15:30:00+08:00",
   "claim": { "zh": "<标题短语>", "en": "<title phrase>" },
   "sector_id": "<level1_id/level2_id/level3_id>",
   "market": "cn",
@@ -146,7 +150,6 @@ format = jsonl
     }
   ],
   "affected_tickers": ["600519.SS"],
-  "event_time": "2026-07-22T15:30:00+08:00",
   "attrs": {}
 }
 ```

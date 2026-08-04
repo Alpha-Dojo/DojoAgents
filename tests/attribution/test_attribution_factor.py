@@ -72,6 +72,7 @@ def test_factor_topic_required():
                 "claim": {"zh": "缺家族"},
                 "sector_id": "ai_chips",
                 "market": "us",
+                "event_time": "2026-07-22T15:30:00Z",
                 "evidence": [{"quote": "quote long enough here"}],
                 "payload_status": "ready",
             }
@@ -85,6 +86,7 @@ def test_mechanism_and_topic():
             "claim": {"zh": "工厂火灾冲击供给"},
             "sector_id": "semiconductor_equipment",
             "market": "us",
+            "event_time": "2026-07-22T15:30:00Z",
             "affected_tickers": ["ACCT"],
             "evidence": [{"quote": "A fire disrupted production at the main plant"}],
             "mechanism": {"en": "plant fire disrupted wafer supply"},
@@ -107,6 +109,7 @@ def test_evidence_list():
             "sector_id": "new_energy",
             "market": "cn",
             "factor_topic": "policy_reg",
+            "event_time": "2026-07-22T15:30:00+08:00",
             "evidence": [
                 {"quote": "发改委发布新能源补贴细则", "url": "https://example.com/1"},
                 {"quote": "多家券商同步上调行业评级至增持"},
@@ -125,6 +128,7 @@ def test_model_copy_updates_status():
             "sector_id": "ai_chips",
             "market": "us",
             "factor_topic": "earnings",
+            "event_time": "2026-07-22T15:30:00Z",
             "evidence": [{"quote": "Apple reported fiscal third-quarter results"}],
             "payload_status": "draft",
         }
@@ -145,5 +149,28 @@ def test_empty_claim_rejected():
                 "sector_id": "ai_chips",
                 "market": "us",
                 "factor_topic": "earnings",
+                "event_time": "2026-07-22T15:30:00Z",
+            }
+        )
+
+
+def test_event_time_required_and_rejects_date_only():
+    with pytest.raises(ValidationError):
+        AttributionFactor.model_validate(
+            {
+                "claim": {"zh": "缺时刻"},
+                "sector_id": "ai_chips",
+                "market": "us",
+                "factor_topic": "earnings",
+            }
+        )
+    with pytest.raises(ValidationError, match="event_time"):
+        AttributionFactor.model_validate(
+            {
+                "claim": {"zh": "仅日期"},
+                "sector_id": "ai_chips",
+                "market": "us",
+                "factor_topic": "earnings",
+                "event_time": "2026-07-22",
             }
         )
