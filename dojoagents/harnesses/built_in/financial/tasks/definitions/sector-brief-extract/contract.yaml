@@ -1,0 +1,27 @@
+id: sector-brief-extract
+name: 板块主题简报提取
+version: 1
+harness_profile: tool_orchestrated
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - search_sector_taxonomy
+  - get_sector_attribution_factors
+  - execute_code
+  - write_session_file
+outputs:
+  - filename: sector_theme_brief_{market}_{sector_id}_{as_of_date}.json
+    format: json
+    required: true
+    schema: schema/sector_theme_brief.schema.json
+triggers:
+  commands:
+    - /task sector-brief-extract
+constraints:
+  max_tool_calls_per_turn: 1
+  tool_budget:
+    search_sector_taxonomy: 2
+    get_sector_attribution_factors: 1
+    execute_code: 2

@@ -3,9 +3,15 @@
   "title": "AttributionFactor",
   "description": "One JSONL row = one AttributionFactor. Backfill fields (payload_status, stance, timestamps) are optional.",
   "type": "object",
-  "required": ["claim", "sector_id", "market", "factor_topic"],
+  "required": ["event_time", "claim", "sector_id", "market", "factor_topic"],
   "additionalProperties": true,
   "properties": {
+    "event_time": {
+      "type": "string",
+      "minLength": 16,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}.*$",
+      "description": "Required event occurrence datetime (ISO8601 with time, e.g. 2026-07-22T15:30:00+08:00). Date-only values are not allowed."
+    },
     "claim": {
       "type": "object",
       "description": "Title-level phrase for this factor (zh/en; at least one side non-empty).",
@@ -71,10 +77,6 @@
         "en": { "type": "string" }
       },
       "additionalProperties": false
-    },
-    "event_time": {
-      "type": ["string", "null"],
-      "description": "Event occurrence datetime (ISO8601 with time, e.g. 2026-07-22T15:30:00+08:00). Date-only values are not allowed. Not trading_date."
     },
     "attrs": {
       "type": "object"
