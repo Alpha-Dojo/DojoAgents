@@ -13,6 +13,7 @@ from dojoagents.attribution.enums import (
     MarketCode,
     PayloadStatus,
     PriceDirection,
+    Stance,
 )
 from dojoagents.attribution.value_objects import EvidenceSpan, LocaleText
 
