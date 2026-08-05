@@ -316,9 +316,9 @@ class ModelContextRegistry:
             import httpx
 
             url = "https://openrouter.ai/api/v1/models"
-            headers: dict[str, str] = {}
+            headers = dict(provider_cfg.extra_headers)
             if provider_cfg.api_key:
-                headers["Authorization"] = f"Bearer {provider_cfg.api_key}"
+                headers.setdefault("Authorization", f"Bearer {provider_cfg.api_key}")
             async with httpx.AsyncClient(timeout=10.0) as http:
                 response = await http.get(url, headers=headers)
                 response.raise_for_status()

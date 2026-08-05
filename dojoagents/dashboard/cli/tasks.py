@@ -4,6 +4,7 @@ import argparse
 import datetime
 import json
 import re
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +16,12 @@ from dojoagents.dashboard.client.tasks import (
     DashboardTaskClientError,
     dashboard_base_url_from_config,
     run_pipeline_via_dashboard,
+    run_task_via_dashboard,
 )
 from dojoagents.config.loader import ConfigStore
 from dojoagents.logging import LOGGER, configure_logging
 from dojoagents.tasks.activator import TaskActivationError
-from dojoagents.tasks.artifacts import resolve_dated_filename
+from dojoagents.tasks.artifacts import resolve_filename_template
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.models import TaskArtifactSpec, TaskSpec
 from dojoagents.tasks.output_paths import resolve_task_output_file
@@ -31,12 +33,23 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
-    tasks = sub.add_parser("tasks", help="Run task pipelines from the CLI")
+    tasks = sub.add_parser("tasks", help="Run task pipelines or single tasks from the CLI")
     tasks_sub = tasks.add_subparsers(dest="tasks_command", required=True)
 
-    run = tasks_sub.add_parser("run", help="Run a task pipeline for one trading date")
-    run.add_argument("--pipeline", required=True, help="Pipeline id, e.g. daily-market-events")
-    run.add_argument("--date", help="Trading date (YYYY-MM-DD), defaults to today")
+    run = tasks_sub.add_parser("run", help="Run a pipeline or a single task")
+    target = run.add_mutually_exclusive_group(required=True)
+    target.add_argument("--pipeline", help="Pipeline id, e.g. daily-market-events")
+    target.add_argument("--task", help="Task id, e.g. attribution-factor-crawl")
+    run.add_argument(
+        "--date",
+        help="Trading date (YYYY-MM-DD). Required semantics: pipelines default to today; "
+        "for --task include only when set (or pass YYYY-MM-DD in trailing args).",
+    )
+    run.add_argument(
+        "task_args",
+        nargs="*",
+        help="Extra /task arguments (key=value, YYYY-MM-DD, or positional query). Ignored for --pipeline.",
+    )
     run.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
     run.add_argument(
         "--force",
@@ -71,8 +84,8 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
     run.add_argument(
         "--max-retries",
         type=int,
-        default=3,
-        help="Maximum number of retries if pipeline execution fails (default: 3)",
+        default=None,
+        help="Max attempts on failure (default: 3 for --pipeline, 1 for --task). Each attempt uses a fresh session for --task.",
     )
 
     evaluate = tasks_sub.add_parser(
@@ -106,6 +119,23 @@ def _sanitize_session_token(raw: str) -> str:
     return token or "pipeline"
 
 
+def _new_cli_task_session_id(task_id: str) -> str:
+    """Fresh session per CLI invocation — never reuse task/date keys across runs."""
+    return f"cli-task-{_sanitize_session_token(task_id)}-{uuid.uuid4().hex[:12]}"
+
+
+def _build_task_slash_message(task_id: str, *, trading_date: str | None, task_args: list[str] | None) -> str:
+    """Build `/task <id> [date] [args…]` for CommandRouter activation."""
+    parts = [f"/task {str(task_id or '').strip()}"]
+    extras = [str(item).strip() for item in (task_args or []) if str(item).strip()]
+    date = str(trading_date or "").strip() or None
+    if date:
+        if not any(_DATE_RE.fullmatch(item) for item in extras):
+            parts.append(date)
+    parts.extend(extras)
+    return " ".join(parts)
+
+
 def load_task_manager(config_path: str) -> TaskPromptManager:
     store = ConfigStore(config_path)
     configure_logging(store.snapshot().logging)
@@ -115,42 +145,61 @@ def load_task_manager(config_path: str) -> TaskPromptManager:
     return runtime.task_manager
 
 
-def _metadata_exit_code(metadata: dict[str, Any] | None) -> int:
+def _metadata_has_failure(metadata: dict[str, Any] | None) -> bool:
     meta = metadata if isinstance(metadata, dict) else {}
     if meta.get("error") == "task_activation" or meta.get("task_activation_error"):
-        return 1
+        return True
     validation_errors = meta.get("pipeline_validation_errors")
     if isinstance(validation_errors, list) and validation_errors:
-        return 1
+        return True
     if meta.get("pipeline_error"):
-        return 1
+        return True
     if meta.get("stopped"):
-        return 1
+        return True
     if meta.get("cancelled"):
+        return True
+    if meta.get("error") and meta.get("error") != "task_activation":
+        return True
+    return False
+
+
+def _metadata_exit_code(metadata: dict[str, Any] | None, *, require_pipeline_completed: bool = True) -> int:
+    meta = metadata if isinstance(metadata, dict) else {}
+    if _metadata_has_failure(meta):
         return 1
-    if meta.get("pipeline_completed") is True:
-        return 0
-    return 1
+    if require_pipeline_completed:
+        return 0 if meta.get("pipeline_completed") is True else 1
+    return 0
 
 
-def _run_status_exit_code(status: str, metadata: dict[str, Any] | None = None) -> int:
+def _run_status_exit_code(
+    status: str,
+    metadata: dict[str, Any] | None = None,
+    *,
+    require_pipeline_completed: bool = True,
+) -> int:
     normalized = str(status or "").strip().lower()
     if normalized in {"error", "cancelled"}:
         return 1
     if normalized == "done":
         meta = metadata if isinstance(metadata, dict) else {}
-        if meta:
-            return _metadata_exit_code(meta)
+        if meta or not require_pipeline_completed:
+            return _metadata_exit_code(meta, require_pipeline_completed=require_pipeline_completed)
         return 1
     return 1
 
 
-def _response_exit_code(response: AgentResponse) -> int:
+def _response_exit_code(response: AgentResponse, *, require_pipeline_completed: bool = True) -> int:
     metadata = response.metadata if isinstance(response.metadata, dict) else {}
-    return _metadata_exit_code(metadata)
+    return _metadata_exit_code(metadata, require_pipeline_completed=require_pipeline_completed)
 
 
-def _log_metadata_summary(metadata: dict[str, Any] | None, *, content: str = "") -> None:
+def _log_metadata_summary(
+    metadata: dict[str, Any] | None,
+    *,
+    content: str = "",
+    require_pipeline_completed: bool = True,
+) -> None:
     meta = metadata if isinstance(metadata, dict) else {}
     pipeline_completed = meta.get("pipeline_completed")
     validation_errors = meta.get("pipeline_validation_errors") or []
@@ -160,6 +209,9 @@ def _log_metadata_summary(metadata: dict[str, Any] | None, *, content: str = "")
 
     if pipeline_completed is True:
         LOGGER.info("Pipeline completed successfully (tool_steps=%d)", tool_steps)
+        return
+    if not require_pipeline_completed and not _metadata_has_failure(meta):
+        LOGGER.info("Task completed successfully (tool_steps=%d)", tool_steps)
         return
 
     if validation_errors:
@@ -180,9 +232,13 @@ def _log_metadata_summary(metadata: dict[str, Any] | None, *, content: str = "")
         LOGGER.error("Agent response preview: %s", preview[:500])
 
 
-def _log_response_summary(response: AgentResponse) -> None:
+def _log_response_summary(response: AgentResponse, *, require_pipeline_completed: bool = True) -> None:
     metadata = response.metadata if isinstance(response.metadata, dict) else {}
-    _log_metadata_summary(metadata, content=str(response.content or ""))
+    _log_metadata_summary(
+        metadata,
+        content=str(response.content or ""),
+        require_pipeline_completed=require_pipeline_completed,
+    )
 
 
 async def _close_dojo_client(client: Any) -> None:
@@ -307,6 +363,137 @@ async def _run_pipeline_task_remote(args: argparse.Namespace, *, pipeline_id: st
     return exit_code
 
 
+async def _run_single_task_local(
+    args: argparse.Namespace,
+    *,
+    task_id: str,
+    message: str,
+    session_id: str,
+) -> int:
+    runtime: Runtime | None = None
+    services: Any | None = None
+
+    try:
+        runtime, services = await _prepare_task_runtime(
+            args.config,
+            preload=not bool(args.no_preload),
+        )
+        manager = runtime.task_manager
+        if manager.get_task(task_id) is None:
+            available = ", ".join(manager.list_tasks()) or "(none)"
+            raise TaskActivationError(f"Unknown task: {task_id}. Available: {available}.")
+
+        LOGGER.info(
+            "Starting local task run: task=%s session_id=%s message=%s",
+            task_id,
+            session_id,
+            message,
+        )
+
+        request = ChatRequest(
+            message=message,
+            principal=SessionPrincipal("local"),
+            session_id=session_id,
+            channel="cli",
+            metadata={"persist_session": False},
+        )
+        response = await run_agent_with_tasks(
+            runtime,
+            request,
+            run_agent=runtime.agent.run,
+        )
+        exit_code = _response_exit_code(response, require_pipeline_completed=False)
+        _log_response_summary(response, require_pipeline_completed=False)
+        return exit_code
+    finally:
+        if runtime is not None:
+            await runtime.shutdown()
+        if services is not None:
+            await services.shutdown()
+
+
+async def _run_single_task_remote(
+    args: argparse.Namespace,
+    *,
+    task_id: str,
+    message: str,
+    session_id: str,
+) -> int:
+    store = ConfigStore(args.config)
+    configure_logging(store.snapshot().logging)
+    config = store.snapshot()
+    if not config.tasks.enabled:
+        raise TaskActivationError("tasks.enabled is false in config; enable tasks to use the CLI.")
+
+    base_url = dashboard_base_url_from_config(args.config, override=args.dashboard_url or None)
+
+    record = await run_task_via_dashboard(
+        base_url=base_url,
+        message=message,
+        session_id=session_id,
+    )
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    status = str(record.get("status") or "")
+    exit_code = _run_status_exit_code(status, metadata, require_pipeline_completed=False)
+    _log_metadata_summary(
+        metadata,
+        content=str(record.get("content") or ""),
+        require_pipeline_completed=False,
+    )
+    return exit_code
+
+
+async def run_single_task(args: argparse.Namespace) -> int:
+    task_id = str(args.task or "").strip()
+    if not task_id:
+        raise TaskActivationError("Missing required --task")
+
+    manager = load_task_manager(args.config)
+    if manager.get_task(task_id) is None:
+        available = ", ".join(manager.list_tasks()) or "(none)"
+        raise TaskActivationError(f"Unknown task: {task_id}. Available: {available}.")
+
+    trading_date = None
+    if args.date:
+        trading_date = _validate_trading_date(args.date)
+    task_args = [str(item) for item in (getattr(args, "task_args", None) or [])]
+    message = _build_task_slash_message(task_id, trading_date=trading_date, task_args=task_args)
+
+    # Single-task CLI defaults to one attempt; retries (if requested) each get a fresh session.
+    max_retries = int(args.max_retries) if args.max_retries is not None else 1
+    if max_retries < 1:
+        max_retries = 1
+    exit_code = 1
+    for attempt in range(1, max_retries + 1):
+        session_id = _new_cli_task_session_id(task_id)
+        try:
+            if bool(args.local):
+                exit_code = await _run_single_task_local(
+                    args,
+                    task_id=task_id,
+                    message=message,
+                    session_id=session_id,
+                )
+            else:
+                exit_code = await _run_single_task_remote(
+                    args,
+                    task_id=task_id,
+                    message=message,
+                    session_id=session_id,
+                )
+        except Exception as exc:
+            LOGGER.error("Exception during task %s execution on attempt %d: %s", task_id, attempt, exc)
+            exit_code = 1
+
+        if exit_code == 0:
+            break
+        if attempt < max_retries:
+            LOGGER.warning("Task %s failed on attempt %d of %d. Retrying with a new session...", task_id, attempt, max_retries)
+        else:
+            LOGGER.error("Task %s failed after %d attempts.", task_id, max_retries)
+    return exit_code
+
+
 def _select_eval_artifacts(task: TaskSpec, artifact_filter: str) -> list[TaskArtifactSpec]:
     outputs = list(task.contract.outputs)
     wanted = str(artifact_filter or "").strip()
@@ -346,7 +533,7 @@ def eval_task_output(args: argparse.Namespace) -> int:
 
     total_issues = 0
     for artifact in artifacts:
-        filename = resolve_dated_filename(artifact.filename, params)
+        filename = resolve_filename_template(artifact.filename, params)
         try:
             path = resolve_task_output_file(output_root, task.contract.id, filename)
         except ValueError as exc:
@@ -417,7 +604,9 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
                 await _upload_daily_market_events(args.config, trading_date)
             return 0
 
-    max_retries = getattr(args, "max_retries", 3)
+    max_retries = int(args.max_retries) if args.max_retries is not None else 3
+    if max_retries < 1:
+        max_retries = 1
     exit_code = 1
 
     for attempt in range(1, max_retries + 1):
@@ -496,6 +685,8 @@ async def _upload_daily_market_events(config_path: str, trading_date: str) -> No
 async def run_tasks_command(args: argparse.Namespace) -> int:
     if args.tasks_command == "run":
         try:
+            if str(getattr(args, "task", "") or "").strip():
+                return await run_single_task(args)
             return await run_pipeline_task(args)
         except (TaskActivationError, DashboardTaskClientError) as exc:
             LOGGER.error("%s", exc)

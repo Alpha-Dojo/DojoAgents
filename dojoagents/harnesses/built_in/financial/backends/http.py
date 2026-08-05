@@ -23,6 +23,10 @@ _TOOL_ROUTES: dict[str, tuple[str, str]] = {
     "get_sector_movers": ("GET", "/api/v1/market/sector-movers"),
     "screen_market_stocks": ("GET", "/api/v1/market/screener"),
     "get_sector_analysis": ("GET", "/api/v1/sector/analysis"),
+    "get_sector_attribution_factors": (
+        "GET",
+        "/api/v1/sector/attribution-factors",
+    ),
     "filter_sector_constituents": (
         "GET",
         "/api/v1/sector/constituents",

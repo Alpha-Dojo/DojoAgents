@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from dojoagents.dashboard.services.attribution_factor_service import (
+    build_sector_attribution_factors,
+)
 from dojoagents.dashboard.services.domain_api import (
     SECTOR_PATH_INVALID_FORMAT,
     SECTOR_PATH_REJECTED_INDEX_GUESS,
@@ -149,11 +152,8 @@ _SECTOR_ID_PROPERTIES = {
     },
     "sector_name": {
         "type": "string",
-        "description": "Fallback only: exact L3 label when ids are unavailable.",
+        "description": "Fallback only: exact L3 label (zh or en) when ids are unavailable.",
     },
-    "level1_name": {"type": "string", "description": "Fallback only: L1 sector label in zh or en."},
-    "level2_name": {"type": "string", "description": "Fallback only: L2 sector label in zh or en."},
-    "level3_name": {"type": "string", "description": "Fallback only: L3 sector label in zh or en."},
 }
 
 
@@ -164,9 +164,6 @@ def _sector_path_kwargs(args: dict[str, Any]) -> dict[str, Any]:
         "level2_id": _str_arg(args, "level2_id"),
         "level3_id": _str_arg(args, "level3_id"),
         "sector_name": _optional_str_arg(args, "sector_name"),
-        "level1_name": _optional_str_arg(args, "level1_name"),
-        "level2_name": _optional_str_arg(args, "level2_name"),
-        "level3_name": _optional_str_arg(args, "level3_name"),
         "market": _optional_str_arg(args, "market"),
     }
 
@@ -203,14 +200,14 @@ def _agent_message_for_sector_path_error(exc: SectorPathResolutionError) -> str:
 def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[str, Any]):
     kwargs = _sector_path_kwargs(args)
     id_keys = ("sector_path_id", "level1_id", "level2_id", "level3_id")
-    if not any(kwargs.get(key) for key in id_keys) and not (kwargs.get("sector_name") or kwargs.get("level3_name")):
+    if not any(kwargs.get(key) for key in id_keys) and not kwargs.get("sector_name"):
         raise RuntimeError(
             "sector path is required. Workflow: (1) search_sector_taxonomy with the concept keyword, "
             "(2) copy sector_path_id OR level1_id/level2_id/level3_id from best_match, "
             "(3) filter_sector_constituents / get_sector_analysis with those ids."
         )
 
-    has_name = bool(kwargs.get("sector_name") or kwargs.get("level3_name"))
+    has_name = bool(kwargs.get("sector_name"))
     if kwargs.get("sector_path_id"):
         try:
             return resolve_sector_path(registry, **kwargs)
@@ -258,9 +255,20 @@ def register_dashboard_domain_tools(
     async def taxonomy_search(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
         query = _str_arg(args, "q") or _str_arg(args, "query")
-        if not query:
-            raise RuntimeError("q is required")
-        result = build_sector_taxonomy_search(registry, query=query, limit=_int_arg(args, "limit", 10))
+        sector_path_id = _str_arg(args, "sector_path_id")
+        if not sector_path_id and not query:
+            raise RuntimeError("q or sector_path_id is required")
+        try:
+            result = build_sector_taxonomy_search(
+                registry,
+                query=query,
+                limit=_int_arg(args, "limit", 10),
+                sector_path_id=sector_path_id,
+            )
+        except SectorPathResolutionError as exc:
+            raise RuntimeError(_agent_message_for_sector_path_error(exc)) from exc
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
         return _json_content(result)
 
     async def market_overview(args: dict[str, Any]) -> dict[str, Any]:
@@ -328,6 +336,43 @@ def register_dashboard_domain_tools(
             scope=_str_arg(args, "scope", "L3"),
             market=_optional_str_arg(args, "market"),
             days=_int_arg(args, "days", 1),
+            start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
+            end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
+        )
+        return _json_content(result)
+
+    async def sector_attribution_factors(args: dict[str, Any]) -> dict[str, Any]:
+        _service_ready(registry)
+        client = registry.client
+        if client is None:
+            raise RuntimeError("Dojo client is not initialized")
+        market = _str_arg(args, "market")
+        if not market:
+            raise RuntimeError("market is required")
+        start_date = _optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time")
+        end_date = _optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time")
+        if not start_date or not end_date:
+            raise RuntimeError("start_date and end_date are required")
+        sector = _str_arg(args, "sector_id") or _str_arg(args, "sector_path_id")
+        if not sector:
+            level1_id = _str_arg(args, "level1_id")
+            level2_id = _str_arg(args, "level2_id")
+            level3_id = _str_arg(args, "level3_id")
+            if level1_id and level2_id and level3_id:
+                sector = f"{level1_id}/{level2_id}/{level3_id}"
+            else:
+                raise RuntimeError("sector_id or level1_id/level2_id/level3_id is required")
+        locale = _str_arg(args, "locale", "zh")
+        if locale not in {"zh", "en"}:
+            raise RuntimeError("locale must be zh or en")
+        result = await build_sector_attribution_factors(
+            client,
+            market=market,
+            sector_id=sector,
+            start_date=start_date,
+            end_date=end_date,
+            locale=locale,  # type: ignore[arg-type]
+            limit=_optional_int_arg(args, "limit"),
         )
         return _json_content(result)
 
@@ -449,18 +494,23 @@ def register_dashboard_domain_tools(
         ToolSpec(
             name="search_sector_taxonomy",
             description=(
-                "Search L3 industry sectors by concept keyword (具身智能, 机器人, 半导体, robotics). "
-                "Returns sector_path_id + level1_id/level2_id/level3_id with match_score. "
-                "Ids are opaque — copy them verbatim when a follow-up tool needs a sector path."
+                "Resolve L3 industry sectors. "
+                "Pass sector_path_id for exact path lookup (returns names/breadcrumb; ignores q). "
+                "Or pass q/query keyword (具身智能, 半导体, robotics) for ranked text search. "
+                "Returns items + best_match with sector_path_id / names / match_score, "
+                "plus l3_options under touched L2 branches. Copy ids verbatim."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "q": {"type": "string", "description": "Sector keyword in zh or en"},
                     "query": {"type": "string", "description": "Alias for q"},
+                    "sector_path_id": {
+                        "type": "string",
+                        "description": "Exact path level1_id/level2_id/level3_id — skips text search",
+                    },
                     "limit": {"type": "integer", "minimum": 1, "maximum": 25},
                 },
-                "required": ["q"],
             },
             handler=taxonomy_search,
         ),
@@ -634,6 +684,9 @@ def register_dashboard_domain_tools(
                 "sector_path_id (three segments) or level1_id/level2_id/level3_id from best_match. "
                 "Required: market (us|cn|hk). scope=L1|L2|L3 controls breadth (L2 = all L3 children "
                 "under the same L2 branch) but ids must still be the full path from search. "
+                "Returns: omit dates for latest quote change_percent + optional days window_change_percent; "
+                "or pass start_date+end_date (YYYY-MM-DD) for historical window returns "
+                "(single day: set both equal; dates override days). "
                 "FORBIDDEN: two-segment paths like 1/2 or guessing ids."
             ),
             parameters={
@@ -643,9 +696,59 @@ def register_dashboard_domain_tools(
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                     "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
                     "days": {"type": "integer", "minimum": 1, "maximum": 90},
+                    "start_date": {
+                        "type": "string",
+                        "description": "Optional window start YYYY-MM-DD; requires end_date; overrides days.",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Optional window end YYYY-MM-DD; requires start_date; max 126 calendar-day span.",
+                    },
                 },
             },
             handler=sector_constituents,
+        ),
+        ToolSpec(
+            name="get_sector_attribution_factors",
+            description=(
+                "List sector attribution factors for ONE exact taxonomy path and event_time date window. "
+                "Pass market + sector_id (or sector_path_id / level1_id+level2_id+level3_id from "
+                "search_sector_taxonomy) + start_date + end_date (YYYY-MM-DD). "
+                "locale=zh|en projects claim/mechanism to a single string. "
+                "Rows without event_time are dropped; sector_id is exact-match (not path prefix)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
+                    "sector_id": {
+                        "type": "string",
+                        "description": "Exact L1/L2/L3 path (alias of sector_path_id).",
+                    },
+                    **_SECTOR_ID_PROPERTIES,
+                    "start_date": {
+                        "type": "string",
+                        "description": "Inclusive lower bound YYYY-MM-DD (event_time calendar day).",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Inclusive upper bound YYYY-MM-DD (event_time calendar day).",
+                    },
+                    "locale": {
+                        "type": "string",
+                        "enum": ["zh", "en"],
+                        "description": "Project bilingual claim/mechanism to this locale (default zh).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "description": "Optional post-filter safety cap (do not use as history bound).",
+                    },
+                },
+                "required": ["market", "start_date", "end_date"],
+            },
+            handler=sector_attribution_factors,
         ),
         ToolSpec(
             name="get_ticker_realtime_quote",

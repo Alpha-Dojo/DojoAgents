@@ -1,9 +1,18 @@
+export interface ProviderHeaderForm {
+  id: string;
+  name: string;
+  value: string;
+  configured: boolean;
+}
+
 export interface ProviderForm {
+  persisted: boolean;
   model: string;
   author: string;
   base_url: string;
   api_key_env: string;
   api_key: string;
+  extra_headers: ProviderHeaderForm[];
 }
 
 export interface SettingsFormState {

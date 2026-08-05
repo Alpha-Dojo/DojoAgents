@@ -470,6 +470,7 @@ class Runtime:
                 api_key=provider_cfg.api_key,
                 api_key_env=provider_cfg.api_key_env,
                 base_url=provider_cfg.base_url,
+                extra_headers=provider_cfg.extra_headers,
             )
             model = self.config.agent.model or provider_cfg.model
         else:
@@ -477,6 +478,7 @@ class Runtime:
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
+                extra_headers=provider_cfg.extra_headers,
             )
             llm_provider.name = provider_name or "openai"
             model = self.config.agent.model or provider_cfg.model
@@ -740,6 +742,7 @@ class Runtime:
                 api_key=provider_cfg.api_key,
                 api_key_env=provider_cfg.api_key_env,
                 base_url=provider_cfg.base_url,
+                extra_headers=provider_cfg.extra_headers,
             )
             LOGGER.info(
                 "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
@@ -754,6 +757,7 @@ class Runtime:
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
+                extra_headers=provider_cfg.extra_headers,
             )
             provider.name = provider_name or "openai"
             LOGGER.info(

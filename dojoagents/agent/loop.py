@@ -1890,7 +1890,11 @@ class AgentLoop:
             return None
         from openai import AsyncOpenAI
 
-        return AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            default_headers=provider_cfg.extra_headers or None,
+        )
 
     def _sanitize_tool_specs(
         self,

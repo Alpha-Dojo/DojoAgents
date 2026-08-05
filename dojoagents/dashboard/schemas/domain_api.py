@@ -235,6 +235,37 @@ class MarketDynamicsResponse(BaseModel):
     trading_dates: List[str] = Field(default_factory=list)
 
 
+class SectorAttributionFactorEvidence(BaseModel):
+    quote: str
+    url: Optional[str] = None
+    title: Optional[str] = None
+
+
+class SectorAttributionFactorItem(BaseModel):
+    event_time: str
+    claim: str = ""
+    mechanism: str = ""
+    sector_id: str
+    market: str
+    factor_topic: str = ""
+    role: str = "explains_move"
+    price_direction: Optional[str] = None
+    importance: Optional[str] = None
+    stance: Optional[str] = None
+    affected_tickers: List[str] = Field(default_factory=list)
+    evidence: List[SectorAttributionFactorEvidence] = Field(default_factory=list)
+
+
+class SectorAttributionFactorsResponse(BaseModel):
+    market: str
+    sector_id: str
+    locale: Literal["zh", "en"] = "zh"
+    start_date: str
+    end_date: str
+    total_num: int = 0
+    items: List[SectorAttributionFactorItem] = Field(default_factory=list)
+
+
 class StockScreenItem(BaseModel):
     ticker: str
     market: str

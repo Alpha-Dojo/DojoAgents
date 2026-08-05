@@ -105,6 +105,55 @@ async def test_model_context_registry_fetches_openrouter_models_index_and_matche
 
 
 @pytest.mark.asyncio
+async def test_model_context_registry_adds_provider_extra_headers(tmp_path, monkeypatch):
+    requested = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": []}
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            requested["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            requested["url"] = url
+            requested["headers"] = headers
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    registry = ModelContextRegistry(tmp_path / "limits.json", default_context_window=32768)
+
+    info = await registry._retrieve_openrouter_info(
+        LLMProviderConfig(
+            model="glm-5.2",
+            author="z-ai",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="test-key",
+            extra_headers={"X-Tenant-ID": "tenant-42"},
+        ),
+        "openai",
+    )
+
+    assert info is None
+    assert requested["headers"] == {
+        "X-Tenant-ID": "tenant-42",
+        "Authorization": "Bearer test-key",
+    }
+
+
+@pytest.mark.asyncio
 async def test_model_context_registry_reads_structured_cache_and_preserves_modalities(tmp_path):
     cache_path = tmp_path / "limits.json"
     cache_path.write_text(

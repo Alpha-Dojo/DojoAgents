@@ -9,7 +9,12 @@ from dojoagents.config.models import (
     PlanConfig,
     WebToolsConfig,
 )
-from dojoagents.config.loader import _to_config, resolve_provider_config
+from dojoagents.config.loader import (
+    ConfigStore,
+    _to_config,
+    provider_model_candidates,
+    resolve_provider_config,
+)
 from dojoagents.config.models import LLMConfig, LLMProviderConfig
 
 
@@ -94,6 +99,177 @@ class TestConfigLoader:
             }
         )
         assert cfg.agent.model == "test-model"
+        assert cfg.llm_provider.providers["openai"].models == ("test-model",)
+
+    def test_provider_supports_multiple_models_and_uses_first_as_default(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "default": "openai",
+                    "providers": {
+                        "openai": {
+                            "models": ["gpt-4.1", "gpt-4o", "gpt-4.1"],
+                            "api_key_env": "OPENAI_API_KEY",
+                        }
+                    },
+                }
+            }
+        )
+
+        provider = cfg.llm_provider.providers["openai"]
+        assert provider.model == "gpt-4.1"
+        assert provider.models == ("gpt-4.1", "gpt-4o")
+        assert cfg.agent.model == "gpt-4.1"
+
+    def test_provider_default_model_is_added_to_candidate_list(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openai": {
+                            "model": "gpt-4.1",
+                            "models": ["gpt-4o"],
+                        }
+                    }
+                }
+            }
+        )
+        assert provider_model_candidates(cfg.llm_provider.providers["openai"]) == ("gpt-4.1", "gpt-4o")
+
+    def test_provider_parses_extra_headers(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openai": {
+                            "model": "gpt-4.1",
+                            "extra_headers": {
+                                "X-Tenant-ID": "tenant-42",
+                                "X-Trace-Source": "dojoagents",
+                            },
+                        }
+                    }
+                }
+            }
+        )
+
+        assert cfg.llm_provider.providers["openai"].extra_headers == {
+            "X-Tenant-ID": "tenant-42",
+            "X-Trace-Source": "dojoagents",
+        }
+
+    @pytest.mark.parametrize("extra_headers", [["X-Test"], {"X-Test": 1}, {"": "value"}])
+    def test_provider_rejects_invalid_extra_headers(self, extra_headers):
+        with pytest.raises(ValueError, match="extra_headers"):
+            _to_config(
+                {
+                    "llm_provider": {
+                        "providers": {
+                            "openai": {
+                                "model": "gpt-4.1",
+                                "extra_headers": extra_headers,
+                            }
+                        }
+                    }
+                }
+            )
+
+    def test_provider_expands_environment_variables_in_extra_headers(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DOJO_TEST_TENANT", "tenant-from-env")
+        config_path = tmp_path / "agents.yaml"
+        config_path.write_text(
+            """
+llm_provider:
+  providers:
+    openai:
+      model: gpt-4.1
+      extra_headers:
+        X-Tenant-ID: ${DOJO_TEST_TENANT}
+""".strip(),
+            encoding="utf-8",
+        )
+
+        provider = ConfigStore(config_path).snapshot().llm_provider.providers["openai"]
+
+        assert provider.extra_headers == {"X-Tenant-ID": "tenant-from-env"}
+
+    def test_resolves_explicit_and_unique_candidate_models(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "default": "openai",
+                    "providers": {
+                        "openai": {
+                            "model": "gpt-4.1",
+                            "models": ["gpt-4.1", "gpt-4o"],
+                        },
+                        "openrouter": {
+                            "models": ["z-ai/glm-5.2", "openai/gpt-4o"],
+                            "base_url": "https://openrouter.ai/api/v1",
+                        },
+                    },
+                }
+            }
+        )
+
+        name, provider = resolve_provider_config(
+            cfg.llm_provider,
+            "openai:gpt-4o",
+        )
+        assert name == "openai"
+        assert provider.model == "gpt-4o"
+
+        name, provider = resolve_provider_config(
+            cfg.llm_provider,
+            "openrouter:openai/gpt-4o",
+        )
+        assert name == "openrouter"
+        assert provider.model == "gpt-4o"
+        assert provider.author == "openai"
+
+        name, provider = resolve_provider_config(cfg.llm_provider, "glm-5.2")
+        assert name == "openai"
+        assert provider.model == "gpt-4.1"
+
+        name, provider = resolve_provider_config(
+            cfg.llm_provider,
+            "z-ai/glm-5.2",
+        )
+        assert name == "openrouter"
+        assert provider.model == "glm-5.2"
+        assert provider.author == "z-ai"
+
+    def test_rejects_non_list_provider_models(self):
+        with pytest.raises(ValueError, match=r"openai\.models must be a list"):
+            _to_config(
+                {
+                    "llm_provider": {
+                        "providers": {
+                            "openai": {
+                                "models": "gpt-4.1",
+                            }
+                        }
+                    }
+                }
+            )
+
+    def test_rejects_unknown_explicit_provider_model(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openai": {
+                            "models": ["gpt-4.1"],
+                        }
+                    }
+                }
+            }
+        )
+        with pytest.raises(ValueError, match="not configured"):
+            resolve_provider_config(
+                cfg.llm_provider,
+                "openai:not-configured",
+            )
 
     def test_parses_provider_author(self):
         cfg = _to_config(

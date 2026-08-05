@@ -129,34 +129,6 @@ class KlineStore:
             return await method(market, symbols, **window)
         return await method(symbols, **window)
 
-    def _load_disk_once(self) -> None:
-        if self._disk_loaded:
-            return
-        self._disk_loaded = True
-        path = self._parquet_path
-        if path is None or not path.exists():
-            return
-        try:
-            frame = self._to_frame(pd.read_parquet(path))
-        except Exception:
-            LOGGER.warning("Ignoring unreadable kline working set: %s", path)
-            return
-        self._replace_memory(frame)
-
-    def _replace_memory(self, frame: pd.DataFrame) -> None:
-        if frame.empty:
-            return
-        prepared = _prepare_kline_df(frame, symbol="")
-        if prepared.empty:
-            return
-        prepared = prepared.sort_values(["symbol", "bar_time"]).drop_duplicates(
-            subset=["symbol", "bar_time"],
-            keep="last",
-        )
-        self._in_memory_updates = {symbol: rows.reset_index(drop=True) for symbol, rows in prepared.groupby("symbol", sort=False)}
-        self.raw_by_symbol = {symbol: rows.to_dict(orient="records") for symbol, rows in self._in_memory_updates.items()}
-        self.member_symbols = len(self._in_memory_updates)
-
     def _cache_response(
         self,
         cache_key: str,

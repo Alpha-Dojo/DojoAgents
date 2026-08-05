@@ -66,6 +66,19 @@ def test_build_sector_taxonomy_search_returns_facts_without_playbook(sector_regi
     assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
 
 
+def test_build_sector_taxonomy_search_by_sector_path_id(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(
+        sector_registry,
+        sector_path_id="1/2/3",
+        query="ignored",
+    )
+    assert payload["count"] == 1
+    best = payload["best_match"]
+    assert best["sector_path_id"] == "1/2/3"
+    assert best["level3_name_en"] == "Application Software"
+    assert best["match_score"] == 100
+
+
 def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError) as exc:
         domain_api.resolve_sector_path(
@@ -79,7 +92,7 @@ def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
     assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
-def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
         sector_name="应用软件",
@@ -87,10 +100,10 @@ def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
     assert path.level3_id == "3"
 
 
-def test_resolve_sector_path_accepts_english_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_english_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
-        level3_name="Application Software",
+        sector_name="Application Software",
     )
     assert path.level2_id == "2"
 
@@ -114,6 +127,37 @@ def test_build_sector_taxonomy_search_returns_filter_examples(sector_registry) -
     assert first["level1_id"] == "1"
     assert first["level2_id"] == "2"
     assert first["level3_id"] == "3"
+
+
+def test_build_sector_taxonomy_search_appends_l3_options_for_hit_l2s(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(sector_registry, query="软件")
+    items = payload["items"]
+    assert items
+    options = payload["l3_options"]
+    assert options
+
+    hit_paths = {item["sector_path_id"] for item in items}
+    option_paths = {row["sector_path_id"] for row in options}
+    assert hit_paths.issubset(option_paths)
+
+    for item in items:
+        l1, l2, _l3 = item["sector_path_id"].split("/", 2)
+        siblings = [
+            path
+            for path in sector_registry.sector_store.iter_resolved_paths()
+            if path.level1_id == l1 and path.level2_id == l2
+        ]
+        for path in siblings:
+            sid = f"{path.level1_id}/{path.level2_id}/{path.level3_id}"
+            assert sid in option_paths
+
+    for row in options:
+        assert set(row) >= {"sector_path_id", "name_zh", "name_en", "level2_name_zh", "level2_name_en", "hit"}
+        assert row["hit"] is (row["sector_path_id"] in hit_paths)
+
+    # Ranked hit list unchanged relative to best_match.
+    assert payload["best_match"]["sector_path_id"] == items[0]["sector_path_id"]
+    assert payload["count"] == len(items)
 
 
 def test_resolve_sector_path_accepts_sector_path_id(sector_registry) -> None:
@@ -226,9 +270,6 @@ async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> Non
             level2_id=str(kwargs.get("level2_id") or ""),
             level3_id=str(kwargs.get("level3_id") or ""),
             sector_name=kwargs.get("sector_name"),
-            level1_name=kwargs.get("level1_name"),
-            level2_name=kwargs.get("level2_name"),
-            level3_name=kwargs.get("level3_name"),
             market=kwargs.get("market"),
         )
         return {"count": 1, "level3_id": path.level3_id, "items": []}

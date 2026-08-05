@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttributionFactor",
+  "description": "One JSONL row = one AttributionFactor. Backfill fields (payload_status, stance, timestamps) are optional.",
+  "type": "object",
+  "required": ["event_time", "claim", "sector_id", "market", "factor_topic"],
+  "additionalProperties": true,
+  "properties": {
+    "event_time": {
+      "type": "string",
+      "minLength": 16,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}.*$",
+      "description": "Required event occurrence datetime (ISO8601 with time, e.g. 2026-07-22T15:30:00+08:00). Date-only values are not allowed."
+    },
+    "claim": {
+      "type": "object",
+      "description": "Title-level phrase for this factor (zh/en; at least one side non-empty).",
+      "properties": {
+        "zh": { "type": "string" },
+        "en": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "sector_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "L1/L2/L3 taxonomy path (same as task input / search_sector_taxonomy)."
+    },
+    "market": {
+      "enum": ["us", "cn", "hk"]
+    },
+    "factor_topic": {
+      "enum": [
+        "earnings",
+        "corporate_action",
+        "policy_reg",
+        "demand_supply",
+        "product_tech",
+        "capital_market",
+        "market_structure",
+        "analyst_revision",
+        "exogenous_shock",
+        "macro"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["quote"],
+        "additionalProperties": false,
+        "properties": {
+          "quote": { "type": "string", "minLength": 1 },
+          "url": { "type": ["string", "null"] },
+          "title": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "affected_tickers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "role": {
+      "enum": ["explains_move", "open_risk", "open_catalyst", "context"]
+    },
+    "price_direction": {
+      "enum": ["up", "down", "mixed"]
+    },
+    "importance": {
+      "enum": ["high", "medium", "low"]
+    },
+    "mechanism": {
+      "type": "object",
+      "description": "How this factor affects sector price action.",
+      "properties": {
+        "zh": { "type": "string" },
+        "en": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "attrs": {
+      "type": "object"
+    },
+    "payload_status": {
+      "enum": ["draft", "ready", "rejected"]
+    },
+    "stance": {
+      "enum": ["positive", "negative", "mixed"]
+    },
+    "created_at": { "type": ["string", "null"] },
+    "updated_at": { "type": ["string", "null"] }
+  }
+}

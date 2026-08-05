@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -25,7 +25,7 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.17",
+    "dojosdk>=0.1.19",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",

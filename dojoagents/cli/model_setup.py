@@ -20,12 +20,16 @@ PRESET_PROVIDERS = {
 }
 
 
-def probe_endpoint_models(base_url: str, api_key: str) -> list[str]:
+def probe_endpoint_models(
+    base_url: str,
+    api_key: str,
+    extra_headers: dict[str, str] | None = None,
+) -> list[str]:
     """Verify endpoint and probe available models using /models endpoint."""
     url = f"{base_url.rstrip('/')}/models"
-    headers = {}
+    headers = dict(extra_headers or {})
     if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+        headers.setdefault("Authorization", f"Bearer {api_key}")
 
     try:
         LOGGER.info("Probing endpoint for available models...")
@@ -101,7 +105,11 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
         effective_key = api_key if api_key else current_key
 
         # 4. Probe Endpoint and Pick Model
-        available_models = probe_endpoint_models(base_url, effective_key)
+        available_models = probe_endpoint_models(
+            base_url,
+            effective_key,
+            current_prov_cfg.get("extra_headers") if isinstance(current_prov_cfg.get("extra_headers"), dict) else None,
+        )
         selected_model = ""
         if available_models:
             LOGGER.info("\nAvailable models on endpoint:")
@@ -124,6 +132,17 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
     # 5. Save settings to agents.yaml
     prov_cfg = {
         "model": selected_model,
+        "models": list(
+            dict.fromkeys(
+                model
+                for model in (
+                    selected_model,
+                    *available_models,
+                    *(current_prov_cfg.get("models", []) if isinstance(current_prov_cfg.get("models"), list) else []),
+                )
+                if isinstance(model, str) and model.strip()
+            )
+        ),
         "base_url": base_url,
     }
     if effective_key:
@@ -131,6 +150,8 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
     else:
         if "api_key_env" in current_prov_cfg:
             prov_cfg["api_key_env"] = current_prov_cfg["api_key_env"]
+    if isinstance(current_prov_cfg.get("extra_headers"), dict):
+        prov_cfg["extra_headers"] = dict(current_prov_cfg["extra_headers"])
 
     providers_section[provider_id] = prov_cfg
     llm_section["default"] = provider_id

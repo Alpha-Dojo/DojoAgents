@@ -128,6 +128,14 @@ def get_session_manager(request: Request) -> Any:
     return sessions
 
 
+def get_config_store(request: Request) -> Any | None:
+    store = getattr(request.app.state, "config_store", None)
+    if store is not None:
+        return store
+    runtime = getattr(request.app.state, "runtime", None)
+    return getattr(runtime, "config_store", None)
+
+
 def get_chat_session_service(request: Request) -> Any:
     from dojoagents.dashboard.services.chat_session_service import ChatSessionService
 
@@ -137,6 +145,7 @@ def get_chat_session_service(request: Request) -> Any:
 __all__ = [
     "get_benchmark_store",
     "get_chat_session_service",
+    "get_config_store",
     "get_dojo_sphere_service",
     "get_financial_registry",
     "get_forex_store",

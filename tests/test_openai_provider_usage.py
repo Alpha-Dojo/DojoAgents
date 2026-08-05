@@ -38,6 +38,23 @@ async def test_openai_provider_non_stream_usage():
 
 
 @pytest.mark.asyncio
+async def test_openai_provider_adds_configured_extra_headers():
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="http://example",
+        extra_headers={"X-Tenant-ID": "tenant-42"},
+    )
+    message = MagicMock(content="hello", tool_calls=None, reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=message)], usage=None)
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], [], model="gpt-4.1", stream=False)
+
+    assert client_cls.call_args.kwargs["default_headers"] == {"X-Tenant-ID": "tenant-42"}
+
+
+@pytest.mark.asyncio
 async def test_openai_provider_stream_usage():
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
 
@@ -159,3 +176,24 @@ async def test_openai_provider_preserves_tool_call_metadata_non_stream() -> None
 
     assert result.tool_calls[0].metadata["thought_signature"] == "sig-1"
     assert result.tool_calls[0].metadata["tool_call_extra"]["providerTag"] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_provider_restores_selected_model_author_prefix():
+    from dojoagents.agent.providers import OpenAICompatibleProvider
+
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="https://openrouter.ai/api/v1",
+        author="z-ai",
+    )
+    provider.name = "openrouter"
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content="ok", tool_calls=[]))]
+    response.usage = None
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], [], model="glm-5.2")
+
+    assert client_cls.return_value.chat.completions.create.await_args.kwargs["model"] == "z-ai/glm-5.2"

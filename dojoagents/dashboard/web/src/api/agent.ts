@@ -1,11 +1,13 @@
-import { ApiError } from './http';
+import { ApiError, fetchJson } from './http';
 import { fetchSettingsConfig } from './settings';
+import { USE_INTERACTIVE_MOCKS } from '../mocks/interactiveMockData';
 
 import type { AgentChatRequest, AgentContextUsageSnapshot, AgentModelsResponse, AgentModelItem, AgentStreamEvent, AgentSessionOutputsResponse, AgentSessionInputsResponse, AgentServerSessionListResponse, AgentServerSessionMessagesResponse, AgentSessionUsage, AgentToolTraceItem } from '../types/agent';
 import type { AgentVizBlock } from '../types/agentViz';
 
 
 const CHAT_API_PREFIX = '/api';
+const MODELS_API_URL = '/api/v1/models';
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -30,6 +32,13 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => asString(item).trim())
+    .filter((item, index, items) => Boolean(item) && items.indexOf(item) === index);
+}
+
 function providerHasCredentials(provider: string, providerConfig: Record<string, unknown>): boolean {
   if (providerConfig.api_key_configured === true) {
     return true;
@@ -52,32 +61,39 @@ function sortModelsByDefault(models: AgentModelItem[], defaultModelId: string): 
 }
 
 export async function fetchAgentModels(): Promise<AgentModelsResponse> {
+  if (!USE_INTERACTIVE_MOCKS) {
+    return fetchJson<AgentModelsResponse>(MODELS_API_URL);
+  }
   const config = await fetchSettingsConfig();
   const llmProvider = asRecord(config.llm_provider);
   const providers = asRecord(llmProvider.providers);
   const models = Object.entries(providers)
-    .map(([provider, rawConfig]) => {
+    .flatMap(([provider, rawConfig]) => {
       const providerConfig = asRecord(rawConfig);
-      const model = asString(providerConfig.model).trim();
-      if (!model || !providerHasCredentials(provider, providerConfig)) {
-        return null;
+      const configuredDefault = asString(providerConfig.model).trim();
+      const candidates = asStringList(providerConfig.models);
+      if (configuredDefault && !candidates.includes(configuredDefault)) {
+        candidates.unshift(configuredDefault);
       }
+      if (!candidates.length && configuredDefault) candidates.push(configuredDefault);
       const providerLabel = PROVIDER_LABELS[provider] ?? provider;
-      return {
-        id: provider,
+      const available = providerHasCredentials(provider, providerConfig);
+      return candidates.map((model) => ({
+        id: `${provider}:${model}`,
         label: `${providerLabel} · ${model}`,
         provider,
         model,
-        available: true,
-        unavailable_reason: null,
-      };
+        available,
+        unavailable_reason: available ? null : 'API key is not configured',
+      }));
     })
-    .filter((model): model is NonNullable<typeof model> => model !== null);
+    .filter((model) => Boolean(model.model));
 
-  const preferredDefault = asString(llmProvider.default) || models[0]?.id || 'openai';
-  const defaultModelId = models.some((model) => model.id === preferredDefault)
-    ? preferredDefault
-    : models[0]?.id ?? preferredDefault;
+  const defaultProvider = asString(llmProvider.default);
+  const defaultModelId =
+    models.find((model) => model.provider === defaultProvider)?.id ??
+    models[0]?.id ??
+    '';
 
   return {
     default_model_id: defaultModelId,

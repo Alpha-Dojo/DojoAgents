@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from dojo.datasource.config import HFConfig
-from dojo.datasource.huggingface import HuggingFaceDataSource
+from dojo.datasource.huggingface import HuggingFaceDataSource, HuggingFaceKlineDataSource
 from dojo.client.async_client import AsyncDojo
 
 
@@ -52,6 +55,90 @@ def test_huggingface_datasource_does_not_start_download_watchdog(tmp_path):
 
     started = [thread.name for thread in threading.enumerate() if thread.ident not in before and thread.name == "DojoSDK-DownloadWatchdog"]
     assert started == []
+
+
+def test_huggingface_preload_can_cancel_while_worker_is_blocked(tmp_path, monkeypatch):
+    source = HuggingFaceDataSource(_config(tmp_path))
+    entered = threading.Event()
+    release = threading.Event()
+    result: list[bool] = []
+    spec = SimpleNamespace(path_template="blocked.parquet")
+
+    monkeypatch.setattr("dojo.datasource.registry.resolve", lambda _path: spec)
+
+    def blocked_load(*_args, **_kwargs):
+        entered.set()
+        release.wait()
+
+    monkeypatch.setattr(source, "_load_dataset", blocked_load)
+    preload_thread = threading.Thread(
+        target=lambda: result.append(source.preload(["/blocked"])),
+        daemon=True,
+    )
+    preload_thread.start()
+    assert entered.wait(timeout=1)
+
+    started = time.monotonic()
+    source.cancel_preload()
+    preload_thread.join(timeout=1)
+
+    assert not preload_thread.is_alive()
+    assert result == [False]
+    assert time.monotonic() - started < 0.5
+    release.set()
+
+
+def test_kline_preload_can_cancel_while_final_warmup_is_blocked(tmp_path, monkeypatch):
+    source = HuggingFaceKlineDataSource(_config(tmp_path))
+    entered = threading.Event()
+    release = threading.Event()
+    result: list[bool] = []
+
+    monkeypatch.setattr(HuggingFaceDataSource, "preload", lambda _self, _paths: True)
+
+    def blocked_fetch_df(*_args, **_kwargs):
+        entered.set()
+        release.wait()
+
+    monkeypatch.setattr(source, "fetch_df", blocked_fetch_df)
+    preload_thread = threading.Thread(
+        target=lambda: result.append(source.preload(["/blocked"])),
+        daemon=True,
+    )
+    preload_thread.start()
+    assert entered.wait(timeout=1)
+
+    source.cancel_preload()
+    preload_thread.join(timeout=1)
+
+    assert not preload_thread.is_alive()
+    assert result == [False]
+    release.set()
+
+
+@pytest.mark.asyncio
+async def test_async_dojo_cancellation_reaches_offline_preload_worker():
+    entered = threading.Event()
+    cancelled = threading.Event()
+
+    class DataSource:
+        def preload(self, _paths):
+            entered.set()
+            assert cancelled.wait(timeout=2)
+
+        def cancel_preload(self):
+            cancelled.set()
+
+    client = object.__new__(AsyncDojo)
+    client._data_source = DataSource()
+    task = asyncio.create_task(client.preload_offline_data(["/blocked"]))
+    assert await asyncio.to_thread(entered.wait, 1)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cancelled.is_set()
 
 
 def test_huggingface_download_retries_transient_errors_with_a_finite_limit(

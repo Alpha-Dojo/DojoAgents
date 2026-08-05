@@ -4,7 +4,7 @@ import copy
 import logging
 import os
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -118,14 +118,45 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
     raw_model = _as_non_empty_string(raw.get("model"))
+    raw_models = raw.get("models", [])
+    if raw_models is None:
+        raw_models = []
+    if not isinstance(raw_models, (list, tuple)):
+        raise ValueError(f"llm_provider.providers.{name}.models must be a list")
+    models: list[str] = []
+    for index, value in enumerate(raw_models):
+        model = _as_non_empty_string(value)
+        if model is None:
+            raise ValueError(f"llm_provider.providers.{name}.models.{index} must be a " "non-empty string")
+        if model not in models:
+            models.append(model)
+    if raw_model is None and models:
+        raw_model = models[0]
+    elif raw_model is not None and raw_model not in models:
+        models.insert(0, raw_model)
     parsed_author, parsed_model = _split_author_and_model(raw_model)
     author = _as_non_empty_string(raw.get("author")) or parsed_author or _DEFAULT_PROVIDER_AUTHORS.get(name, "")
+    raw_extra_headers = raw.get("extra_headers", {})
+    if raw_extra_headers is None:
+        raw_extra_headers = {}
+    if not isinstance(raw_extra_headers, dict):
+        raise ValueError(f"llm_provider.providers.{name}.extra_headers must be a mapping")
+    extra_headers: dict[str, str] = {}
+    for raw_header_name, raw_header_value in raw_extra_headers.items():
+        header_name = _as_non_empty_string(raw_header_name)
+        if header_name is None:
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers keys must be non-empty strings")
+        if not isinstance(raw_header_value, str):
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
+        extra_headers[header_name] = raw_header_value
     return LLMProviderConfig(
         model=parsed_model,
+        models=tuple(models),
         author=author or None,
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
     )
 
@@ -141,11 +172,45 @@ def _resolve_optional_api_key(raw: dict[str, Any]) -> str | None:
     return text or None
 
 
-def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -> tuple[str | None, LLMProviderConfig | None]:
+def provider_model_candidates(provider: LLMProviderConfig) -> tuple[str, ...]:
+    if provider.models:
+        return provider.models
+    return (provider.model,) if provider.model else ()
+
+
+def _provider_for_model(
+    provider: LLMProviderConfig,
+    model: str,
+) -> LLMProviderConfig:
+    author, slug = _split_author_and_model(model)
+    return replace(
+        provider,
+        model=slug,
+        author=author or provider.author,
+    )
+
+
+def resolve_provider_config(
+    llm: LLMConfig,
+    requested_name: str | None = None,
+) -> tuple[str | None, LLMProviderConfig | None]:
     if not llm.providers:
         return None, None
-    if requested_name and requested_name in llm.providers:
-        return requested_name, llm.providers[requested_name]
+    requested = requested_name.strip() if isinstance(requested_name, str) else ""
+    if requested and requested in llm.providers:
+        return requested, llm.providers[requested]
+    if ":" in requested:
+        provider_name, model = requested.split(":", 1)
+        provider = llm.providers.get(provider_name)
+        if provider is not None:
+            if model in provider_model_candidates(provider):
+                return provider_name, _provider_for_model(provider, model)
+            raise ValueError(f"Model {model!r} is not configured for provider " f"{provider_name!r}")
+    if requested and requested != "default":
+        matches = [(name, provider, model) for name, provider in llm.providers.items() for model in provider_model_candidates(provider) if model == requested]
+        if len(matches) == 1:
+            name, provider, model = matches[0]
+            return name, _provider_for_model(provider, model)
     name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
     if name is None:
         name = next(iter(llm.providers))
@@ -477,6 +542,8 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+            if provider.get("extra_headers"):
+                provider["extra_headers"] = {key: "***" for key in provider["extra_headers"]}
         sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")
 
         def redact_options(value: Any) -> Any:

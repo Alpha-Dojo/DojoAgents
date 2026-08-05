@@ -249,6 +249,81 @@
   text-transform: uppercase;
 }
 
+.settings-extra-headers {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: rgb(0 0 0 / 10%);
+}
+
+.settings-extra-headers__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-extra-headers__title > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-extra-headers__title span {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-extra-headers__title small,
+.settings-extra-headers__empty {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.settings-extra-headers__empty {
+  margin: 0;
+  padding: 3px 0;
+}
+
+.settings-extra-headers__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.settings-extra-header-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1.2fr) 30px;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-extra-header-row__remove {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-extra-header-row__remove:hover,
+.settings-extra-header-row__remove:focus-visible {
+  border-color: rgb(218 74 86 / 55%);
+  color: var(--color-status-danger);
+  outline: none;
+}
+
 .settings-agent-row {
   display: grid;
   grid-template-columns: minmax(92px, 0.45fr) minmax(0, 1fr);
@@ -391,5 +466,23 @@
 
   .settings-modal__actions {
     justify-content: flex-end;
+  }
+
+  .settings-extra-headers__title {
+    align-items: flex-start;
+  }
+
+  .settings-extra-header-row {
+    grid-template-columns: minmax(0, 1fr) 30px;
+  }
+
+  .settings-extra-header-row .dojo-field:nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .settings-extra-header-row__remove {
+    grid-column: 2;
+    grid-row: 1;
   }
 }

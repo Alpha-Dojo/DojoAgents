@@ -70,12 +70,12 @@ class TaskOutputHarnessMixin:
         if active is None:
             return None, []
 
-        expected_outputs = {str(item.get("filename") or "") for item in active.outputs}
+        active_meta = active.to_metadata()
         for result in reversed(state.tool_results):
             if not result.ok or result.name != "write_session_file":
                 continue
             filename = self._write_filename(result)
-            if not filename or filename not in expected_outputs:
+            if not filename or find_output_artifact(active_meta, filename) is None:
                 continue
             issues = self._validate_written_output(active=active, result=result, filename=filename)
             if not issues:

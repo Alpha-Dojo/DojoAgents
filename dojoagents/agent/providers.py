@@ -146,10 +146,18 @@ class StaticLLMProvider:
 class OpenAICompatibleProvider:
     name = "openai"
 
-    def __init__(self, *, api_key: str | None = None, base_url: str | None = None, author: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        author: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.author = author
+        self.extra_headers = dict(extra_headers or {})
 
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
@@ -194,10 +202,15 @@ class OpenAICompatibleProvider:
             )
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            default_headers=self.extra_headers or None,
+        )
 
         actual_model = model
-        if self.name == "model-router" and self.author and not model.startswith(f"{self.author}/"):
+        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower()
+        if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
         try:
@@ -357,11 +370,13 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         api_key_env = config.get("api_key_env")
         base_url = config.get("base_url")
         model = config.get("model")
+        extra_headers = config.get("extra_headers") or {}
     else:
         api_key = getattr(config, "api_key", None)
         api_key_env = getattr(config, "api_key_env", None)
         base_url = getattr(config, "base_url", None)
         model = getattr(config, "model", None)
+        extra_headers = getattr(config, "extra_headers", {}) or {}
 
     if not api_key and api_key_env:
         api_key = os.getenv(api_key_env)
@@ -372,6 +387,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url,
+                "default_headers": extra_headers or None,
             },
             model_id=model or "gpt-4o",
         )
@@ -380,6 +396,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.deepseek.com",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "deepseek-chat",
         )
@@ -388,6 +405,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "qwen-max",
         )
@@ -396,6 +414,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.moonshot.cn/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "moonshot-v1-8k",
         )
@@ -404,6 +423,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "glm-4",
         )
@@ -412,6 +432,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.minimax.chat/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "abab6.5-chat",
         )
