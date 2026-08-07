@@ -80,6 +80,8 @@ from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_
 from dojoagents.dashboard.services.sector_search_policy import (
     SECTOR_CONCEPT_SYNONYMS,
     expand_sector_search_queries,
+    expand_sector_search_terms,
+    pick_best_match,
 )
 from dojoagents.dashboard.services.sector_leader_concentration import compute_leader_concentration
 from dojoagents.dashboard.services.market_stats import compute_market_stats
@@ -1025,6 +1027,13 @@ def build_sector_taxonomy_search(
 ) -> dict[str, Any]:
     store = registry.sector_store
     path_id = str(sector_path_id or "").strip()
+    id_note = (
+        "sector_path_id and level1_id/level2_id/level3_id are opaque ids resolved by exact "
+        "lookup. Copy them verbatim; do not construct ids or use array indices. "
+        "l3_options lists every L3 under L2 branches touched by items (hit=true means "
+        "also present in items). When best_match is null / ambiguous=true, pick from items "
+        "by name — do not invent ids."
+    )
     if path_id:
         path = resolve_sector_path(registry, sector_path_id=path_id)
         item = _sector_search_item(path)
@@ -1036,12 +1045,8 @@ def build_sector_taxonomy_search(
             "query": path_id,
             "expanded_queries": None,
             "count": 1,
-            "id_note": (
-                "sector_path_id and level1_id/level2_id/level3_id are opaque ids resolved by exact "
-                "lookup. Copy them verbatim; do not construct ids or use array indices. "
-                "l3_options lists every L3 under L2 branches touched by items (hit=true means "
-                "also present in items)."
-            ),
+            "id_note": id_note,
+            "ambiguous": False,
             "best_match": item,
             "items": items,
             "l3_options": _build_l3_options_for_search_hits(store, items),
@@ -1052,10 +1057,14 @@ def build_sector_taxonomy_search(
         raise ValueError("query or sector_path_id is required")
 
     cap = max(1, min(limit, 25))
-    search_queries = _expand_sector_search_queries(needle)
+    search_terms = expand_sector_search_terms(needle)
     best_hits: dict[tuple[str, str, str], Any] = {}
-    for term in search_queries:
-        for hit in store.search_resolved_paths_scored(term, limit=cap * 2):
+    for term in search_terms:
+        for hit in store.search_resolved_paths_scored(
+            term.text,
+            limit=cap * 2,
+            source=term.source,
+        ):
             key = (hit.path.level1_id, hit.path.level2_id, hit.path.level3_id)
             existing = best_hits.get(key)
             if existing is None or hit.score > existing.score:
@@ -1065,25 +1074,23 @@ def build_sector_taxonomy_search(
         best_hits.values(),
         key=lambda hit: (
             -hit.score,
-            hit.path.level3_zh or hit.path.level3_en or "",
+            0 if hit.matched_level == "L3" else 1 if hit.matched_level == "L2" else 2,
+            abs(len(hit.matched_label) - len(needle)),
             hit.path.level3_id,
         ),
     )[:cap]
     items = [_sector_search_item(hit.path, hit=hit) for hit in ranked]
     l3_options = _build_l3_options_for_search_hits(store, items)
+    best = pick_best_match(items)
+    expanded = [term.text for term in search_terms[1:]] or None
 
-    top = items[0] if items else None
     return {
         "query": needle,
-        "expanded_queries": search_queries[1:] or None,
+        "expanded_queries": expanded,
         "count": len(items),
-        "id_note": (
-            "sector_path_id and level1_id/level2_id/level3_id are opaque ids resolved by exact "
-            "lookup. Copy them verbatim; do not construct ids or use array indices. "
-            "l3_options lists every L3 under L2 branches touched by items (hit=true means "
-            "also present in items)."
-        ),
-        "best_match": top,
+        "id_note": id_note,
+        "ambiguous": best is None and bool(items),
+        "best_match": best,
         "items": items,
         "l3_options": l3_options,
     }

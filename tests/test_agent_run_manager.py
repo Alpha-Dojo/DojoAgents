@@ -341,7 +341,7 @@ def test_background_run_preprocesses_pipeline_command():
         "/api/chat/runs",
         json={
             "model": "gpt-4.1",
-            "messages": [{"role": "user", "content": "/pipeline daily-market-events 2026-07-03"}],
+            "messages": [{"role": "user", "content": "/pipeline daily-market-events 2026-07-03 market=us"}],
             "metadata": {"session_id": "sess-pipeline"},
         },
     )

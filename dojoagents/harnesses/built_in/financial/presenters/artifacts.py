@@ -145,23 +145,17 @@ def get_viz_hint_for_payload(payload: dict[str, Any] | None) -> dict[str, Any] |
         return None
     dates, prices = payload.get("dates"), payload.get("prices")
     if isinstance(dates, list) and isinstance(prices, list) and len(dates) >= 2 and len(prices) >= 2:
-        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
         return {
             "mapping_hint": "drawdown_analysis",
             "kind": "auto",
             "required_fields": ["dates", "prices"],
             "optional_fields": ["drawdown_pcts", "summary"],
-            "agent_viz_build_example": {
-                "mapping_hint": "drawdown_analysis",
-                "kind": "auto",
-                "title": f"{summary.get('ticker') or 'Ticker'} drawdown",
-                "data": {
-                    "dates": dates[:2] + ["..."],
-                    "prices": prices[:2] + ["..."],
-                    "drawdown_pcts": payload.get("drawdown_pcts", [])[:2] + ["..."],
-                    "summary": summary or {"max_drawdown_pct": 17.5},
-                },
-            },
+            "reuse": True,
+            "do_not_call_agent_viz_build_if_viz_blocks_present": True,
+            "note": (
+                "Auto viz_blocks are built from this VIZ_DATA when the shape is recognized. "
+                "Do not call agent_viz_build to re-embed dates/prices."
+            ),
         }
     if payload.get("klines") or payload.get("bars"):
         return {
@@ -169,19 +163,49 @@ def get_viz_hint_for_payload(payload: dict[str, Any] | None) -> dict[str, Any] |
             "kind": "auto",
             "source_tool": "get_ticker_price_trends",
             "data_keys": ["klines", "bars"],
+            "reuse": True,
+            "do_not_call_agent_viz_build_if_viz_blocks_present": True,
         }
     if payload.get("series") or payload.get("points"):
-        return {"kind": "line", "data_keys": ["series", "points"]}
+        return {
+            "kind": "line",
+            "data_keys": ["series", "points"],
+            "reuse": True,
+            "do_not_call_agent_viz_build_if_viz_blocks_present": True,
+        }
     if payload.get("metrics") or payload.get("items"):
-        return {"kind": "kpi_row", "data_keys": ["metrics", "items"]}
+        return {
+            "kind": "kpi_row",
+            "data_keys": ["metrics", "items"],
+            "reuse": True,
+            "do_not_call_agent_viz_build_if_viz_blocks_present": True,
+        }
     if payload.get("rows"):
-        return {"kind": "table", "data_keys": ["rows", "columns"]}
+        return {
+            "kind": "table",
+            "data_keys": ["rows", "columns"],
+            "reuse": True,
+            "do_not_call_agent_viz_build_if_viz_blocks_present": True,
+        }
     return None
 
 
 def format_execute_code_viz_hint(payload: dict[str, Any] | None) -> str:
     hint = get_viz_hint_for_payload(payload)
     return "" if not hint else "\n\n--- viz_hint ---\n" + json.dumps(hint, ensure_ascii=False, indent=2)
+
+
+def format_auto_viz_status(block_count: int) -> str:
+    payload = {
+        "viz_blocks_attached": block_count,
+        "reuse": True,
+        "do_not_call_agent_viz_build": True,
+        "note": (
+            f"{block_count} viz_block(s) already attached. Interpret in markdown; "
+            "do not call agent_viz_build to rebuild the same chart."
+        ),
+    }
+    return "\n\n--- viz_status ---\n" + json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def enrich_execute_code_tool_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -251,7 +275,11 @@ def build_financial_artifact_pointer(
     if viz_hint:
         summary["viz_hint"] = viz_hint
         mapping = viz_hint.get("mapping_hint") or viz_hint.get("kind") or "auto"
-        summary["viz_build_hint"] = f'agent_viz_build({{"mapping_hint": "{mapping}", "kind": ' f'"{viz_hint.get("kind") or "auto"}", "data": <loaded payload>}})'
+        summary["viz_build_hint"] = (
+            f"Prefer auto viz_blocks for mapping_hint={mapping}. "
+            "Call agent_viz_build only if viz_blocks are missing or the wrong kind; "
+            "never re-pass the full loaded series to rebuild an existing chart."
+        )
     return json.dumps(summary, ensure_ascii=False, indent=2)
 
 

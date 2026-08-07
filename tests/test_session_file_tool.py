@@ -185,7 +185,7 @@ async def test_read_prefers_task_disk_for_active_task_even_with_session_service(
     write_session_file(
         sessions_root=tmp_path / "unused-sessions",
         session_id="sess-pipe",
-        filename="market_news_raw_pack_2026-07-27.json",
+        filename="market_news_raw_pack_us_2026-07-27.json",
         content={
             "trading_date": "2026-07-27",
             "window_start_date": "2026-07-27",
@@ -199,7 +199,7 @@ async def test_read_prefers_task_disk_for_active_task_even_with_session_service(
         request_metadata={
             "active_task": {
                 "task_id": "sector-attribution",
-                "outputs": [{"filename": "market_news_raw_pack_2026-07-27.json", "format": "json"}],
+                "outputs": [{"filename": "market_news_raw_pack_us_2026-07-27.json", "format": "json"}],
             }
         },
     )
@@ -229,7 +229,7 @@ async def test_read_prefers_task_disk_for_active_task_even_with_session_service(
                     "task_id": "event-trigger",
                     "inputs": [
                         {
-                            "filename": "market_news_raw_pack_2026-07-27.json",
+                            "filename": "market_news_raw_pack_us_2026-07-27.json",
                             "source_task_id": "sector-attribution",
                             "required": True,
                         }
@@ -239,7 +239,7 @@ async def test_read_prefers_task_disk_for_active_task_even_with_session_service(
         )
     )
     try:
-        loaded = await read.handler({"filename": "market_news_raw_pack_2026-07-27.json"})
+        loaded = await read.handler({"filename": "market_news_raw_pack_us_2026-07-27.json"})
     finally:
         active_write_session_file_guard.reset(guard_token)
         active_session_principal.reset(principal_token)

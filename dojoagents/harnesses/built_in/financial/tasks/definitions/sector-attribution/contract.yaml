@@ -15,7 +15,7 @@ required_tools:
   - execute_code
   - write_session_file
 outputs:
-  - filename: market_news_raw_pack_{trading_date}.json
+  - filename: market_news_raw_pack_{market}_{trading_date}.json
     format: json
     required: true
     schema: schema/market_news_raw_pack.schema.json

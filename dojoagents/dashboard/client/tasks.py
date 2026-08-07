@@ -164,9 +164,14 @@ async def run_pipeline_via_dashboard(
     pipeline_id: str,
     trading_date: str,
     session_id: str,
+    market: str = "",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
-    message = f"/pipeline {pipeline_id} {trading_date}"
+    parts = [f"/pipeline {pipeline_id}", trading_date]
+    market_code = str(market or "").strip().lower()
+    if market_code:
+        parts.append(f"market={market_code}")
+    message = " ".join(parts)
     return await run_message_via_dashboard(
         base_url=base_url,
         message=message,
