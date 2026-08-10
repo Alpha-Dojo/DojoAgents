@@ -41,7 +41,7 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     crawl = manager.get_task("attribution-factor-crawl")
     brief = manager.get_task("sector-brief-extract")
     pipeline = manager.get_pipeline("daily-market-events")
-    assert sector.contract.outputs[0].filename == "market_news_raw_pack_{trading_date}.json"
+    assert sector.contract.outputs[0].filename == "market_news_raw_pack_{market}_{trading_date}.json"
     assert event.contract.inputs[0].schema.endswith("market_news_raw_pack.schema.json")
     assert event.contract.constraints["must_read_input_before_write"] is True
     assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]
@@ -187,10 +187,14 @@ def test_command_activation_keeps_task_profile_and_output_schema(tmp_path):
         principal=SessionPrincipal("alice"),
         metadata={"trading_date": "2026-07-22"},
     )
-    active = activator.activate_task(request, task_id="sector-attribution")
+    active = activator.activate_task(
+        request,
+        task_id="sector-attribution",
+        params={"market": "us"},
+    )
     payload = active.metadata["active_task"]
     assert payload["harness_profile"] == "tool_orchestrated"
-    assert payload["outputs"][0]["filename"] == "market_news_raw_pack_2026-07-22.json"
+    assert payload["outputs"][0]["filename"] == "market_news_raw_pack_us_2026-07-22.json"
     assert payload["params"]["window_start_date"] == "2026-07-22"
 
 

@@ -212,6 +212,35 @@ def test_expand_sector_search_queries_includes_synonyms() -> None:
     assert domain_api._expand_sector_search_queries("具身智能") == expanded
 
 
+def test_expand_sector_search_queries_does_not_treat_airlines_as_ai() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("航空 airlines 航空运输")
+    assert "航空运输" in expanded
+    assert "airlines" in expanded
+    assert "ai" not in {item.lower() for item in expanded}
+    assert "人工智能" not in expanded
+
+
+def test_expand_sector_search_queries_still_expands_standalone_ai() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("ai")
+    assert "人工智能" in expanded
+    assert "artificial intelligence" in expanded
+
+
+def test_term_appears_in_rejects_ai_substring_inside_airlines() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import match_label_score, term_appears_in
+
+    assert term_appears_in("ai", "airlines") is False
+    assert term_appears_in("ai", "Air Transport") is False
+    assert term_appears_in("ai", "AI Foundation Models") is True
+    assert match_label_score("ai", "Air Transport") == 0
+    assert match_label_score("ai", "AI Foundation Models and Agent Services") > 0
+    assert match_label_score("航空运输", "航空运输") == 100
+
+
 def test_tool_layer_translates_sector_path_errors(sector_registry) -> None:
     import asyncio
 

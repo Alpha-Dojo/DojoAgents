@@ -113,7 +113,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 
 1. `search_sector_taxonomy` with the user's concept and close synonyms
    (e.g. 具身智能 → also try 机器人, 自动化, robotics, industrial automation).
-2. From matches, pick the best L3 sector (`best_match` or highest `match_score`).
+2. From matches, pick the best L3 sector (`best_match` when present; otherwise highest `match_score` / name match in `items`).
 3. For each target market (`us`, `cn`, `hk`), call `filter_sector_constituents`
    with the full `sector_path_id` (three segments) or all three ids from step 2.
    Use `scope: "L2"` to list the whole L2 branch — never shorten the path to two segments (e.g. `1/2`).
@@ -231,7 +231,7 @@ If the user is **importing holdings from another broker** → use `portfolio_wri
 ### Sector taxonomy ids
 
 1. `search_sector_taxonomy` with the user's concept (synonyms auto-expanded: 具身智能 → 机器人, robotics…).
-2. Copy `sector_path_id` OR `level1_id` + `level2_id` + `level3_id` verbatim from `best_match` — exact ID lookup, no guessing.
+2. Copy `sector_path_id` OR `level1_id` + `level2_id` + `level3_id` verbatim from `best_match` when present; if `best_match` is null / `ambiguous=true`, pick from `items` by name — exact ID lookup, no guessing.
 3. `filter_sector_constituents` with those ids + `market` + `scope` (`L3` for one L3 leaf, `L2` for the whole L2 branch).
 4. `get_sector_analysis` with the same ids when sector-level stats are needed.
 
@@ -344,5 +344,6 @@ FORBIDDEN uses of `execute_code`:
 - any deliverable that should be normal assistant markdown
 
 Misuse is blocked at call time by execute_code guardrails — do NOT use execute_code for text
-formatting even when the task is analysis or design. Use agent_viz_build for structured charts.
+formatting even when the task is analysis or design. After numbers are ready, write markdown
+conclusions; do NOT print VIZ_DATA or call agent_viz_build/agent_viz_kinds to finish the turn.
 """.strip()

@@ -63,13 +63,15 @@ class CommandRouter:
             task_id, _, task_arg = arg.strip().partition(" ")
             task_id = task_id.strip()
             if not task_id:
-                raise TaskActivationError("Usage: /task <task-id> [YYYY-MM-DD]")
+                raise TaskActivationError("Usage: /task <task-id> [YYYY-MM-DD] [market=us|cn|hk] …")
             return self._safe_activate(request, task_id=task_id, params=parse_task_params(task_arg))
         if name in {"pipeline"}:
             pipeline_id, _, pipeline_arg = arg.strip().partition(" ")
             pipeline_id = pipeline_id.strip()
             if not pipeline_id:
-                raise TaskActivationError("Usage: /pipeline <pipeline-id> [YYYY-MM-DD]")
+                raise TaskActivationError(
+                    "Usage: /pipeline <pipeline-id> [YYYY-MM-DD] [market=us|cn|hk]"
+                )
             return self._activate_pipeline(request, pipeline_id, parse_task_params(pipeline_arg))
         if name in {"skill"}:
             skill_name, _, skill_arg = arg.strip().partition(" ")

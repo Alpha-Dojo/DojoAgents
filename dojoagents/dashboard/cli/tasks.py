@@ -46,6 +46,12 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
         help="Trading date (YYYY-MM-DD). Required semantics: pipelines default to today; " "for --task include only when set (or pass YYYY-MM-DD in trailing args).",
     )
     run.add_argument(
+        "--market",
+        choices=["us", "cn", "hk"],
+        default="",
+        help="Market code (us|cn|hk). Required for daily-market-events and other market-scoped pipelines/tasks.",
+    )
+    run.add_argument(
         "task_args",
         nargs="*",
         help="Extra /task arguments (key=value, YYYY-MM-DD, or positional query). Ignored for --pipeline.",
@@ -99,6 +105,12 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
     )
     evaluate.add_argument("--task", required=True, help="Task id, e.g. event-trigger")
     evaluate.add_argument("--date", required=True, help="Trading date (YYYY-MM-DD)")
+    evaluate.add_argument(
+        "--market",
+        choices=["us", "cn", "hk"],
+        default="",
+        help="Market code (us|cn|hk). Required when the task artifact filename includes {market}.",
+    )
     evaluate.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
     evaluate.add_argument(
         "--artifact",
@@ -300,7 +312,29 @@ async def _prepare_task_runtime(
     return runtime, services
 
 
-async def _run_pipeline_task_local(args: argparse.Namespace, *, pipeline_id: str, trading_date: str) -> int:
+def _pipeline_slash_message(pipeline_id: str, trading_date: str, market: str = "") -> str:
+    parts = [f"/pipeline {pipeline_id}", trading_date]
+    market_code = str(market or "").strip().lower()
+    if market_code:
+        parts.append(f"market={market_code}")
+    return " ".join(parts)
+
+
+def _pipeline_session_id(pipeline_id: str, trading_date: str, market: str = "") -> str:
+    token = f"{_sanitize_session_token(pipeline_id)}-{trading_date}"
+    market_code = str(market or "").strip().lower()
+    if market_code:
+        token = f"{token}-{market_code}"
+    return f"cli-task-{token}"
+
+
+async def _run_pipeline_task_local(
+    args: argparse.Namespace,
+    *,
+    pipeline_id: str,
+    trading_date: str,
+    market: str = "",
+) -> int:
     runtime: Runtime | None = None
     services: Any | None = None
 
@@ -314,12 +348,13 @@ async def _run_pipeline_task_local(args: argparse.Namespace, *, pipeline_id: str
             available = ", ".join(manager.list_pipelines()) or "(none)"
             raise TaskActivationError(f"Unknown pipeline: {pipeline_id}. Available: {available}.")
 
-        session_id = f"cli-task-{_sanitize_session_token(pipeline_id)}-{trading_date}"
-        message = f"/pipeline {pipeline_id} {trading_date}"
+        session_id = _pipeline_session_id(pipeline_id, trading_date, market)
+        message = _pipeline_slash_message(pipeline_id, trading_date, market)
         LOGGER.info(
-            "Starting local pipeline run: pipeline=%s date=%s session_id=%s",
+            "Starting local pipeline run: pipeline=%s date=%s market=%s session_id=%s",
             pipeline_id,
             trading_date,
+            market or "-",
             session_id,
         )
 
@@ -348,7 +383,13 @@ async def _run_pipeline_task_local(args: argparse.Namespace, *, pipeline_id: str
             await services.shutdown()
 
 
-async def _run_pipeline_task_remote(args: argparse.Namespace, *, pipeline_id: str, trading_date: str) -> int:
+async def _run_pipeline_task_remote(
+    args: argparse.Namespace,
+    *,
+    pipeline_id: str,
+    trading_date: str,
+    market: str = "",
+) -> int:
     store = ConfigStore(args.config)
     configure_logging(store.snapshot().logging)
     config = store.snapshot()
@@ -356,12 +397,13 @@ async def _run_pipeline_task_remote(args: argparse.Namespace, *, pipeline_id: st
         raise TaskActivationError("tasks.enabled is false in config; enable tasks to use the CLI.")
 
     base_url = dashboard_base_url_from_config(args.config, override=args.dashboard_url or None)
-    session_id = f"cli-task-{_sanitize_session_token(pipeline_id)}-{trading_date}"
+    session_id = _pipeline_session_id(pipeline_id, trading_date, market)
 
     record = await run_pipeline_via_dashboard(
         base_url=base_url,
         pipeline_id=pipeline_id,
         trading_date=trading_date,
+        market=market,
         session_id=session_id,
         model=str(args.model or "").strip() or "default",
     )
@@ -538,7 +580,13 @@ def eval_task_output(args: argparse.Namespace) -> int:
         raise TaskActivationError(f"Unknown task: {task_id}. Available: {available}.")
 
     output_root = str(args.output_root or "").strip() or config.tasks.output_root
-    params = {"trading_date": trading_date}
+    params: dict[str, Any] = {"trading_date": trading_date}
+    market = str(getattr(args, "market", "") or "").strip().lower()
+    if market:
+        params["market"] = market
+    needs_market = any("{market}" in str(item.filename or "") for item in task.contract.outputs)
+    if needs_market and not market:
+        raise TaskActivationError("Missing required --market (us|cn|hk) for this task artifact")
     validator = TaskOutputValidator(manager)
     artifacts = _select_eval_artifacts(task, str(args.artifact or ""))
     if not artifacts:
@@ -580,11 +628,16 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     raw_date = args.date or datetime.date.today().isoformat()
     trading_date = _validate_trading_date(raw_date)
+    market = str(getattr(args, "market", "") or "").strip().lower()
     manager = load_task_manager(args.config)
     pipeline = manager.get_pipeline(pipeline_id)
     if pipeline is None:
         available = ", ".join(manager.list_pipelines()) or "(none)"
         raise TaskActivationError(f"Unknown pipeline: {pipeline_id}. Available: {available}.")
+
+    preflight_cfg = pipeline.preflight or {}
+    if preflight_cfg.get("require_market") and not market:
+        raise TaskActivationError("Missing required --market (us|cn|hk)")
 
     runtime = Runtime.from_config_store(ConfigStore(args.config))
     evaluate_preflight = getattr(
@@ -594,11 +647,15 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
     )
     if not callable(evaluate_preflight):
         raise TaskActivationError(f"Harness does not support pipeline preflight: {pipeline_id}")
-    preflight = evaluate_preflight(
-        pipeline,
-        trading_date=trading_date,
-        force=bool(getattr(args, "force", False)),
-    )
+    try:
+        preflight = evaluate_preflight(
+            pipeline,
+            trading_date=trading_date,
+            market=market or None,
+            force=bool(getattr(args, "force", False)),
+        )
+    except ValueError as exc:
+        raise TaskActivationError(str(exc)) from exc
     if preflight.action == "skip":
         LOGGER.info("%s", preflight.reason)
         return 0
@@ -610,11 +667,11 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     if not getattr(args, "force_rerun", False) and pipeline_id == "daily-market-events":
         output_root = Path(config.tasks.output_root).expanduser()
-        file_path = output_root / "event-trigger" / f"market_event_triggers_{trading_date}.jsonl"
+        file_path = output_root / "event-trigger" / f"market_event_triggers_{market}_{trading_date}.jsonl"
         if file_path.is_file():
             LOGGER.info("Task output %s already exists. Skipping pipeline execution.", file_path)
             if not getattr(args, "skip_upload", False):
-                await _upload_daily_market_events(args.config, trading_date)
+                await _upload_daily_market_events(args.config, trading_date, market)
             return 0
 
     max_retries = int(args.max_retries) if args.max_retries is not None else 3
@@ -625,9 +682,19 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
     for attempt in range(1, max_retries + 1):
         try:
             if bool(args.local):
-                exit_code = await _run_pipeline_task_local(args, pipeline_id=pipeline_id, trading_date=trading_date)
+                exit_code = await _run_pipeline_task_local(
+                    args,
+                    pipeline_id=pipeline_id,
+                    trading_date=trading_date,
+                    market=market,
+                )
             else:
-                exit_code = await _run_pipeline_task_remote(args, pipeline_id=pipeline_id, trading_date=trading_date)
+                exit_code = await _run_pipeline_task_remote(
+                    args,
+                    pipeline_id=pipeline_id,
+                    trading_date=trading_date,
+                    market=market,
+                )
         except Exception as exc:
             LOGGER.error("Exception during pipeline %s execution on attempt %d: %s", pipeline_id, attempt, exc)
             exit_code = 1
@@ -642,18 +709,19 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     if exit_code == 0 and pipeline_id == "daily-market-events":
         if not getattr(args, "skip_upload", False):
-            await _upload_daily_market_events(args.config, trading_date)
+            await _upload_daily_market_events(args.config, trading_date, market)
     else:
         LOGGER.error(f"Pipeline execution failed: exit_code: {exit_code}")
     return exit_code
 
 
-async def _upload_daily_market_events(config_path: str, trading_date: str) -> None:
+async def _upload_daily_market_events(config_path: str, trading_date: str, market: str) -> None:
     store = ConfigStore(config_path)
     config = store.snapshot()
 
+    market_code = str(market or "").strip().lower()
     output_root = Path(config.tasks.output_root).expanduser()
-    file_path = output_root / "event-trigger" / f"market_event_triggers_{trading_date}.jsonl"
+    file_path = output_root / "event-trigger" / f"market_event_triggers_{market_code}_{trading_date}.jsonl"
     if not file_path.is_file():
         LOGGER.error("Cannot upload events: %s not found", file_path)
         return
@@ -685,9 +753,16 @@ async def _upload_daily_market_events(config_path: str, trading_date: str) -> No
     }
     client = AsyncDojo(**{key: value for key, value in client_kwargs.items() if value is not None})
     try:
-        LOGGER.info("Uploading %d market events to DojoSDK...", len(items))
+        LOGGER.info("Uploading %d market events (%s) to DojoSDK...", len(items), market_code or "?")
         for item in items:
-            await client.analysis.create_market_dynamics(**item)
+            if not isinstance(item, dict):
+                continue
+            # SDK create accepts only these fields; market identity lives in affected_markets.
+            await client.analysis.create_market_dynamics(
+                event_time=str(item.get("event_time") or ""),
+                event_summary=item.get("event_summary") or {},
+                sector_impacts=item.get("sector_impacts") or [],
+            )
         LOGGER.info("Successfully uploaded market events.")
     except Exception as exc:
         LOGGER.error("Failed to upload market events: %s", exc)

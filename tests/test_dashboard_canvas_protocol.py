@@ -20,8 +20,13 @@ class TestDashboardVizProtocol:
     def test_protocol_mentions_structured_viz_blocks(self) -> None:
         from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL
 
-        assert "viz_blocks" in DASHBOARD_VIZ_PROTOCOL
         assert "agent_viz_build" in DASHBOARD_VIZ_PROTOCOL
+        assert "FORBIDDEN" in DASHBOARD_VIZ_PROTOCOL
+        assert "VIZ_DATA" in DASHBOARD_VIZ_PROTOCOL
+        assert "print structured `VIZ_DATA`" not in DASHBOARD_VIZ_PROTOCOL
+        assert "After computation, print structured" not in DASHBOARD_VIZ_PROTOCOL
+        assert "Write conclusions" in DASHBOARD_VIZ_PROTOCOL or "conclusions" in DASHBOARD_VIZ_PROTOCOL
+        assert "Pass the parsed `VIZ_DATA` object as `agent_viz_build.data`" not in DASHBOARD_VIZ_PROTOCOL
 
     def test_protocol_forbids_legacy_dojo_chart_output(self) -> None:
         from dojoagents.harnesses.built_in.financial.prompts.canvas_protocol import DASHBOARD_VIZ_PROTOCOL

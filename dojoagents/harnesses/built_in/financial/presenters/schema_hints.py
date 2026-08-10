@@ -231,9 +231,10 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             "dojo_tools.tool_print(res, table='l3_options')"
         ),
         "usage_notes": (
-            "items/best_match = ranked keyword hits. "
+            "items = ranked keyword hits. best_match is set only when high-confidence; "
+            "if null / ambiguous, pick from items by name. "
             "l3_options = full L3 menu under those L2 branches (hit marks items overlap). "
-            "Copy sector_path_id verbatim from items or l3_options."
+            "Copy sector_path_id verbatim from best_match, items, or l3_options."
         ),
     },
     "get_taxonomy_tree": {

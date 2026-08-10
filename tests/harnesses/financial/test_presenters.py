@@ -79,6 +79,9 @@ async def test_execute_code_presenter_extracts_viz_data_and_projector_preserves_
     projection = FinancialResultProjector(registry).project((execute, write))
 
     assert "viz_hint" in execute.content
+    assert "--- viz_status ---" in execute.content
+    assert "do_not_call_agent_viz_build" in execute.content
+    assert execute.viz_blocks
     assert execute.data["prices"] == [10, 9]
     assert write.resource_changes[0]["portfolio_id"] == "p-1"
     assert projection["artifacts"][0]["object_id"] == "obj-1"

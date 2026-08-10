@@ -1,5 +1,5 @@
 id: event-trigger
-name: 全球市场异动事件分析师
+name: 单市场异动事件分析师
 version: 1
 harness_profile: artifact_synthesis
 channels:
@@ -10,13 +10,13 @@ required_tools:
   - read_session_output
   - write_session_file
 inputs:
-  - filename: market_news_raw_pack_{trading_date}.json
+  - filename: market_news_raw_pack_{market}_{trading_date}.json
     format: json
     required: true
     source_task: sector-attribution
     schema: schema/market_news_raw_pack.schema.json
 outputs:
-  - filename: market_event_triggers_{trading_date}.jsonl
+  - filename: market_event_triggers_{market}_{trading_date}.jsonl
     format: jsonl
     required: true
     schema: schema/market_event_triggers.schema.json

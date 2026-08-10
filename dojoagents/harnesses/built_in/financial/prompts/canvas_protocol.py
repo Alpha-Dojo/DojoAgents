@@ -14,10 +14,12 @@ DASHBOARD_VIZ_PROTOCOL = """
 This dashboard chat renders structured `viz_blocks` from tool results. Prefer the
 existing visualization pipeline over free-form chart code.
 
-### agent_viz_build data shapes (JSON examples)
+### agent_viz_build data shapes (escape hatch only)
 
 Call `agent_viz_kinds` to list supported kinds. Prefer reusing `viz_blocks` already attached to
-data-tool results. Use explicit `kind` when the target chart type is known.
+data-tool / `execute_code` results. Use `agent_viz_build` **only when auto viz_blocks are missing
+or the wrong chart type**. The JSON examples below are shapes for that escape hatch — not a
+required second step after every computation.
 
 **price_kline** — OHLC history (`mapping_hint`: `ticker_kline`, or pass `klines` with `kind=auto`):
 ```json
@@ -27,11 +29,6 @@ data-tool results. Use explicit `kind` when the target chart type is known.
 **line** — time series / NAV / drawdown curves:
 ```json
 {"kind":"line","data":{"title":"NAV","series":[{"id":"nav","label":"NAV","points":[{"date":"2025-01-02","value":1.0},{"date":"2025-01-03","value":1.02}]}]}}
-```
-
-**drawdown_analysis** — execute_code `VIZ_DATA` (`dates` + `prices` + optional `drawdown_pcts`):
-```json
-{"mapping_hint":"drawdown_analysis","kind":"auto","data":{"dates":["2025-01-02","2025-01-03"],"prices":[150.0,145.0],"drawdown_pcts":[0.0,-3.3],"summary":{"ticker":"SNDK","max_drawdown_pct":17.5}}}
 ```
 
 **kpi_row** — compact headline metrics:
@@ -74,12 +71,15 @@ data-tool results. Use explicit `kind` when the target chart type is known.
 {"kind":"timeline","data":{"news":[{"date":"2025-01-02","title":"Earnings beat","summary":"..."}]}}
 ```
 
-### execute_code → visualization workflow
+### execute_code → after computation (MANDATORY)
 
-1. After computation, print structured `VIZ_DATA` JSON (see drawdown example above).
-2. The tool result includes a `--- viz_hint ---` footer describing how to call `agent_viz_build`.
-3. Pass the parsed `VIZ_DATA` object as `agent_viz_build.data` with `mapping_hint=drawdown_analysis`.
-4. Do NOT pass raw stdout text or nested `data['data']` wrappers to `agent_viz_build`.
+When computation in `execute_code` has already produced the numbers you need:
+
+1. Write conclusions, key metrics, and caveats in assistant markdown.
+2. **Stop.** Do NOT start another `execute_code` round only to package charts.
+3. **FORBIDDEN:** print `=== VIZ_DATA ===` / chart JSON from `execute_code`.
+4. **FORBIDDEN:** call `agent_viz_build` or `agent_viz_kinds` to finish an analysis turn.
+5. Do NOT debug calendar NaNs, reindex, or series alignment solely to build visualization payloads.
 
 ### Default behavior
 
@@ -87,12 +87,10 @@ Visualization policy is defined in the **Visualization policy** system section
 (scene IDs such as `portfolio_mutating_task`, `exploratory_read_analysis`). Follow that matrix.
 
 1. Use dashboard domain tools to fetch structured data.
-2. **Prefer auto-attached `viz_blocks`** on data-tool results — no extra tool call.
-3. Call `agent_viz_build` only when the active viz-policy scene is **encouraged** or **optional**
-   AND the chart adds information auto blocks cannot express.
-4. When the scene is **forbidden** (portfolio writes, eval accepted, trade confirmations),
+2. Deliver analysis as markdown conclusions. Charts are not a required deliverable.
+3. When the scene is **forbidden** (portfolio writes, eval accepted, trade confirmations),
    summarize in markdown only — do NOT call `agent_viz_build`.
-5. Keep assistant text focused on interpretation; do not duplicate markdown tables as kpi_row.
+4. Keep assistant text focused on interpretation; do not duplicate markdown tables as kpi_row.
 
 ### Important rules
 
@@ -140,8 +138,8 @@ Do NOT call `execute_code` to:
 - substitute for normal assistant markdown when no computation is needed
 
 For analysis, design, and interpretation turns, write deliverables directly in the assistant
-message. Use `agent_viz_build` for charts/tables. `execute_code` is only for dojo_tools batch
-orchestration and pandas/numpy computation on fetched data.
+message. Do NOT print `VIZ_DATA` or call visualization tools just to finish the answer.
+`execute_code` is only for dojo_tools batch orchestration and pandas/numpy computation on fetched data.
 """.strip()
 
 # Backward-compatible alias for existing imports/tests. The content intentionally

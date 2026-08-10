@@ -617,7 +617,10 @@ def test_build_artifact_pointer_message_includes_viz_hint_for_drawdown_payload()
     )
     payload = json.loads(message)
     assert payload["viz_hint"]["mapping_hint"] == "drawdown_analysis"
+    assert payload["viz_hint"]["do_not_call_agent_viz_build_if_viz_blocks_present"] is True
+    assert "Prefer auto" in payload["viz_build_hint"]
     assert "agent_viz_build" in payload["viz_build_hint"]
+    assert "agent_viz_build_example" not in payload["viz_hint"]
 
 
 def test_extract_viz_payload_from_execute_code_stdout() -> None:
@@ -636,7 +639,10 @@ def test_extract_viz_payload_from_execute_code_stdout() -> None:
     payload = extract_viz_payload_from_content(stdout)
     assert payload is not None
     assert payload["summary"]["ticker"] == "SNDK"
-    assert "drawdown_analysis" in format_execute_code_viz_hint(payload)
+    hint = format_execute_code_viz_hint(payload)
+    assert "drawdown_analysis" in hint
+    assert "do_not_call_agent_viz_build_if_viz_blocks_present" in hint
+    assert "agent_viz_build_example" not in hint
 
     enriched = enrich_execute_code_tool_result({"content": stdout})
     assert enriched["data"]["summary"]["max_drawdown_pct"] == 17.5

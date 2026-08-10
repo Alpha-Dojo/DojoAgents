@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from dojoagents.logging import get_logger
-from .artifacts import enrich_execute_code_tool_result
+from .artifacts import enrich_execute_code_tool_result, format_auto_viz_status
 from ..tools.visualization_engine import build_viz_blocks
 
 LOGGER = get_logger(__name__)
@@ -69,6 +69,7 @@ class ToolResultPresenterRegistry:
         result.setdefault("artifacts", [])
         result.setdefault("resource_changes", [])
 
+        auto_built = False
         if not result["viz_blocks"]:
             try:
                 viz_input: dict[str, Any] | None = None
@@ -87,8 +88,15 @@ class ToolResultPresenterRegistry:
                         blocks = blocks[:_MAX_AUTO_VIZ_BLOCKS]
                         result["truncated"] = True
                     result["viz_blocks"] = blocks
+                    auto_built = bool(blocks)
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning("Failed to auto-build viz blocks for %s: %s", tool_name, exc)
+
+        if auto_built:
+            content = str(result.get("content") or "")
+            status = format_auto_viz_status(len(result["viz_blocks"]))
+            if "--- viz_status ---" not in content:
+                result["content"] = content + status
 
         if not result["resource_changes"]:
             inferred = _infer_portfolio_resource_changes(

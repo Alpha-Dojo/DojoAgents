@@ -98,9 +98,14 @@ _BUILTIN_SCENES: tuple[tuple[str, VizStance, str, str], ...] = (
     ),
     (
         "quant_viz_data_ready",
-        "encouraged",
-        "Structured VIZ_DATA / viz_hint is available from execute_code. " "Call agent_viz_build with mapping_hint when a chart adds insight beyond stdout.",
-        "execute_code 已产出 VIZ_DATA / viz_hint。需要图表时调用 agent_viz_build（带 mapping_hint）。",
+        "optional",
+        "Structured VIZ_DATA / viz_hint is available from execute_code. Prefer auto-attached "
+        "viz_blocks already on that tool result. Call agent_viz_build only when viz_blocks are "
+        "missing or you need a chart type auto blocks do not provide. Never re-pass full "
+        "dates/prices/klines series that already produced viz_blocks.",
+        "execute_code 已产出 VIZ_DATA / viz_hint。优先复用该结果已附带的 viz_blocks；"
+        "仅当没有可用 viz_blocks，或需要 auto 未覆盖的图型时才调 agent_viz_build。"
+        "禁止把已产出序列再完整传一遍。",
     ),
     (
         "exploratory_read_analysis",
@@ -160,6 +165,11 @@ def _has_viz_hint_payload(result: ToolResult) -> bool:
     return False
 
 
+def _has_viz_blocks(result: ToolResult) -> bool:
+    blocks = getattr(result, "viz_blocks", None)
+    return isinstance(blocks, list) and len(blocks) > 0
+
+
 def _rule_portfolio_eval_accepted(ctx: VizPolicyContext) -> VizPolicyMatch | None:
     if not _eval_accepted(ctx.tool_results):
         return None
@@ -190,6 +200,9 @@ def _rule_quant_viz_data_ready(ctx: VizPolicyContext) -> VizPolicyMatch | None:
     for result in reversed(ctx.tool_results):
         if not result.ok or result.name not in _COMPUTE_TOOLS:
             continue
+        # Auto viz already attached — do not promote a rebuild scene.
+        if _has_viz_blocks(result):
+            return None
         if _has_viz_hint_payload(result):
             _scene_id, stance, reason_en, reason_zh = _BUILTIN_SCENES[2]
             return VizPolicyMatch(
