@@ -22,6 +22,7 @@ CLI parser 定义在 `dojoagents/cli/main.py`。
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | 预计算行业数据 |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | 读取 `precompute-sector` 快照，发布统一主题状态数据，并可上传到 `dojo_sector_precomputed` |
 | `attribution-factor-crawl` | `--date`, `--concurrency`, `--top-n`, `--min-cap`, `--force-rerun`, `--write-only`, `--skip-write` | 爬取单日板块归因，并通过 `create_attribution_factor` 批量写入 |
+| `sector-brief-extract` | `--date`, `--market`, `--lookback-days`, `--concurrency`, `--max-attempts`, `--model`, `--force-rerun`, `--write-only`, `--skip-write` | 从归因因子提取板块简报，并通过 `create_sector_brief_extract` 批量写入 |
 | `tasks run` | `--pipeline`, `--date`, `--config`, `--local`, `--force`, `--force-rerun`, … | 运行 Task 流水线（需 `tasks.enabled`） |
 | `tasks eval` | `--task`, `--date`, `--config`, `--artifact` | 按 contract schema 校验任务产物 |
 
@@ -35,7 +36,11 @@ dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
 dojoagents precompute-sector-theme-state --upload
 dojoagents attribution-factor-crawl --date 2026-07-31
+dojoagents attribution-factor-crawl --date 2026-07-31 --market cn
 dojoagents attribution-factor-crawl  # 日期默认为本机当天
+dojoagents sector-brief-extract --date 2026-07-31 --market cn
+dojoagents sector-brief-extract --date 2026-07-31 --market cn --model deepseek-v4-flash-0731
+dojoagents sector-brief-extract  # 日期默认为本机当天
 dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
 dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
@@ -57,6 +62,15 @@ token。任一板块任务失败时默认停止写入；确认接受部分结果
 `agents.yaml` 自动启动临时 Dashboard，等待服务就绪，并在任务结束后关闭。临时进程会跳过 DojoSDK
 全量离线预下载和周期刷新，但仍正常加载爬取 API 与任务运行时所需的 Dashboard registry。`--write-only` 不会启动
 Dashboard。远程 `--dashboard-url` 必须由调用方保证服务已运行。
+
+`sector-brief-extract` 会在所选日期向前 `--lookback-days` 个日历日的 AttributionFactor
+中发现板块，为每个 `(market, sector_id)` 运行一次 Task，校验 JSON 产物后通过
+`analysis.create_sector_brief_extract` 批量写入接口。已有合法产物默认复用；
+`--force-rerun` 强制重跑，`--write-only` 仅提交已有产物，`--skip-write` 仅校验。
+远程 Task 与归因爬取一样需要 Dashboard；没有待运行 Task 时不会启动临时 Dashboard。
+每个板块 job 默认最多执行 3 次，并在每次执行后立即校验产物；连续失败后仅记录并跳过，
+其他板块和有效产物的写入继续进行。可用 `--max-attempts` 调整次数。`--model` 可覆盖本次
+Task 使用的模型 ID，但沿用 `agents.yaml` 当前配置的 provider。
 
 ## Session 导出
 

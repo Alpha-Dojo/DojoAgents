@@ -367,6 +367,12 @@ class Runtime:
             enable_cache=self.config.agent.enable_skill_cache,
             lazy_skills=self.config.agent.lazy_skills,
         )
+        from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
+
+        for spec in (SkillsListTool(skills).get_tool_spec(), SkillViewTool(skills).get_tool_spec()):
+            if registry.get(spec.name) is not None:
+                raise RuntimeError(f"core tool name conflict: '{spec.name}' is already provided by the Harness or a plugin")
+            registry.register(spec)
 
         self.task_manager = None
         self.task_activator = None

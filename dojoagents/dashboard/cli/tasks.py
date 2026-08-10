@@ -4,6 +4,7 @@ import argparse
 import datetime
 import json
 import re
+import shlex
 import uuid
 from pathlib import Path
 from typing import Any
@@ -42,8 +43,7 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
     target.add_argument("--task", help="Task id, e.g. attribution-factor-crawl")
     run.add_argument(
         "--date",
-        help="Trading date (YYYY-MM-DD). Required semantics: pipelines default to today; "
-        "for --task include only when set (or pass YYYY-MM-DD in trailing args).",
+        help="Trading date (YYYY-MM-DD). Required semantics: pipelines default to today; " "for --task include only when set (or pass YYYY-MM-DD in trailing args).",
     )
     run.add_argument(
         "--market",
@@ -57,6 +57,11 @@ def add_tasks_parser(sub: argparse._SubParsersAction) -> None:
         help="Extra /task arguments (key=value, YYYY-MM-DD, or positional query). Ignored for --pipeline.",
     )
     run.add_argument("--config", default="~/.dojo/agents.yaml", help="Path to agents.yaml")
+    run.add_argument(
+        "--model",
+        default="",
+        help="Request-scoped model override; uses the configured provider",
+    )
     run.add_argument(
         "--force",
         action="store_true",
@@ -144,7 +149,7 @@ def _build_task_slash_message(task_id: str, *, trading_date: str | None, task_ar
     if date:
         if not any(_DATE_RE.fullmatch(item) for item in extras):
             parts.append(date)
-    parts.extend(extras)
+    parts.extend(shlex.quote(item) for item in extras)
     return " ".join(parts)
 
 
@@ -358,7 +363,10 @@ async def _run_pipeline_task_local(
             principal=SessionPrincipal("local"),
             session_id=session_id,
             channel="cli",
-            metadata={"persist_session": False},
+            metadata={
+                "persist_session": False,
+                **({"model_override": args.model} if str(args.model or "").strip() else {}),
+            },
         )
         response = await run_agent_with_tasks(
             runtime,
@@ -397,6 +405,7 @@ async def _run_pipeline_task_remote(
         trading_date=trading_date,
         market=market,
         session_id=session_id,
+        model=str(args.model or "").strip() or "default",
     )
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     status = str(record.get("status") or "")
@@ -437,7 +446,10 @@ async def _run_single_task_local(
             principal=SessionPrincipal("local"),
             session_id=session_id,
             channel="cli",
-            metadata={"persist_session": False},
+            metadata={
+                "persist_session": False,
+                **({"model_override": args.model} if str(args.model or "").strip() else {}),
+            },
         )
         response = await run_agent_with_tasks(
             runtime,
@@ -473,6 +485,7 @@ async def _run_single_task_remote(
         base_url=base_url,
         message=message,
         session_id=session_id,
+        model=str(args.model or "").strip() or "default",
     )
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     status = str(record.get("status") or "")

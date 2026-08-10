@@ -10,13 +10,16 @@
 | --- | --- | --- |
 | `market` | 是 | `us` / `cn` / `hk`（`market=cn`） |
 | `trading_date` | 是 | `YYYY-MM-DD`；可写位置日期 |
-| 板块查询 | 是 | 位置参数 / `q=` / `sector=` / `sector_path_id=`；最终解析为 taxonomy L1/L2/L3 |
+| `sector_id` | 批量任务必填 | 已由 discovery 确认的 taxonomy L1/L2/L3 path；同时传入等值 `sector_path_id` |
+| `sector_name` | 批量任务必填 | discovery 返回的板块显示名，用于 taxonomy 核验与新闻检索 |
+| `change_percent` | 批量任务必填 | discovery 返回的该日板块涨跌幅；必须用 `get_sector_movers` 复核 |
+| 板块查询 | 手工激活必填 | 位置参数 / `q=` / `sector=` / `sector_path_id=`；仅用于未提供上述 discovery 上下文时 |
 
 激活示例：
 
 ```text
 /task attribution-factor-crawl 2026-07-22 market=cn 芯片设计
-/task attribution-factor-crawl market=us trading_date=2026-07-22 sector_path_id=1/2/6
+/task attribution-factor-crawl market=us trading_date=2026-07-22 sector_id=1/2/6 sector_path_id=1/2/6 sector_name="Application Software" change_percent=-5.2
 ```
 
 ---
@@ -29,6 +32,7 @@
 | 外网定解释 | 新闻与证据只来自 `web_search` / `web_extract` |
 | 裁决产因子 | 直接写 AttributionFactor jsonl，不是新闻素材包 |
 | 可追溯 | 每条主因因子尽量带 `evidence.quote` + `url` |
+| Discovery 上下文 | `sector_id` 是权威目标；`sector_name` 和 `change_percent` 是待工具复核的已知观测，不得丢弃 |
 
 **禁止**：`get_ticker_news_and_events`、`get_ticker_realtime_quote`、`get_ticker_price_trends`、`get_market_overview`、portfolio 工具、读取其他 task 产出。
 
@@ -55,8 +59,8 @@
 
 ### 工作流程
 
-1. `search_sector_taxonomy` → 规范 `sector_id`（L1/L2/L3 path，与输入同源）
-2. `get_sector_movers(start_date, end_date, market, …)` → 匹配目标板块涨跌
+1. 若已有 `sector_id + sector_name`：用 `sector_name` 调用一次 `search_sector_taxonomy`，核验返回 path 与 `sector_id` 一致；禁止把目标替换成模糊命中的其他板块。手工激活没有 `sector_id` 时，才由 taxonomy 搜索解析规范 path。
+2. `get_sector_movers(start_date, end_date, market, …)` → 按 `sector_id` 匹配目标板块，并复核输入 `change_percent`。以工具返回值为事实源；若差异明显，在 `attrs.discovery_change_percent` 与 `attrs.verified_change_percent` 中保留两者。
 3. `filter_sector_constituents(…, start_date, end_date)` → 用 `ticker` / `name` / `change_percent` / `market_cap` 挑驱动或拖累股
 4. `web_search` / `web_extract` → 板块级与核心股级解释证据
 5. （可选）`execute_code` 排序成分贡献
@@ -68,6 +72,7 @@ format = jsonl
 ```
 
 - 每个板块单独一次 task → **每个板块一个文件**，禁止多板块共用同一文件名。
+- 批量任务已同时提供 `sector_id` 与 `sector_path_id`；二者必须相等，输出行和文件名必须使用这个精确 path。
 - `sector_id` 取 taxonomy 规范 path（如 `1/2/6`）；写入文件名时 `/` → `_`（如 `1_2_6`）。激活参数里若已有 `sector_id`，系统解析文件名时也会自动做同样替换。
 - 例：`market=cn`，`sector_id=1/2/6`，`trading_date=2026-07-22`  
   → `attribution_factors_cn_1_2_6_2026-07-22.jsonl`
@@ -102,6 +107,10 @@ format = jsonl
 | `evidence` | 主因建议 ≥1 | `{quote, url?, title?}`；来自 web_extract/search |
 | `affected_tickers` | 建议填 | 本条相关核心股（非全成分表） |
 | `attrs` | 按需 | topic 专属细节 |
+
+每条输出建议在 `attrs` 保留 discovery 上下文：`sector_name`、
+`discovery_change_percent`、`verified_change_percent` 和 `trading_date`。这些字段用于审计，
+不能替代 `get_sector_movers` / `filter_sector_constituents` 的事实核验。
 
 **本任务可省略（回填）**：`payload_status`、`stance`、`created_at`、`updated_at`。
 

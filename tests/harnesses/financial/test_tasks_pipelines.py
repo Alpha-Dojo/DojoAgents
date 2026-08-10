@@ -64,9 +64,7 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     assert "get_ticker_news_and_events" not in crawl.contract.required_tools
     assert brief is not None
     assert brief.contract.harness_profile == "tool_orchestrated"
-    assert brief.contract.outputs[0].filename == (
-        "sector_theme_brief_{market}_{sector_id}_{as_of_date}.json"
-    )
+    assert brief.contract.outputs[0].filename == ("sector_theme_brief_{market}_{sector_id}_{as_of_date}.json")
     assert brief.contract.outputs[0].format == "json"
     assert "get_sector_attribution_factors" in brief.contract.required_tools
     assert "web_search" not in brief.contract.required_tools
@@ -146,12 +144,19 @@ def test_attribution_factor_crawl_activation_and_schema(tmp_path):
     active_resolved = activator.activate_task(
         request,
         task_id="attribution-factor-crawl",
-        params={"market": "cn", "trading_date": "2026-07-22", "sector_id": "1/2/6"},
+        params={
+            "market": "cn",
+            "trading_date": "2026-07-22",
+            "sector_id": "1/2/6",
+            "sector_path_id": "1/2/6",
+            "sector_name": "芯片设计",
+            "change_percent": "3.2",
+        },
     )
-    assert (
-        active_resolved.metadata["active_task"]["outputs"][0]["filename"]
-        == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
-    )
+    assert active_resolved.metadata["active_task"]["outputs"][0]["filename"] == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
+    injection = active_resolved.metadata["active_task_prompt"]
+    assert "sector_name: 芯片设计" in injection
+    assert "change_percent: 3.2" in injection
     crawl = manager.get_task("attribution-factor-crawl")
     assert crawl is not None
     schema_path = manager.resolve_schema_path(crawl, crawl.contract.outputs[0].schema or "")

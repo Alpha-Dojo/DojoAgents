@@ -132,8 +132,11 @@ class ToolExecutor:
             metadata.setdefault("session_id", session_id)
 
         exit_code = metadata.get("exit_code")
-        ok = True
+        declared_ok = normalized.get("ok", metadata.get("ok"))
+        ok = bool(declared_ok) if declared_ok is not None else True
         error = str(normalized.get("error") or "").strip()
+        if not ok and not error:
+            error = content.strip() or f"Tool '{call.name}' failed"
         if exit_code is not None:
             try:
                 exit_code_int = int(exit_code)
@@ -162,7 +165,7 @@ class ToolExecutor:
                     arguments=dict(call.arguments),
                     content=content,
                     data=artifact_data,
-                    ok=True,
+                    ok=ok,
                     truncated=bool(normalized.get("truncated", False)),
                 )
                 metadata["artifact_path"] = str(artifact_path)

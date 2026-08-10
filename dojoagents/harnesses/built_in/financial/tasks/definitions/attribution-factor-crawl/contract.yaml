@@ -1,6 +1,6 @@
 id: attribution-factor-crawl
 name: 板块单日归因因子提取
-version: 1
+version: 2
 harness_profile: tool_orchestrated
 channels:
   - dashboard
@@ -25,7 +25,7 @@ triggers:
 constraints:
   max_tool_calls_per_turn: 1
   tool_budget:
-    search_sector_taxonomy: 3
+    search_sector_taxonomy: 1
     get_sector_movers: 2
     filter_sector_constituents: 2
     web_search: 12

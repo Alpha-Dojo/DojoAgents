@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime
 from typing import Any, Literal
 
@@ -17,6 +18,16 @@ from dojoagents.dashboard.schemas.domain_api import (
 from dojoagents.logging import LOGGER
 
 LocaleCode = Literal["zh", "en"]
+_SECTOR_REF_RE = re.compile(r"^\d+/\d+/\d+$")
+
+
+def canonical_attribution_sector_ref(row: dict[str, Any]) -> str | None:
+    """Return the canonical L1/L2/L3 path from an attribution-factor row."""
+    for key in ("sector_ref", "sector_id"):
+        value = _optional_str(row.get(key))
+        if value is not None and _SECTOR_REF_RE.fullmatch(value):
+            return value
+    return None
 
 
 def _parse_maybe_json(value: Any) -> Any:
@@ -130,7 +141,7 @@ def normalize_attribution_factor_row(
     event_time = _optional_str(row.get("event_time"))
     if event_time is None or _calendar_day(event_time) is None:
         return None
-    sector_id = str(row.get("sector_id") or "").strip()
+    sector_id = canonical_attribution_sector_ref(row)
     market = str(row.get("market") or "").strip().lower()
     if not sector_id or not market:
         return None
@@ -173,7 +184,7 @@ def filter_attribution_factor_rows(
     for row in rows:
         if not isinstance(row, dict):
             continue
-        if str(row.get("sector_id") or "").strip() != target:
+        if canonical_attribution_sector_ref(row) != target:
             continue
         day = _calendar_day(row.get("event_time"))
         if day is None or day < start or day > end:

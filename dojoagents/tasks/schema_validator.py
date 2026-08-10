@@ -78,6 +78,9 @@ def _validate_against_schema(payload: Any, schema: dict[str, Any], *, prefix: st
     min_length = schema.get("minLength")
     if isinstance(min_length, int) and isinstance(payload, str) and len(payload) < min_length:
         issues.append(f"{prefix}string shorter than minLength {min_length}")
+    max_length = schema.get("maxLength")
+    if isinstance(max_length, int) and isinstance(payload, str) and len(payload) > max_length:
+        issues.append(f"{prefix}string longer than maxLength {max_length}")
 
     if isinstance(payload, dict) and (expected_type == "object" or expected_type is None or "properties" in schema):
         for key in schema.get("required") or []:

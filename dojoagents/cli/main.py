@@ -56,12 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     from dojoagents.dashboard.cli.tasks import add_tasks_parser
     from dojoagents.dashboard.cli.attribution_factor_crawl import configure_parser as configure_attribution_crawl
+    from dojoagents.dashboard.cli.sector_brief_extract import configure_parser as configure_sector_brief_extract
     from dojoagents.dashboard.cli.precompute_sector import configure_parser as configure_sector_precompute
     from dojoagents.dashboard.cli.precompute_theme_state import configure_parser as configure_theme_precompute
 
     configure_sector_precompute(sub)
     configure_theme_precompute(sub)
     configure_attribution_crawl(sub)
+    configure_sector_brief_extract(sub)
     add_tasks_parser(sub)
 
     sessions = sub.add_parser("sessions")
@@ -346,6 +348,14 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(run_attribution_factor_crawl(args))
         except Exception as exc:
             LOGGER.exception("attribution-factor-crawl failed: %s", exc)
+            return 1
+    if args.command == "sector-brief-extract":
+        from dojoagents.dashboard.cli.sector_brief_extract import run_sector_brief_extract
+
+        try:
+            return asyncio.run(run_sector_brief_extract(args))
+        except Exception as exc:
+            LOGGER.exception("sector-brief-extract failed: %s", exc)
             return 1
     if args.command == "tasks":
         from dojoagents.dashboard.cli.tasks import run_tasks_command

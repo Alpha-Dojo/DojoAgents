@@ -15,6 +15,16 @@ DojoAgents exposes finance data tools through the `dojosdk` dependency and `dojo
 
 Dashboard services may still use domain services / the Dojo data gateway for UI. That path is decoupled from agent SDK tools.
 
+### Sector Brief Extract APIs
+
+Both synchronous and asynchronous `analysis` resources provide:
+
+- `list_sector_brief_extract(...)`, filtered by `market`, `sector_id`, `as_of_date`, or a date range;
+  `get_sector_brief_extract` and `sector_brief_extract` are compatibility aliases.
+- `create_sector_brief_extract(body={"items": [...]})`, with validation and batches of up to 10,000 items.
+
+The `dojoagents sector-brief-extract` CLI submits only artifacts that pass both the Task schema and SDK model validation.
+
 ## Configuration
 
 DojoSDK is managed in `pyproject.toml`. A local source override is supported:

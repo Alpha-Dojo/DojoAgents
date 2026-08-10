@@ -27,6 +27,9 @@
 /task sector-brief-extract market=cn as_of_date=2026-07-31 sector_id=1/9/10 lookback_days=5
 ```
 
+批量 CLI 会同时传入相同的 `sector_id` 与 `sector_path_id`。两者均为完整规范路径时，
+该路径具有权威性，直接查询 AF，禁止再搜索 taxonomy 或把路径改写为其他板块。
+
 ---
 
 ### 核心原则
@@ -55,7 +58,7 @@
 
 ### 工作流程
 
-1. 解析规范 `sector_id`（已有 path 可跳过 taxonomy）
+1. 解析规范 `sector_id`（已有 `sector_path_id` 或 path 形式的 `sector_id` 时必须跳过 taxonomy）
 2. **一次** `get_sector_attribution_factors(..., locale=按市场)`
 3. 若窗内 **无因子**：停止。对话说明：  
    `No attribution factors in window; run /task attribution-factor-crawl for this sector/date first.`  

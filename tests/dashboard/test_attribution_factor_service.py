@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from dojoagents.dashboard.services.attribution_factor_service import (
+    canonical_attribution_sector_ref,
     filter_attribution_factor_rows,
     normalize_attribution_factor_row,
 )
@@ -44,6 +45,26 @@ def test_normalize_projects_locale_and_parses_json_strings() -> None:
 def test_normalize_drops_missing_event_time() -> None:
     assert normalize_attribution_factor_row(_row(event_time=""), locale="zh") is None
     assert normalize_attribution_factor_row(_row(event_time="NaT"), locale="zh") is None
+
+
+def test_canonical_sector_ref_prefers_api_path_and_supports_legacy_rows() -> None:
+    assert canonical_attribution_sector_ref({"sector_id": 10, "sector_ref": "1/9/10"}) == "1/9/10"
+    assert canonical_attribution_sector_ref({"sector_id": "1/9/10"}) == "1/9/10"
+    assert canonical_attribution_sector_ref({"sector_id": 10}) is None
+
+
+def test_normalize_and_filter_use_sector_ref_from_online_api() -> None:
+    row = _row(sector_id=10, sector_ref="1/9/10")
+    item = normalize_attribution_factor_row(row, locale="zh")
+    assert item is not None
+    assert item.sector_id == "1/9/10"
+    assert filter_attribution_factor_rows(
+        [row],
+        sector_id="1/9/10",
+        start_date="2026-07-22",
+        end_date="2026-07-22",
+        locale="zh",
+    ) == [item]
 
 
 def test_filter_exact_sector_and_date_window() -> None:

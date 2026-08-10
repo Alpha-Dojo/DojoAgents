@@ -131,6 +131,35 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_durable_history_replaces_empty_request_history(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider([LLMResult("first reply"), LLMResult("second reply")])
+    loop = _loop(provider, service)
+
+    await loop.run(
+        ChatRequest(
+            "first question",
+            session_id="s1",
+            principal=principal,
+            metadata={"history": [{"role": "assistant", "content": "imported context"}]},
+        )
+    )
+    assert any(message.get("role") == "assistant" and message.get("content") == "imported context" for message in provider.calls[0]["messages"])
+    await loop.run(
+        ChatRequest(
+            "follow-up",
+            session_id="s1",
+            principal=principal,
+            metadata={"history": []},
+        )
+    )
+
+    assert any(message.get("role") == "assistant" and message.get("content") == "first reply" for message in provider.calls[1]["messages"])
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_model_exception_marks_canonical_run_failed(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")

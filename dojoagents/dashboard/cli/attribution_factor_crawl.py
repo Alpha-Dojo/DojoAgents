@@ -70,6 +70,12 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Trading date YYYY-MM-DD; defaults to today when omitted or used without a value",
     )
     parser.add_argument("--concurrency", type=int, default=3, help="Maximum parallel crawl tasks")
+    parser.add_argument(
+        "--market",
+        action="append",
+        choices=list(_MARKETS),
+        help="Market to crawl (us/cn/hk); repeatable, defaults to all markets",
+    )
     parser.add_argument("--top-n", type=int, default=_TREEMAP_TOP_N, help="Top sectors per open market")
     parser.add_argument(
         "--min-cap",
@@ -134,6 +140,12 @@ def _validate_args(args: argparse.Namespace) -> str:
 
 def _today_local() -> str:
     return datetime.now().astimezone().date().isoformat()
+
+
+def _resolve_markets(raw: list[str] | None) -> tuple[str, ...]:
+    if not raw:
+        return _MARKETS
+    return tuple(dict.fromkeys(str(item).strip().lower() for item in raw))
 
 
 def _dojoagents_executable() -> str:
@@ -311,13 +323,27 @@ async def _fetch_movers_for_market(
     return payload if isinstance(payload, dict) else {}
 
 
-async def fetch_discovery_jobs(*, base_url: str, trading_date: str, top_n: int, min_cap: float) -> list[SectorJob]:
-    open_markets = set(open_markets_on(trading_date, _MARKETS))
-    LOGGER.info("Trading-day filter for %s: open=%s", trading_date, ",".join(sorted(open_markets)) or "(none)")
+async def fetch_discovery_jobs(
+    *,
+    base_url: str,
+    trading_date: str,
+    top_n: int,
+    min_cap: float,
+    markets: tuple[str, ...] = _MARKETS,
+) -> list[SectorJob]:
+    open_markets = set(open_markets_on(trading_date, markets))
+    closed_markets = [market for market in markets if market not in open_markets]
+    LOGGER.info(
+        "Trading-day filter for %s: open=%s closed=%s",
+        trading_date,
+        ",".join(market for market in markets if market in open_markets) or "(none)",
+        ",".join(closed_markets) or "(none)",
+    )
     jobs: list[SectorJob] = []
     async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
-        for market in _MARKETS:
+        for market in markets:
             if market not in open_markets:
+                LOGGER.info("Skip market=%s: not a trading day on %s", market, trading_date)
                 continue
             payload = await _fetch_movers_for_market(
                 client,
@@ -352,7 +378,15 @@ def _build_task_command(job: SectorJob, *, trading_date: str, local: bool, confi
         command.extend(["--config", config])
     if local:
         command.append("--local")
-    command.extend([f"market={job.market}", f"sector_path_id={job.sector_path_id}"])
+    command.extend(
+        [
+            f"market={job.market}",
+            f"sector_id={job.sector_path_id}",
+            f"sector_path_id={job.sector_path_id}",
+            f"sector_name={job.name}",
+            f"change_percent={job.change_percent:g}",
+        ]
+    )
     return command
 
 
@@ -535,10 +569,11 @@ async def run_attribution_factor_crawl(args: argparse.Namespace) -> int:
         raise ValueError("tasks.enabled is false in config")
 
     output_dir = Path(config.tasks.output_root).expanduser() / "attribution-factor-crawl"
+    markets = _resolve_markets(args.market)
     output_paths: list[Path]
     failed: list[SectorJob] = []
     if args.write_only:
-        output_paths = sorted(output_dir.glob(f"attribution_factors_*_{trading_date}.jsonl"))
+        output_paths = sorted(path for market in markets for path in output_dir.glob(f"attribution_factors_{market}_*_{trading_date}.jsonl"))
     else:
         base_url = dashboard_base_url_from_config(args.config, override=args.dashboard_url or None)
         async with managed_dashboard_runtime(
@@ -551,12 +586,17 @@ async def run_attribution_factor_crawl(args: argparse.Namespace) -> int:
                 trading_date=trading_date,
                 top_n=int(args.top_n),
                 min_cap=float(args.min_cap),
+                markets=markets,
             )
             if not jobs:
-                if not open_markets_on(trading_date, _MARKETS):
-                    LOGGER.info("No open markets on %s; nothing to run", trading_date)
+                if not open_markets_on(trading_date, markets):
+                    LOGGER.info(
+                        "No open markets on %s for %s; nothing to run",
+                        trading_date,
+                        ",".join(markets),
+                    )
                     return 0
-                raise ValueError(f"No discovery sectors for trading_date={trading_date}")
+                raise ValueError(f"No discovery sectors for trading_date={trading_date} markets={','.join(markets)}")
             reused_jobs, pending_jobs = _partition_jobs(
                 jobs,
                 output_dir=output_dir,
