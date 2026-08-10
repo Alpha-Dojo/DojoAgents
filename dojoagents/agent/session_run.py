@@ -39,11 +39,7 @@ def _durable_run_id(*, event_sink: AgentEventSink | None, metadata: dict[str, An
     completed, so continuation steps must mint a distinct durable id or
     ``begin_run_with_lease`` raises SessionConflictError on the completed id.
     """
-    base = str(
-        (event_sink.run_id if event_sink is not None else None)
-        or metadata.get("run_id")
-        or f"run-{uuid.uuid4().hex}"
-    ).strip()
+    base = str((event_sink.run_id if event_sink is not None else None) or metadata.get("run_id") or f"run-{uuid.uuid4().hex}").strip()
     pipeline = metadata.get("pipeline")
     if not isinstance(pipeline, dict):
         return base
@@ -270,7 +266,9 @@ class CanonicalAgentRun:
 
         history = await service.history(principal, request.session_id, HistoryQuery(limit=10_000))
         metadata = dict(request.metadata)
-        metadata.setdefault("history", [_history_message(item) for item in history.items])
+        durable_history = [_history_message(item) for item in history.items]
+        if durable_history or "history" not in metadata:
+            metadata["history"] = durable_history
         request = replace(request, metadata=metadata)
 
         turns = await service.turns(principal, request.session_id, TurnQuery(limit=10_000))

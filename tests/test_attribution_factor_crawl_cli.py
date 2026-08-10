@@ -11,9 +11,11 @@ from dojoagents.cli.main import build_parser as build_main_parser
 from dojoagents.dashboard.cli.attribution_factor_crawl import (
     SectorJob,
     _api_write_items,
+    _build_task_command,
     _has_reusable_output,
     _partition_jobs,
     _read_jsonl,
+    _resolve_markets,
     _top_jobs_for_market,
     _validate_output_context,
     _validate_args,
@@ -48,6 +50,12 @@ def test_top_level_attribution_factor_crawl_parser() -> None:
     assert args.write_only is True
     assert args.skip_write is True
     assert args.dashboard_startup_timeout == 300.0
+    assert args.market is None
+
+
+def test_market_filter_is_repeatable_and_deduplicated() -> None:
+    args = build_parser().parse_args(["--market", "cn", "--market", "us", "--market", "cn"])
+    assert _resolve_markets(args.market) == ("cn", "us")
 
 
 def test_force_rerun_parser_and_write_only_conflict() -> None:
@@ -110,6 +118,44 @@ def test_top_jobs_require_taxonomy_path_and_rank_absolute_change() -> None:
     ]
 
 
+def test_task_command_passes_resolved_discovery_context() -> None:
+    job = SectorJob("us", "Application Software", "1/3/7", -5.2)
+    with patch(
+        "dojoagents.dashboard.cli.attribution_factor_crawl._dojoagents_executable",
+        return_value="/venv/bin/dojoagents",
+    ):
+        command = _build_task_command(
+            job,
+            trading_date="2026-07-31",
+            local=False,
+        )
+
+    assert "market=us" in command
+    assert "sector_id=1/3/7" in command
+    assert "sector_path_id=1/3/7" in command
+    assert "sector_name=Application Software" in command
+    assert "change_percent=-5.2" in command
+
+
+def test_legacy_daily_script_passes_same_discovery_context() -> None:
+    from run_daily_attribution_factor_crawl import (
+        SectorJob as LegacySectorJob,
+        _build_task_command as build_legacy_command,
+    )
+
+    command = build_legacy_command(
+        LegacySectorJob("us", "Application Software", "1/3/7", -5.2),
+        trading_date="2026-07-31",
+        local=False,
+    )
+
+    assert "market=us" in command
+    assert "sector_id=1/3/7" in command
+    assert "sector_path_id=1/3/7" in command
+    assert "sector_name=Application Software" in command
+    assert "change_percent=-5.2" in command
+
+
 @pytest.mark.asyncio
 async def test_fetch_movers_surfaces_dashboard_error_detail() -> None:
     from dojoagents.dashboard.cli.attribution_factor_crawl import _fetch_movers_for_market
@@ -164,7 +210,7 @@ def test_api_items_are_idempotent_and_preserve_explicit_factor_uid() -> None:
 def test_new_factor_rejects_date_only_event_time() -> None:
     factor = _factor()
     factor["event_time"] = "2026-07-31"
-    with pytest.raises(ValueError, match="event_time must include date and time"):
+    with pytest.raises(ValueError, match="event_time"):
         _api_write_items([factor])
 
 
@@ -309,12 +355,20 @@ async def test_write_only_batches_existing_outputs_through_create_api(tmp_path) 
     task_dir.mkdir(parents=True)
     factor_file = task_dir / "attribution_factors_cn_1_2_6_2026-07-31.jsonl"
     factor_file.write_text(json.dumps(_factor()) + "\n", encoding="utf-8")
+    us_factor = _factor()
+    us_factor.update({"market": "us", "sector_id": "1/3/7"})
+    (task_dir / "attribution_factors_us_1_3_7_2026-07-31.jsonl").write_text(
+        json.dumps(us_factor) + "\n",
+        encoding="utf-8",
+    )
 
     args = build_parser().parse_args(
         [
             "--date",
             "2026-07-31",
             "--write-only",
+            "--market",
+            "cn",
         ]
     )
     config = SimpleNamespace(

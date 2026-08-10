@@ -13,6 +13,7 @@ from dojoagents.dashboard.cli.tasks import (
     _run_status_exit_code,
     run_tasks_command,
 )
+from dojoagents.tasks.activator import parse_task_params
 
 
 def test_tasks_run_cli_parser() -> None:
@@ -39,6 +40,8 @@ def test_tasks_run_task_cli_parser() -> None:
             "--date",
             "2026-07-22",
             "--local",
+            "--model",
+            "deepseek-v4-flash-0731",
             "market=cn",
             "sector_path_id=1/2/6",
         ]
@@ -47,6 +50,7 @@ def test_tasks_run_task_cli_parser() -> None:
     assert args.pipeline is None
     assert args.date == "2026-07-22"
     assert args.local is True
+    assert args.model == "deepseek-v4-flash-0731"
     assert args.task_args == ["market=cn", "sector_path_id=1/2/6"]
 
 
@@ -81,6 +85,22 @@ def test_build_task_slash_message() -> None:
         )
         == "/task event-trigger 2026-07-22"
     )
+
+
+def test_build_task_slash_message_preserves_spaced_parameter_values() -> None:
+    message = _build_task_slash_message(
+        "attribution-factor-crawl",
+        trading_date="2026-07-22",
+        task_args=[
+            "market=us",
+            "sector_id=1/2/6",
+            "sector_name=Application Software",
+            "change_percent=-5.2",
+        ],
+    )
+    task_args = message.partition("attribution-factor-crawl")[2].strip()
+
+    assert parse_task_params(task_args)["sector_name"] == "Application Software"
 
 
 def test_tasks_run_local_flag() -> None:
@@ -319,6 +339,8 @@ async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
             "attribution-factor-crawl",
             "--date",
             "2026-07-22",
+            "--model",
+            "deepseek-v4-flash-0731",
             "market=cn",
             "sector_path_id=1/2/6",
         ]
@@ -344,6 +366,7 @@ async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
     assert kwargs["message"] == "/task attribution-factor-crawl 2026-07-22 market=cn sector_path_id=1/2/6"
     assert kwargs["session_id"].startswith("cli-task-attribution-factor-crawl-")
     assert kwargs["session_id"] != "cli-task-attribution-factor-crawl-2026-07-22"
+    assert kwargs["model"] == "deepseek-v4-flash-0731"
 
 
 @pytest.mark.asyncio
@@ -355,6 +378,8 @@ async def test_tasks_run_task_local_invokes_agent() -> None:
             "--task",
             "ticker-sector-classify",
             "--local",
+            "--model",
+            "deepseek-v4-flash-0731",
             "NVDA",
         ]
     )
@@ -383,6 +408,7 @@ async def test_tasks_run_task_local_invokes_agent() -> None:
     request = run_tasks.await_args.args[1]
     assert request.message == "/task ticker-sector-classify NVDA"
     assert request.channel == "cli"
+    assert request.metadata["model_override"] == "deepseek-v4-flash-0731"
 
 
 @pytest.mark.asyncio

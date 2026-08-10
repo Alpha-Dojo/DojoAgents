@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import replace
 from typing import Any
 
@@ -35,7 +36,10 @@ def parse_task_params(arg: str) -> dict[str, Any]:
     text = str(arg or "").strip()
     if not text:
         return {}
-    parts = text.split()
+    try:
+        parts = shlex.split(text)
+    except ValueError as exc:
+        raise TaskActivationError(f"Invalid quoted task arguments: {exc}") from exc
     params: dict[str, Any] = {}
     for token in parts:
         if _DATE_RE.fullmatch(token):

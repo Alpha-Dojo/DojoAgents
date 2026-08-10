@@ -156,6 +156,8 @@ async def test_minimal_harness_composes_without_importing_financial_modules(tmp_
         "execute_code",
         "read_session_input",
         "read_session_output",
+        "skill_view",
+        "skills_list",
         "terminal",
         "tools_list",
         "web_extract",

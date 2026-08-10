@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
@@ -805,7 +806,10 @@ class AgentLoop:
                     user_content = combined
         image_turn = openai_content_has_images(user_content)
 
-        model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
+        requested_model = request.metadata.get("model_override")
+        model_id = requested_model.strip() if isinstance(requested_model, str) and requested_model.strip() else None
+        if model_id is None:
+            model_id = self.config.model if isinstance(self.config.model, str) and self.config.model.strip() else None
         if model_id is None and isinstance(self.provider_config, LLMProviderConfig) and self.provider_config.model:
             model_id = self.provider_config.model
         if model_id is None and (hasattr(self.llm_provider, "_mock_return_value") or hasattr(self.llm_provider, "assert_called")):
@@ -966,7 +970,7 @@ class AgentLoop:
         raw_provider_name = getattr(self.llm_provider, "name", "openai")
         provider_name = raw_provider_name if isinstance(raw_provider_name, str) and raw_provider_name else "openai"
         provider_cfg = (
-            self.provider_config
+            replace(self.provider_config, model=model_id)
             if isinstance(self.provider_config, LLMProviderConfig)
             else LLMProviderConfig(
                 model=model_id,
@@ -1761,7 +1765,7 @@ class AgentLoop:
             # outer SSE sink. Emitting done here would close the stream after step 1.
             defer_done = bool(request.metadata.get("pipeline")) or bool(request.metadata.get("defer_run_done"))
             if not defer_done:
-                event_sink.done(model_id=self.config.model, tool_trace=tool_trace, tool_steps=len(tool_trace))
+                event_sink.done(model_id=model_id, tool_trace=tool_trace, tool_steps=len(tool_trace))
         LOGGER.info(
             "AgentLoop.run complete: session_id=%s response_len=%d saw_content_delta=%s tool_steps=%d stopped=%s",
             request.session_id,

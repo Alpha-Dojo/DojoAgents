@@ -1,6 +1,6 @@
 id: sector-brief-extract
 name: 板块主题简报提取
-version: 1
+version: 2
 harness_profile: tool_orchestrated
 channels:
   - dashboard
@@ -22,6 +22,6 @@ triggers:
 constraints:
   max_tool_calls_per_turn: 1
   tool_budget:
-    search_sector_taxonomy: 2
+    search_sector_taxonomy: 1
     get_sector_attribution_factors: 1
     execute_code: 2

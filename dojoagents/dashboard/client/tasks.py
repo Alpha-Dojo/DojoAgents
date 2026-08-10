@@ -143,6 +143,7 @@ async def run_message_via_dashboard(
     base_url: str,
     message: str,
     session_id: str,
+    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
     log_label: str = "message",
 ) -> dict[str, Any]:
@@ -156,7 +157,12 @@ async def run_message_via_dashboard(
         session_id,
         message,
     )
-    created = await create_chat_run(base_url=base_url, message=message, session_id=session_id)
+    created = await create_chat_run(
+        base_url=base_url,
+        message=message,
+        session_id=session_id,
+        model=model,
+    )
     run_id = str(created["run_id"])
     LOGGER.info("Dashboard run created: run_id=%s", run_id)
     return await wait_for_chat_run(base_url, run_id, poll_interval=poll_interval)
@@ -168,6 +174,7 @@ async def run_pipeline_via_dashboard(
     pipeline_id: str,
     trading_date: str,
     session_id: str,
+    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
     message = f"/pipeline {pipeline_id} {trading_date}"
@@ -175,6 +182,7 @@ async def run_pipeline_via_dashboard(
         base_url=base_url,
         message=message,
         session_id=session_id,
+        model=model,
         poll_interval=poll_interval,
         log_label=f"pipeline {pipeline_id}",
     )
@@ -185,12 +193,14 @@ async def run_task_via_dashboard(
     base_url: str,
     message: str,
     session_id: str,
+    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
     return await run_message_via_dashboard(
         base_url=base_url,
         message=message,
         session_id=session_id,
+        model=model,
         poll_interval=poll_interval,
         log_label="task",
     )

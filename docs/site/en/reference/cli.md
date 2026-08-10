@@ -24,6 +24,7 @@ dojoagents
 | `precompute-sector` | `--data-root`, `--start-date`, `--upload` | Precompute sector daily metrics and returns |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | Read a `precompute-sector` snapshot, publish the unified theme-state bundle, and optionally upload it to `dojo_sector_precomputed` |
 | `attribution-factor-crawl` | `--date`, `--concurrency`, `--top-n`, `--min-cap`, `--force-rerun`, `--write-only`, `--skip-write` | Crawl daily sector factors and batch-write them through `create_attribution_factor` |
+| `sector-brief-extract` | `--date`, `--market`, `--lookback-days`, `--concurrency`, `--max-attempts`, `--model`, `--force-rerun`, `--write-only`, `--skip-write` | Extract sector briefs from attribution factors and batch-write them through `create_sector_brief_extract` |
 | `tasks run` | `--pipeline`, `--date`, `--config`, `--local`, `--force`, `--force-rerun`, … | Run a task pipeline (`tasks.enabled` required) |
 | `tasks eval` | `--task`, `--date`, `--config`, `--artifact` | Validate a task artifact against its contract schema |
 
@@ -39,7 +40,11 @@ dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-
 dojoagents precompute-sector --start-date 2025-01-01
 dojoagents precompute-sector-theme-state --upload
 dojoagents attribution-factor-crawl --date 2026-07-31
+dojoagents attribution-factor-crawl --date 2026-07-31 --market cn
 dojoagents attribution-factor-crawl  # local date by default
+dojoagents sector-brief-extract --date 2026-07-31 --market cn
+dojoagents sector-brief-extract --date 2026-07-31 --market cn --model deepseek-v4-flash-0731
+dojoagents sector-brief-extract  # local date by default
 dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
 dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
@@ -67,6 +72,17 @@ ready, and shuts it down when the crawl ends. The temporary process skips the
 full SDK offline preload and periodic refresh, while retaining normal Dashboard
 registry loading for the crawl APIs and task runtime. `--write-only` does not start a
 Dashboard. A remote `--dashboard-url` must already be running.
+
+`sector-brief-extract` discovers sectors from AttributionFactor rows in the calendar-day
+lookback window, runs one Task per `(market, sector_id)`, validates each JSON artifact,
+and batch-writes it with `analysis.create_sector_brief_extract`. Valid existing artifacts
+are reused by default. Use `--force-rerun` to regenerate, `--write-only` to submit existing
+artifacts, or `--skip-write` for validation only. Remote Tasks require a Dashboard just like
+the attribution crawl; no temporary Dashboard is started when there are no pending Tasks.
+Each sector job is attempted up to three times by default, with its artifact validated after
+every attempt. A job that still fails is logged and skipped while other jobs and valid API
+writes continue. Use `--max-attempts` to change the limit. `--model` overrides the model ID
+for these Tasks while retaining the provider configured in `agents.yaml`.
 
 ## Session Export
 

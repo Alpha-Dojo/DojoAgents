@@ -94,12 +94,14 @@ async def test_create_chat_run_posts_pipeline_message() -> None:
             base_url="http://127.0.0.1:8765",
             message="/pipeline daily-market-events 2026-06-01",
             session_id="cli-task-daily-market-events-2026-06-01",
+            model="deepseek-v4-flash-0731",
         )
 
     assert payload["run_id"] == "run-123"
     assert captured["path"] == "/api/chat/runs"
     assert "/pipeline daily-market-events 2026-06-01" in captured["payload"]
     assert "cli-task-daily-market-events-2026-06-01" in captured["payload"]
+    assert "deepseek-v4-flash-0731" in captured["payload"]
 
 
 @pytest.mark.asyncio
