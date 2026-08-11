@@ -15,7 +15,25 @@
           "required": ["zh", "en"],
           "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
         },
-        "category": { "type": "string" },
+        "category": {
+          "enum": [
+            "geo_military",
+            "geo_diplomatic",
+            "macro_data",
+            "macro_policy",
+            "industry_supply",
+            "industry_demand",
+            "corporate_earnings",
+            "corporate_guidance",
+            "corporate_mna",
+            "product_tech",
+            "capital_flow",
+            "market_structure",
+            "analyst_revision",
+            "exogenous_shock",
+            "other"
+          ]
+        },
         "source": {
           "type": "object",
           "required": ["zh", "en"],
