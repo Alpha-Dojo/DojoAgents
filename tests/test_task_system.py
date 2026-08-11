@@ -242,10 +242,10 @@ def test_command_router_activates_pipeline(task_manager: TaskPromptManager, task
     assert isinstance(pipeline, dict)
     assert pipeline["id"] == "daily-market-events"
     assert pipeline["step"] == 1
-    assert active["task_id"] == "sector-attribution"
+    assert active["task_id"] == "event-trigger"
 
 
-def test_event_trigger_requires_raw_pack(
+def test_event_trigger_activates_without_raw_pack(
     task_output_root: Path,
     task_manager: TaskPromptManager,
 ) -> None:
@@ -256,17 +256,20 @@ def test_event_trigger_requires_raw_pack(
         auto_detect=False,
     )
     request = ChatRequest(
-        message="/task event-trigger 2026-07-02",
+        message="/task event-trigger 2026-07-02 market=us",
         user_id="u1",
-        session_id="sess-missing",
+        session_id="sess-mainline",
         channel="dashboard",
     )
-    with pytest.raises(TaskActivationError, match="market_news_raw_pack_us_2026-07-02.json"):
-        activator.activate_task(
-            request,
-            task_id="event-trigger",
-            params={"trading_date": "2026-07-02", "market": "us"},
-        )
+    activated = activator.activate_task(
+        request,
+        task_id="event-trigger",
+        params={"trading_date": "2026-07-02", "market": "us"},
+    )
+    active = activated.metadata["active_task"]
+    assert active["task_id"] == "event-trigger"
+    assert active["inputs"] == []
+    assert active["outputs"][0]["filename"] == "market_event_triggers_us_2026-07-02.jsonl"
 
 
 def test_read_and_write_session_output_roundtrip(tmp_path: Path) -> None:
@@ -354,32 +357,16 @@ def test_schema_validator_accepts_raw_pack(tmp_path: Path, task_manager: TaskPro
     assert issues == []
 
 
-def test_pipeline_runner_advances_to_event_trigger(
+def test_pipeline_runner_completes_single_step_event_trigger(
     task_output_root: Path,
     task_manager: TaskPromptManager,
 ) -> None:
     session_id = "sess-advance"
-    _write_task_file(
-        task_output_root,
-        "sector-attribution",
-        "market_news_raw_pack_us_2026-07-02.json",
-        {
-            "market": "us",
-            "trading_date": "2026-07-02",
-            "window_start_date": "2026-07-02",
-            "window_end_date": "2026-07-02",
-            "sector_moves": [
-                {
-                    "sector_path_id": "1/2/8",
-                    "sector_name": {"zh": "半导体封测", "en": "Packaging"},
-                    "market": "us",
-                    "change_percent": -8.2,
-                }
-            ],
-            "news_items": [],
-            "sectors_without_news": ["1/2/8"],
-        },
+    path = resolve_task_output_file(
+        task_output_root, "event-trigger", "market_event_triggers_us_2026-07-02.jsonl"
     )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
     activator = TaskActivator(
         manager=task_manager,
         sessions_root="/tmp",
@@ -404,14 +391,14 @@ def test_pipeline_runner_advances_to_event_trigger(
                 "params": {"trading_date": "2026-07-02", "market": "us"},
             },
             "active_task": {
-                "task_id": "sector-attribution",
+                "task_id": "event-trigger",
                 "params": {"trading_date": "2026-07-02", "market": "us"},
-                "harness_profile": "tool_orchestrated",
+                "harness_profile": "artifact_synthesis",
                 "outputs": [
                     {
-                        "filename": "market_news_raw_pack_us_2026-07-02.json",
-                        "format": "json",
-                        "schema": "schema/market_news_raw_pack.schema.json",
+                        "filename": "market_event_triggers_us_2026-07-02.jsonl",
+                        "format": "jsonl",
+                        "schema": "schema/market_event_triggers.schema.json",
                     }
                 ],
             },
@@ -421,11 +408,9 @@ def test_pipeline_runner_advances_to_event_trigger(
 
     response = AgentResponse(content="done", session_id=session_id)
     advance = runner.maybe_advance(request, response)
-    assert advance.next_request is not None
-    assert advance.next_request.metadata["active_task"]["task_id"] == "event-trigger"
-    assert advance.next_request.metadata["active_task"]["inputs"][0]["filename"] == "market_news_raw_pack_us_2026-07-02.json"
-    assert advance.next_request.metadata["active_task"]["inputs"][0]["source_task_id"] == "sector-attribution"
-    assert advance.next_request.metadata["pipeline"]["step"] == 2
+    assert advance.next_request is None
+    assert advance.completed is True
+    assert not advance.validation_errors
 
 
 def test_tool_orchestrated_harness_blocks_days_usage() -> None:

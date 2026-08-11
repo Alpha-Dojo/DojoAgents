@@ -42,9 +42,12 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     brief = manager.get_task("sector-brief-extract")
     pipeline = manager.get_pipeline("daily-market-events")
     assert sector.contract.outputs[0].filename == "market_news_raw_pack_{market}_{trading_date}.json"
-    assert event.contract.inputs[0].schema.endswith("market_news_raw_pack.schema.json")
-    assert event.contract.constraints["must_read_input_before_write"] is True
-    assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]
+    assert event.contract.inputs == []
+    assert event.contract.outputs[0].filename == "market_event_triggers_{market}_{trading_date}.jsonl"
+    assert "get_sector_movers" in event.contract.required_tools
+    assert "web_search" in event.contract.required_tools
+    assert "read_session_output" not in event.contract.required_tools
+    assert [step.task for step in pipeline.steps] == ["event-trigger"]
     assert sector.contract.constraints["max_tool_calls_per_turn"] == 1
     assert classify.contract.outputs[0].filename == "ticker_sector_labels_{ticker}.json"
     assert classify.contract.harness_profile == "tool_orchestrated"

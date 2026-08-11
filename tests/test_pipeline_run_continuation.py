@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -86,7 +86,7 @@ class _FakeAdvance:
 
 
 @pytest.mark.asyncio
-async def test_run_agent_with_tasks_defers_done_until_pipeline_finishes() -> None:
+async def test_run_agent_with_tasks_completes_single_step_pipeline() -> None:
     sink = AgentEventSink(run_id="run-outer", session_id="s1")
     calls: list[str] = []
 
@@ -97,14 +97,6 @@ async def test_run_agent_with_tasks_defers_done_until_pipeline_finishes() -> Non
         channel="dashboard",
         metadata={
             "pipeline": {"id": "daily-market-events", "step": 1, "params": {"trading_date": "2026-07-27"}},
-            "active_task": {"task_id": "sector-attribution"},
-        },
-    )
-    step2 = replace(
-        step1,
-        message="Continue pipeline daily-market-events step 2: event-trigger",
-        metadata={
-            "pipeline": {"id": "daily-market-events", "step": 2, "params": {"trading_date": "2026-07-27"}},
             "active_task": {"task_id": "event-trigger"},
         },
     )
@@ -114,19 +106,12 @@ async def test_run_agent_with_tasks_defers_done_until_pipeline_finishes() -> Non
             return request
 
     class PipelineRunner:
-        def __init__(self) -> None:
-            self._seen = 0
-
         def maybe_advance(self, request: ChatRequest, response: AgentResponse) -> _FakeAdvance:
-            self._seen += 1
-            if self._seen == 1:
-                return _FakeAdvance(next_request=step2)
             return _FakeAdvance(completed=True)
 
     async def fake_run(request: ChatRequest, *, event_sink: Any = None) -> AgentResponse:
         task_id = request.metadata["active_task"]["task_id"]
         calls.append(task_id)
-        # Mimic AgentLoop deferral for pipeline metadata: do not emit done here.
         assert bool(request.metadata.get("pipeline"))
         if event_sink is not None:
             event_sink.delta(f"content-{task_id}")
@@ -137,7 +122,7 @@ async def test_run_agent_with_tasks_defers_done_until_pipeline_finishes() -> Non
     runtime.pipeline_runner = PipelineRunner()
 
     response = await run_agent_with_tasks(runtime, step1, run_agent=fake_run, event_sink=sink)
-    assert calls == ["sector-attribution", "event-trigger"]
+    assert calls == ["event-trigger"]
     assert response.content == "ok-event-trigger"
     assert response.metadata.get("pipeline_completed") is True
     types = [event["type"] for event in sink.events]
