@@ -459,8 +459,8 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         ),
         mcp_servers=dict(raw.get("mcp_servers", {})),
         dojosdk=DojoSDKConfig(
-            api_key=raw.get("dojosdk", {}).get("api_key"),
-            base_url=raw.get("dojosdk", {}).get("base_url"),
+            api_key=_as_non_empty_string(os.getenv("DOJO_API_KEY")) or raw.get("dojosdk", {}).get("api_key"),
+            base_url=_as_non_empty_string(os.getenv("DOJO_BASE_URL")) or raw.get("dojosdk", {}).get("base_url"),
             timeout=float(raw.get("dojosdk", {}).get("timeout", 60.0)),
             max_retries=int(raw.get("dojosdk", {}).get("max_retries", 1)),
         ),
