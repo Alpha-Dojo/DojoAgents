@@ -378,9 +378,15 @@ async def _run_pipeline_task_local(
         return exit_code
     finally:
         if runtime is not None:
-            await runtime.shutdown()
+            try:
+                await runtime.shutdown()
+            except Exception:
+                LOGGER.exception("Failed to shut down local task runtime")
         if services is not None:
-            await services.shutdown()
+            try:
+                await services.shutdown()
+            except Exception:
+                LOGGER.exception("Failed to shut down local task services")
 
 
 async def _run_pipeline_task_remote(
@@ -673,7 +679,7 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
         if file_path.is_file():
             LOGGER.info("Task output %s already exists. Skipping pipeline execution.", file_path)
             if not getattr(args, "skip_upload", False):
-                await _upload_daily_market_events(args.config, trading_date, market)
+                return 0 if await _upload_daily_market_events(args.config, trading_date, market) else 1
             return 0
 
     max_retries = int(args.max_retries) if args.max_retries is not None else 3
@@ -711,13 +717,13 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     if exit_code == 0 and pipeline_id == "daily-market-events":
         if not getattr(args, "skip_upload", False):
-            await _upload_daily_market_events(args.config, trading_date, market)
+            return 0 if await _upload_daily_market_events(args.config, trading_date, market) else 1
     else:
         LOGGER.error(f"Pipeline execution failed: exit_code: {exit_code}")
     return exit_code
 
 
-async def _upload_daily_market_events(config_path: str, trading_date: str, market: str) -> None:
+async def _upload_daily_market_events(config_path: str, trading_date: str, market: str) -> bool:
     store = ConfigStore(config_path)
     config = store.snapshot()
 
@@ -726,7 +732,7 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
     file_path = output_root / "event-trigger" / f"market_event_triggers_{market_code}_{trading_date}.jsonl"
     if not file_path.is_file():
         LOGGER.error("Cannot upload events: %s not found", file_path)
-        return
+        return False
 
     items = []
     try:
@@ -740,11 +746,11 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
                         items.append(parsed)
     except Exception as exc:
         LOGGER.error("Error reading market event output file %s: %s", file_path, exc)
-        return
+        return False
 
     if not items:
         LOGGER.info("No market events to upload.")
-        return
+        return True
 
     sdk_cfg = config.dojosdk
     client_kwargs = {
@@ -766,8 +772,10 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
                 sector_impacts=item.get("sector_impacts") or [],
             )
         LOGGER.info("Successfully uploaded market events.")
+        return True
     except Exception as exc:
         LOGGER.error("Failed to upload market events: %s", exc)
+        return False
     finally:
         await _close_dojo_client(client)
 
