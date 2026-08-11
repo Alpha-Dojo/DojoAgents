@@ -82,6 +82,38 @@ class TestConfigLoader:
         assert cfg.agent.model is None
         assert cfg.llm_provider.providers == {}
 
+    def test_dojosdk_environment_overrides_file_config(self, monkeypatch):
+        monkeypatch.setenv("DOJO_API_KEY", "environment-key")
+        monkeypatch.setenv("DOJO_BASE_URL", "https://environment.example")
+
+        cfg = _to_config(
+            {
+                "dojosdk": {
+                    "api_key": "file-key",
+                    "base_url": "https://file.example",
+                }
+            }
+        )
+
+        assert cfg.dojosdk.api_key == "environment-key"
+        assert cfg.dojosdk.base_url == "https://environment.example"
+
+    def test_dojosdk_empty_environment_falls_back_to_file_config(self, monkeypatch):
+        monkeypatch.setenv("DOJO_API_KEY", "")
+        monkeypatch.setenv("DOJO_BASE_URL", "   ")
+
+        cfg = _to_config(
+            {
+                "dojosdk": {
+                    "api_key": "file-key",
+                    "base_url": "https://file.example",
+                }
+            }
+        )
+
+        assert cfg.dojosdk.api_key == "file-key"
+        assert cfg.dojosdk.base_url == "https://file.example"
+
     def test_no_default_model_without_llm_provider(self):
         cfg = _to_config({"agent": {"max_iterations": 5}})
         assert cfg.agent.model is None
