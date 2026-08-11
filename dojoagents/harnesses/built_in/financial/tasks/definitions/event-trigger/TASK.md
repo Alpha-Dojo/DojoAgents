@@ -37,7 +37,7 @@
 | 用途 | 规则 |
 | --- | --- |
 | 锁定当日异动 + 新闻时间 | `start_date=end_date=trading_date`（新闻可扩到 `[T-3, T]`）；**禁止**用 `days` 冒充历史日 |
-| 主线多窗口 1/5/10/20 | 窗口**右端锚定 `trading_date`**（可用 `days` 或等价 date_range）；同一 run 内拉齐，禁止反复乱补窗口 |
+| 主线多窗口 1/5/10/20 | **四窗必须全部拉取**（`days=1/5/10/20` 或等价 date_range），窗口右端锚定 `trading_date`；同一 run 内一次拉齐，禁止漏拉 10d、禁止事后补窗 |
 
 只覆盖 `market`；`sector_impacts` 只写本市场板块。
 
@@ -73,16 +73,19 @@
 
 #### Step 1 多窗口对齐（背景过滤，不做终裁）
 
-- 锚点 1d / 5d / 20d；10d 仅当短长异号且非平盘时取用，否则 `window_10d=null`
+**取数（硬约束）**：对候选板块所在市场，必须调用 `get_sector_movers` 取齐 **`days=1` / `5` / `10` / `20` 四个窗口**（右端锚定 `trading_date`）。四窗数值全部写入 `sector_impacts[]` 的 `window_1d/5d/10d/20d`——**禁止**因「不背离」就跳过 10d 或把 `window_10d` 写成 `null`（仅工具失败才允许 `null`）。
+
+**定标（与取数分离）**：
+
+- `window_label` **只由 1d/5d/20d 定义**（见下表）；10d **不参与**桶定义，仅作背离/转折时的辅助阅读字段
 - `|window_20d| < 2%` → `flat`，排除主线候选
 - `divergence_days` 算不出则 `null`（禁止用四窗口符号瞎估）
-- 每个板块签名写入对应 `sector_impacts[]`：`window_*`、`window_label`
 
-| `window_label` | 条件 | 含义 |
+| `window_label` | 条件（仅看 1d/5d/20d） | 含义 |
 | --- | --- | --- |
 | `persistent_up` | 20d 实质为正、5d 与 20d 同号正、非 flat | 正向趋势背景 |
 | `persistent_down` | 20d 实质为负、5d 与 20d 同号负、非 flat | 负向趋势背景 |
-| `short_long_diverge` | 5d 与 20d 异号，20d 非 flat | 观察池 |
+| `short_long_diverge` | 5d 与 20d 异号，20d 非 flat | 观察池（可读 10d 辅助理解转折） |
 | `flat` | `|20d| < 2%` | 排除主线 |
 | `unclassified` | 其余 | 默认桶：不静默丢、不静默升主线 |
 
@@ -214,7 +217,7 @@
 | --- | --- |
 | `sector_id` / `sector_name` | L3 路径与双语名 |
 | `direction` | 该板块相对本叙事的方向：`Positive` 上涨且合逻辑 · `Negative` 下跌且合逻辑 · `Divergent` 本市场内多空交织 |
-| `window_1d/5d/10d/20d` | 该板块各窗口回报；未取用的 10d 为 `null` |
+| `window_1d/5d/10d/20d` | 该板块四窗回报（取数阶段必须齐全）；仅工具失败时 10d 等可为 `null` |
 | `window_label` | 窗口签名桶（`persistent_up` 等，见 Phase C Step 1） |
 | `divergence_days` | 日频背离天数；算不出则 `null` |
 | `leader_concentration_tier` | 纯度：`healthy`<50% · `moderate` 50–80% · `extreme`>80% |
@@ -285,7 +288,7 @@
       "direction": "Positive",
       "window_1d": 3.2,
       "window_5d": 8.1,
-      "window_10d": null,
+      "window_10d": 9.5,
       "window_20d": 12.19,
       "window_label": "persistent_up",
       "divergence_days": null,
