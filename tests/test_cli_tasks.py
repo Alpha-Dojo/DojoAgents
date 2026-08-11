@@ -275,6 +275,7 @@ async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
             "--market",
             "us",
             "--force",
+            "--skip-upload",
         ]
     )
     fake_record = {
@@ -362,6 +363,82 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
     assert request.message == "/pipeline daily-market-events 2026-06-01 market=us"
     assert request.session_id == "cli-task-daily-market-events-2026-06-01-us"
     assert request.channel == "cli"
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_local_uploads_even_when_cleanup_fails() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--market",
+            "us",
+            "--local",
+            "--force-rerun",
+            "--max-retries",
+            "1",
+        ]
+    )
+    response = AgentResponse(
+        content="done",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
+        metadata={"pipeline_completed": True},
+    )
+
+    with patch("dojoagents.dashboard.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+        runtime = AsyncMock()
+        runtime.task_manager = MagicMock()
+        runtime.task_manager.get_pipeline.return_value = object()
+        runtime.shutdown.side_effect = RuntimeError("runtime cleanup failed")
+        services = AsyncMock()
+        services.shutdown.side_effect = RuntimeError("service cleanup failed")
+        prepare.return_value = (runtime, services)
+        with patch("dojoagents.dashboard.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock, return_value=response):
+            with patch("dojoagents.dashboard.cli.tasks._upload_daily_market_events", new_callable=AsyncMock, return_value=True) as upload:
+                code = await run_tasks_command(args)
+
+    assert code == 0
+    upload.assert_awaited_once_with(args.config, "2026-06-01", "us")
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_returns_nonzero_when_upload_fails() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--market",
+            "us",
+            "--local",
+            "--force-rerun",
+            "--max-retries",
+            "1",
+        ]
+    )
+    response = AgentResponse(
+        content="done",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
+        metadata={"pipeline_completed": True},
+    )
+
+    with patch("dojoagents.dashboard.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+        runtime = AsyncMock()
+        runtime.task_manager = MagicMock()
+        runtime.task_manager.get_pipeline.return_value = object()
+        prepare.return_value = (runtime, AsyncMock())
+        with patch("dojoagents.dashboard.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock, return_value=response):
+            with patch("dojoagents.dashboard.cli.tasks._upload_daily_market_events", new_callable=AsyncMock, return_value=False):
+                code = await run_tasks_command(args)
+
+    assert code == 1
 
 
 @pytest.mark.asyncio
