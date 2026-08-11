@@ -58,7 +58,18 @@ dashboard:
     assert config.derived_cache_schema_version == 4
 
 
-def test_server_applies_configured_roots_before_sdk_construction(tmp_path) -> None:
+def test_financial_services_disable_offline_work_in_online_mode(monkeypatch) -> None:
+    monkeypatch.setenv("DOJO_ONLINE", "true")
+
+    config = DashboardAppServicesConfig.from_agents_config(AgentsConfig())
+
+    assert config.offline_mode is False
+    assert config.preload_offline_data is False
+    assert config.refresh_enabled is False
+
+
+def test_server_applies_configured_roots_before_sdk_construction(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("DOJO_ONLINE", raising=False)
     sdk_root = tmp_path / "sdk-cache"
     dashboard_root = tmp_path / "dashboard-data"
     config_file = tmp_path / "agents.yaml"
