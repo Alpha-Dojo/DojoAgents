@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,6 +13,7 @@ from dojoagents.dashboard.cli.tasks import (
     _metadata_exit_code,
     _response_exit_code,
     _run_status_exit_code,
+    _upload_daily_market_events,
     run_tasks_command,
 )
 from dojoagents.tasks.activator import parse_task_params
@@ -442,6 +445,45 @@ async def test_tasks_run_returns_nonzero_when_upload_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_path) -> None:
+    output_dir = tmp_path / "event-trigger"
+    output_dir.mkdir()
+    (output_dir / "market_event_triggers_cn_2026-08-11.jsonl").write_text(
+        json.dumps(
+            {
+                "market": "cn",
+                "trading_date": "2026-08-11",
+                "event_time": "2026-08-11T09:30:00+08:00",
+                "event_summary": {"category": "geo_military"},
+                "sector_impacts": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config = SimpleNamespace(
+        tasks=SimpleNamespace(output_root=str(tmp_path)),
+        dojosdk=SimpleNamespace(api_key=None, base_url=None, timeout=60.0, max_retries=1),
+    )
+    client = MagicMock()
+    client.analysis.create_market_dynamics = AsyncMock()
+    client.aclose = AsyncMock()
+
+    with patch("dojoagents.dashboard.cli.tasks.ConfigStore") as config_store, patch("dojoagents.dashboard.cli.tasks.AsyncDojo", return_value=client):
+        config_store.return_value.snapshot.return_value = config
+        succeeded = await _upload_daily_market_events("agents.yaml", "2026-08-11", "cn")
+
+    assert succeeded is True
+    client.analysis.create_market_dynamics.assert_awaited_once_with(
+        market="cn",
+        trading_date="2026-08-11",
+        event_time="2026-08-11T09:30:00+08:00",
+        event_summary={"category": "geo_military"},
+        sector_impacts=[],
+    )
+
+
+@pytest.mark.asyncio
 async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
     args = build_parser().parse_args(
         [
@@ -591,6 +633,12 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
         ]
     )
     assert eval_task_output(args) == 0
+
+    path.write_text(path.read_text(encoding="utf-8").replace('"category":"macro_data"', '"category":"product_tech"'), encoding="utf-8")
+    assert eval_task_output(args) == 0
+
+    path.write_text(path.read_text(encoding="utf-8").replace('"category":"product_tech"', '"category":"unsupported"'), encoding="utf-8")
+    assert eval_task_output(args) == 1
 
 
 def test_tasks_eval_fails_on_invalid_jsonl(tmp_path) -> None:

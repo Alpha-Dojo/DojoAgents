@@ -765,8 +765,20 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
         for item in items:
             if not isinstance(item, dict):
                 continue
-            # SDK create accepts only these fields; market identity lives in affected_markets.
+            item_market = str(item.get("market") or market_code).strip().lower()
+            item_trading_date = str(item.get("trading_date") or trading_date).strip()
+            if item_market != market_code or item_trading_date != trading_date:
+                LOGGER.error(
+                    "Market event scope mismatch: expected market=%s trading_date=%s, got market=%s trading_date=%s",
+                    market_code,
+                    trading_date,
+                    item_market,
+                    item_trading_date,
+                )
+                return False
             await client.analysis.create_market_dynamics(
+                market=item_market,
+                trading_date=item_trading_date,
                 event_time=str(item.get("event_time") or ""),
                 event_summary=item.get("event_summary") or {},
                 sector_impacts=item.get("sector_impacts") or [],
