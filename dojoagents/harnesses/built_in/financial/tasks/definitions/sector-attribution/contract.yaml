@@ -22,7 +22,6 @@ outputs:
 triggers:
   commands:
     - /task sector-attribution
-downstream: event-trigger
 constraints:
   max_tool_calls_per_turn: 1
   tool_budget:

@@ -1,3 +1,5 @@
+> **Deprecated**：日常主线请用 `/task event-trigger`（或 pipeline `daily-market-events`）。本任务仅保留调试/兼容；新流程不再依赖 `market_news_raw_pack`。
+
 ## 角色定位与任务定义
 
 你是一位**板块异动归因分析师**。给定目标市场 `market` 与交易日 `trading_date`，识别该市场内显著异动板块，并为每个异动板块检索可解释其涨跌的新闻、公告与事件，输出结构化原始素材包。
