@@ -13,16 +13,18 @@ from dojoagents.dashboard.cli.tasks import (
     _run_status_exit_code,
     run_tasks_command,
 )
+from dojoagents.tasks.activator import parse_task_params
 
 
 def test_tasks_run_cli_parser() -> None:
     parser = build_parser()
-    args = parser.parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01"])
+    args = parser.parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-06-01", "--market", "us"])
     assert args.command == "tasks"
     assert args.tasks_command == "run"
     assert args.pipeline == "daily-market-events"
     assert args.task is None
     assert args.date == "2026-06-01"
+    assert args.market == "us"
     assert args.task_args == []
     assert args.local is False
     assert args.force is False
@@ -39,6 +41,8 @@ def test_tasks_run_task_cli_parser() -> None:
             "--date",
             "2026-07-22",
             "--local",
+            "--model",
+            "deepseek-v4-flash-0731",
             "market=cn",
             "sector_path_id=1/2/6",
         ]
@@ -47,6 +51,7 @@ def test_tasks_run_task_cli_parser() -> None:
     assert args.pipeline is None
     assert args.date == "2026-07-22"
     assert args.local is True
+    assert args.model == "deepseek-v4-flash-0731"
     assert args.task_args == ["market=cn", "sector_path_id=1/2/6"]
 
 
@@ -83,6 +88,22 @@ def test_build_task_slash_message() -> None:
     )
 
 
+def test_build_task_slash_message_preserves_spaced_parameter_values() -> None:
+    message = _build_task_slash_message(
+        "attribution-factor-crawl",
+        trading_date="2026-07-22",
+        task_args=[
+            "market=us",
+            "sector_id=1/2/6",
+            "sector_name=Application Software",
+            "change_percent=-5.2",
+        ],
+    )
+    task_args = message.partition("attribution-factor-crawl")[2].strip()
+
+    assert parse_task_params(task_args)["sector_name"] == "Application Software"
+
+
 def test_tasks_run_local_flag() -> None:
     args = build_parser().parse_args(
         [
@@ -92,6 +113,8 @@ def test_tasks_run_local_flag() -> None:
             "daily-market-events",
             "--date",
             "2026-06-01",
+            "--market",
+            "us",
             "--local",
         ]
     )
@@ -99,10 +122,11 @@ def test_tasks_run_local_flag() -> None:
 
 
 def test_tasks_eval_cli_parser() -> None:
-    args = build_parser().parse_args(["tasks", "eval", "--task", "event-trigger", "--date", "2026-07-13"])
+    args = build_parser().parse_args(["tasks", "eval", "--task", "event-trigger", "--date", "2026-07-13", "--market", "us"])
     assert args.tasks_command == "eval"
     assert args.task == "event-trigger"
     assert args.date == "2026-07-13"
+    assert args.market == "us"
     assert args.artifact == ""
     assert args.output_root == ""
 
@@ -116,6 +140,8 @@ def test_tasks_run_force_flag() -> None:
             "daily-market-events",
             "--date",
             "2026-07-12",
+            "--market",
+            "us",
             "--force",
         ]
     )
@@ -171,6 +197,26 @@ def test_run_status_exit_code(status: str, metadata: dict, expected: int) -> Non
 
 
 @pytest.mark.asyncio
+async def test_tasks_run_requires_market_for_daily_pipeline() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--skip-upload",
+        ]
+    )
+    with patch("dojoagents.dashboard.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
+        code = await run_tasks_command(args)
+
+    assert code == 1
+    remote.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_tasks_run_remote_invokes_dashboard_client() -> None:
     args = build_parser().parse_args(
         [
@@ -180,6 +226,8 @@ async def test_tasks_run_remote_invokes_dashboard_client() -> None:
             "daily-market-events",
             "--date",
             "2026-06-01",
+            "--market",
+            "us",
             "--force-rerun",
             "--skip-upload",
         ]
@@ -200,12 +248,13 @@ async def test_tasks_run_remote_invokes_dashboard_client() -> None:
     kwargs = remote.await_args.kwargs
     assert kwargs["pipeline_id"] == "daily-market-events"
     assert kwargs["trading_date"] == "2026-06-01"
-    assert kwargs["session_id"] == "cli-task-daily-market-events-2026-06-01"
+    assert kwargs["session_id"] == "cli-task-daily-market-events-2026-06-01-us"
+    assert kwargs["market"] == "us"
 
 
 @pytest.mark.asyncio
 async def test_tasks_run_skips_non_trading_day_before_remote() -> None:
-    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-07-12"])
+    args = build_parser().parse_args(["tasks", "run", "--pipeline", "daily-market-events", "--date", "2026-07-12", "--market", "us"])
     with patch("dojoagents.dashboard.cli.tasks.run_pipeline_via_dashboard", new_callable=AsyncMock) as remote:
         code = await run_tasks_command(args)
 
@@ -223,7 +272,10 @@ async def test_tasks_run_force_bypasses_trading_day_skip() -> None:
             "daily-market-events",
             "--date",
             "2026-07-12",
+            "--market",
+            "us",
             "--force",
+            "--skip-upload",
         ]
     )
     fake_record = {
@@ -250,6 +302,8 @@ async def test_tasks_run_remote_returns_nonzero_on_validation_failure() -> None:
             "daily-market-events",
             "--date",
             "2026-06-01",
+            "--market",
+            "us",
             "--force-rerun",
             "--skip-upload",
             "--max-retries",
@@ -280,6 +334,8 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
             "daily-market-events",
             "--date",
             "2026-06-01",
+            "--market",
+            "us",
             "--local",
             "--force-rerun",
             "--skip-upload",
@@ -287,7 +343,7 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
     )
     fake_response = AgentResponse(
         content="done",
-        session_id="cli-task-daily-market-events-2026-06-01",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
         metadata={"pipeline_completed": True},
     )
 
@@ -304,9 +360,85 @@ async def test_tasks_run_local_invokes_pipeline_runner() -> None:
     assert code == 0
     run_tasks.assert_awaited_once()
     request = run_tasks.await_args.args[1]
-    assert request.message == "/pipeline daily-market-events 2026-06-01"
-    assert request.session_id == "cli-task-daily-market-events-2026-06-01"
+    assert request.message == "/pipeline daily-market-events 2026-06-01 market=us"
+    assert request.session_id == "cli-task-daily-market-events-2026-06-01-us"
     assert request.channel == "cli"
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_local_uploads_even_when_cleanup_fails() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--market",
+            "us",
+            "--local",
+            "--force-rerun",
+            "--max-retries",
+            "1",
+        ]
+    )
+    response = AgentResponse(
+        content="done",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
+        metadata={"pipeline_completed": True},
+    )
+
+    with patch("dojoagents.dashboard.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+        runtime = AsyncMock()
+        runtime.task_manager = MagicMock()
+        runtime.task_manager.get_pipeline.return_value = object()
+        runtime.shutdown.side_effect = RuntimeError("runtime cleanup failed")
+        services = AsyncMock()
+        services.shutdown.side_effect = RuntimeError("service cleanup failed")
+        prepare.return_value = (runtime, services)
+        with patch("dojoagents.dashboard.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock, return_value=response):
+            with patch("dojoagents.dashboard.cli.tasks._upload_daily_market_events", new_callable=AsyncMock, return_value=True) as upload:
+                code = await run_tasks_command(args)
+
+    assert code == 0
+    upload.assert_awaited_once_with(args.config, "2026-06-01", "us")
+
+
+@pytest.mark.asyncio
+async def test_tasks_run_returns_nonzero_when_upload_fails() -> None:
+    args = build_parser().parse_args(
+        [
+            "tasks",
+            "run",
+            "--pipeline",
+            "daily-market-events",
+            "--date",
+            "2026-06-01",
+            "--market",
+            "us",
+            "--local",
+            "--force-rerun",
+            "--max-retries",
+            "1",
+        ]
+    )
+    response = AgentResponse(
+        content="done",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
+        metadata={"pipeline_completed": True},
+    )
+
+    with patch("dojoagents.dashboard.cli.tasks._prepare_task_runtime", new_callable=AsyncMock) as prepare:
+        runtime = AsyncMock()
+        runtime.task_manager = MagicMock()
+        runtime.task_manager.get_pipeline.return_value = object()
+        prepare.return_value = (runtime, AsyncMock())
+        with patch("dojoagents.dashboard.cli.tasks.run_agent_with_tasks", new_callable=AsyncMock, return_value=response):
+            with patch("dojoagents.dashboard.cli.tasks._upload_daily_market_events", new_callable=AsyncMock, return_value=False):
+                code = await run_tasks_command(args)
+
+    assert code == 1
 
 
 @pytest.mark.asyncio
@@ -319,6 +451,8 @@ async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
             "attribution-factor-crawl",
             "--date",
             "2026-07-22",
+            "--model",
+            "deepseek-v4-flash-0731",
             "market=cn",
             "sector_path_id=1/2/6",
         ]
@@ -344,6 +478,7 @@ async def test_tasks_run_task_remote_invokes_dashboard_client() -> None:
     assert kwargs["message"] == "/task attribution-factor-crawl 2026-07-22 market=cn sector_path_id=1/2/6"
     assert kwargs["session_id"].startswith("cli-task-attribution-factor-crawl-")
     assert kwargs["session_id"] != "cli-task-attribution-factor-crawl-2026-07-22"
+    assert kwargs["model"] == "deepseek-v4-flash-0731"
 
 
 @pytest.mark.asyncio
@@ -355,6 +490,8 @@ async def test_tasks_run_task_local_invokes_agent() -> None:
             "--task",
             "ticker-sector-classify",
             "--local",
+            "--model",
+            "deepseek-v4-flash-0731",
             "NVDA",
         ]
     )
@@ -383,6 +520,7 @@ async def test_tasks_run_task_local_invokes_agent() -> None:
     request = run_tasks.await_args.args[1]
     assert request.message == "/task ticker-sector-classify NVDA"
     assert request.channel == "cli"
+    assert request.metadata["model_override"] == "deepseek-v4-flash-0731"
 
 
 @pytest.mark.asyncio
@@ -395,6 +533,8 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
             "daily-market-events",
             "--date",
             "2026-06-01",
+            "--market",
+            "us",
             "--local",
             "--force-rerun",
             "--skip-upload",
@@ -404,7 +544,7 @@ async def test_tasks_run_local_returns_nonzero_on_validation_failure() -> None:
     )
     fake_response = AgentResponse(
         content="failed",
-        session_id="cli-task-daily-market-events-2026-06-01",
+        session_id="cli-task-daily-market-events-2026-06-01-us",
         metadata={"pipeline_validation_errors": ["Missing required output: foo.json"]},
     )
 
@@ -426,9 +566,10 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
     output_root = tmp_path / "outputs"
     task_dir = output_root / "event-trigger"
     task_dir.mkdir(parents=True)
-    path = task_dir / "market_event_triggers_2026-07-13.jsonl"
+    path = task_dir / "market_event_triggers_us_2026-07-13.jsonl"
     path.write_text(
-        '{"event_time":"2026-07-13T12:00:00Z","event_summary":{"headline":{"zh":"测试标题","en":"Test headline"},'
+        '{"market":"us","trading_date":"2026-07-13","event_time":"2026-07-13T12:00:00Z",'
+        '"event_summary":{"headline":{"zh":"测试标题","en":"Test headline"},'
         '"category":"macro_data","source":{"zh":"来源","en":"Source"},'
         '"content":{"zh":"内容","en":"Content"},"surprise":"expected"},'
         '"sector_impacts":[{"sector_id":"1/2/3","sector_name":{"zh":"板块","en":"Sector"},'
@@ -443,6 +584,8 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
             "event-trigger",
             "--date",
             "2026-07-13",
+            "--market",
+            "us",
             "--output-root",
             str(output_root),
         ]
@@ -456,7 +599,7 @@ def test_tasks_eval_fails_on_invalid_jsonl(tmp_path) -> None:
     output_root = tmp_path / "outputs"
     task_dir = output_root / "event-trigger"
     task_dir.mkdir(parents=True)
-    path = task_dir / "market_event_triggers_2026-07-13.jsonl"
+    path = task_dir / "market_event_triggers_us_2026-07-13.jsonl"
     path.write_text("not-json\n", encoding="utf-8")
     args = build_parser().parse_args(
         [
@@ -466,6 +609,8 @@ def test_tasks_eval_fails_on_invalid_jsonl(tmp_path) -> None:
             "event-trigger",
             "--date",
             "2026-07-13",
+            "--market",
+            "us",
             "--output-root",
             str(output_root),
         ]

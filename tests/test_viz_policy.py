@@ -82,7 +82,7 @@ def test_allows_optional_for_read_only_analysis() -> None:
     assert decision.match.stance == "optional"
 
 
-def test_encouraged_when_execute_code_has_viz_hint() -> None:
+def test_optional_when_execute_code_has_viz_hint_without_blocks() -> None:
     ctx = VizPolicyContext(
         channel="dashboard",
         user_message="回撤分析",
@@ -99,7 +99,27 @@ def test_encouraged_when_execute_code_has_viz_hint() -> None:
     )
     match = resolve_viz_policy(ctx)
     assert match.scene_id == "quant_viz_data_ready"
-    assert match.stance == "encouraged"
+    assert match.stance == "optional"
+
+
+def test_skips_quant_viz_scene_when_execute_code_already_has_viz_blocks() -> None:
+    ctx = VizPolicyContext(
+        channel="dashboard",
+        user_message="回撤分析",
+        locale="en",
+        tool_results=(
+            ToolResult(
+                call_id="c1",
+                name="execute_code",
+                ok=True,
+                content='stdout\n--- viz_hint ---\n{"mapping_hint":"drawdown_analysis"}',
+                data={"dates": ["2026-01-01", "2026-01-02"], "prices": [100.0, 95.0]},
+                viz_blocks=[{"kind": "line", "title": "Drawdown"}],
+            ),
+        ),
+    )
+    match = resolve_viz_policy(ctx)
+    assert match.scene_id != "quant_viz_data_ready"
 
 
 def test_turn_anchor_for_transactional_message() -> None:

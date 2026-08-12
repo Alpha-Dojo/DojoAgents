@@ -1415,11 +1415,14 @@ def get_agent_viz_specs() -> list[ToolSpec]:
         ToolSpec(
             name="agent_viz_build",
             description=(
-                "Build UI visualization blocks from compact structured data. "
+                "Escape hatch: build UI visualization blocks from compact structured data. "
                 "Follow the dashboard Visualization policy scene matrix: forbidden scenes "
                 "(portfolio writes, eval accepted) must NOT call this tool. "
-                "Prefer auto viz_blocks on data tools; use this only when policy is optional/encouraged "
-                "and the chart adds insight. Pass source_tool and mapping_hint when converting a prior tool result."
+                "Prefer auto viz_blocks already attached to data-tool / execute_code results — "
+                "do not call this merely to re-render the same chart. Use only when viz_blocks are "
+                "missing or the wrong kind, and never inline large dates/prices/klines series that "
+                "already produced viz_blocks. Pass source_tool and mapping_hint when converting a "
+                "prior tool result."
             ),
             parameters={
                 "type": "object",

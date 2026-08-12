@@ -33,7 +33,7 @@ def test_validate_task_output_content_rejects_placeholder(task_manager) -> None:
         manager=task_manager,
         task_id="sector-attribution",
         artifact_meta={
-            "filename": "market_news_raw_pack_2026-07-02.json",
+            "filename": "market_news_raw_pack_us_2026-07-02.json",
             "format": "json",
             "schema": "schema/market_news_raw_pack.schema.json",
         },
@@ -52,11 +52,12 @@ def test_validate_task_output_content_accepts_minimal_valid_pack(task_manager) -
         manager=task_manager,
         task_id="sector-attribution",
         artifact_meta={
-            "filename": "market_news_raw_pack_2026-07-02.json",
+            "filename": "market_news_raw_pack_us_2026-07-02.json",
             "format": "json",
             "schema": "schema/market_news_raw_pack.schema.json",
         },
         content={
+            "market": "us",
             "trading_date": "2026-07-02",
             "window_start_date": "2026-07-02",
             "window_end_date": "2026-07-02",

@@ -69,6 +69,7 @@ def test_completion_request_new_format():
     assert info["stream"] is False
     assert info["model"] == "gpt-4.1"
     assert req.metadata["history"] == []
+    assert req.metadata["model_override"] == "gpt-4.1"
 
 
 def test_completion_request_old_format_backward_compat():

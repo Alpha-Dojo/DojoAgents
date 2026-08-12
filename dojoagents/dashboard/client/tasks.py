@@ -24,6 +24,10 @@ def dashboard_base_url_from_config(config_path: str, override: str | None = None
     config = ConfigStore(config_path).snapshot()
     host = str(config.dashboard.host or "127.0.0.1").strip() or "127.0.0.1"
     port = int(config.dashboard.port or 8765)
+    if host == "0.0.0.0":
+        host = "127.0.0.1"
+    elif host in {"::", "::1"}:
+        host = "[::1]"
     return f"http://{host}:{port}"
 
 
@@ -36,7 +40,7 @@ def _api_url(base_url: str, path: str) -> str:
 
 def _is_local_dashboard(base_url: str) -> bool:
     host = (urlparse(base_url).hostname or "").strip().lower()
-    return host in {"127.0.0.1", "localhost", "::1"}
+    return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0", "::"}
 
 
 def _dashboard_client(*, timeout: float, base_url: str) -> httpx.AsyncClient:
@@ -139,6 +143,7 @@ async def run_message_via_dashboard(
     base_url: str,
     message: str,
     session_id: str,
+    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
     log_label: str = "message",
 ) -> dict[str, Any]:
@@ -152,7 +157,12 @@ async def run_message_via_dashboard(
         session_id,
         message,
     )
-    created = await create_chat_run(base_url=base_url, message=message, session_id=session_id)
+    created = await create_chat_run(
+        base_url=base_url,
+        message=message,
+        session_id=session_id,
+        model=model,
+    )
     run_id = str(created["run_id"])
     LOGGER.info("Dashboard run created: run_id=%s", run_id)
     return await wait_for_chat_run(base_url, run_id, poll_interval=poll_interval)
@@ -164,13 +174,20 @@ async def run_pipeline_via_dashboard(
     pipeline_id: str,
     trading_date: str,
     session_id: str,
+    model: str = "default",
+    market: str = "",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
-    message = f"/pipeline {pipeline_id} {trading_date}"
+    parts = [f"/pipeline {pipeline_id}", trading_date]
+    market_code = str(market or "").strip().lower()
+    if market_code:
+        parts.append(f"market={market_code}")
+    message = " ".join(parts)
     return await run_message_via_dashboard(
         base_url=base_url,
         message=message,
         session_id=session_id,
+        model=model,
         poll_interval=poll_interval,
         log_label=f"pipeline {pipeline_id}",
     )
@@ -181,12 +198,14 @@ async def run_task_via_dashboard(
     base_url: str,
     message: str,
     session_id: str,
+    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
     return await run_message_via_dashboard(
         base_url=base_url,
         message=message,
         session_id=session_id,
+        model=model,
         poll_interval=poll_interval,
         log_label="task",
     )

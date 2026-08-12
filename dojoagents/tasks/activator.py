@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import replace
 from typing import Any
 
@@ -15,6 +16,7 @@ from dojoagents.tasks.output_paths import (
 )
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ALLOWED_MARKETS = frozenset({"us", "cn", "hk"})
 
 
 class TaskActivationError(ValueError):
@@ -31,17 +33,51 @@ def _normalize_task_id(raw: str) -> str:
     return normalize_task_id(raw)
 
 
+def normalize_market_param(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    if not text:
+        raise TaskActivationError("Missing required parameter: market (us|cn|hk)")
+    if text == "sh":
+        text = "cn"
+    if text not in _ALLOWED_MARKETS:
+        raise TaskActivationError(f"Invalid market: {raw!r}. Expected one of: us, cn, hk")
+    return text
+
+
 def parse_task_params(arg: str) -> dict[str, Any]:
     text = str(arg or "").strip()
     if not text:
         return {}
-    parts = text.split()
+    try:
+        parts = shlex.split(text)
+    except ValueError as exc:
+        raise TaskActivationError(f"Invalid quoted task arguments: {exc}") from exc
     params: dict[str, Any] = {}
-    for token in parts:
+    i = 0
+    while i < len(parts):
+        token = parts[i]
+        if token.startswith("--") and len(token) > 2:
+            body = token[2:]
+            if "=" in body:
+                key, _, value = body.partition("=")
+                key = key.strip().replace("-", "_")
+                value = value.strip()
+                if key:
+                    params[key] = value
+                i += 1
+                continue
+            key = body.strip().replace("-", "_")
+            if key and i + 1 < len(parts):
+                params[key] = parts[i + 1].strip()
+                i += 2
+                continue
+            i += 1
+            continue
         if _DATE_RE.fullmatch(token):
             params.setdefault("trading_date", token)
             params.setdefault("window_start_date", token)
             params.setdefault("window_end_date", token)
+            i += 1
             continue
         if "=" in token:
             key, _, value = token.partition("=")
@@ -49,11 +85,20 @@ def parse_task_params(arg: str) -> dict[str, Any]:
             value = value.strip()
             if key:
                 params[key] = value
+            i += 1
             continue
         # Positional token: raw user query (company name / code fragment / etc.).
         # Never treat this as a confirmed ticker.
         params.setdefault("q", token)
+        i += 1
     return params
+
+
+def _artifact_needs_param(spec: TaskSpec, key: str) -> bool:
+    for artifact in list(spec.contract.inputs) + list(spec.contract.outputs):
+        if f"{{{key}}}" in str(artifact.filename or ""):
+            return True
+    return False
 
 
 def _artifact_dicts(
@@ -105,7 +150,7 @@ class TaskActivator:
 
         merged_params = dict(params or {})
         self._apply_defaults(request, merged_params)
-        self._validate_params(merged_params)
+        self._validate_params(spec, merged_params)
         self._validate_inputs(spec, merged_params)
 
         constraints = dict(spec.contract.constraints)
@@ -150,7 +195,7 @@ class TaskActivator:
         return None
 
     def _apply_defaults(self, request: ChatRequest, params: dict[str, Any]) -> None:
-        for key in ("trading_date", "window_start_date", "window_end_date"):
+        for key in ("trading_date", "window_start_date", "window_end_date", "market"):
             if key in request.metadata:
                 params.setdefault(key, request.metadata[key])
         if params.get("trading_date"):
@@ -158,7 +203,7 @@ class TaskActivator:
             params.setdefault("window_start_date", trading_date)
             params.setdefault("window_end_date", trading_date)
 
-    def _validate_params(self, params: dict[str, Any]) -> None:
+    def _validate_params(self, spec: TaskSpec, params: dict[str, Any]) -> None:
         for key in ("trading_date", "window_start_date", "window_end_date"):
             value = params.get(key)
             if value is None:
@@ -167,8 +212,14 @@ class TaskActivator:
             if text and not _DATE_RE.fullmatch(text):
                 raise TaskActivationError(f"Invalid date for {key}: {value}")
 
+        if "market" in params and str(params.get("market") or "").strip():
+            params["market"] = normalize_market_param(params["market"])
+        elif _artifact_needs_param(spec, "market"):
+            raise TaskActivationError("Missing required parameter: market (us|cn|hk)")
+
     def _validate_inputs(self, spec: TaskSpec, params: dict[str, Any]) -> None:
         trading_date = str(params.get("trading_date") or "").strip()
+        market = str(params.get("market") or "").strip()
         for artifact in spec.contract.inputs:
             if not artifact.required:
                 continue
@@ -185,10 +236,16 @@ class TaskActivator:
                 raise TaskActivationError(str(exc)) from exc
             if not path.is_file():
                 raise TaskActivationError(f"Required input artifact not found: {resolved_name}. " f"Run the upstream task first.")
-            if trading_date and artifact.format == "json":
-                self._validate_trading_date(path, trading_date, resolved_name)
+            if artifact.format == "json" and (trading_date or market):
+                self._validate_input_identity(path, trading_date, market, resolved_name)
 
-    def _validate_trading_date(self, path: Any, trading_date: str, filename: str) -> None:
+    def _validate_input_identity(
+        self,
+        path: Any,
+        trading_date: str,
+        market: str,
+        filename: str,
+    ) -> None:
         import json
 
         try:
@@ -198,5 +255,10 @@ class TaskActivator:
         if not isinstance(payload, dict):
             return
         file_date = str(payload.get("trading_date") or "").strip()
-        if file_date and file_date != trading_date:
+        if trading_date and file_date and file_date != trading_date:
             raise TaskActivationError(f"trading_date mismatch: request={trading_date}, {filename}={file_date}")
+        file_market = str(payload.get("market") or "").strip().lower()
+        if file_market == "sh":
+            file_market = "cn"
+        if market and file_market and file_market != market:
+            raise TaskActivationError(f"market mismatch: request={market}, {filename}={file_market}")

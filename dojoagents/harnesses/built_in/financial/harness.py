@@ -351,6 +351,7 @@ class FinancialHarness:
         pipeline: Any,
         *,
         trading_date: str,
+        market: str | None = None,
         force: bool = False,
     ) -> Any:
         from .pipelines.preflight import evaluate_pipeline_preflight
@@ -358,6 +359,7 @@ class FinancialHarness:
         return evaluate_pipeline_preflight(
             pipeline,
             trading_date=trading_date,
+            market=market,
             force=force,
         )
 

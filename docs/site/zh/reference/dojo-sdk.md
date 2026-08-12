@@ -15,6 +15,16 @@ DojoAgents 通过 `dojosdk` 依赖和 `dojoagents/tools/dojo_sdk_tool.py` 暴露
 
 Dashboard 服务层仍可通过 domain services / Dojo data gateway 服务 UI；那条链路与 Agent SDK 工具解耦。
 
+### Sector Brief Extract 接口
+
+同步与异步 `analysis` resource 均提供：
+
+- `list_sector_brief_extract(...)`：按 `market`、`sector_id`、`as_of_date` 或日期窗查询；
+  `get_sector_brief_extract` 与 `sector_brief_extract` 是兼容别名。
+- `create_sector_brief_extract(body={"items": [...]})`：校验并批量写入，单批最多 10,000 条。
+
+CLI `dojoagents sector-brief-extract` 使用写入接口提交通过 Task schema 与 SDK 模型双重校验的简报。
+
 ## 相关配置
 
 DojoSDK 依赖由 `pyproject.toml` 管理。当前项目可使用本地 source 覆盖：

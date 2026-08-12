@@ -301,6 +301,8 @@ def _completion_request(
         metadata["history"] = messages[:last_user_index]
         metadata["locale"] = locale
         metadata["event_format"] = event_format
+        if isinstance(model, str) and model.strip() and model.strip() != "default":
+            metadata["model_override"] = model.strip()
 
         req = ChatRequest(
             message=last_user_msg,

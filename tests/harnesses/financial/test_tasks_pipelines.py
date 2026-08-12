@@ -41,10 +41,13 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     crawl = manager.get_task("attribution-factor-crawl")
     brief = manager.get_task("sector-brief-extract")
     pipeline = manager.get_pipeline("daily-market-events")
-    assert sector.contract.outputs[0].filename == "market_news_raw_pack_{trading_date}.json"
-    assert event.contract.inputs[0].schema.endswith("market_news_raw_pack.schema.json")
-    assert event.contract.constraints["must_read_input_before_write"] is True
-    assert [step.task for step in pipeline.steps] == ["sector-attribution", "event-trigger"]
+    assert sector.contract.outputs[0].filename == "market_news_raw_pack_{market}_{trading_date}.json"
+    assert event.contract.inputs == []
+    assert event.contract.outputs[0].filename == "market_event_triggers_{market}_{trading_date}.jsonl"
+    assert "get_sector_movers" in event.contract.required_tools
+    assert "web_search" in event.contract.required_tools
+    assert "read_session_output" not in event.contract.required_tools
+    assert [step.task for step in pipeline.steps] == ["event-trigger"]
     assert sector.contract.constraints["max_tool_calls_per_turn"] == 1
     assert classify.contract.outputs[0].filename == "ticker_sector_labels_{ticker}.json"
     assert classify.contract.harness_profile == "tool_orchestrated"
@@ -61,9 +64,7 @@ def test_financial_task_and_pipeline_sources_preserve_contracts(tmp_path):
     assert "get_ticker_news_and_events" not in crawl.contract.required_tools
     assert brief is not None
     assert brief.contract.harness_profile == "tool_orchestrated"
-    assert brief.contract.outputs[0].filename == (
-        "sector_theme_brief_{market}_{sector_id}_{as_of_date}.json"
-    )
+    assert brief.contract.outputs[0].filename == ("sector_theme_brief_{market}_{sector_id}_{as_of_date}.json")
     assert brief.contract.outputs[0].format == "json"
     assert "get_sector_attribution_factors" in brief.contract.required_tools
     assert "web_search" not in brief.contract.required_tools
@@ -143,12 +144,19 @@ def test_attribution_factor_crawl_activation_and_schema(tmp_path):
     active_resolved = activator.activate_task(
         request,
         task_id="attribution-factor-crawl",
-        params={"market": "cn", "trading_date": "2026-07-22", "sector_id": "1/2/6"},
+        params={
+            "market": "cn",
+            "trading_date": "2026-07-22",
+            "sector_id": "1/2/6",
+            "sector_path_id": "1/2/6",
+            "sector_name": "芯片设计",
+            "change_percent": "3.2",
+        },
     )
-    assert (
-        active_resolved.metadata["active_task"]["outputs"][0]["filename"]
-        == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
-    )
+    assert active_resolved.metadata["active_task"]["outputs"][0]["filename"] == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
+    injection = active_resolved.metadata["active_task_prompt"]
+    assert "sector_name: 芯片设计" in injection
+    assert "change_percent: 3.2" in injection
     crawl = manager.get_task("attribution-factor-crawl")
     assert crawl is not None
     schema_path = manager.resolve_schema_path(crawl, crawl.contract.outputs[0].schema or "")
@@ -182,10 +190,14 @@ def test_command_activation_keeps_task_profile_and_output_schema(tmp_path):
         principal=SessionPrincipal("alice"),
         metadata={"trading_date": "2026-07-22"},
     )
-    active = activator.activate_task(request, task_id="sector-attribution")
+    active = activator.activate_task(
+        request,
+        task_id="sector-attribution",
+        params={"market": "us"},
+    )
     payload = active.metadata["active_task"]
     assert payload["harness_profile"] == "tool_orchestrated"
-    assert payload["outputs"][0]["filename"] == "market_news_raw_pack_2026-07-22.json"
+    assert payload["outputs"][0]["filename"] == "market_news_raw_pack_us_2026-07-22.json"
     assert payload["params"]["window_start_date"] == "2026-07-22"
 
 

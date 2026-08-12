@@ -221,8 +221,14 @@ class SectorStore:
         query: str,
         *,
         limit: int = 5,
+        source: str = "user",
     ) -> List[SectorSearchHit]:
-        needle = str(query or "").strip().lower()
+        from dojoagents.dashboard.services.sector_search_policy import (
+            match_label_score,
+            scale_score_for_level,
+        )
+
+        needle = str(query or "").strip()
         if not needle:
             return []
 
@@ -231,30 +237,21 @@ class SectorStore:
         for path in self._resolved_paths:
             path_key = (path.level1_id, path.level2_id, path.level3_id)
             level_specs = (
-                ("L3", 100, 80, 70, path.level3_zh, path.level3_en),
-                ("L2", 60, 50, 45, path.level2_zh, path.level2_en),
-                ("L1", 30, 20, 18, path.level1_zh, path.level1_en),
+                ("L3", path.level3_zh, path.level3_en),
+                ("L2", path.level2_zh, path.level2_en),
+                ("L1", path.level1_zh, path.level1_en),
             )
-            for level, exact_score, partial_score, contains_score, label_zh, label_en in level_specs:
+            for level, label_zh, label_en in level_specs:
                 for label in (label_zh, label_en):
-                    normalized = str(label or "").strip().lower()
-                    if not normalized:
-                        continue
-                    score = 0
-                    matched_label = str(label or "").strip()
-                    if normalized == needle:
-                        score = exact_score
-                    elif needle in normalized:
-                        score = partial_score
-                    elif normalized in needle:
-                        score = contains_score
+                    raw = match_label_score(needle, label, source=source)
+                    score = scale_score_for_level(raw, level)
                     if score <= 0:
                         continue
                     hit = SectorSearchHit(
                         path=path,
                         score=score,
                         matched_level=level,
-                        matched_label=matched_label,
+                        matched_label=str(label or "").strip(),
                         matched_query=needle,
                     )
                     existing = best_by_path.get(path_key)
@@ -265,7 +262,8 @@ class SectorStore:
             best_by_path.values(),
             key=lambda hit: (
                 -hit.score,
-                hit.path.level3_zh or hit.path.level3_en or "",
+                0 if hit.matched_level == "L3" else 1 if hit.matched_level == "L2" else 2,
+                abs(len(hit.matched_label) - len(needle)),
                 hit.path.level3_id,
             ),
         )

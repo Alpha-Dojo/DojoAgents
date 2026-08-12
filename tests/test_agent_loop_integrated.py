@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from dojoagents.plugins import get_plugin_registry
 from dojoagents.agent.events import AgentEventSink
@@ -65,6 +67,37 @@ async def test_integrated_think_scrubbing():
     # Check that response content is also cleaned
     assert "internal logic" not in response.content
     assert "Here is the clean answer." in response.content
+
+
+@pytest.mark.asyncio
+async def test_request_model_override_is_used_for_provider_call():
+    llm = StaticLLMProvider([LLMResult(content="done")])
+    loop = AgentLoop(
+        llm_provider=llm,
+        tool_executor=ToolExecutor(ToolRegistry(), SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(
+            model="default-model",
+            enable_guardrails=False,
+            enable_context_compression=False,
+        ),
+    )
+    loop.model_context_registry.resolve = AsyncMock(return_value=32768)
+
+    await loop.run(
+        ChatRequest(
+            user_id="local",
+            session_id="model-override",
+            message="Run test.",
+            metadata={"model_override": "deepseek-v4-flash-0731"},
+        )
+    )
+
+    assert llm.calls[0]["model"] == "deepseek-v4-flash-0731"
+    provider_cfg = loop.model_context_registry.resolve.await_args.args[1]
+    assert provider_cfg.model == "deepseek-v4-flash-0731"
 
 
 @pytest.mark.asyncio

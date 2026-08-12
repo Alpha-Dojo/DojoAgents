@@ -175,13 +175,13 @@ _SECTOR_PATH_AGENT_HINTS: dict[str, str] = {
         "it does not shorten the path to two segments."
     ),
     SECTOR_PATH_REJECTED_INDEX_GUESS: (
-        "Do NOT use array indices or trial-and-error ids. Call search_sector_taxonomy, then "
-        "copy sector_path_id or level1_id/level2_id/level3_id verbatim from best_match. "
+        "Do NOT invent sector ids. Call search_sector_taxonomy, then copy sector_path_id "
+        "or level1_id/level2_id/level3_id verbatim from best_match (when present) or items. "
         "For market-wide screens use screen_market_stocks instead."
     ),
     SECTOR_PATH_UNKNOWN: (
-        "Call search_sector_taxonomy with the concept keyword, pick the best match, then pass "
-        "sector_path_id or level1_id/level2_id/level3_id verbatim."
+        "Call search_sector_taxonomy with the concept keyword, pick best_match when confident "
+        "otherwise choose from items by name, then pass sector_path_id or level ids verbatim."
     ),
 }
 
@@ -203,7 +203,8 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
     if not any(kwargs.get(key) for key in id_keys) and not kwargs.get("sector_name"):
         raise RuntimeError(
             "sector path is required. Workflow: (1) search_sector_taxonomy with the concept keyword, "
-            "(2) copy sector_path_id OR level1_id/level2_id/level3_id from best_match, "
+            "(2) copy sector_path_id OR level1_id/level2_id/level3_id from best_match when present, "
+            "else from items by name, "
             "(3) filter_sector_constituents / get_sector_analysis with those ids."
         )
 
@@ -497,8 +498,9 @@ def register_dashboard_domain_tools(
                 "Resolve L3 industry sectors. "
                 "Pass sector_path_id for exact path lookup (returns names/breadcrumb; ignores q). "
                 "Or pass q/query keyword (具身智能, 半导体, robotics) for ranked text search. "
-                "Returns items + best_match with sector_path_id / names / match_score, "
-                "plus l3_options under touched L2 branches. Copy ids verbatim."
+                "Returns items (ranked) + best_match only when high-confidence; "
+                "if best_match is null or ambiguous=true, pick from items by name. "
+                "Copy sector_path_id / level ids verbatim — never invent ids."
             ),
             parameters={
                 "type": "object",

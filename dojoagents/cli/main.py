@@ -47,13 +47,23 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = sub.add_parser("dashboard")
     dashboard.add_argument("--host", default="127.0.0.1")
     dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument("--config", default="~/.dojo/agents.yaml")
+    dashboard.add_argument(
+        "--lightweight-runtime",
+        action="store_true",
+        help="Skip the full SDK offline preload and background refresh for managed CLI jobs",
+    )
 
     from dojoagents.dashboard.cli.tasks import add_tasks_parser
+    from dojoagents.dashboard.cli.attribution_factor_crawl import configure_parser as configure_attribution_crawl
+    from dojoagents.dashboard.cli.sector_brief_extract import configure_parser as configure_sector_brief_extract
     from dojoagents.dashboard.cli.precompute_sector import configure_parser as configure_sector_precompute
     from dojoagents.dashboard.cli.precompute_theme_state import configure_parser as configure_theme_precompute
 
     configure_sector_precompute(sub)
     configure_theme_precompute(sub)
+    configure_attribution_crawl(sub)
+    configure_sector_brief_extract(sub)
     add_tasks_parser(sub)
 
     sessions = sub.add_parser("sessions")
@@ -226,16 +236,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat":
         return asyncio.run(_run_chat(args))
     if args.command == "dashboard":
+        from dataclasses import replace
+
         from dojoagents.config.loader import ConfigStore
         from dojoagents.dashboard.services.app_container import (
             DashboardAppServices,
             DashboardAppServicesConfig,
         )
 
-        config_store = ConfigStore()
-        services = DashboardAppServices(
-            DashboardAppServicesConfig.from_agents_config(config_store.snapshot()),
-        )
+        config_store = ConfigStore(args.config)
+        services_config = DashboardAppServicesConfig.from_agents_config(config_store.snapshot())
+        if args.lightweight_runtime:
+            services_config = replace(
+                services_config,
+                preload_offline_data=False,
+                refresh_enabled=False,
+            )
+        services = DashboardAppServices(services_config)
         app = create_dashboard_app(
             app_services=services,
             app_services_owned=True,
@@ -324,6 +341,22 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         return asyncio.run(run_precompute_sector_theme_state(args))
+    if args.command == "attribution-factor-crawl":
+        from dojoagents.dashboard.cli.attribution_factor_crawl import run_attribution_factor_crawl
+
+        try:
+            return asyncio.run(run_attribution_factor_crawl(args))
+        except Exception as exc:
+            LOGGER.exception("attribution-factor-crawl failed: %s", exc)
+            return 1
+    if args.command == "sector-brief-extract":
+        from dojoagents.dashboard.cli.sector_brief_extract import run_sector_brief_extract
+
+        try:
+            return asyncio.run(run_sector_brief_extract(args))
+        except Exception as exc:
+            LOGGER.exception("sector-brief-extract failed: %s", exc)
+            return 1
     if args.command == "tasks":
         from dojoagents.dashboard.cli.tasks import run_tasks_command
 
