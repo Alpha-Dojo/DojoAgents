@@ -611,11 +611,15 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
     path = task_dir / "market_event_triggers_us_2026-07-13.jsonl"
     path.write_text(
         '{"market":"us","trading_date":"2026-07-13","event_time":"2026-07-13T12:00:00Z",'
+        '"event_rank":"mainline","confidence":"high","driver_status":"verified",'
+        '"index_evidence":"S&P 500 +1.0%",'
         '"event_summary":{"headline":{"zh":"测试标题","en":"Test headline"},'
         '"category":"macro_data","source":{"zh":"来源","en":"Source"},'
         '"content":{"zh":"内容","en":"Content"},"surprise":"expected"},'
         '"sector_impacts":[{"sector_id":"1/2/3","sector_name":{"zh":"板块","en":"Sector"},'
-        '"affected_markets":["us"],"direction":"Positive","reason":"up 3%"}]}\n',
+        '"direction":"Positive","window_1d":3.0,"window_5d":5.0,"window_10d":7.0,'
+        '"window_20d":9.0,"window_label":"persistent_up",'
+        '"leader_concentration_tier":"healthy","reason":"up 3%"}]}\n',
         encoding="utf-8",
     )
     args = build_parser().parse_args(

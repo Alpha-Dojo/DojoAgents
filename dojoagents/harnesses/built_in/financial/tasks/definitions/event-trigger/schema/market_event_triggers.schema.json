@@ -1,11 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["market", "trading_date", "event_time", "event_summary", "sector_impacts"],
+  "required": [
+    "market",
+    "trading_date",
+    "event_time",
+    "event_rank",
+    "confidence",
+    "driver_status",
+    "index_evidence",
+    "event_summary",
+    "sector_impacts"
+  ],
   "properties": {
     "market": { "enum": ["us", "cn", "hk"] },
     "trading_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
     "event_time": { "type": "string" },
+    "event_rank": {
+      "enum": ["mainline", "sub_event", "single_stock", "noise"]
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "driver_status": { "enum": ["verified", "pending", "missing"] },
+    "index_evidence": {
+      "type": ["string", "null"],
+      "description": "Required string for mainline; null allowed for non-mainline rows."
+    },
     "event_summary": {
       "type": "object",
       "required": ["headline", "category", "source", "content", "surprise"],
@@ -13,7 +32,10 @@
         "headline": {
           "type": "object",
           "required": ["zh", "en"],
-          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
         },
         "category": {
           "enum": [
@@ -37,12 +59,18 @@
         "source": {
           "type": "object",
           "required": ["zh", "en"],
-          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
         },
         "content": {
           "type": "object",
           "required": ["zh", "en"],
-          "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
         },
         "surprise": { "enum": ["expected", "slight", "significant"] }
       }
@@ -51,21 +79,46 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["sector_id", "sector_name", "affected_markets", "direction", "reason"],
+        "required": [
+          "sector_id",
+          "sector_name",
+          "direction",
+          "window_1d",
+          "window_5d",
+          "window_20d",
+          "window_label",
+          "leader_concentration_tier",
+          "reason"
+        ],
         "properties": {
           "sector_id": { "type": "string" },
           "sector_name": {
             "type": "object",
             "required": ["zh", "en"],
-            "properties": { "zh": { "type": "string" }, "en": { "type": "string" } }
-          },
-          "affected_markets": {
-            "type": "array",
-            "items": { "enum": ["us", "cn", "hk"] },
-            "minItems": 1,
-            "maxItems": 1
+            "properties": {
+              "zh": { "type": "string" },
+              "en": { "type": "string" }
+            }
           },
           "direction": { "enum": ["Positive", "Negative", "Divergent"] },
+          "window_1d": { "type": "number" },
+          "window_5d": { "type": "number" },
+          "window_20d": { "type": "number" },
+          "window_label": {
+            "enum": [
+              "persistent_up",
+              "persistent_down",
+              "short_long_diverge",
+              "flat",
+              "unclassified"
+            ]
+          },
+          "divergence_days": { "type": ["number", "null"] },
+          "leader_concentration_tier": {
+            "enum": ["healthy", "moderate", "extreme"]
+          },
+          "leader_name": { "type": ["string", "null"] },
+          "leader_weight_pct": { "type": ["number", "null"] },
           "reason": { "type": "string", "maxLength": 100 }
         }
       }
