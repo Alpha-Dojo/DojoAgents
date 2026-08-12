@@ -497,8 +497,9 @@ def validate_precompute_market_coverage(stats: dict[str, Any] | None) -> None:
             continue
         missing_quote = int(row.get("missing_quote") or 0)
         missing_stock = int(row.get("missing_stock") or 0)
+        display_market = "cn" if market == "sh" else market
         raise ValueError(
-            f"Market '{market}' has {candidates} sector assignments but 0 eligible constituents "
+            f"Market '{display_market}' has {candidates} sector assignments but 0 eligible constituents "
             f"(missing_quote={missing_quote}, missing_stock={missing_stock}); "
             "refusing to publish a snapshot that drops this market."
         )
