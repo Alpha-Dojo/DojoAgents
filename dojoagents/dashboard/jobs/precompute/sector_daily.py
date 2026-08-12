@@ -114,10 +114,11 @@ def _count_candidate_assignments(
     *,
     sector_store: SectorStore,
     stock_sector_store: StockSectorStore,
+    markets: tuple[str, ...],
 ) -> int:
     total = 0
     for path in sector_store.iter_resolved_paths():
-        for market in MARKETS:
+        for market in markets:
             total += len(
                 stock_sector_store.assignments_for_path(
                     path,
@@ -137,6 +138,7 @@ async def prepare_sector_precompute_input(
     kline_store: KlineStore,
     start_date: str,
     end_date: str | None = None,
+    market: str | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> PrecomputeInputSnapshot:
     lookback_start = _previous_day(start_date)
@@ -147,6 +149,7 @@ async def prepare_sector_precompute_input(
     ticker_daily_rows: list[dict[str, Any]] = []
     seen_constituents: set[tuple[str, str, str, str, str, str]] = set()
     seen_tickers: set[tuple[str, str]] = set()
+    markets = (market,) if market else tuple(MARKETS)
     stats: dict[str, Any] = {
         "markets": {
             market: {
@@ -160,7 +163,7 @@ async def prepare_sector_precompute_input(
                 "us_warrant_excluded": 0,
                 "missing_kline": 0,
             }
-            for market in MARKETS
+            for market in markets
         },
         "unresolved_assignments": len(stock_sector_store.unresolved_assignments(sector_store)),
     }
@@ -168,6 +171,7 @@ async def prepare_sector_precompute_input(
     assignment_total = _count_candidate_assignments(
         sector_store=sector_store,
         stock_sector_store=stock_sector_store,
+        markets=markets,
     )
     assignment_progress = 0
     if on_progress is not None:
@@ -177,7 +181,7 @@ async def prepare_sector_precompute_input(
             on_progress("prepare", assignment_progress, assignment_total)
 
     for path in sector_store.iter_resolved_paths():
-        for market in MARKETS:
+        for market in markets:
             assignments = stock_sector_store.assignments_for_path(
                 path,
                 sector_store=sector_store,
@@ -335,11 +339,7 @@ def _build_index_rows(
             continue
         # Drop extreme single-name days; keep the constituent in the basket, but omit
         # that return and re-normalize weights over the remaining names.
-        usable = [
-            (value, weight)
-            for value, weight in available
-            if sector_member_daily_return_usable(value / 100.0)
-        ]
+        usable = [(value, weight) for value, weight in available if sector_member_daily_return_usable(value / 100.0)]
         if not usable:
             continue
         effective_weight_sum = float(sum(weight for _, weight in usable))
@@ -530,9 +530,24 @@ def validate_precomputed_frames(
 def compute_and_stage_sector_precomputed(
     snapshot: PrecomputeInputSnapshot,
     out_dir: Path,
+    market: str | None = None,
 ) -> tuple[dict[str, Any], Path]:
     validate_precompute_market_coverage(snapshot.stats)
     constituents_df, ticker_daily_df, sector_daily_df, manifest = compute_sector_precomputed_frames(snapshot)
+    existing_paths = [out_dir / filename for filename in (CONSTITUENTS_FILE, TICKER_DAILY_FILE, SECTOR_DAILY_FILE)]
+    if market and all(path.exists() for path in existing_paths):
+        existing_frames = [pd.read_parquet(path) for path in existing_paths]
+        constituents_df = pd.concat([existing_frames[0][existing_frames[0]["market"] != market], constituents_df], ignore_index=True)
+        ticker_history = existing_frames[1][(existing_frames[1]["market"] != market) | (existing_frames[1]["trade_date"].astype(str) < snapshot.start_date)]
+        sector_history = existing_frames[2][(existing_frames[2]["market"] != market) | (existing_frames[2]["trade_date"].astype(str) < snapshot.start_date)]
+        ticker_daily_df = pd.concat([ticker_history, ticker_daily_df], ignore_index=True)
+        sector_daily_df = pd.concat([sector_history, sector_daily_df], ignore_index=True)
+        manifest.update(
+            constituent_count=int(len(constituents_df)),
+            ticker_daily_rows=int(len(ticker_daily_df)),
+            sector_daily_rows=int(len(sector_daily_df)),
+            latest_trade_date_by_market={name: str(group["trade_date"].max()) for name, group in sector_daily_df.groupby("market")},
+        )
     validate_precomputed_frames(constituents_df, ticker_daily_df, sector_daily_df)
 
     staging_dir = out_dir.with_name(f"{out_dir.name}.staging")
@@ -577,6 +592,7 @@ async def build_sector_precomputed(
     *,
     start_date: str = DATA_START_DATE,
     end_date: str | None = None,
+    market: str | None = None,
     out_dir: Path | None = None,
     upload_client: Any | None = None,
     upload_dataset_name: str = PRECOMPUTE_DIR,
@@ -593,6 +609,7 @@ async def build_sector_precomputed(
         kline_store=kline_store,
         start_date=start_date,
         end_date=end_date,
+        market=market,
         on_progress=on_progress,
     )
     if on_progress is not None:
@@ -601,6 +618,7 @@ async def build_sector_precomputed(
         compute_and_stage_sector_precomputed,
         snapshot,
         out_dir,
+        market,
     )
     if on_progress is not None:
         on_progress("compute", 1, 1)

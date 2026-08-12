@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+from dojo import ConflictError
 from dojo.client.async_client import AsyncDojo
 
 from dojoagents.config.models import FinancialDashboardConfig
@@ -21,7 +23,9 @@ _PHASE_LABELS: dict[str, str] = {
     "compute": "Compute & stage",
     "publish": "Publish snapshot",
     "upload": "Upload dataset",
+    "upload_api": "Upload qdata API",
 }
+_API_BATCH_SIZE = 10000
 
 
 def configure_parser(subcommands: argparse._SubParsersAction) -> None:
@@ -31,7 +35,9 @@ def configure_parser(subcommands: argparse._SubParsersAction) -> None:
     )
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--start-date", default="2025-01-01")
+    parser.add_argument("--market", choices=("us", "cn", "hk"), default=None)
     parser.add_argument("--upload", action="store_true")
+    parser.add_argument("--upload-api", action="store_true", help="Write the selected market through DojoSDK qdata POST endpoints")
     parser.add_argument("--with-theme-state", action="store_true")
     parser.add_argument("--skip-fundamentals", action="store_true")
     parser.add_argument("--skip-volume-enrich", action="store_true")
@@ -70,10 +76,58 @@ class _PrecomputeProgressReporter:
         self._bars.clear()
 
 
+def _source_market(market: str) -> str:
+    return "sh" if market == "cn" else market
+
+
+def _market_records(path: Path, market: str, *, id_columns: tuple[str, ...] = (), start_date: str | None = None) -> list[dict[str, Any]]:
+    frame = pd.read_parquet(path)
+    frame = frame[frame["market"].astype(str).str.lower() == _source_market(market)].copy()
+    if start_date and "trade_date" in frame:
+        frame = frame[frame["trade_date"].astype(str) >= start_date]
+    frame["market"] = market
+    for column in id_columns:
+        original = frame[column]
+        numeric = pd.to_numeric(original, errors="coerce")
+        invalid = original.notna() & original.astype(str).str.strip().ne("") & numeric.isna()
+        if invalid.any():
+            raise ValueError(f"{path.name}.{column} contains a non-numeric sector id")
+        frame[column] = numeric.fillna(0).astype("int64")
+    return json.loads(frame.to_json(orient="records", date_format="iso"))
+
+
+async def _write_api_batches(client: AsyncDojo, method_name: str, rows: list[dict[str, Any]]) -> None:
+    method = getattr(client.sectors, method_name)
+    for offset in range(0, len(rows), _API_BATCH_SIZE):
+        batch = rows[offset : offset + _API_BATCH_SIZE]
+        try:
+            await method(observations=batch)
+        except ConflictError:
+            await method(observations=batch, replace=True)
+        LOGGER.info("Wrote %s qdata rows: %d/%d", method_name, min(offset + len(batch), len(rows)), len(rows))
+
+
+async def upload_market_precomputed(client: AsyncDojo, published_dir: Path, market: str, *, start_date: str | None = None) -> dict[str, int]:
+    datasets = (
+        ("create_constituents", "constituents.parquet", ("level1_id", "level2_id", "level3_id"), None),
+        ("create_ticker_daily", "ticker_daily.parquet", (), start_date),
+        ("create_daily", "sector_daily.parquet", ("level1_id", "level2_id", "level3_id"), start_date),
+    )
+    counts: dict[str, int] = {}
+    for method_name, filename, id_columns, dataset_start_date in datasets:
+        rows = _market_records(published_dir / filename, market, id_columns=id_columns, start_date=dataset_start_date)
+        if rows:
+            await _write_api_batches(client, method_name, rows)
+        counts[filename] = len(rows)
+    return counts
+
+
 async def run_precompute_sector(args: argparse.Namespace) -> int:
     data_root_str = args.data_root or FinancialDashboardConfig.dashboard_data_root
     data_root = Path(data_root_str).expanduser().resolve()
     floors = apply_configured_ticker_market_cap_mins(getattr(args, "config", None))
+    if args.upload_api and not args.market:
+        raise ValueError("--market is required with --upload-api")
 
     LOGGER.info(f"Precomputing sector data -> {data_root / 'dojo_sector_precomputed'}")
     LOGGER.info(f"Window start: {args.start_date}")
@@ -94,6 +148,7 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
             stock_store=registry.stock_store,
             kline_store=registry.kline_store,
             start_date=args.start_date,
+            market=_source_market(args.market) if args.market else None,
             upload_client=client if args.upload else None,
             on_progress=on_progress,
         )
@@ -102,6 +157,10 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
 
     if registry.sector_precomputed_store is not None:
         registry.sector_precomputed_store.reload(Path(manifest["published_dir"]))
+
+    if args.upload_api:
+        counts = await upload_market_precomputed(client, Path(manifest["published_dir"]), args.market, start_date=args.start_date)
+        manifest["uploaded_api"] = {"market": args.market, "rows": counts}
 
     if getattr(args, "with_theme_state", False):
         from dojoagents.dashboard.jobs.precompute.theme_state_daily import build_theme_state_precomputed
