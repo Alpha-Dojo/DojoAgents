@@ -238,6 +238,11 @@ def test_validate_precompute_market_coverage_rejects_dropped_market() -> None:
         )
 
 
+def test_validate_precompute_market_coverage_displays_cn_alias() -> None:
+    with pytest.raises(ValueError, match="Market 'cn'.*0 eligible constituents"):
+        validate_precompute_market_coverage({"markets": {"sh": {"candidate_assignments": 10, "eligible_constituents": 0, "missing_quote": 10, "missing_stock": 0}}})
+
+
 def test_validate_precompute_market_coverage_allows_healthy_markets() -> None:
     validate_precompute_market_coverage(
         {
