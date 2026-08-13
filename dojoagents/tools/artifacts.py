@@ -82,6 +82,7 @@ class ToolResultArtifactStore:
         data: Any = None,
         ok: bool = True,
         truncated: bool = False,
+        error: str = "",
     ) -> Path:
         path = self.artifact_path(session_id, call_id)
         payload = {
@@ -92,6 +93,7 @@ class ToolResultArtifactStore:
             "arguments": dict(arguments or {}),
             "ok": ok,
             "truncated": truncated,
+            "error": str(error or ""),
             "content": content,
             "data": data,
             "created_at": _utc_now(),

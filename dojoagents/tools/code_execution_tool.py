@@ -44,6 +44,20 @@ def _wrap_execute_code(code_content: str) -> str:
 # asyncio StreamReader.readline() defaults to 64 KiB per line; execute_code RPC carries
 # full tool args/responses as one JSON line and must support large write_session_file payloads.
 RPC_MAX_MESSAGE_BYTES = 32 * 1024 * 1024
+_NESTED_FAILURE_ERROR_CHARS = 2000
+
+
+def _serialized_char_count(value: Any) -> int:
+    """Measure an RPC payload without retaining it in the outer tool result."""
+    try:
+        return len(json.dumps(value, ensure_ascii=False, default=str))
+    except (TypeError, ValueError):
+        return len(str(value))
+
+
+def _bounded_text(value: Any, limit: int) -> tuple[str, int, bool]:
+    text = str(value or "")
+    return text[:limit], len(text), len(text) > limit
 
 
 class RpcJsonLineProtocol:
@@ -84,21 +98,36 @@ class RpcJsonLineProtocol:
 
 
 def _slim_rpc_tool_response(tool_name: str, raw_res: dict[str, Any]) -> dict[str, Any]:
+    metadata = raw_res.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    raw_ok = raw_res.get("ok")
+    if raw_ok is None:
+        raw_ok = metadata.get("ok")
+    if raw_ok is None:
+        raw_ok = True
+    ok = bool(raw_ok)
+    error = raw_res.get("error")
+    if error is None:
+        error = metadata.get("error")
+    truncated = bool(raw_res.get("truncated") or metadata.get("truncated"))
+
     if tool_name != "write_session_file":
         return {
-            "ok": True,
+            "ok": ok,
             "content": raw_res.get("content", ""),
             "data": raw_res.get("data"),
-            "error": None,
+            "error": error,
+            "truncated": truncated,
         }
 
     data = raw_res.get("data")
     if not isinstance(data, dict):
         return {
-            "ok": True,
+            "ok": ok,
             "content": raw_res.get("content", ""),
             "data": data,
-            "error": None,
+            "error": error,
+            "truncated": truncated,
         }
 
     slim = {
@@ -111,10 +140,11 @@ def _slim_rpc_tool_response(tool_name: str, raw_res: dict[str, Any]) -> dict[str
         "message": data.get("message"),
     }
     return {
-        "ok": True,
+        "ok": ok,
         "content": json.dumps(slim, ensure_ascii=False),
         "data": slim,
-        "error": None,
+        "error": error,
+        "truncated": truncated,
     }
 
 
@@ -198,6 +228,7 @@ class AsyncCodeExecutionRPC:
         self.server = None
         self.tool_call_counter = 0
         self.session_output_files: list[dict[str, Any]] = []
+        self.nested_tool_failures: list[dict[str, Any]] = []
 
     async def start(self):
         self.server = await start_unix_server(self.handle_client, path=self.socket_path)
@@ -246,11 +277,12 @@ class AsyncCodeExecutionRPC:
                 "error": f"Tool result artifact not found for call_id={call_id}",
             }
         response = {
-            "ok": True,
+            "ok": bool(payload.get("ok", True)),
             "content": payload.get("content", ""),
             "data": payload.get("data"),
             "tool_name": str(payload.get("tool_name") or ""),
-            "error": None,
+            "error": str(payload.get("error") or ""),
+            "truncated": bool(payload.get("truncated")),
         }
         if self.artifact_adapter is not None:
             response = self.artifact_adapter.enrich_loaded_payload(response)
@@ -267,6 +299,54 @@ class AsyncCodeExecutionRPC:
         rows = self.artifact_store.list_summaries(self.agent_session_id)
         content = json.dumps({"items": rows}, ensure_ascii=False, indent=2)
         return {"ok": True, "content": content, "data": {"items": rows}, "error": None}
+
+    def _record_nested_tool_failure(
+        self,
+        *,
+        tool_name: str,
+        args: dict[str, Any],
+        response: dict[str, Any],
+    ) -> None:
+        """Keep outer execute_code results small while retaining retrievable diagnostics.
+
+        A nested response can contain an entire failed API payload. It belongs in the
+        existing per-session artifact store, not duplicated in execute_code data and
+        metadata (which are also copied into stream events).
+        """
+        raw_error = response.get("error") or "Nested tool call failed"
+        error, error_chars, error_truncated = _bounded_text(raw_error, _NESTED_FAILURE_ERROR_CHARS)
+        diagnostic: dict[str, Any] = {
+            "tool": str(tool_name or ""),
+            "error": error,
+            "error_chars": error_chars,
+            "error_truncated": error_truncated,
+            "response_content_chars": len(str(response.get("content") or "")),
+            "response_data_chars": _serialized_char_count(response.get("data")),
+            "response_truncated": bool(response.get("truncated")),
+            "response_artifact_persisted": False,
+        }
+
+        if self.artifact_store is not None and self.agent_session_id:
+            artifact_call_id = f"nested-{os.urandom(16).hex()}"
+            try:
+                self.artifact_store.save(
+                    session_id=self.agent_session_id,
+                    call_id=artifact_call_id,
+                    tool_name=tool_name,
+                    arguments=args,
+                    content=str(response.get("content") or ""),
+                    data=response.get("data"),
+                    ok=False,
+                    truncated=bool(response.get("truncated")),
+                    error=str(raw_error),
+                )
+            except Exception:
+                LOGGER.exception("Failed to persist nested execute_code tool failure: %s", tool_name)
+            else:
+                diagnostic["response_artifact_persisted"] = True
+                diagnostic["response_artifact_call_id"] = artifact_call_id
+
+        self.nested_tool_failures.append(diagnostic)
 
     async def handle_client(self, reader, writer):
         protocol = RpcJsonLineProtocol(reader)
@@ -292,6 +372,14 @@ class AsyncCodeExecutionRPC:
                     except Exception as exc:
                         LOGGER.exception("execute_code RPC tool failed: %s", tool_name)
                         response = {"ok": False, "content": "", "data": None, "error": str(exc)}
+
+                # This is deliberately response-based: arbitrary child stdout is not a tool failure signal.
+                if response.get("ok") is False:
+                    self._record_nested_tool_failure(
+                        tool_name=str(tool_name or ""),
+                        args=dict(args or {}),
+                        response=response,
+                    )
 
                 writer.write(RpcJsonLineProtocol.encode_message(response))
                 await writer.drain()
@@ -409,9 +497,17 @@ async def handle_code_execution(
     except OSError:
         pass
 
-    result: dict[str, Any] = {"content": output, "metadata": {"exit_code": proc.returncode}}
+    nested_tool_failures = list(rpc_server.nested_tool_failures)
+    result_metadata: dict[str, Any] = {"exit_code": proc.returncode}
+    if nested_tool_failures:
+        result_metadata["nested_tool_failures"] = nested_tool_failures
+    result: dict[str, Any] = {"content": output, "metadata": result_metadata}
     execute_data = _build_execute_code_data(session_output_files)
+    if execute_data is None and nested_tool_failures:
+        execute_data = {}
     if execute_data is not None:
+        if nested_tool_failures:
+            execute_data["nested_tool_failures"] = nested_tool_failures
         result["data"] = execute_data
     return result
 
