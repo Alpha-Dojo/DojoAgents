@@ -82,7 +82,7 @@ def attach_quotes(
 ) -> List[Stock]:
     loaded: List[Stock] = []
     for stock in stocks:
-        quote_item = quote_map.get(stock.ticker)
+        quote_item = quote_map.get(stock.ticker.strip().upper())
         if quote_item is not None:
             loaded.append(stock.model_copy(update={"stock_quote": parse_quote_item(quote_item, stock.ticker)}))
         else:
@@ -139,8 +139,25 @@ class StockStore:
                     chunk = tickers[i : i + chunk_size]
                     res = await self.gateway.stock_quotes(market, chunk)
                     quote_result_data.extend([item for item in res.data if isinstance(item, dict)])
-                quote_map = {str(item.get("symbol") or item.get("ticker")): item for item in quote_result_data if (item.get("symbol") or item.get("ticker"))}
+                quote_map = {
+                    self._normalize_ticker(str(item.get("symbol") or item.get("ticker"))): item for item in quote_result_data if (item.get("symbol") or item.get("ticker"))
+                }
                 stocks = attach_quotes(candidates, quote_map)
+                matched = sum(1 for stock in stocks if stock.stock_quote is not None)
+                unmatched_sample = [self._normalize_ticker(stock.ticker) for stock in stocks if stock.stock_quote is None][:5]
+                LOGGER.info(
+                    "[StockStore][%s] quote diagnostic: catalog=%s batches=%s returned_rows=%s "
+                    "unique_quote_symbols=%s matched=%s request_sample=%s response_symbol_sample=%s unmatched_sample=%s",
+                    market,
+                    len(candidates),
+                    (len(tickers) + chunk_size - 1) // chunk_size,
+                    len(quote_result_data),
+                    len(quote_map),
+                    matched,
+                    [self._normalize_ticker(ticker) for ticker in tickers[:5]],
+                    list(quote_map)[:5],
+                    unmatched_sample,
+                )
             else:
                 stocks = []
 
