@@ -155,7 +155,7 @@ class DojoDataGateway:
     async def stock_quotes(self, market: str, symbols: list[str]) -> GatewayResult[list[dict[str, Any]]]:
         del market
         canonical = [_canonical_symbol(symbol) for symbol in symbols]
-        payload = await self._call("stock_quotes", self.client.stocks.get_quote(symbols=canonical))
+        payload = await self._call("stock_quotes", self.client.stocks.post_quote(body={"symbols": ",".join(canonical)}))
         return _list_result(payload, "stock_quotes", "quotes")
 
     async def stock_klines(
