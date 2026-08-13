@@ -6,6 +6,7 @@ from typing import Any, Generic, TypeVar
 import pandas as pd
 import httpx
 
+from dojoagents.logging import LOGGER
 from dojoagents.dashboard.schemas.freshness import DataSource
 
 T = TypeVar("T")
@@ -153,10 +154,22 @@ class DojoDataGateway:
         return GatewayResult(_map_market_back(profile), as_of, source, stale)
 
     async def stock_quotes(self, market: str, symbols: list[str]) -> GatewayResult[list[dict[str, Any]]]:
-        del market
         canonical = [_canonical_symbol(symbol) for symbol in symbols]
         payload = await self._call("stock_quotes", self.client.stocks.post_quote(body={"symbols": ",".join(canonical)}))
-        return _list_result(payload, "stock_quotes", "quotes")
+        result = _list_result(payload, "stock_quotes", "quotes")
+        payload_keys = list(payload)[:10] if isinstance(payload, dict) else []
+        returned_symbols = [str(row.get("symbol") or row.get("ticker")) for row in result.data[:5] if isinstance(row, dict) and (row.get("symbol") or row.get("ticker"))]
+        LOGGER.info(
+            "[DojoDataGateway][stock_quotes] market=%s method=POST requested=%s returned=%s payload_type=%s payload_keys=%s request_sample=%s response_symbol_sample=%s",
+            market,
+            len(canonical),
+            len(result.data),
+            type(payload).__name__,
+            payload_keys,
+            canonical[:5],
+            returned_symbols,
+        )
+        return result
 
     async def stock_klines(
         self,

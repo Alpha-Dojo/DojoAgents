@@ -144,6 +144,24 @@ async def test_stock_store_loads_catalog_and_quotes_through_gateway() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stock_store_matches_normalized_quote_symbols() -> None:
+    class NormalizedGateway(BaseGateway):
+        async def stocks(self, *, market=None):
+            return GatewayResult([{"ticker": " aapl ", "market": "us", "short_name": "Apple"}] if market == "us" else [], None, "sdk_snapshot", False)
+
+        async def stock_quotes(self, market, symbols):
+            return GatewayResult([{"symbol": "AAPL", "last_price": 200}], None, "sdk_online", False)
+
+    store = StockStore(NormalizedGateway())
+    await store.load()
+
+    stock = store.get("us", "AAPL")
+    assert stock is not None
+    assert stock.stock_quote is not None
+    assert stock.stock_quote.last_price == 200
+
+
+@pytest.mark.asyncio
 async def test_sector_stores_load_taxonomy_and_relations_through_gateway() -> None:
     gateway = BaseGateway()
     taxonomy = SectorStore(gateway)
