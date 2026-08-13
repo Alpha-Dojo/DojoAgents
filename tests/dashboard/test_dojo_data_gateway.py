@@ -19,7 +19,7 @@ async def test_stock_catalog_profile_and_quote_use_sdk_contracts() -> None:
         stocks={
             "get_ystock_info": {"stocks": [{"ticker": "AAPL", "market": "us"}]},
             "get_info": {"info": {"ticker": "AAPL", "name": "Apple"}},
-            "get_quote": {"quotes": [{"ticker": "AAPL", "last_price": 200.0}]},
+            "post_quote": {"quotes": [{"ticker": "AAPL", "last_price": 200.0}]},
         }
     )
     gateway = DojoDataGateway(client)
@@ -34,7 +34,7 @@ async def test_stock_catalog_profile_and_quote_use_sdk_contracts() -> None:
     assert client.stocks.calls == [
         ("get_ystock_info", {"market": "us"}),
         ("get_info", {"symbol": "AAPL"}),
-        ("get_quote", {"symbols": ["AAPL"]}),
+        ("post_quote", {"body": {"symbols": "AAPL"}}),
     ]
 
 
