@@ -263,7 +263,14 @@ class KlineStore:
         self,
         symbols: List[str],
         limit: int | None = None,
+        *,
+        market: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        price_adj_type: str | None = None,
+        refresh: bool = False,
     ) -> ConstituentKlineBatchResponse:
+        del refresh  # DojoSDK owns the source DataFrame and refresh lifecycle.
         resolved_limit = limit if limit is not None else resolve_kline_limit_for_elapsed_days(DATA_START_DATE)
         items: Dict[str, StockKlineResponse] = {}
         latest: Optional[str] = None
@@ -272,10 +279,17 @@ class KlineStore:
         if not canonical_symbols:
             return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        results = await self._gateway_klines(
-            canonical_symbols,
-            limit=resolved_limit,
-        )
+        window = {
+            key: value
+            for key, value in {
+                "limit": resolved_limit,
+                "start_time": start_time,
+                "end_time": end_time,
+                "price_adj_type": price_adj_type,
+            }.items()
+            if value is not None
+        }
+        results = await self._gateway_klines(canonical_symbols, market=market, **window)
         # Prepare the batch frame once, then slice by symbol. Re-running
         # _prepare_kline_df on the full multi-symbol frame per ticker was O(N^2)
         # and blocked the agent event loop (dojo-agent-runs) under GIL.
@@ -288,11 +302,13 @@ class KlineStore:
             subset = grouped.get(symbol)
             if subset is None or subset.empty:
                 continue
-            cache_key = f"{symbol}_None_None_None_None_{resolved_limit}"
+            cache_key = f"{symbol}_None_{start_time}_{end_time}_None_{price_adj_type}_{resolved_limit}"
             response = self._cache_response(
                 cache_key,
                 symbol,
                 subset,
+                start_time=start_time,
+                end_time=end_time,
                 limit=resolved_limit,
                 prepared=True,
             )
