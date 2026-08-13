@@ -71,11 +71,13 @@ def test_tabular_tools_get_table_spec() -> None:
     assert "datetime" in kline_hint["row_fields"]
 
 
-def test_alias_resolves_kline_tool() -> None:
-    assert TOOL_NAME_ALIASES["dojo.sdk.stock.kline"] == "get_ticker_price_trends"
+def test_raw_dojo_sdk_kline_uses_data_contract() -> None:
+    assert "dojo.sdk.stock.kline" not in TOOL_NAME_ALIASES
     hint = get_tool_schema_hint("dojo.sdk.stock.kline")
     assert hint is not None
-    assert hint["default_table"] == "klines"
+    assert hint["default_table"] == "data"
+    assert hint["tables"]["data"]["path"] == "data"
+    assert "klines" not in hint["tables"]
 
 
 def test_financials_table_tries_items_then_indicators() -> None:

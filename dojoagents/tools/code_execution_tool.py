@@ -448,8 +448,9 @@ def get_code_execution_spec(
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
             "pd/np/dojo_tools are pre-imported. "
-            "Canonical pattern after load_tool_result(call_id): "
+            "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "
             "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
+            "For raw dojo.sdk.* JSON use `payload = dojo_tools.tool_json(res); rows = payload['data']`. "
             "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
             "Combine compatible results: `dojo_tools.tool_concat([res_a, res_b])`. "
             "Join two tools: `dojo_tools.tool_merge(res_a, res_b, on=['id'])`. "
