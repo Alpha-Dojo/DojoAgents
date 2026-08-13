@@ -45,7 +45,6 @@ _DATA_READ_TOOLS = frozenset(
         "get_ticker_realtime_quote",
         "get_market_overview",
         "get_sector_movers",
-        "get_sector_analysis",
         "screen_market_stocks",
         "filter_sector_constituents",
         "search_company_ticker",

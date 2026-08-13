@@ -21,6 +21,7 @@ from dojoagents.dashboard.schemas.domain_api import (
     MarketOverviewResponse,
     SectorMoversResponse,
     StockScreenResponse,
+    TaxonomyL3CatalogResponse,
     TaxonomyTreeResponse,
     TickerPriceTrendsResponseV1,
 )
@@ -294,24 +295,31 @@ def test_tool_df_uses_per_table_row_fields_for_market_overview() -> None:
 def test_registry_binds_response_models() -> None:
     register_financial_response_models()
     registry = get_schema_hint_registry()
-    assert registry.get_model("get_taxonomy_tree") is TaxonomyTreeResponse
+    assert registry.get_model("get_taxonomy_tree") is TaxonomyL3CatalogResponse
     assert registry.get_model("get_market_overview") is MarketOverviewResponse
 
 
-def test_taxonomy_tree_hint_is_tree_not_tabular() -> None:
+def test_taxonomy_tree_hint_is_flat_l3_catalog() -> None:
     hint = get_tool_schema_hint("get_taxonomy_tree")
     assert hint is not None
-    assert hint["shape"] == "tree"
-    assert hint["tree_key"] == "tree"
-    assert "tool_json" in hint["pandas_example"]
-    assert "children" in hint["usage_notes"]
-    assert "tables" not in hint or not hint.get("tables")
+    assert hint["shape"] == "tabular"
+    assert hint["default_table"] == "items"
+    assert "items" in hint["tables"]
+    assert "sector_path_id" in hint["usage_notes"]
+    assert "tool_print" in hint["pandas_example"]
 
 
 def test_infer_taxonomy_tree_from_model() -> None:
     hint = infer_schema_hint_from_model(TaxonomyTreeResponse)
     assert hint["shape"] == "tree"
     assert hint["tree_key"] == "tree"
+
+
+def test_infer_taxonomy_l3_catalog_from_model() -> None:
+    hint = infer_schema_hint_from_model(TaxonomyL3CatalogResponse)
+    assert hint["default_table"] == "items"
+    assert "items" in hint["tables"]
+    assert "sector_path_id" in hint["tables"]["items"]["row_fields"]
 
 
 def test_infer_keeps_list_and_dict_tables() -> None:

@@ -53,7 +53,6 @@ _ANALYSIS_BROWSE_TOOLS = {
     "get_ticker_financials",
     "get_ticker_realtime_quote",
     "get_ticker_price_trends",
-    "get_sector_analysis",
     "filter_sector_constituents",
     "search_sector_taxonomy",
     "screen_market_stocks",

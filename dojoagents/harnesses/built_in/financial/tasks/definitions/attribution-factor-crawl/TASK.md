@@ -30,7 +30,7 @@
 | 裁决产因子 | 直接写 AttributionFactor jsonl，不是新闻素材包 |
 | 可追溯 | 每条主因因子尽量带 `evidence.quote` + `url` |
 
-**禁止**：`get_ticker_news_and_events`、`get_ticker_realtime_quote`、`get_ticker_price_trends`、`get_market_overview`、`get_sector_analysis`、portfolio 工具、读取其他 task 产出。
+**禁止**：`get_ticker_news_and_events`、`get_ticker_realtime_quote`、`get_ticker_price_trends`、`get_market_overview`、portfolio 工具、读取其他 task 产出。
 
 ---
 

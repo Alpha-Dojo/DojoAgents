@@ -11,7 +11,6 @@ FLOW_TOOL_REQUIREMENTS = {
         "search_sector_taxonomy",
         "get_taxonomy_tree",
         "get_sector_movers",
-        "get_sector_analysis",
         "filter_sector_constituents",
     },
     "ticker_analysis": {

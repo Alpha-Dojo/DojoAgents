@@ -203,7 +203,7 @@ def _map_search_company_ticker(data: dict[str, Any], truncated: bool) -> list[di
 
 
 def _map_taxonomy_tree(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
-    sectors = data.get("sectors") or data.get("items") or []
+    sectors = data.get("items") or data.get("sectors") or []
     if not isinstance(sectors, list) or not sectors:
         return []
     rows = [row for row in sectors[:20] if isinstance(row, dict)]
@@ -214,17 +214,16 @@ def _map_taxonomy_tree(data: dict[str, Any], truncated: bool) -> list[dict[str, 
             "table",
             {
                 "columns": [
-                    {"key": "name_zh", "label": "Sector"},
-                    {"key": "level1_id", "label": "L1"},
-                    {"key": "level2_id", "label": "L2"},
-                    {"key": "level3_id", "label": "L3"},
+                    {"key": "name", "label": "Sector"},
+                    {"key": "sector_path_id", "label": "Path"},
+                    {"key": "description", "label": "Description"},
                 ],
                 "rows": rows,
             },
             title="Sector taxonomy",
-            subtitle=f"{data.get('sector_count', len(sectors))} sectors",
+            subtitle=f"{data.get('count', len(sectors))} sectors",
             source_tool="get_taxonomy_tree",
-            truncated=truncated or bool(data.get("truncated")),
+            truncated=truncated or bool(data.get("truncated")) or len(sectors) > 20,
         )
     ]
 
@@ -352,43 +351,6 @@ def _map_sector_movers(data: dict[str, Any], truncated: bool) -> list[dict[str, 
                 market=market,
             )
         )
-    return blocks
-
-
-def _map_sector_analysis(data: dict[str, Any], truncated: bool) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    stats = data.get("stats_by_market") or {}
-    if isinstance(stats, dict):
-        market_kpis = []
-        for market in _MARKETS:
-            row = stats.get(market)
-            if not isinstance(row, dict):
-                continue
-            cumulative = _num(row.get("cumulative_return_pct"))
-            sharpe = _num(row.get("sharpe_ratio"))
-            drawdown = _num(row.get("max_drawdown_pct"))
-            market_kpis.append(
-                {
-                    "market": market,
-                    "items": [
-                        {
-                            "key": "return",
-                            "label": "累计收益",
-                            "value": _fmt_pct(cumulative) or "—",
-                            "tone": "positive" if cumulative and cumulative > 0 else "negative" if cumulative and cumulative < 0 else "neutral",
-                        },
-                        {"key": "sharpe", "label": "夏普", "value": f"{sharpe:.2f}" if sharpe is not None else "—"},
-                        {"key": "mdd", "label": "最大回撤", "value": _fmt_pct(drawdown) or "—", "tone": "risk"},
-                    ],
-                }
-            )
-        if market_kpis:
-            blocks.append(_block("kpi_row", {"layout": "by_market", "markets": market_kpis}, title="Sector performance", source_tool="get_sector_analysis", truncated=truncated))
-
-    perf = data.get("performance_by_market") or {}
-    series = _series_by_market(perf)
-    if series:
-        blocks.append(_block("line", {"series": series}, title="Sector NAV", source_tool="get_sector_analysis", truncated=truncated))
     return blocks
 
 
@@ -1211,7 +1173,6 @@ _MAPPERS: dict[str, MapperFn] = {
     "taxonomy_tree": _map_taxonomy_tree,
     "market_overview": _map_market_overview,
     "sector_movers": _map_sector_movers,
-    "sector_analysis": _map_sector_analysis,
     "stock_screen": _map_stock_screen,
     "sector_constituents": _map_constituents,
     "ticker_quote": _map_ticker_quote,
@@ -1228,7 +1189,6 @@ _ALIASES = {
     "get_taxonomy_tree": "taxonomy_tree",
     "get_market_overview": "market_overview",
     "get_sector_movers": "sector_movers",
-    "get_sector_analysis": "sector_analysis",
     "screen_market_stocks": "stock_screen",
     "filter_sector_constituents": "sector_constituents",
     "get_ticker_realtime_quote": "ticker_quote",

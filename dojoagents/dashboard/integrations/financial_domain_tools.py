@@ -16,12 +16,11 @@ from dojoagents.dashboard.services.domain_api import (
     _format_sector_path_suggestions,
     _looks_like_index_guess,
     build_market_overview,
-    build_sector_analysis,
     build_sector_constituents_v1,
     build_sector_movers,
     build_stock_screen,
     build_sector_taxonomy_search,
-    build_taxonomy_tree,
+    build_taxonomy_l3_catalog_for_agent,
     build_ticker_financials_v1,
     build_tickers_financials_v1,
     build_ticker_news_events_v1,
@@ -205,7 +204,7 @@ def _resolve_sector_path_or_raise(registry: FinancialDomainRegistry, args: dict[
             "sector path is required. Workflow: (1) search_sector_taxonomy with the concept keyword, "
             "(2) copy sector_path_id OR level1_id/level2_id/level3_id from best_match when present, "
             "else from items by name, "
-            "(3) filter_sector_constituents / get_sector_analysis with those ids."
+            "(3) filter_sector_constituents with those ids."
         )
 
     has_name = bool(kwargs.get("sector_name"))
@@ -249,9 +248,12 @@ def register_dashboard_domain_tools(
         )
         return _json_content(result)
 
-    async def taxonomy_tree(_: dict[str, Any]) -> dict[str, Any]:
+    async def taxonomy_tree(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
-        return _json_content(build_taxonomy_tree(registry))
+        locale = _str_arg(args, "locale", "zh")
+        if locale not in {"zh", "en"}:
+            raise RuntimeError("locale must be zh or en")
+        return _json_content(build_taxonomy_l3_catalog_for_agent(registry, locale=locale))
 
     async def taxonomy_search(args: dict[str, Any]) -> dict[str, Any]:
         _service_ready(registry)
@@ -313,16 +315,6 @@ def register_dashboard_domain_tools(
             sort_by=_str_arg(args, "sort_by", "market_cap"),
             sort_order=_str_arg(args, "sort_order", "desc"),
             limit=_int_arg(args, "limit", 50),
-        )
-        return _json_content(result)
-
-    async def sector_analysis(args: dict[str, Any]) -> dict[str, Any]:
-        _service_ready(registry)
-        path = _resolve_sector_path_or_raise(registry, args)
-        result = await build_sector_analysis(
-            registry,
-            path,
-            scope=_str_arg(args, "scope", "L3"),
         )
         return _json_content(result)
 
@@ -519,11 +511,22 @@ def register_dashboard_domain_tools(
         ToolSpec(
             name="get_taxonomy_tree",
             description=(
-                "Return the L1-L2-L3 sector taxonomy tree with opaque sector_id strings. "
-                "Use when you need the full tree or sample example_l3_paths; never treat "
-                "child array indices as sector ids."
+                "Return a flat L3 sector catalog for agent use: each item has sector_path_id "
+                "(opaque L1/L2/L3 like 153/160/161), monolingual name, and full description. "
+                "Pass locale=zh|en (default zh). Copy sector_path_id verbatim into downstream "
+                "sector tools; never treat list indices as sector ids. Prefer "
+                "search_sector_taxonomy for keyword lookup."
             ),
-            parameters={"type": "object", "properties": {}},
+            parameters={
+                "type": "object",
+                "properties": {
+                    "locale": {
+                        "type": "string",
+                        "enum": ["zh", "en"],
+                        "description": "Language for name and description (default zh).",
+                    },
+                },
+            },
             handler=taxonomy_tree,
         ),
         ToolSpec(
@@ -572,7 +575,7 @@ def register_dashboard_domain_tools(
             description=(
                 "Ranked top gaining/losing L3 sectors by weighted sector return over a window. "
                 "Each item includes level1_id, level2_id, level3_id — copy verbatim into "
-                "filter_sector_constituents or get_sector_analysis. "
+                "filter_sector_constituents. "
                 "Ranking excludes sectors with member_count<5 (eligible constituents above ~10亿 "
                 "ticker floor; basket too small). "
                 "Window — pick ONE mode: "
@@ -662,22 +665,6 @@ def register_dashboard_domain_tools(
                 },
             },
             handler=stock_screen,
-        ),
-        ToolSpec(
-            name="get_sector_analysis",
-            description=(
-                "Sector NAV, weighted PE, and risk stats for ONE taxonomy path. "
-                "Prerequisite: search_sector_taxonomy — copy sector_path_id or level1_id/level2_id/level3_id "
-                "from best_match verbatim."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    **_SECTOR_ID_PROPERTIES,
-                    "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
-                },
-            },
-            handler=sector_analysis,
         ),
         ToolSpec(
             name="filter_sector_constituents",

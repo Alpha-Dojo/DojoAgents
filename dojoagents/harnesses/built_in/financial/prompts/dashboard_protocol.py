@@ -27,7 +27,7 @@ When session history mentions an old portfolio task, treat it as **already done*
 | User intent | Required tools (in order) | Do NOT use |
 |-------------|---------------------------|------------|
 | Theme / concept / industry basket (具身智能, 机器人, 半导体, AI…) | `search_sector_taxonomy` → `filter_sector_constituents` (per market) → optional `get_ticker_financials` batch → portfolio writes | `search_company_ticker`, `web_search` as primary discovery |
-| Sector analysis / compare industries | `get_taxonomy_tree` or `search_sector_taxonomy` → `get_sector_analysis` | Guessing sector ids |
+| Sector analysis / compare industries | `get_taxonomy_tree` or `search_sector_taxonomy` → `filter_sector_constituents` / `get_sector_movers` | Guessing sector ids |
 | Market snapshot / 大盘概览 / cross-market valuation | `get_market_overview` (omit `market` for US+CN+HK) | Re-fetching per market |
 | Sector lead/lag / 领涨领跌板块 / 行业涨跌排名 | `get_sector_movers` → optional `filter_sector_constituents` on ids | `screen_market_stocks` when sector-level ranking is needed |
 | Full-market screen / 全市场异动 / 涨跌幅排名 (no specific sector) | `screen_market_stocks` per market → optional `get_ticker_financials` | `filter_sector_constituents` without taxonomy match |
@@ -72,7 +72,7 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 - Returns L3 sector gainers/losers per market; default `limit=5` each side.
 - `change_percent` = sector total return over the window (from precomputed daily data).
 - Rankings exclude `member_count<5` (members are constituents above the ~10亿 ticker floor).
-- Each row has `level1_id`, `level2_id`, `level3_id` — copy into `filter_sector_constituents` / `get_sector_analysis`.
+- Each row has `level1_id`, `level2_id`, `level3_id` — copy into `filter_sector_constituents`.
 - Default total-sector cap floor: `min_cap_us` / `min_cap_cn` / `min_cap_hk` = **200亿 (2e10)** when omitted (same as Market UI). Pass `0` to disable; pass an explicit value to override.
 
 **Examples:**
@@ -130,7 +130,7 @@ Concept names are NOT tickers. `search_company_ticker("具身智能")` or `searc
 - If `add_result.skipped_duplicates` is non-empty, those tickers did NOT increase the count — pick new symbols.
 - After eval failure: fix only the gap; do NOT re-print the full portfolio report.
 
-**Optional:** `get_sector_analysis` on the chosen path for sector-level context before picking names.
+**Optional:** use `get_sector_movers` with a date window for sector-level ranking context before picking names.
 
 ### Portfolio: candidates vs positions (CRITICAL)
 
@@ -233,7 +233,6 @@ If the user is **importing holdings from another broker** → use `portfolio_wri
 1. `search_sector_taxonomy` with the user's concept (synonyms auto-expanded: 具身智能 → 机器人, robotics…).
 2. Copy `sector_path_id` OR `level1_id` + `level2_id` + `level3_id` verbatim from `best_match` when present; if `best_match` is null / `ambiguous=true`, pick from `items` by name — exact ID lookup, no guessing.
 3. `filter_sector_constituents` with those ids + `market` + `scope` (`L3` for one L3 leaf, `L2` for the whole L2 branch).
-4. `get_sector_analysis` with the same ids when sector-level stats are needed.
 
 ### search_company_ticker — ONLY for single-name resolution
 
