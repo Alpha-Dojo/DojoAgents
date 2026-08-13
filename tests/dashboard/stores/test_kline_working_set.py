@@ -208,3 +208,33 @@ async def test_get_klines_batch_fetch_logic(tmp_path) -> None:
 
     assert set(result.items.keys()) == {"AAPL", "MSFT"}
     assert gateway.calls == [(None, ["AAPL", "MSFT"], {"limit": 15})]
+
+
+@pytest.mark.asyncio
+async def test_get_klines_forwards_precompute_window_to_sdk_gateway(tmp_path) -> None:
+    gateway = KlineGateway([[{"symbol": "AAPL", "bar_time": "2026-08-12", "close": 100}]])
+    store = _store(gateway, tmp_path)
+
+    result = await store.get_klines(
+        ["AAPL"],
+        limit=0,
+        market="us",
+        start_time="2026-07-03",
+        end_time="2026-08-12",
+        price_adj_type="pre",
+        refresh=True,
+    )
+
+    assert list(result.items) == ["AAPL"]
+    assert gateway.calls == [
+        (
+            "us",
+            ["AAPL"],
+            {
+                "limit": 0,
+                "start_time": "2026-07-03",
+                "end_time": "2026-08-12",
+                "price_adj_type": "pre",
+            },
+        )
+    ]
