@@ -20,6 +20,7 @@ from dojoagents.logging import LOGGER
 
 _PHASE_LABELS: dict[str, str] = {
     "prepare": "Scan constituents",
+    "kline": "Load constituent K-lines",
     "compute": "Compute & stage",
     "publish": "Publish snapshot",
     "upload": "Upload dataset",

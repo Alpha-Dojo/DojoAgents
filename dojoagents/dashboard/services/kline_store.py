@@ -177,6 +177,35 @@ class KlineStore:
         self._cache[cache_key] = response
         return response
 
+    def _remember_frame(self, frame: pd.DataFrame, *, persist: bool = False) -> None:
+        prepared = _prepare_kline_df(frame, symbol="")
+        if prepared.empty or "symbol" not in prepared.columns:
+            return
+        prepared = prepared.sort_values(["symbol", "bar_time"]).drop_duplicates(["symbol", "bar_time"], keep="last")
+        self.raw_by_symbol = {symbol: rows.to_dict(orient="records") for symbol, rows in prepared.groupby("symbol", sort=False)}
+        self.member_symbols = len(self.raw_by_symbol)
+        if persist and self._parquet_path is not None:
+            self._parquet_path.parent.mkdir(parents=True, exist_ok=True)
+            prepared.to_parquet(self._parquet_path, index=False)
+
+    def _load_disk(self) -> None:
+        if self._disk_loaded:
+            return
+        self._disk_loaded = True
+        if self._parquet_path is None or not self._parquet_path.exists():
+            return
+        try:
+            self._remember_frame(pd.read_parquet(self._parquet_path))
+        except Exception:
+            LOGGER.warning("Ignoring unreadable K-line working set: %s", self._parquet_path)
+
+    def load_all(self, symbol: str) -> list[dict[str, Any]]:
+        self._load_disk()
+        return list(self.raw_by_symbol.get(symbol.strip().upper(), ()))
+
+    def _online(self) -> bool:
+        return bool(getattr(getattr(self.gateway, "client", None), "_online", False))
+
     async def get_or_fetch_kline(
         self,
         symbol: str,
@@ -202,6 +231,21 @@ class KlineStore:
 
         if not refresh and cache_key in self._cache:
             return self._cache[cache_key]
+
+        local_rows = [] if self._online() else self.load_all(symbol)
+        if local_rows and not refresh:
+            local_frame = self._to_frame(local_rows)
+            earliest = str(local_frame["bar_time"].min())[:10] if "bar_time" in local_frame.columns else ""
+            if not (start_time and earliest > start_time[:10]):
+                return self._cache_response(
+                    cache_key,
+                    symbol,
+                    local_frame,
+                    start_time=start_time,
+                    end_time=end_time,
+                    min_bar_time=min_bar_time,
+                    limit=(max(0, int(limit)) if limit is not None else resolved_limit),
+                )
 
         try:
             if resolved_limit > 0:
@@ -235,6 +279,11 @@ class KlineStore:
                 **kwargs,
             )
             df = self._to_frame(result.data)
+            if local_rows:
+                df = pd.concat([self._to_frame(local_rows), df], ignore_index=True)
+            if not df.empty:
+                combined = pd.concat([self._to_frame(rows) for rows in self.raw_by_symbol.values()] + [df], ignore_index=True)
+                self._remember_frame(combined, persist=self._parquet_path is not None)
         except Exception as e:
             LOGGER.exception("Failed to fetch kline for %s: %s", symbol, e)
             raise e
@@ -253,9 +302,13 @@ class KlineStore:
         return await self.get_or_fetch_kline(symbol, limit=limit)
 
     async def load(self, limit: int | None = None) -> None:
-        # resolved_limit = limit if limit is not None else KLINE_MAX_LIMIT
         self.initial_load_in_progress = True
         try:
+            result = await self.gateway.stock_all_klines()
+            frame = self._to_frame(result.data)
+            if limit and not frame.empty and "symbol" in frame.columns:
+                frame = frame.sort_values("bar_time").groupby("symbol", sort=False, group_keys=False).tail(limit)
+            self._remember_frame(frame, persist=self._parquet_path is not None)
             self.initial_load_complete = True
         finally:
             self.initial_load_in_progress = False
@@ -264,6 +317,12 @@ class KlineStore:
         self,
         symbols: List[str],
         limit: int | None = None,
+        *,
+        market: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        price_adj_type: str | None = None,
+        refresh: bool = False,
     ) -> ConstituentKlineBatchResponse:
         resolved_limit = limit if limit is not None else resolve_kline_limit_for_elapsed_days(DATA_START_DATE)
         items: Dict[str, StockKlineResponse] = {}
@@ -273,14 +332,25 @@ class KlineStore:
         if not canonical_symbols:
             return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        results = await self._gateway_klines(
-            canonical_symbols,
-            limit=resolved_limit,
-        )
+        self._load_disk()
+        local_rows = [] if refresh or self._online() else [row for symbol in canonical_symbols for row in self.raw_by_symbol.get(symbol, ())]
+        local_symbols = {str(row.get("symbol") or "").upper() for row in local_rows}
+        missing_symbols = [symbol for symbol in canonical_symbols if symbol not in local_symbols]
+        fetched_rows: list[dict[str, Any]] = []
+        if missing_symbols:
+            results = await self._gateway_klines(
+                missing_symbols,
+                market=market,
+                limit=resolved_limit,
+                start_time=start_time,
+                end_time=end_time,
+                price_adj_type=price_adj_type,
+            )
+            fetched_rows = self._to_frame(results.data).to_dict(orient="records")
         # Prepare the batch frame once, then slice by symbol. Re-running
         # _prepare_kline_df on the full multi-symbol frame per ticker was O(N^2)
         # and blocked the agent event loop (dojo-agent-runs) under GIL.
-        prepared = _prepare_kline_df(self._to_frame(results.data), symbol="")
+        prepared = _prepare_kline_df(self._to_frame(local_rows + fetched_rows), symbol="")
         if prepared.empty or "symbol" not in prepared.columns:
             return ConstituentKlineBatchResponse(as_of=None, items={})
 
@@ -294,6 +364,8 @@ class KlineStore:
                 cache_key,
                 symbol,
                 subset,
+                start_time=start_time,
+                end_time=end_time,
                 limit=resolved_limit,
                 prepared=True,
             )
