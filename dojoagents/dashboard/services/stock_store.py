@@ -160,7 +160,7 @@ class StockStore:
                 stocks = attach_quotes(candidates, quote_map, market)
                 matched = sum(1 for stock in stocks if stock.stock_quote is not None)
                 unmatched_sample = [self._normalize_ticker(stock.ticker) for stock in stocks if stock.stock_quote is None][:5]
-                LOGGER.info(
+                LOGGER.debug(
                     "[StockStore][%s] quote diagnostic: catalog=%s batches=%s returned_rows=%s "
                     "unique_quote_symbols=%s matched=%s request_sample=%s response_symbol_sample=%s unmatched_sample=%s",
                     market,

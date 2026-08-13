@@ -858,6 +858,7 @@ export function DojoAgentPanel({
       await startRun({
         sessionId,
         modelId: selectedModelId,
+        providerModel: selectedModel.model,
         locale,
         timezoneIana: getTradingTimezone(readStoredTradingTimezone()).iana,
         dashboardTab: sourceTab,
@@ -899,6 +900,7 @@ export function DojoAgentPanel({
     schedulePersistDraft,
     sessionsHydrated,
     selectedModel?.available,
+    selectedModel?.model,
     input,
     startRun,
     streaming,
