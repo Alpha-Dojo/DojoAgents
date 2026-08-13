@@ -11,6 +11,7 @@ _GENERIC_LIST_KEYS = (
     "results",
     "matches",
     "candidates",
+    "data",
 )
 
 _SKIP_NESTED_ROW_KEYS = frozenset({"next_call", "playbook", "usage"})
