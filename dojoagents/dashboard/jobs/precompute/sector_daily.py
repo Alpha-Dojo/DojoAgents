@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from dojoagents.dashboard.services.constituent_filter import (
-    ConstituentEligibilityChecker,
+    is_sector_constituent_eligible_from_response,
     stock_is_equity_quote_type,
     stock_is_us_warrant_by_name,
 )
@@ -142,13 +142,13 @@ async def prepare_sector_precompute_input(
     on_progress: ProgressCallback | None = None,
 ) -> PrecomputeInputSnapshot:
     lookback_start = _previous_day(start_date)
-    checker = ConstituentEligibilityChecker(kline_store)
     generated_at = datetime.now(timezone.utc).isoformat()
 
     constituents: list[dict[str, Any]] = []
     ticker_daily_rows: list[dict[str, Any]] = []
     seen_constituents: set[tuple[str, str, str, str, str, str]] = set()
     seen_tickers: set[tuple[str, str]] = set()
+    candidates: list[tuple[ResolvedSectorPath, Any, Any]] = []
     markets = (market,) if market else tuple(MARKETS)
     stats: dict[str, Any] = {
         "markets": {
@@ -210,62 +210,103 @@ async def prepare_sector_precompute_input(
                     if stock_is_us_warrant_by_name(stock):
                         stats["markets"][assignment.market]["us_warrant_excluded"] += 1
                         continue
-                    if not await checker.is_eligible(stock):
-                        stats["markets"][assignment.market]["missing_kline"] += 1
-                        continue
-
-                    dedupe_key = (
-                        assignment.market,
-                        path.level1_id,
-                        path.level2_id,
-                        path.level3_id,
-                        assignment.ticker,
-                        assignment.role,
-                    )
-                    if dedupe_key in seen_constituents:
-                        continue
-                    seen_constituents.add(dedupe_key)
-                    constituents.append(
-                        {
-                            "level1_id": path.level1_id,
-                            "level2_id": path.level2_id,
-                            "level3_id": path.level3_id,
-                            "market": assignment.market,
-                            "ticker": assignment.ticker,
-                            "role": assignment.role,
-                            "market_cap": float(stock.stock_quote.market_cap),
-                            "pe": float(stock.stock_quote.pe) if stock.stock_quote.pe > 0 else None,
-                        }
-                    )
-                    stats["markets"][assignment.market]["eligible_constituents"] += 1
-
-                    ticker_key = (assignment.market, assignment.ticker)
-                    if ticker_key in seen_tickers:
-                        continue
-                    seen_tickers.add(ticker_key)
-                    response = await kline_store.get_or_fetch_kline(
-                        assignment.ticker,
-                        market=assignment.market,
-                        kline_t="1D",
-                        start_time=lookback_start,
-                        end_time=end_date,
-                        limit=0,
-                    )
-                    if response is None or not response.bars:
-                        continue
-                    for bar in response.bars:
-                        ticker_daily_rows.append(
-                            {
-                                "market": assignment.market,
-                                "ticker": assignment.ticker,
-                                "trade_date": str(bar.bar_time)[:10],
-                                "close": float(bar.close),
-                            }
-                        )
+                    candidates.append((path, assignment, stock))
                 finally:
                     assignment_progress += 1
                     if on_progress is not None:
                         on_progress("prepare", assignment_progress, assignment_total)
+
+    symbols_by_market: dict[str, list[str]] = {}
+    for _path, assignment, _stock in candidates:
+        symbols_by_market.setdefault(assignment.market, []).append(assignment.ticker)
+    symbols_by_market = {key: sorted(set(value)) for key, value in symbols_by_market.items()}
+    response_by_ticker: dict[tuple[str, str], Any] = {}
+    kline_total = sum(len(symbols) for symbols in symbols_by_market.values())
+    kline_progress = 0
+    if on_progress is not None:
+        on_progress("kline", 0, max(kline_total, 1))
+
+    recent_start = (date.fromisoformat(str(end_date or date.today().isoformat())[:10]) - timedelta(days=40)).isoformat()
+    working_start = min(lookback_start, recent_start)
+    for source_market, symbols in symbols_by_market.items():
+        get_batch = getattr(kline_store, "get_klines", None)
+        if callable(get_batch):
+            batch = await get_batch(
+                symbols,
+                limit=0,
+                market=source_market,
+                start_time=working_start,
+                end_time=end_date,
+                price_adj_type="pre",
+                refresh=True,
+            )
+            response_by_ticker.update({(source_market, symbol): response for symbol, response in batch.items.items()})
+        else:
+            for symbol in symbols:
+                response = await kline_store.get_or_fetch_kline(
+                    symbol,
+                    market=source_market,
+                    kline_t="1D",
+                    start_time=working_start,
+                    end_time=end_date,
+                    price_adj_type="pre",
+                    limit=0,
+                )
+                if response is not None:
+                    response_by_ticker[(source_market, symbol)] = response
+        kline_progress += len(symbols)
+        if on_progress is not None:
+            on_progress("kline", kline_progress, max(kline_total, 1))
+
+    for path, assignment, stock in candidates:
+        response = response_by_ticker.get((assignment.market, assignment.ticker))
+        if not is_sector_constituent_eligible_from_response(stock, response):
+            stats["markets"][assignment.market]["missing_kline"] += 1
+            continue
+        dedupe_key = (
+            assignment.market,
+            path.level1_id,
+            path.level2_id,
+            path.level3_id,
+            assignment.ticker,
+            assignment.role,
+        )
+        if dedupe_key in seen_constituents:
+            continue
+        seen_constituents.add(dedupe_key)
+        constituents.append(
+            {
+                "level1_id": path.level1_id,
+                "level2_id": path.level2_id,
+                "level3_id": path.level3_id,
+                "market": assignment.market,
+                "ticker": assignment.ticker,
+                "role": assignment.role,
+                "market_cap": float(stock.stock_quote.market_cap),
+                "pe": float(stock.stock_quote.pe) if stock.stock_quote.pe > 0 else None,
+            }
+        )
+        stats["markets"][assignment.market]["eligible_constituents"] += 1
+
+        ticker_key = (assignment.market, assignment.ticker)
+        if ticker_key in seen_tickers:
+            continue
+        seen_tickers.add(ticker_key)
+        bars = sorted(response.bars, key=lambda item: str(item.bar_time))
+        before_start = [bar for bar in bars if str(bar.bar_time)[:10] < start_date]
+        selected_bars = ([before_start[-1]] if before_start else []) + [bar for bar in bars if str(bar.bar_time)[:10] >= start_date]
+        for bar in selected_bars:
+            trade_date = str(bar.bar_time)[:10]
+            if end_date and trade_date > end_date[:10]:
+                continue
+            ticker_daily_rows.append(
+                {
+                    "market": assignment.market,
+                    "ticker": assignment.ticker,
+                    "trade_date": trade_date,
+                    "close": float(bar.close),
+                }
+            )
 
     return PrecomputeInputSnapshot(
         start_date=start_date,

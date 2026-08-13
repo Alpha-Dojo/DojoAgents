@@ -122,7 +122,7 @@ async def test_restart_recovers_parquet_without_sdk_call(tmp_path) -> None:
 
     assert result is not None
     assert result.bars[0].close == 100
-    assert len(second_gateway.calls) == 1
+    assert second_gateway.calls == []
 
 
 @pytest.mark.asyncio

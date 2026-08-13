@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse, StockKlineBar, StockKlineResponse
 from dojoagents.dashboard.jobs.precompute.sector_daily import (
     CONSTITUENT_COLUMNS,
     MANIFEST_FILE,
@@ -60,6 +60,17 @@ class StubKlineStore:
 
     async def get_or_fetch_kline(self, symbol: str, **kwargs):
         self.calls.append({"symbol": symbol, **kwargs})
+        return self._response(symbol)
+
+    async def get_klines(self, symbols: list[str], **kwargs):
+        self.calls.append({"symbols": symbols, **kwargs})
+        return ConstituentKlineBatchResponse(
+            as_of="2025-01-03",
+            items={symbol: self._response(symbol) for symbol in symbols},
+        )
+
+    @staticmethod
+    def _response(symbol: str) -> StockKlineResponse:
         return StockKlineResponse(
             symbol=symbol,
             as_of="2025-01-03",
@@ -132,12 +143,13 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
         ),
     )
     upload_client = StubDojoClient()
+    kline_store = StubKlineStore()
     manifest = await build_sector_precomputed(
         data_root=tmp_path,
         sector_store=StubSectorStore(path),
         stock_sector_store=StubStockSectorStore(assignment),
         stock_store=StubStockStore(stock),
-        kline_store=StubKlineStore(),
+        kline_store=kline_store,
         start_date="2025-01-02",
         upload_client=upload_client,
     )
@@ -148,6 +160,8 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
     assert saved_manifest["schema_version"] == "3"
     assert manifest["uploaded_dataset"] == "dojo_sector_precomputed"
     assert upload_client.uploads == [("dojo_sector_precomputed", str(out_dir))]
+    assert len(kline_store.calls) == 1
+    assert kline_store.calls[0]["symbols"] == ["AAA"]
 
     ticker_daily = pd.read_parquet(out_dir / "ticker_daily.parquet")
     assert list(ticker_daily["market"].unique()) == ["sh"]

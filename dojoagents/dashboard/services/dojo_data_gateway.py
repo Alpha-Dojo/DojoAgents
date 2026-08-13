@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from datetime import date, timedelta
 import inspect
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
@@ -178,17 +179,108 @@ class DojoDataGateway:
     ) -> GatewayResult["pd.DataFrame"]:
         canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
         kwargs = {key: value for key, value in window.items() if value is not None}
-        if kwargs.get("start_time") or kwargs.get("end_time"):
+        online = getattr(self.client, "_online", None)
+        if online is True:
+            return await self._fetch_klines_cross_sectional(canonical_symbols, kwargs)
+        if online is None and (kwargs.get("start_time") or kwargs.get("end_time")):
             return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
-        frames: list[pd.DataFrame] = []
-        fetched = await self._fetch_klines_per_symbol(symbols, kwargs)
-        if not fetched.data.empty:
-            frames.append(fetched.data)
+        await self._ensure_kline_index()
+        frames = [self._slice_indexed_klines(symbol, kwargs) for symbol in canonical_symbols]
+        found = {symbol for symbol, frame in zip(canonical_symbols, frames) if not frame.empty}
+        missing = [symbol for symbol in canonical_symbols if symbol not in found]
+        if missing:
+            fetched = await self._fetch_klines_per_symbol(missing, kwargs)
+            if not fetched.data.empty:
+                frames.append(fetched.data)
+        populated = [frame for frame in frames if not frame.empty]
+        frame = pd.concat(populated, ignore_index=True) if populated else pd.DataFrame()
+        if not frame.empty and str(kwargs.get("price_adj_type") or "pre").lower() not in {"none", "raw"}:
+            frame = self._apply_pre_adjustment(frame)
+        return _df_result(frame)
 
-        if not frames:
+    async def _ensure_kline_index(self) -> None:
+        if self._kline_symbol_index is not None:
+            return
+        async with self._kline_index_lock:
+            if self._kline_symbol_index is not None:
+                return
+            result = await self.stock_all_klines()
+            frame = self._normalize_kline_frame(result.data)
+            if frame.empty or "symbol" not in frame.columns:
+                self._kline_symbol_index = {}
+                return
+            sort_column = "bar_time" if "bar_time" in frame.columns else "date"
+            self._kline_symbol_index = {symbol: rows.sort_values(sort_column).reset_index(drop=True) for symbol, rows in frame.groupby("symbol", sort=False)}
+
+    def _slice_indexed_klines(self, symbol: str, window: dict[str, Any]) -> pd.DataFrame:
+        frame = (self._kline_symbol_index or {}).get(symbol)
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        rows = frame
+        time_col = "bar_time" if "bar_time" in rows.columns else "date" if "date" in rows.columns else None
+        if time_col:
+            if window.get("start_time"):
+                rows = rows[rows[time_col].astype(str).str[:10] >= str(window["start_time"])[:10]]
+            if window.get("end_time"):
+                rows = rows[rows[time_col].astype(str).str[:10] <= str(window["end_time"])[:10]]
+        limit = int(window.get("limit") or 0)
+        return rows.tail(limit) if limit > 0 else rows
+
+    async def _fetch_klines_cross_sectional(self, symbols: list[str], window: dict[str, Any]) -> GatewayResult["pd.DataFrame"]:
+        if not symbols:
             return _df_result(pd.DataFrame())
-        return _df_result(pd.concat(frames, ignore_index=True))
+        start = window.get("start_time")
+        end = window.get("end_time")
+        limit = int(window.get("limit") or 0)
+        symbol_batches = [symbols[offset : offset + 150] for offset in range(0, len(symbols), 150)]
+        periods: list[tuple[str | None, str | None]] = [(None, None)]
+        if start or end:
+            start_date = date.fromisoformat(str(start or end)[:10])
+            end_date = date.fromisoformat(str(end or date.today())[:10])
+            periods = []
+            cursor = start_date
+            while cursor <= end_date:
+                period_end = min(cursor + timedelta(days=30), end_date)
+                periods.append((cursor.isoformat(), period_end.isoformat()))
+                cursor = period_end + timedelta(days=1)
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def fetch(batch: list[str], period: tuple[str | None, str | None]) -> list[dict[str, Any]]:
+            async with semaphore:
+                kwargs: dict[str, Any] = {
+                    "symbols": ",".join(batch),
+                    "kline_t": window.get("kline_t") or "1D",
+                    "window_limit": 0 if period[0] else max(1, limit),
+                }
+                if period[0]:
+                    kwargs.update(start_time=period[0], end_time=period[1])
+                payload = await self._call("stock_klines_cross_sectional", self.client.stocks.get_kline_cs(**kwargs))
+                return _list_result(payload, "stock_klines_cross_sectional", "klines").data
+
+        chunks = await asyncio.gather(*(fetch(batch, period) for period in periods for batch in symbol_batches))
+        frame = self._normalize_kline_frame([row for chunk in chunks for row in chunk])
+        if frame.empty:
+            return GatewayResult(frame, None, "sdk_online", False)
+        if "bar_time" in frame.columns:
+            frame = frame.sort_values(["symbol", "bar_time"]).drop_duplicates(["symbol", "bar_time"], keep="last")
+        if str(window.get("price_adj_type") or "pre").lower() not in {"none", "raw"}:
+            frame = self._apply_pre_adjustment(frame)
+        return GatewayResult(frame, str(frame["bar_time"].max()) if "bar_time" in frame.columns else None, "sdk_online", False)
+
+    @staticmethod
+    def _apply_pre_adjustment(frame: pd.DataFrame) -> pd.DataFrame:
+        if "adj_factor_cum" not in frame.columns:
+            return frame
+        adjusted = frame.copy()
+        factors = pd.to_numeric(adjusted["adj_factor_cum"], errors="coerce")
+        latest = factors.groupby(adjusted["symbol"]).transform("last")
+        ratio = factors.div(latest.where(latest > 0)).fillna(1.0)
+        for column in ("open", "high", "low", "close"):
+            if column in adjusted.columns:
+                adjusted[column] = pd.to_numeric(adjusted[column], errors="coerce") * ratio
+        return adjusted
 
     async def _fetch_kline_rows(self, symbols: list[str], kwargs: dict[str, Any]) -> list[dict[str, Any]]:
         async def fetch_one(symbol: str) -> list[dict[str, Any]]:
