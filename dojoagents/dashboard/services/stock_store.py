@@ -76,13 +76,28 @@ async def fetch_quotes_by_market(
     return quote_map
 
 
+def quote_lookup_key(market: str, ticker: str) -> str:
+    key = ticker.strip().upper()
+    if market in {"sh", "cn", "zh"}:
+        for suffix in (".SS", ".SH", ".SZ"):
+            if key.endswith(suffix):
+                return key[: -len(suffix)]
+    if market == "hk":
+        if key.endswith(".HK"):
+            key = key[:-3]
+        if key.isdigit():
+            return key.zfill(5)
+    return key
+
+
 def attach_quotes(
     stocks: List[Stock],
     quote_map: Dict[str, dict],
+    market: str,
 ) -> List[Stock]:
     loaded: List[Stock] = []
     for stock in stocks:
-        quote_item = quote_map.get(stock.ticker.strip().upper())
+        quote_item = quote_map.get(quote_lookup_key(market, stock.ticker))
         if quote_item is not None:
             loaded.append(stock.model_copy(update={"stock_quote": parse_quote_item(quote_item, stock.ticker)}))
         else:
@@ -140,9 +155,9 @@ class StockStore:
                     res = await self.gateway.stock_quotes(market, chunk)
                     quote_result_data.extend([item for item in res.data if isinstance(item, dict)])
                 quote_map = {
-                    self._normalize_ticker(str(item.get("symbol") or item.get("ticker"))): item for item in quote_result_data if (item.get("symbol") or item.get("ticker"))
+                    quote_lookup_key(market, str(item.get("symbol") or item.get("ticker"))): item for item in quote_result_data if (item.get("symbol") or item.get("ticker"))
                 }
-                stocks = attach_quotes(candidates, quote_map)
+                stocks = attach_quotes(candidates, quote_map, market)
                 matched = sum(1 for stock in stocks if stock.stock_quote is not None)
                 unmatched_sample = [self._normalize_ticker(stock.ticker) for stock in stocks if stock.stock_quote is None][:5]
                 LOGGER.info(
