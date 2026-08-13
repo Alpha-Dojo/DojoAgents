@@ -7,13 +7,52 @@ import pandas as pd
 import pytest
 from dojo import ConflictError
 
-from dojoagents.dashboard.cli.precompute_sector import _write_api_batches, upload_market_precomputed
+from dojoagents.dashboard.cli.precompute_sector import _market_records, _write_api_batches, upload_market_precomputed
+
+
+def test_market_records_omits_null_optional_values_and_normalizes_date(tmp_path) -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "market": "sh",
+                "ticker": "AAA",
+                "trade_date": pd.Timestamp("2026-08-12"),
+                "close": 10.5,
+                "daily_return_pct": float("nan"),
+                "cumulative_return_pct": float("inf"),
+            }
+        ]
+    )
+
+    with patch("dojoagents.dashboard.cli.precompute_sector.pd.read_parquet", return_value=frame):
+        rows = _market_records(
+            tmp_path / "ticker_daily.parquet",
+            "cn",
+            required_fields=("market", "ticker", "trade_date"),
+            date_fields=("trade_date",),
+        )
+
+    assert rows == [{"market": "cn", "ticker": "AAA", "trade_date": "2026-08-12", "close": 10.5}]
+
+
+def test_market_records_rejects_null_required_value(tmp_path) -> None:
+    frame = pd.DataFrame([{"market": "sh", "ticker": None, "trade_date": "2026-08-12", "close": 10.5}])
+
+    with patch("dojoagents.dashboard.cli.precompute_sector.pd.read_parquet", return_value=frame), pytest.raises(ValueError, match="ticker"):
+        _market_records(
+            tmp_path / "ticker_daily.parquet",
+            "cn",
+            required_fields=("market", "ticker", "trade_date"),
+            date_fields=("trade_date",),
+        )
 
 
 @pytest.mark.asyncio
 async def test_upload_market_precomputed_filters_market_and_normalizes_ids(tmp_path) -> None:
     frames = {
-        "constituents.parquet": pd.DataFrame([{"market": "sh", "level1_id": "1", "level2_id": "2", "level3_id": "3", "ticker": "A", "role": "primary"}, {"market": "hk"}]),
+        "constituents.parquet": pd.DataFrame(
+            [{"market": "sh", "level1_id": "1", "level2_id": "2", "level3_id": "3", "ticker": "A", "role": "primary", "market_cap": 2e9, "pe": None}, {"market": "hk"}]
+        ),
         "ticker_daily.parquet": pd.DataFrame(
             [{"market": "sh", "ticker": "OLD", "trade_date": "2026-08-11"}, {"market": "sh", "ticker": "A", "trade_date": "2026-08-12"}, {"market": "hk"}]
         ),
@@ -38,6 +77,8 @@ async def test_upload_market_precomputed_filters_market_and_normalizes_ids(tmp_p
     sector_daily = client.sectors.create_daily.await_args.kwargs["observations"][0]
     assert (constituent["level1_id"], constituent["level2_id"], constituent["level3_id"]) == (1, 2, 3)
     assert constituent["market"] == "cn"
+    assert constituent["market_cap"] == 2e9
+    assert "pe" not in constituent
     assert (sector_daily["level1_id"], sector_daily["level2_id"], sector_daily["level3_id"]) == (1, 0, 0)
 
 

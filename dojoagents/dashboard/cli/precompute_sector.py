@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -81,12 +82,27 @@ def _source_market(market: str) -> str:
     return "sh" if market == "cn" else market
 
 
-def _market_records(path: Path, market: str, *, id_columns: tuple[str, ...] = (), start_date: str | None = None) -> list[dict[str, Any]]:
+def _market_records(
+    path: Path,
+    market: str,
+    *,
+    id_columns: tuple[str, ...] = (),
+    required_fields: tuple[str, ...] = (),
+    date_fields: tuple[str, ...] = (),
+    start_date: str | None = None,
+) -> list[dict[str, Any]]:
     frame = pd.read_parquet(path)
     frame = frame[frame["market"].astype(str).str.lower() == _source_market(market)].copy()
     if start_date and "trade_date" in frame:
         frame = frame[frame["trade_date"].astype(str) >= start_date]
     frame["market"] = market
+    for column in date_fields:
+        if column in frame:
+            parsed = pd.to_datetime(frame[column], errors="coerce")
+            invalid = frame[column].notna() & parsed.isna()
+            if invalid.any():
+                raise ValueError(f"{path.name}.{column} contains an invalid date")
+            frame[column] = parsed.dt.strftime("%Y-%m-%d")
     for column in id_columns:
         original = frame[column]
         numeric = pd.to_numeric(original, errors="coerce")
@@ -94,7 +110,18 @@ def _market_records(path: Path, market: str, *, id_columns: tuple[str, ...] = ()
         if invalid.any():
             raise ValueError(f"{path.name}.{column} contains a non-numeric sector id")
         frame[column] = numeric.fillna(0).astype("int64")
-    return json.loads(frame.to_json(orient="records", date_format="iso"))
+    records = json.loads(frame.to_json(orient="records", date_format="iso"))
+    omitted: Counter[str] = Counter()
+    for index, record in enumerate(records):
+        missing = [field for field in required_fields if record.get(field) is None or (isinstance(record.get(field), str) and not record[field].strip())]
+        if missing:
+            raise ValueError(f"{path.name} row {index} is missing required fields: {', '.join(missing)}")
+        for field in [field for field, value in record.items() if value is None and field not in required_fields]:
+            record.pop(field)
+            omitted[field] += 1
+    if omitted:
+        LOGGER.info("Normalized %s API rows: omitted null optional fields=%s", path.name, dict(sorted(omitted.items())))
+    return records
 
 
 async def _write_api_batches(client: AsyncDojo, method_name: str, rows: list[dict[str, Any]]) -> None:
@@ -110,13 +137,34 @@ async def _write_api_batches(client: AsyncDojo, method_name: str, rows: list[dic
 
 async def upload_market_precomputed(client: AsyncDojo, published_dir: Path, market: str, *, start_date: str | None = None) -> dict[str, int]:
     datasets = (
-        ("create_constituents", "constituents.parquet", ("level1_id", "level2_id", "level3_id"), None),
-        ("create_ticker_daily", "ticker_daily.parquet", (), start_date),
-        ("create_daily", "sector_daily.parquet", ("level1_id", "level2_id", "level3_id"), start_date),
+        (
+            "create_constituents",
+            "constituents.parquet",
+            ("level1_id", "level2_id", "level3_id"),
+            ("market", "level1_id", "level2_id", "level3_id", "ticker", "role"),
+            (),
+            None,
+        ),
+        ("create_ticker_daily", "ticker_daily.parquet", (), ("market", "ticker", "trade_date"), ("trade_date",), start_date),
+        (
+            "create_daily",
+            "sector_daily.parquet",
+            ("level1_id", "level2_id", "level3_id"),
+            ("trade_date", "market", "scope", "level1_id", "level2_id", "level3_id"),
+            ("trade_date",),
+            start_date,
+        ),
     )
     counts: dict[str, int] = {}
-    for method_name, filename, id_columns, dataset_start_date in datasets:
-        rows = _market_records(published_dir / filename, market, id_columns=id_columns, start_date=dataset_start_date)
+    for method_name, filename, id_columns, required_fields, date_fields, dataset_start_date in datasets:
+        rows = _market_records(
+            published_dir / filename,
+            market,
+            id_columns=id_columns,
+            required_fields=required_fields,
+            date_fields=date_fields,
+            start_date=dataset_start_date,
+        )
         if rows:
             await _write_api_batches(client, method_name, rows)
         counts[filename] = len(rows)
