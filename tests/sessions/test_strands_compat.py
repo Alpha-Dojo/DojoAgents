@@ -16,8 +16,15 @@ def test_strands_canonical_conversion_preserves_supported_and_unknown_blocks():
             {"text": "analysis complete"},
             {"image": {"source": {"object_id": "image-1"}, "format": "png"}},
             {"document": {"source": {"object_id": "doc-1"}, "name": "report.pdf"}},
-            {"toolUse": {"toolUseId": "call-1", "name": "quote", "input": {"ticker": "AAPL"}}},
-            {"toolResult": {"toolUseId": "call-1", "content": [{"text": "123.4"}]}},
+            {
+                "toolUse": {
+                    "toolUseId": "call-1",
+                    "name": "quote",
+                    "input": {"ticker": "AAPL"},
+                    "dojoProviderMetadata": {"thought_signature": "sig-1"},
+                }
+            },
+            {"toolResult": {"toolUseId": "call-1", "name": "quote", "status": "success", "content": [{"text": "123.4"}]}},
             {"redactedContent": {"data": "must-not-survive"}},
             {"providerFutureBlock": {"field": "value"}},
         ],
@@ -45,6 +52,8 @@ def test_strands_canonical_conversion_preserves_supported_and_unknown_blocks():
     restored = canonical_to_strands(canonical)
     assert restored["role"] == "assistant"
     assert restored["content"][0] == {"text": "analysis complete"}
+    assert restored["content"][3]["toolUse"]["dojoProviderMetadata"] == {"thought_signature": "sig-1"}
+    assert restored["content"][4]["toolResult"]["name"] == "quote"
     assert restored["content"][-1] == {"providerFutureBlock": {"field": "value"}}
 
 

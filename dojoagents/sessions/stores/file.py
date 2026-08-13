@@ -12,7 +12,8 @@ from typing import Any, Callable, TypeVar
 
 import portalocker
 
-from dojoagents.sessions.atomic import AtomicJsonStore, FileStoreError
+from dojoagents.sessions.atomic import AtomicJsonStore, CorruptStoreError, FileStoreError, _atomic_write_json
+from dojoagents.sessions.identifiers import validate_session_id
 from dojoagents.logging import LOGGER
 from dojoagents.sessions.errors import (
     SessionConflictError,
@@ -192,8 +193,9 @@ def _lease(data: dict[str, Any]) -> SessionLease:
 class FileSessionStore:
     """Atomic JSON implementation of the backend-neutral SessionStore contract.
 
-    External tenant/user/session identifiers are only used to derive a SHA-256
-    owner index key; they are never joined into filesystem paths.
+    Message bodies use the legacy-readable per-session Strands layout. A root
+    ownership marker and a session UID suffix on collisions keep equal external
+    session IDs from different principals isolated.
     """
 
     def __init__(
@@ -220,7 +222,8 @@ class FileSessionStore:
         return {
             "sessions": {},
             "owner_index": {},
-            "messages": {},
+            "message_index": {},
+            "message_roots": {},
             "runs": {},
             "events": {},
             "turns": {},
@@ -254,6 +257,13 @@ class FileSessionStore:
     def _read_state_sync(self) -> dict[str, Any]:
         try:
             state = self._documents._read_sync(self._state_path, "state")
+        except CorruptStoreError as exc:
+            try:
+                if json.loads(self._state_path.read_text(encoding="utf-8")) == {}:
+                    return self._empty_state()
+            except (OSError, json.JSONDecodeError):
+                pass
+            raise SessionDataCorruptError(str(exc)) from exc
         except FileStoreError as exc:
             raise SessionDataCorruptError(str(exc)) from exc
         if state is None:
@@ -263,6 +273,152 @@ class FileSessionStore:
         defaults = self._empty_state()
         defaults.update(state)
         return defaults
+
+    @staticmethod
+    def _message_ref(message: SessionMessageRecord) -> dict[str, Any]:
+        return {"agent_id": message.agent_id, "sequence": message.sequence}
+
+    @staticmethod
+    def _message_root_marker(session: SessionRecord) -> dict[str, str]:
+        return {"session_uid": session.session_uid, "session_id": session.session_id}
+
+    @staticmethod
+    def _validate_path_identifier(value: str, kind: str) -> str:
+        try:
+            validated = validate_session_id(value)
+            if "\0" in validated:
+                raise ValueError("NUL is not allowed in a path identifier")
+            return validated
+        except ValueError as exc:
+            raise SessionDataCorruptError(f"invalid {kind} id in session store: {value!r}") from exc
+
+    def _claim_message_root_sync(self, path: Path, session: SessionRecord) -> bool:
+        marker_path = path / ".dojo-canonical-session.json"
+        marker = self._message_root_marker(session)
+        if marker_path.exists():
+            try:
+                existing = json.loads(marker_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise SessionDataCorruptError(f"invalid message root marker: {marker_path}") from exc
+            if existing == marker:
+                return True
+            return False
+        if path.exists() and any(path.iterdir()):
+            return False
+        _atomic_write_json(marker_path, marker)
+        return True
+
+    def _message_root_sync(self, state: dict[str, Any], session: SessionRecord) -> Path:
+        roots = state.get("message_roots")
+        if not isinstance(roots, dict):
+            raise SessionDataCorruptError("session message roots must be a mapping")
+        stored_name = roots.get(session.session_uid)
+        if stored_name is not None:
+            if not isinstance(stored_name, str):
+                raise SessionDataCorruptError(f"invalid message root for session {session.session_id!r}")
+            stored_name = self._validate_path_identifier(stored_name, "message root")
+            path = self.root / stored_name
+            if not self._claim_message_root_sync(path, session):
+                raise SessionDataCorruptError(f"message root belongs to another session: {path}")
+            return path
+
+        session_id = self._validate_path_identifier(session.session_id, "session")
+        primary = self.root / f"session_{session_id}"
+        if self._claim_message_root_sync(primary, session):
+            path = primary
+        else:
+            session_uid = self._validate_path_identifier(session.session_uid, "session uid")
+            path = self.root / f"session_{session_id}__{session_uid}"
+            if not self._claim_message_root_sync(path, session):
+                raise SessionDataCorruptError(f"unable to claim message root for session {session.session_id!r}")
+        roots[session.session_uid] = path.name
+        return path
+
+    def _message_path_sync(self, state: dict[str, Any], session: SessionRecord, agent_id: str, sequence: int) -> Path:
+        safe_agent_id = self._validate_path_identifier(agent_id, "agent")
+        if not isinstance(sequence, int) or sequence < 0:
+            raise SessionDataCorruptError(f"invalid message sequence: {sequence!r}")
+        return self._message_root_sync(state, session) / "agents" / f"agent_{safe_agent_id}" / "messages" / f"message_{sequence}.json"
+
+    @staticmethod
+    def _message_document(message: SessionMessageRecord) -> dict[str, Any]:
+        from dojoagents.sessions.compat.strands import canonical_to_strands
+
+        timestamp = message.created_at.isoformat()
+        return {
+            "message": canonical_to_strands(message),
+            "message_id": message.sequence,
+            "redact_message": None,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "dojo_canonical": _encode(message),
+        }
+
+    def _read_message_sync(self, state: dict[str, Any], session: SessionRecord, agent_id: str, sequence: int) -> SessionMessageRecord:
+        path = self._message_path_sync(state, session, agent_id, sequence)
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise SessionDataCorruptError(f"indexed message is missing: {path}") from exc
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SessionDataCorruptError(f"invalid message file: {path}") from exc
+        canonical = document.get("dojo_canonical") if isinstance(document, dict) else None
+        if not isinstance(canonical, dict):
+            raise SessionDataCorruptError(f"message file has no canonical record: {path}")
+        try:
+            message = _message(canonical)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise SessionDataCorruptError(f"invalid canonical message record: {path}") from exc
+        if message.session_uid != session.session_uid or message.session_id != session.session_id or message.agent_id != agent_id or message.sequence != sequence:
+            raise SessionDataCorruptError(f"message file identity mismatch: {path}")
+        return message
+
+    def _write_message_sync(self, state: dict[str, Any], session: SessionRecord, message: SessionMessageRecord, *, indexed: bool) -> None:
+        if message.session_uid != session.session_uid or message.session_id != session.session_id:
+            raise SessionConflictError("message does not belong to run session")
+        path = self._message_path_sync(state, session, message.agent_id, message.sequence)
+        if indexed:
+            existing = self._read_message_sync(state, session, message.agent_id, message.sequence)
+            if existing != message:
+                raise SessionConflictError("message sequence conflict")
+            return
+        _atomic_write_json(path, self._message_document(message))
+
+    @staticmethod
+    def _message_refs_sync(state: dict[str, Any], session_uid: str) -> list[dict[str, Any]]:
+        index = state.get("message_index")
+        if not isinstance(index, dict):
+            raise SessionDataCorruptError("session message index must be a mapping")
+        refs = index.setdefault(session_uid, [])
+        if not isinstance(refs, list) or any(not isinstance(item, dict) or not isinstance(item.get("agent_id"), str) or not isinstance(item.get("sequence"), int) for item in refs):
+            raise SessionDataCorruptError(f"invalid message index for session {session_uid!r}")
+        return refs
+
+    def _migrate_legacy_messages_sync(self, state: dict[str, Any]) -> None:
+        legacy = state.get("messages")
+        if legacy is None:
+            return
+        if not isinstance(legacy, dict):
+            raise SessionDataCorruptError("legacy session messages must be a mapping")
+        for session_uid, items in legacy.items():
+            session_data = state["sessions"].get(session_uid)
+            if session_data is None or not isinstance(items, list):
+                raise SessionDataCorruptError(f"invalid legacy messages for session {session_uid!r}")
+            session = _session(session_data)
+            refs = self._message_refs_sync(state, session_uid)
+            for item in items:
+                try:
+                    message = _message(item)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise SessionDataCorruptError(f"invalid legacy message for session {session.session_id!r}") from exc
+                ref = self._message_ref(message)
+                indexed = ref in refs
+                self._write_message_sync(state, session, message, indexed=indexed)
+                if not indexed:
+                    refs.append(ref)
+            refs.sort(key=lambda item: (item["agent_id"], item["sequence"]))
+            state["sessions"][session_uid] = _encode(replace(session, message_count=len(refs)))
+        state.pop("messages", None)
 
     def _transaction_sync(self, write: bool, callback: Callable[[dict[str, Any]], T]) -> T:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -357,7 +513,7 @@ class FileSessionStore:
 
     async def startup(self) -> None:
         def initialize(state: dict[str, Any]) -> None:
-            return None
+            self._migrate_legacy_messages_sync(state)
 
         await self._transaction(True, initialize)
         self._started = True
@@ -449,7 +605,8 @@ class FileSessionStore:
     async def load_history(self, principal: SessionPrincipal, session_id: str, query: HistoryQuery) -> HistoryPage:
         def operation(state: dict[str, Any]) -> HistoryPage:
             session = self._session_for(state, principal, session_id)
-            records = [_message(item) for item in state["messages"].get(session.session_uid, [])]
+            refs = self._message_refs_sync(state, session.session_uid)
+            records = [self._read_message_sync(state, session, item["agent_id"], item["sequence"]) for item in refs]
             if query.agent_id:
                 records = [item for item in records if item.agent_id == query.agent_id]
             records.sort(key=lambda item: item.sequence)
@@ -1001,14 +1158,13 @@ class FileSessionStore:
             stored_turns.append(_encode(command.turn))
             stored_turns.sort(key=lambda item: item["sequence"])
 
-            stored_messages = state["messages"].setdefault(session.session_uid, [])
+            stored_messages = self._message_refs_sync(state, session.session_uid)
             for message in command.messages:
-                duplicate_message = next((item for item in stored_messages if item["agent_id"] == message.agent_id and item["sequence"] == message.sequence), None)
-                encoded = _encode(message)
-                if duplicate_message is not None and duplicate_message != encoded:
-                    raise SessionConflictError("message sequence conflict")
-                if duplicate_message is None:
-                    stored_messages.append(encoded)
+                ref = self._message_ref(message)
+                indexed = ref in stored_messages
+                self._write_message_sync(state, session, message, indexed=indexed)
+                if not indexed:
+                    stored_messages.append(ref)
             stored_messages.sort(key=lambda item: (item["agent_id"], item["sequence"]))
 
             stored_usage = state["usage"].setdefault(session.session_uid, [])

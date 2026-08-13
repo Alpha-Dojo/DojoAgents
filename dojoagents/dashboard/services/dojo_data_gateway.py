@@ -160,7 +160,7 @@ class DojoDataGateway:
         result = _list_result(payload, "stock_quotes", "quotes")
         payload_keys = list(payload)[:10] if isinstance(payload, dict) else []
         returned_symbols = [str(row.get("symbol") or row.get("ticker")) for row in result.data[:5] if isinstance(row, dict) and (row.get("symbol") or row.get("ticker"))]
-        LOGGER.info(
+        LOGGER.debug(
             "[DojoDataGateway][stock_quotes] market=%s method=POST requested=%s returned=%s payload_type=%s payload_keys=%s request_sample=%s response_symbol_sample=%s",
             market,
             len(canonical),

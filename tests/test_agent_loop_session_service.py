@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.events import AgentEventSink
-from dojoagents.agent.models import ChatRequest, LLMResult
+from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall
 from dojoagents.agent.providers import StaticLLMProvider
 from dojoagents.config.models import AgentConfig, SessionRuntimeConfig, SessionsConfig, StoreProviderConfig
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
@@ -26,7 +27,7 @@ from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.sessions.stores.file import FileSessionStore
 from dojoagents.skills.manager import SkillManager
 from dojoagents.tools.executor import ToolExecutor
-from dojoagents.tools.registry import ToolRegistry
+from dojoagents.tools.registry import ToolRegistry, ToolSpec
 from dojoagents.tools.sandbox import SandboxPolicy
 
 
@@ -112,7 +113,7 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     assert turns.items[0].input == {"message": "hi", "context": {}}
     assert turns.items[0].output == {"content": "hello"}
     assert [message.role for message in history.items] == ["user", "assistant"]
-    assert history.items[0].content == "hi"
+    assert history.items[0].content == [{"type": "text", "text": "hi"}]
     assert "transient runtime content" not in repr(turns.items)
     assert "transient runtime content" not in repr(history.items)
     assert runs[0].status == "completed"
@@ -126,6 +127,64 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     assert {item.category for item in context_usage.latest.components} >= {
         "system_prompt",
         "conversation",
+    }
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_canonical_history_persists_and_replays_complete_tool_transcript(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(content="", tool_calls=[ToolCall(id="call-1", name="quote", arguments={"ticker": "AAPL"})]),
+            LLMResult(content="AAPL is 123.4"),
+            LLMResult(content="follow-up complete"),
+        ]
+    )
+    loop = _loop(provider, service)
+
+    async def quote(args):
+        return {"content": "123.4"}
+
+    loop.tool_executor.registry.register(
+        ToolSpec(
+            name="quote",
+            description="Return a quote.",
+            parameters={"type": "object", "properties": {"ticker": {"type": "string"}}},
+            handler=quote,
+        )
+    )
+
+    await loop.run(ChatRequest("price?", session_id="s1", principal=principal))
+    history = await service.history(principal, "s1", HistoryQuery())
+
+    assert [message.role for message in history.items] == ["user", "assistant", "user", "assistant"]
+    assert history.items[1].content[0] == {
+        "type": "tool_use",
+        "id": "call-1",
+        "name": "quote",
+        "input": {"ticker": "AAPL"},
+    }
+    assert history.items[2].content[0]["type"] == "tool_result"
+    assert history.items[2].content[0]["tool_use_id"] == "call-1"
+    assert history.items[2].content[0]["name"] == "quote"
+    assert history.items[2].content[0]["content"] == [{"type": "text", "text": "123.4"}]
+    message_paths = sorted((tmp_path / "sessions" / "session_s1" / "agents" / "agent_dojo-agent" / "messages").glob("message_*.json"))
+    assert [path.name for path in message_paths] == ["message_1.json", "message_2.json", "message_3.json", "message_4.json"]
+    state = json.loads((tmp_path / "sessions" / "state.json").read_text(encoding="utf-8"))["data"]
+    assert "messages" not in state
+
+    await loop.run(ChatRequest("and now?", session_id="s1", principal=principal))
+    replayed = provider.calls[2]["messages"]
+    replayed_tool_call = next(message for message in replayed if message.get("role") == "assistant" and message.get("tool_calls"))
+    replayed_tool_result = next(message for message in replayed if message.get("role") == "tool")
+    assert replayed_tool_call["tool_calls"][0]["id"] == "call-1"
+    assert replayed_tool_result == {
+        "role": "tool",
+        "name": "quote",
+        "tool_call_id": "call-1",
+        "content": "123.4",
     }
     await service.shutdown()
 

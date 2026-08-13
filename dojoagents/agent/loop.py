@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
 
@@ -71,6 +71,12 @@ from strands.types.tools import AgentTool, ToolSpec as StrandsToolSpec, ToolUse
 from strands.types._events import ToolResultEvent
 
 T = TypeVar("T")
+
+
+@dataclass
+class _AgentTurnResult:
+    response: AgentResponse
+    transcript: list[dict[str, Any]]
 
 
 def _current_user_content(request: ChatRequest) -> str | list[dict[str, Any]]:
@@ -624,11 +630,12 @@ class AgentLoop:
         )
         with bind_usage_collector(collector):
             try:
-                response = await self._run_core(
+                turn_result = await self._run_core(
                     active_request,
                     event_sink=active_sink,
                     turn_context=turn_context,
                 )
+                response = turn_result.response
                 if self.harness_runtime is not None and turn_context is not None:
                     after_turn_attempted = True
                     await self.harness_runtime.after_turn(turn_context)
@@ -644,7 +651,7 @@ class AgentLoop:
                             active_request.session_id,
                         )
                 if canonical_run is not None:
-                    await canonical_run.commit(response)
+                    await canonical_run.commit(response, transcript=turn_result.transcript)
                 return response
             except asyncio.CancelledError:
                 if canonical_run is not None:
@@ -684,7 +691,7 @@ class AgentLoop:
         *,
         event_sink: AgentEventSink | None = None,
         turn_context: Any | None = None,
-    ) -> AgentResponse:
+    ) -> _AgentTurnResult:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
         remaining_tokens = getattr(self.config, "session_max_tokens", 500000)
@@ -818,10 +825,13 @@ class AgentLoop:
             active_user_message.reset(user_msg_token)
             if write_guard_token is not None:
                 active_write_session_file_guard.reset(write_guard_token)
-            return AgentResponse(
-                content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
-                session_id=request.session_id,
-                metadata={"error": "no_model_configured"},
+            return _AgentTurnResult(
+                AgentResponse(
+                    content=("No LLM model configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."),
+                    session_id=request.session_id,
+                    metadata={"error": "no_model_configured"},
+                ),
+                [],
             )
 
         # 1. Build the system prompt. Harness-backed instances own the complete
@@ -1025,10 +1035,14 @@ class AgentLoop:
                     content_blocks.append({"text": content})
                 elif isinstance(content, list):
                     for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
+                        if not isinstance(part, dict):
+                            continue
+                        if part.get("type") == "text":
                             text = str(part.get("text") or "")
                             if text:
                                 content_blocks.append({"text": text})
+                        elif any(key in part for key in ("text", "toolUse", "reasoningContent", "redactedContent")):
+                            content_blocks.append(dict(part))
                 if "tool_calls" in msg and msg["tool_calls"]:
                     for tc in msg["tool_calls"]:
                         func = tc.get("function") or {}
@@ -1071,7 +1085,12 @@ class AgentLoop:
                     }
                 )
             else:
-                blocks = openai_content_to_strands_blocks(content)
+                if isinstance(content, list) and all(
+                    isinstance(part, dict) and any(key in part for key in ("text", "image", "document", "toolResult", "redactedContent")) for part in content
+                ):
+                    blocks = [dict(part) for part in content]
+                else:
+                    blocks = openai_content_to_strands_blocks(content)
                 if blocks:
                     history_msgs.append({"role": role, "content": blocks})
 
@@ -1499,6 +1518,7 @@ class AgentLoop:
             agent_id=strands_agent_id,
             session_manager=strands_session_manager,
         )
+        turn_message_start = len(agent.messages)
 
         # 7. Run Agent
         user_prompt = openai_content_to_strands_blocks(user_content)
@@ -1596,10 +1616,13 @@ class AgentLoop:
                     "session_tokens": token_state.snapshot(),
                 }
                 apply_turn_usage(metadata)
-                return AgentResponse(
-                    content=response_text,
-                    session_id=request.session_id,
-                    metadata=metadata,
+                return _AgentTurnResult(
+                    AgentResponse(
+                        content=response_text,
+                        session_id=request.session_id,
+                        metadata=metadata,
+                    ),
+                    [dict(message) for message in agent.messages[turn_message_start:]],
                 )
             else:
                 if event_sink is not None:
@@ -1778,7 +1801,10 @@ class AgentLoop:
         active_user_message.reset(user_msg_token)
         if write_guard_token is not None:
             active_write_session_file_guard.reset(write_guard_token)
-        return AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata)
+        return _AgentTurnResult(
+            AgentResponse(content=response_text, session_id=request.session_id, metadata=metadata),
+            [dict(message) for message in agent.messages[turn_message_start:]],
+        )
 
     def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
         plugin_registry = get_plugin_registry()
