@@ -215,6 +215,9 @@ class AsyncCodeExecutionRPC:
         if isinstance(raw_res, str):
             raw_res = {"content": raw_res}
         response = _slim_rpc_tool_response(tool_name, raw_res)
+        response["tool_name"] = tool_name
+        if self.artifact_adapter is not None:
+            response = self.artifact_adapter.enrich_loaded_payload(response)
         if tool_name == "write_session_file" and response.get("ok"):
             entry = _session_output_entry_from_payload(response.get("data"))
             if entry is not None:

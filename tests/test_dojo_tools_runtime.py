@@ -70,6 +70,23 @@ def test_tool_df_benchmarks_supports_column_subset() -> None:
     assert subset.iloc[0]["symbol"] == "000001.SH"
 
 
+def test_tool_df_supports_dojo_sdk_data_rows_without_schema_hint() -> None:
+    res = {
+        "ok": True,
+        "data": {
+            "total_num": 2,
+            "data": [
+                {"symbol": "AAPL", "last_price": 200.0},
+                {"symbol": "MSFT", "last_price": 500.0},
+            ],
+        },
+    }
+
+    df = tool_df(res)
+
+    assert df["symbol"].tolist() == ["AAPL", "MSFT"]
+
+
 def test_tool_pick_skips_missing_columns() -> None:
     res = _overview_res()
     df = tool_df(res, "benchmarks")
