@@ -38,6 +38,191 @@ async def test_code_execution_calls_terminal_via_rpc():
 
 
 @pytest.mark.asyncio
+async def test_code_execution_exposes_unknown_nested_tool_failure() -> None:
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy))
+    executor = ToolExecutor(registry, policy)
+
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-code-unknown",
+            name="execute_code",
+            arguments={"code": "res = dojo_tools.call_tool('not_registered', {})\nprint('Inner ok:', res['ok'])\n"},
+        )
+    )
+
+    assert result.ok is True
+    assert "Inner ok: False" in result.content
+    failures = result.data["nested_tool_failures"]
+    assert failures[0]["tool"] == "not_registered"
+    assert failures[0]["error"] == "Tool 'not_registered' not registered"
+    assert failures[0]["response_content_chars"] == 0
+    assert failures[0]["response_data_chars"] == 4
+    assert failures[0]["response_artifact_persisted"] is False
+    assert "response" not in failures[0]
+    assert result.metadata["nested_tool_failures"] == failures
+
+
+@pytest.mark.asyncio
+async def test_code_execution_exposes_registered_nested_tool_failure() -> None:
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+
+    async def failing_tool(_: dict) -> dict:
+        return {
+            "ok": False,
+            "content": "",
+            "data": {"reason": "business"},
+            "error": "business failure",
+            "truncated": True,
+        }
+
+    registry.register(
+        ToolSpec(
+            name="failing_tool",
+            description="returns a structured failure",
+            parameters={"type": "object", "properties": {}},
+            handler=failing_tool,
+        )
+    )
+    registry.register(get_code_execution_spec(registry, policy))
+    executor = ToolExecutor(registry, policy)
+
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-code-registered-failure",
+            name="execute_code",
+            arguments={"code": "res = dojo_tools.call_tool('failing_tool', {})\nprint('Inner ok:', res['ok'])\n"},
+        )
+    )
+
+    assert result.ok is True
+    assert "Inner ok: False" in result.content
+    failures = result.data["nested_tool_failures"]
+    assert failures[0]["tool"] == "failing_tool"
+    assert failures[0]["error"] == "business failure"
+    assert failures[0]["response_data_chars"] == len(json.dumps({"reason": "business"}))
+    assert failures[0]["response_truncated"] is True
+    assert "response" not in failures[0]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_persists_nested_failure_response_as_artifact(tmp_path) -> None:
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    large_content = "failed child output\n" * 600
+    large_data = {"rows": [{"value": "x" * 100} for _ in range(100)]}
+
+    async def failing_tool(_: dict) -> dict:
+        return {"ok": False, "content": large_content, "data": large_data, "error": "upstream failure"}
+
+    registry.register(
+        ToolSpec(
+            name="failing_tool",
+            description="returns a large structured failure",
+            parameters={"type": "object", "properties": {}},
+            handler=failing_tool,
+        )
+    )
+    registry.register(get_code_execution_spec(registry, policy, artifact_store=store))
+    executor = ToolExecutor(registry, policy, artifact_store=store)
+
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-code-nested-artifact",
+            name="execute_code",
+            arguments={"code": "res = dojo_tools.call_tool('failing_tool', {})\nprint(res['ok'])\n"},
+        ),
+        session_id="session-nested-failure",
+    )
+
+    failure = result.data["nested_tool_failures"][0]
+    assert failure["error"] == "upstream failure"
+    assert failure["response_content_chars"] == len(large_content)
+    assert failure["response_data_chars"] == len(json.dumps(large_data))
+    assert failure["response_artifact_persisted"] is True
+    assert "response" not in failure
+    assert large_content not in json.dumps(result.data)
+
+    artifact = store.load("session-nested-failure", failure["response_artifact_call_id"])
+    assert artifact is not None
+    assert artifact["tool_name"] == "failing_tool"
+    assert artifact["ok"] is False
+    assert artifact["error"] == "upstream failure"
+    assert artifact["content"] == large_content
+    assert artifact["data"] == large_data
+
+    loaded = await handle_code_execution(
+        {
+            "code": (
+                f"res = dojo_tools.load_tool_result({failure['response_artifact_call_id']!r})\n"
+                "print(res['ok'], res['error'], len(res['data']['rows']))\n"
+            )
+        },
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-nested-failure",
+    )
+    assert "False upstream failure 100" in loaded["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_nested_failure_reaches_tool_result_event_data() -> None:
+    from dojoagents.agent.events import AgentEventSink
+    from dojoagents.agent.loop import DojoBridgedTool
+
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy))
+    executor = ToolExecutor(registry, policy)
+    sink = AgentEventSink(run_id="run-code", session_id="s1")
+    spec = registry.get("execute_code")
+    assert spec is not None
+
+    bridged = DojoBridgedTool(spec, executor, "s1", event_sink=sink)
+    yielded = [
+        item
+        async for item in bridged.stream(
+            {
+                "toolUseId": "tc-code-event",
+                "name": "execute_code",
+                "input": {"code": "print(dojo_tools.call_tool('missing_for_event', {}))\n"},
+            },
+            {},
+        )
+    ]
+
+    assert yielded
+    tool_event = next(event for event in sink.events if event["type"] == "tool_result")
+    assert tool_event["ok"] is True
+    assert tool_event["data"]["nested_tool_failures"][0]["tool"] == "missing_for_event"
+
+
+@pytest.mark.asyncio
+async def test_code_execution_does_not_infer_nested_failure_from_stdout() -> None:
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy))
+    executor = ToolExecutor(registry, policy)
+
+    result = await executor.execute_one(
+        ToolCall(
+            id="tc-code-stdout",
+            name="execute_code",
+            arguments={"code": "print({'ok': False, 'error': 'ordinary stdout'})\n"},
+        )
+    )
+
+    assert result.ok is True
+    assert "ordinary stdout" in result.content
+    assert result.data is None
+    assert "nested_tool_failures" not in result.metadata
+
+
+@pytest.mark.asyncio
 async def test_code_execution_limit_reached():
     registry = ToolRegistry()
     policy = SandboxPolicy()
