@@ -219,12 +219,12 @@ async def test_stock_klines_uses_per_symbol_fetch_for_date_window() -> None:
 
 
 @pytest.mark.asyncio
-async def test_online_stock_klines_batches_cross_sectional_rows_and_applies_pre_adjustment() -> None:
+async def test_online_stock_klines_uses_adjusted_single_stock_endpoint() -> None:
     client = FakeDojo(
         stocks={
-            "get_kline_cs": {
+            "get_kline": {
                 "data": [
-                    {"symbol": "AAA", "bar_time": "2026-01-02", "close": 100.0, "adj_factor_cum": 1.0},
+                    {"symbol": "AAA", "bar_time": "2026-01-02", "close": 50.0, "adj_factor_cum": 1.0},
                     {"symbol": "AAA", "bar_time": "2026-01-03", "close": 60.0, "adj_factor_cum": 2.0},
                 ]
             }
@@ -237,6 +237,7 @@ async def test_online_stock_klines_batches_cross_sectional_rows_and_applies_pre_
         market="us",
         start_time="2026-01-02",
         end_time="2026-01-03",
+        price_adj_type="pre",
         limit=0,
     )
 
@@ -244,8 +245,8 @@ async def test_online_stock_klines_batches_cross_sectional_rows_and_applies_pre_
     assert result.source == "sdk_online"
     assert client.stocks.calls == [
         (
-            "get_kline_cs",
-            {"symbols": "AAA", "kline_t": "1D", "window_limit": 0, "market": "us", "start_time": "2026-01-02", "end_time": "2026-01-03"},
+            "get_kline",
+            {"symbol": "AAA", "start_time": "2026-01-02", "end_time": "2026-01-03", "price_adj_type": "pre", "limit": 0},
         )
     ]
 
@@ -281,11 +282,16 @@ async def test_offline_stock_klines_filters_window_and_applies_same_pre_adjustme
 
 
 @pytest.mark.asyncio
-async def test_online_stock_klines_splits_windows_at_31_days() -> None:
+async def test_online_stock_klines_sends_full_window_to_single_stock_endpoint() -> None:
     def response(**kwargs):
-        return {"data": [{"symbol": "AAA", "bar_time": kwargs["end_time"], "close": 10.0}]}
+        return {
+            "data": [
+                {"symbol": kwargs["symbol"], "bar_time": kwargs["start_time"], "close": 9.0},
+                {"symbol": kwargs["symbol"], "bar_time": kwargs["end_time"], "close": 10.0},
+            ]
+        }
 
-    client = FakeDojo(stocks={"get_kline_cs": response})
+    client = FakeDojo(stocks={"get_kline": response})
     client._online = True
 
     result = await DojoDataGateway(client).stock_klines(
@@ -295,8 +301,46 @@ async def test_online_stock_klines_splits_windows_at_31_days() -> None:
         limit=0,
     )
 
-    assert list(result.data["bar_time"]) == ["2026-01-31", "2026-02-15"]
-    assert [call[1]["start_time"] for call in client.stocks.calls] == ["2026-01-01", "2026-02-01"]
+    assert list(result.data["bar_time"]) == ["2026-01-01", "2026-02-15"]
+    assert client.stocks.calls == [("get_kline", {"symbol": "AAA", "start_time": "2026-01-01", "end_time": "2026-02-15", "limit": 0})]
+
+
+@pytest.mark.asyncio
+async def test_online_stock_klines_limits_single_stock_concurrency() -> None:
+    class Stocks:
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+
+        async def get_kline(self, **kwargs):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(0.01)
+            self.active -= 1
+            return {"data": [{"symbol": kwargs["symbol"], "bar_time": "2026-01-02", "close": 10.0}]}
+
+    stocks = Stocks()
+    client = type("Client", (), {"_online": True, "stocks": stocks})()
+
+    result = await DojoDataGateway(client, kline_max_concurrent=3).stock_klines([f"S{i}" for i in range(8)], limit=0)
+
+    assert set(result.data["symbol"]) == {f"S{i}" for i in range(8)}
+    assert stocks.peak == 3
+
+
+@pytest.mark.asyncio
+async def test_online_stock_klines_keeps_successful_symbols_when_one_fails() -> None:
+    def response(**kwargs):
+        if kwargs["symbol"] == "BAD":
+            raise RuntimeError("upstream failed")
+        return {"data": [{"symbol": kwargs["symbol"], "bar_time": "2026-01-02", "close": 10.0}]}
+
+    client = FakeDojo(stocks={"get_kline": response})
+    client._online = True
+
+    result = await DojoDataGateway(client, kline_max_concurrent=2).stock_klines(["GOOD", "BAD"], limit=0)
+
+    assert list(result.data["symbol"]) == ["GOOD"]
 
 
 @pytest.mark.asyncio

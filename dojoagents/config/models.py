@@ -115,7 +115,7 @@ class FinancialDashboardConfig:
     dashboard_data_root: str = "~/.dojo/dashboard-data"
     stock_quote_refresh_seconds: int = 15
     constituent_kline_post_close_poll_seconds: int = 300
-    constituent_kline_max_concurrent: int = 8
+    constituent_kline_max_concurrent: int = 50
     ticker_market_cap_min_sh: float = 1_000_000_000.0
     ticker_market_cap_min_us: float = 1_000_000_000.0
     ticker_market_cap_min_hk: float = 1_000_000_000.0

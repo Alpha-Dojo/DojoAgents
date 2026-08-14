@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-from datetime import date, timedelta
 import inspect
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
@@ -110,8 +109,11 @@ def _df_result(df: "pd.DataFrame") -> GatewayResult["pd.DataFrame"]:
 
 
 class DojoDataGateway:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, *, kline_max_concurrent: int = 50) -> None:
+        if kline_max_concurrent < 1:
+            raise ValueError("kline_max_concurrent must be at least 1")
         self.client = client
+        self.kline_max_concurrent = kline_max_concurrent
         self._kline_symbol_index: dict[str, pd.DataFrame] | None = None
         self._kline_index_lock = asyncio.Lock()
 
@@ -179,10 +181,10 @@ class DojoDataGateway:
     ) -> GatewayResult["pd.DataFrame"]:
         canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
         kwargs = {key: value for key, value in window.items() if value is not None}
-        market = kwargs.pop("market", None)
+        kwargs.pop("market", None)
         online = getattr(self.client, "_online", None)
         if online is True:
-            return await self._fetch_klines_cross_sectional(canonical_symbols, kwargs, market=market)
+            return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
         if online is None and (kwargs.get("start_time") or kwargs.get("end_time")):
             return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
@@ -228,56 +230,6 @@ class DojoDataGateway:
         limit = int(window.get("limit") or 0)
         return rows.tail(limit) if limit > 0 else rows
 
-    async def _fetch_klines_cross_sectional(
-        self,
-        symbols: list[str],
-        window: dict[str, Any],
-        *,
-        market: str | None = None,
-    ) -> GatewayResult["pd.DataFrame"]:
-        if not symbols:
-            return _df_result(pd.DataFrame())
-        start = window.get("start_time")
-        end = window.get("end_time")
-        limit = int(window.get("limit") or 0)
-        symbol_batches = [symbols[offset : offset + 150] for offset in range(0, len(symbols), 150)]
-        periods: list[tuple[str | None, str | None]] = [(None, None)]
-        if start or end:
-            start_date = date.fromisoformat(str(start or end)[:10])
-            end_date = date.fromisoformat(str(end or date.today())[:10])
-            periods = []
-            cursor = start_date
-            while cursor <= end_date:
-                period_end = min(cursor + timedelta(days=30), end_date)
-                periods.append((cursor.isoformat(), period_end.isoformat()))
-                cursor = period_end + timedelta(days=1)
-
-        semaphore = asyncio.Semaphore(4)
-
-        async def fetch(batch: list[str], period: tuple[str | None, str | None]) -> list[dict[str, Any]]:
-            async with semaphore:
-                kwargs: dict[str, Any] = {
-                    "symbols": ",".join(batch),
-                    "kline_t": window.get("kline_t") or "1D",
-                    "window_limit": 0 if period[0] else max(1, limit),
-                }
-                if market:
-                    kwargs["market"] = market
-                if period[0]:
-                    kwargs.update(start_time=period[0], end_time=period[1])
-                payload = await self._call("stock_klines_cross_sectional", self.client.stocks.get_kline_cs(**kwargs))
-                return _list_result(payload, "stock_klines_cross_sectional", "klines").data
-
-        chunks = await asyncio.gather(*(fetch(batch, period) for period in periods for batch in symbol_batches))
-        frame = self._normalize_kline_frame([row for chunk in chunks for row in chunk])
-        if frame.empty:
-            return GatewayResult(frame, None, "sdk_online", False)
-        if "bar_time" in frame.columns:
-            frame = frame.sort_values(["symbol", "bar_time"]).drop_duplicates(["symbol", "bar_time"], keep="last")
-        if str(window.get("price_adj_type") or "pre").lower() not in {"none", "raw"}:
-            frame = self._apply_pre_adjustment(frame)
-        return GatewayResult(frame, str(frame["bar_time"].max()) if "bar_time" in frame.columns else None, "sdk_online", False)
-
     @staticmethod
     def _apply_pre_adjustment(frame: pd.DataFrame) -> pd.DataFrame:
         if "adj_factor_cum" not in frame.columns:
@@ -292,20 +244,27 @@ class DojoDataGateway:
         return adjusted
 
     async def _fetch_kline_rows(self, symbols: list[str], kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        semaphore = asyncio.Semaphore(self.kline_max_concurrent)
+
         async def fetch_one(symbol: str) -> list[dict[str, Any]]:
-            payload = await self._call(
-                "stock_klines",
-                self.client.stocks.get_kline(symbol=symbol, **kwargs),
-            )
+            async with semaphore:
+                payload = await self._call(
+                    "stock_klines",
+                    self.client.stocks.get_kline(symbol=symbol, **kwargs),
+                )
             result = _list_result(payload, "stock_klines", "klines")
             return result.data
 
         results = await asyncio.gather(*(fetch_one(symbol) for symbol in symbols), return_exceptions=True)
         rows: list[dict[str, Any]] = []
+        failures = 0
         for result in results:
             if isinstance(result, Exception):
+                failures += 1
                 continue
             rows.extend(result)
+        if failures:
+            LOGGER.warning("Failed to fetch %d/%d stock K-lines", failures, len(symbols))
         return rows
 
     async def _fetch_klines_per_symbol(
@@ -314,7 +273,11 @@ class DojoDataGateway:
         kwargs: dict[str, Any],
     ) -> GatewayResult["pd.DataFrame"]:
         rows = await self._fetch_kline_rows(symbols, kwargs)
-        return _df_result(pd.DataFrame(rows))
+        frame = pd.DataFrame(rows)
+        if getattr(self.client, "_online", None) is True:
+            as_of = str(frame["bar_time"].max()) if not frame.empty and "bar_time" in frame.columns else None
+            return GatewayResult(frame, as_of, "sdk_online", False)
+        return _df_result(frame)
 
     async def stock_all_klines(
         self,
