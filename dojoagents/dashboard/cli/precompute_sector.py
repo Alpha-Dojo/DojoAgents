@@ -10,6 +10,7 @@ import pandas as pd
 from dojo import ConflictError
 from dojo.client.async_client import AsyncDojo
 
+from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import FinancialDashboardConfig
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.jobs.precompute.sector_daily import (
@@ -36,8 +37,10 @@ def configure_parser(subcommands: argparse._SubParsersAction) -> None:
         help="Precompute Dashboard sector daily metrics and returns",
     )
     parser.add_argument("--data-root", type=Path, default=None)
+    parser.add_argument("--config", default="~/.dojo/agents.yaml")
     parser.add_argument("--start-date", default="2025-01-01")
     parser.add_argument("--market", choices=("us", "cn", "hk"), default=None)
+    parser.add_argument("--kline-concurrency", type=int, default=None, help="Maximum parallel single-stock K-line requests (default: config value or 50)")
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--upload-api", action="store_true", help="Write the selected market through DojoSDK qdata POST endpoints")
     parser.add_argument("--with-theme-state", action="store_true")
@@ -175,19 +178,24 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
     data_root_str = args.data_root or FinancialDashboardConfig.dashboard_data_root
     data_root = Path(data_root_str).expanduser().resolve()
     floors = apply_configured_ticker_market_cap_mins(getattr(args, "config", None))
+    financial = ConfigStore(getattr(args, "config", None) or "~/.dojo/agents.yaml").snapshot().dashboard.financial
+    kline_concurrency = args.kline_concurrency if args.kline_concurrency is not None else financial.constituent_kline_max_concurrent
+    if kline_concurrency < 1:
+        raise ValueError("--kline-concurrency must be at least 1")
     if args.upload_api and not args.market:
         raise ValueError("--market is required with --upload-api")
 
     LOGGER.info(f"Precomputing sector data -> {data_root / 'dojo_sector_precomputed'}")
     LOGGER.info(f"Window start: {args.start_date}")
     LOGGER.info("Ticker market-cap floors: %s", floors)
+    LOGGER.info("Online single-stock K-line concurrency: %d", kline_concurrency)
 
     progress = _PrecomputeProgressReporter()
     on_progress: ProgressCallback = progress.callback
 
     client = AsyncDojo()
     registry = FinancialDomainRegistry()
-    await registry.init_and_load_all(client, data_root=data_root, preload=True)
+    await registry.init_and_load_all(client, data_root=data_root, preload=True, kline_max_concurrent=kline_concurrency)
 
     try:
         manifest = await build_sector_precomputed(

@@ -39,6 +39,7 @@ class DashboardAppServicesConfig:
     sdk_cache_dir: Path
     data_root: Path
     portfolio_data_root: Path
+    constituent_kline_max_concurrent: int = 50
     offline_mode: bool = True
     preload_offline_data: bool = True
     preload_registry: bool = True
@@ -58,6 +59,7 @@ class DashboardAppServicesConfig:
             sdk_cache_dir=financial.sdk_cache_path.resolve(),
             data_root=financial.dashboard_data_path.resolve(),
             portfolio_data_root=Path("~/.dojo/data").expanduser().resolve(),
+            constituent_kline_max_concurrent=financial.constituent_kline_max_concurrent,
             offline_mode=not online,
             preload_offline_data=not online,
             refresh_enabled=not online,
@@ -147,6 +149,7 @@ class DashboardAppServices:
                 data_root=self.config.data_root,
                 preload=self.config.preload_registry,
                 portfolio_data_root=self.config.portfolio_data_root,
+                kline_max_concurrent=self.config.constituent_kline_max_concurrent,
             )
             self.gateway = getattr(self.registry, "gateway", None)
             self.portfolio_store = getattr(self.registry, "portfolio_store", None)

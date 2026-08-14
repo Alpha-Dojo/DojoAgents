@@ -23,7 +23,7 @@ def test_financial_config_has_safe_separate_defaults() -> None:
     assert config.dashboard_data_path == Path("~/.dojo/dashboard-data").expanduser()
     assert config.sdk_cache_path != config.dashboard_data_path
     assert config.stock_quote_refresh_seconds > 0
-    assert config.constituent_kline_max_concurrent > 0
+    assert config.constituent_kline_max_concurrent == 50
     assert config.market_calendar_provider == "exchange_calendars"
 
 
@@ -102,10 +102,12 @@ dashboard:
             data_root,
             preload,
             portfolio_data_root=None,
+            kline_max_concurrent=50,
         ):
             self.client = client
             received["data_root"] = data_root
             received["preload"] = preload
+            received["kline_max_concurrent"] = kline_max_concurrent
 
         def reset(self):
             return None
@@ -134,4 +136,5 @@ dashboard:
         "sdk_cache": str(sdk_root),
         "data_root": dashboard_root,
         "preload": True,
+        "kline_max_concurrent": 50,
     }
