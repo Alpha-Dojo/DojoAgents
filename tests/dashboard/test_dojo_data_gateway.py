@@ -234,6 +234,7 @@ async def test_online_stock_klines_batches_cross_sectional_rows_and_applies_pre_
 
     result = await DojoDataGateway(client).stock_klines(
         ["AAA"],
+        market="us",
         start_time="2026-01-02",
         end_time="2026-01-03",
         limit=0,
@@ -244,7 +245,7 @@ async def test_online_stock_klines_batches_cross_sectional_rows_and_applies_pre_
     assert client.stocks.calls == [
         (
             "get_kline_cs",
-            {"symbols": "AAA", "kline_t": "1D", "window_limit": 0, "start_time": "2026-01-02", "end_time": "2026-01-03"},
+            {"symbols": "AAA", "kline_t": "1D", "window_limit": 0, "market": "us", "start_time": "2026-01-02", "end_time": "2026-01-03"},
         )
     ]
 

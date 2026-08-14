@@ -179,9 +179,10 @@ class DojoDataGateway:
     ) -> GatewayResult["pd.DataFrame"]:
         canonical_symbols = [_canonical_symbol(symbol) for symbol in symbols]
         kwargs = {key: value for key, value in window.items() if value is not None}
+        market = kwargs.pop("market", None)
         online = getattr(self.client, "_online", None)
         if online is True:
-            return await self._fetch_klines_cross_sectional(canonical_symbols, kwargs)
+            return await self._fetch_klines_cross_sectional(canonical_symbols, kwargs, market=market)
         if online is None and (kwargs.get("start_time") or kwargs.get("end_time")):
             return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
 
@@ -227,7 +228,13 @@ class DojoDataGateway:
         limit = int(window.get("limit") or 0)
         return rows.tail(limit) if limit > 0 else rows
 
-    async def _fetch_klines_cross_sectional(self, symbols: list[str], window: dict[str, Any]) -> GatewayResult["pd.DataFrame"]:
+    async def _fetch_klines_cross_sectional(
+        self,
+        symbols: list[str],
+        window: dict[str, Any],
+        *,
+        market: str | None = None,
+    ) -> GatewayResult["pd.DataFrame"]:
         if not symbols:
             return _df_result(pd.DataFrame())
         start = window.get("start_time")
@@ -254,6 +261,8 @@ class DojoDataGateway:
                     "kline_t": window.get("kline_t") or "1D",
                     "window_limit": 0 if period[0] else max(1, limit),
                 }
+                if market:
+                    kwargs["market"] = market
                 if period[0]:
                     kwargs.update(start_time=period[0], end_time=period[1])
                 payload = await self._call("stock_klines_cross_sectional", self.client.stocks.get_kline_cs(**kwargs))
