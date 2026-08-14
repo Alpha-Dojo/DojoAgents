@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from dojoagents.dashboard.services.benchmark_store import BenchmarkStore
@@ -226,6 +228,18 @@ async def test_benchmark_store_prefers_catalog_default_symbol() -> None:
     assert response.markets["us"].default_benchmark == "^SPX"
     assert [item.symbol for item in response.markets["us"].benchmarks] == ["^SPX", "^NDX"]
     assert ("benchmark_catalog", None) in gateway.calls
+
+
+@pytest.mark.asyncio
+async def test_benchmark_store_skips_catalog_in_online_mode() -> None:
+    gateway = BaseGateway()
+    gateway.client = SimpleNamespace(_online=True)
+    store = BenchmarkStore(gateway)
+
+    await store.load()
+
+    assert ("benchmark_catalog", None) not in gateway.calls
+    assert store.available_symbols("us") == ["^SPX"]
 
 
 @pytest.mark.asyncio

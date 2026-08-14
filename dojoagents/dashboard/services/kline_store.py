@@ -126,6 +126,8 @@ class KlineStore:
         parameters = tuple(inspect.signature(method).parameters)
         if parameters and parameters[0] == "market":
             return await method(market, symbols, **window)
+        if market is not None:
+            window["market"] = market
         return await method(symbols, **window)
 
     def _cache_response(
