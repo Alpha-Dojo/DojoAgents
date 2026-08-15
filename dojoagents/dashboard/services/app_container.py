@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from dojo.client.async_client import AsyncDojo
+from dojo.datasource.config import is_online
 
 from dojoagents.dashboard.services.constituent_kline_refresh_state import RefreshStateStore
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
@@ -38,6 +39,7 @@ class DashboardAppServicesConfig:
     sdk_cache_dir: Path
     data_root: Path
     portfolio_data_root: Path
+    constituent_kline_max_concurrent: int = 50
     offline_mode: bool = True
     preload_offline_data: bool = True
     preload_registry: bool = True
@@ -48,6 +50,7 @@ class DashboardAppServicesConfig:
     def from_agents_config(cls, config: AgentsConfig) -> "DashboardAppServicesConfig":
         financial = config.dashboard.financial
         sdk = config.dojosdk
+        online = is_online()
         return cls(
             api_key=sdk.api_key,
             base_url=sdk.base_url,
@@ -56,6 +59,10 @@ class DashboardAppServicesConfig:
             sdk_cache_dir=financial.sdk_cache_path.resolve(),
             data_root=financial.dashboard_data_path.resolve(),
             portfolio_data_root=Path("~/.dojo/data").expanduser().resolve(),
+            constituent_kline_max_concurrent=financial.constituent_kline_max_concurrent,
+            offline_mode=not online,
+            preload_offline_data=not online,
+            refresh_enabled=not online,
         )
 
 
@@ -111,6 +118,12 @@ class DashboardAppServices:
         self._startup_loop = asyncio.get_running_loop()
         self._stopped = False
         try:
+            LOGGER.info(
+                "Starting Dashboard financial services: data_mode=%s preload_offline_data=%s refresh_enabled=%s",
+                "offline" if self.config.offline_mode else "online",
+                self.config.preload_offline_data,
+                self.config.refresh_enabled,
+            )
             self._previous_environment = {
                 "DOJO_CACHE_DIR": os.environ.get("DOJO_CACHE_DIR"),
                 "DOJO_ONLINE": os.environ.get("DOJO_ONLINE"),
@@ -136,6 +149,7 @@ class DashboardAppServices:
                 data_root=self.config.data_root,
                 preload=self.config.preload_registry,
                 portfolio_data_root=self.config.portfolio_data_root,
+                kline_max_concurrent=self.config.constituent_kline_max_concurrent,
             )
             self.gateway = getattr(self.registry, "gateway", None)
             self.portfolio_store = getattr(self.registry, "portfolio_store", None)

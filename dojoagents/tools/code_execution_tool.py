@@ -215,6 +215,9 @@ class AsyncCodeExecutionRPC:
         if isinstance(raw_res, str):
             raw_res = {"content": raw_res}
         response = _slim_rpc_tool_response(tool_name, raw_res)
+        response["tool_name"] = tool_name
+        if self.artifact_adapter is not None:
+            response = self.artifact_adapter.enrich_loaded_payload(response)
         if tool_name == "write_session_file" and response.get("ok"):
             entry = _session_output_entry_from_payload(response.get("data"))
             if entry is not None:
@@ -445,8 +448,9 @@ def get_code_execution_spec(
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
             "pd/np/dojo_tools are pre-imported. "
-            "Canonical pattern after load_tool_result(call_id): "
+            "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "
             "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
+            "For raw dojo.sdk.* JSON use `payload = dojo_tools.tool_json(res); rows = payload['data']`. "
             "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
             "Combine compatible results: `dojo_tools.tool_concat([res_a, res_b])`. "
             "Join two tools: `dojo_tools.tool_merge(res_a, res_b, on=['id'])`. "

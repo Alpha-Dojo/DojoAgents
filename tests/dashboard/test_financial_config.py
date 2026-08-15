@@ -23,7 +23,7 @@ def test_financial_config_has_safe_separate_defaults() -> None:
     assert config.dashboard_data_path == Path("~/.dojo/dashboard-data").expanduser()
     assert config.sdk_cache_path != config.dashboard_data_path
     assert config.stock_quote_refresh_seconds > 0
-    assert config.constituent_kline_max_concurrent > 0
+    assert config.constituent_kline_max_concurrent == 50
     assert config.market_calendar_provider == "exchange_calendars"
 
 
@@ -58,7 +58,18 @@ dashboard:
     assert config.derived_cache_schema_version == 4
 
 
-def test_server_applies_configured_roots_before_sdk_construction(tmp_path) -> None:
+def test_financial_services_disable_offline_work_in_online_mode(monkeypatch) -> None:
+    monkeypatch.setenv("DOJO_ONLINE", "true")
+
+    config = DashboardAppServicesConfig.from_agents_config(AgentsConfig())
+
+    assert config.offline_mode is False
+    assert config.preload_offline_data is False
+    assert config.refresh_enabled is False
+
+
+def test_server_applies_configured_roots_before_sdk_construction(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("DOJO_ONLINE", raising=False)
     sdk_root = tmp_path / "sdk-cache"
     dashboard_root = tmp_path / "dashboard-data"
     config_file = tmp_path / "agents.yaml"
@@ -91,10 +102,12 @@ dashboard:
             data_root,
             preload,
             portfolio_data_root=None,
+            kline_max_concurrent=50,
         ):
             self.client = client
             received["data_root"] = data_root
             received["preload"] = preload
+            received["kline_max_concurrent"] = kline_max_concurrent
 
         def reset(self):
             return None
@@ -123,4 +136,5 @@ dashboard:
         "sdk_cache": str(sdk_root),
         "data_root": dashboard_root,
         "preload": True,
+        "kline_max_concurrent": 50,
     }

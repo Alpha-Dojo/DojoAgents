@@ -109,10 +109,8 @@ async def test_dojo_sdk_stock_current_quote_tool():
 
     executor = ToolExecutor(registry, SandboxPolicy())
     mock_response = CurrentQuoteResponse(
-        symbol="AAPL",
-        price=180.5,
-        change=1.5,
-        change_pct=0.84,
+        total_num=1,
+        data=[{"symbol": "AAPL", "last_price": 180.5, "change": 1.5, "change_pct": 0.84}],
     )
     mock_get_quote = AsyncMock(return_value=mock_response)
 
@@ -130,8 +128,9 @@ async def test_dojo_sdk_stock_current_quote_tool():
 
         assert result.ok
         data = json.loads(result.content)
-        assert data["symbol"] == "AAPL"
-        assert data["price"] == 180.5
+        assert data["total_num"] == 1
+        assert data["data"][0]["symbol"] == "AAPL"
+        assert data["data"][0]["last_price"] == 180.5
         mock_get_quote.assert_called_once_with(symbols=["AAPL"])
 
 

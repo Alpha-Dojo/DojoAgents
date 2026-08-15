@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from dojo.client.async_client import AsyncDojo
 from dojo.datasource.registry import HF_REGISTRY
+from dojo.resources.base import normalize_naive_iso_datetime
 from dojoagents.config.models import DojoSDKConfig
 from dojoagents.tools.registry import ToolSpec
 
@@ -354,10 +355,10 @@ class DojoSDKToolManager:
         res = await self.client.benchmark.get_kline(
             symbol=args["symbol"],
             kline_t=_normalize_kline_t(args.get("kline_t")),
-            start_time=args.get("start_time"),
-            end_time=args.get("end_time"),
+            start_time=normalize_naive_iso_datetime(args["start_time"]) if args.get("start_time") else None,
+            end_time=normalize_naive_iso_datetime(args["end_time"]) if args.get("end_time") else None,
             price_adj_type=args.get("price_adj_type"),
-            price_adj_date=args.get("price_adj_date"),
+            price_adj_date=normalize_naive_iso_datetime(args["price_adj_date"]) if args.get("price_adj_date") else None,
             limit=args.get("limit"),
         )
         return await self._ok(res)
@@ -484,10 +485,10 @@ class DojoSDKToolManager:
         res = await self.client.stocks.get_kline(
             symbol=args["symbol"],
             kline_t=_normalize_kline_t(args.get("kline_t")),
-            start_time=args.get("start_time"),
-            end_time=args.get("end_time"),
+            start_time=normalize_naive_iso_datetime(args["start_time"]) if args.get("start_time") else None,
+            end_time=normalize_naive_iso_datetime(args["end_time"]) if args.get("end_time") else None,
             price_adj_type=args.get("price_adj_type"),
-            price_adj_date=args.get("price_adj_date"),
+            price_adj_date=normalize_naive_iso_datetime(args["price_adj_date"]) if args.get("price_adj_date") else None,
             limit=args.get("limit"),
         )
         return await self._ok(res)
@@ -529,8 +530,8 @@ class DojoSDKToolManager:
         res = await self.client.forex.get_kline(
             symbol=args["symbol"],
             kline_t=_normalize_kline_t(args.get("kline_t"), default=None),
-            start_time=args.get("start_time"),
-            end_time=args.get("end_time"),
+            start_time=normalize_naive_iso_datetime(args["start_time"]) if args.get("start_time") else None,
+            end_time=normalize_naive_iso_datetime(args["end_time"]) if args.get("end_time") else None,
             limit=args.get("limit"),
         )
         return await self._ok(res)

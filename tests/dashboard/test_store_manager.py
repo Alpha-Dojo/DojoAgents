@@ -51,6 +51,7 @@ class RecordingRegistry:
         data_root: Path,
         preload: bool = True,
         portfolio_data_root=None,
+        kline_max_concurrent=50,
     ) -> None:
         self.client = client
         self.calls.append((client, data_root, preload))

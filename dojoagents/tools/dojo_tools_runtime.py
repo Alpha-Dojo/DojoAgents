@@ -11,6 +11,7 @@ _GENERIC_LIST_KEYS = (
     "results",
     "matches",
     "candidates",
+    "data",
 )
 
 _SKIP_NESTED_ROW_KEYS = frozenset({"next_call", "playbook", "usage"})
@@ -206,15 +207,20 @@ def flatten_by_spec(data: Any, spec: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _resolve_table_rows(res: dict[str, Any], table: str | None = None) -> list[dict[str, Any]]:
     hint = _schema_hint(res)
+    schema_rows: list[dict[str, Any]] | None = None
     if hint:
         try:
-            return tool_table(res, table)
+            schema_rows = tool_table(res, table)
+            if schema_rows:
+                return schema_rows
         except KeyError:
             pass
     data = tool_json(res)
     rows = _generic_list_rows(data, table)
     if rows:
         return rows
+    if schema_rows is not None:
+        return schema_rows
     if hint:
         raise KeyError(f"no rows for table {table!r}; available tables: {', '.join(table_names(hint)) or '(none)'}")
     keys = ", ".join(sorted(data.keys())) if isinstance(data, dict) else "n/a"
@@ -437,9 +443,13 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
             "dojo_tools.tool_print(res, table='...'). Nested payloads may require "
             "tool_json(res) instead of tabular conversion."
         )
-    if "KeyError" in output and "load_tool_result" not in code and "tool_df" not in code and "tool_print" not in code:
-        hints.append("HINT: load prior tool output with res = dojo_tools.load_tool_result(call_id).")
-    if "NameError" in output and " pd" in output or "pd." in output:
+    if "KeyError" in output and "tool_df" not in code and "tool_print" not in code and "tool_json" not in code:
+        hints.append(
+            "HINT: unwrap a live dojo_tools RPC result with payload = dojo_tools.tool_json(res). "
+            "Raw dojo.sdk.* list rows are payload['data']; or use dojo_tools.tool_df(res). "
+            "Use load_tool_result(call_id) only when loading a persisted result from an earlier tool call."
+        )
+    if "NameError" in output and (" pd" in output or "pd." in output):
         hints.append("HINT: pd/np/dojo_tools are pre-imported in execute_code bootstrap.")
     if not hints:
         return output

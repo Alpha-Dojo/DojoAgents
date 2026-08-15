@@ -70,6 +70,38 @@ def test_tool_df_benchmarks_supports_column_subset() -> None:
     assert subset.iloc[0]["symbol"] == "000001.SH"
 
 
+def test_tool_df_supports_dojo_sdk_data_rows_without_schema_hint() -> None:
+    res = {
+        "ok": True,
+        "data": {
+            "total_num": 2,
+            "data": [
+                {"symbol": "AAPL", "last_price": 200.0},
+                {"symbol": "MSFT", "last_price": 500.0},
+            ],
+        },
+    }
+
+    df = tool_df(res)
+
+    assert df["symbol"].tolist() == ["AAPL", "MSFT"]
+
+
+def test_tool_df_falls_back_to_real_data_when_schema_path_is_stale() -> None:
+    res = {
+        "ok": True,
+        "data": {"total_num": 1, "data": [{"symbol": "AAPL", "close": 202.5}]},
+        "schema_hint": {
+            "default_table": "klines",
+            "tables": {"klines": {"type": "list", "path": "klines", "row_fields": ["symbol", "close"]}},
+        },
+    }
+
+    df = tool_df(res)
+
+    assert df.to_dict("records") == [{"symbol": "AAPL", "close": 202.5}]
+
+
 def test_tool_pick_skips_missing_columns() -> None:
     res = _overview_res()
     df = tool_df(res, "benchmarks")
@@ -129,6 +161,14 @@ def test_format_execute_code_error_hint_appends_column_guidance() -> None:
     enriched = format_execute_code_error_hint(tb, code)
     assert "execute_code hints" in enriched
     assert "tool_pick" in enriched
+
+
+def test_format_execute_code_error_hint_explains_live_rpc_unwrap() -> None:
+    enriched = format_execute_code_error_hint("KeyError: 0", "res = dojo_tools.dojo_sdk_stock_kline({...})")
+
+    assert "tool_json(res)" in enriched
+    assert "payload['data']" in enriched
+    assert "only when loading a persisted result" in enriched
 
 
 def test_artifact_pointer_parse_hint_uses_tool_print() -> None:

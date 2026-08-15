@@ -99,7 +99,10 @@ async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
     assert response.symbol == "AAPL"
     assert response.bars[0].close == 100
     assert response.as_of == "2026-06-20"
-    assert client.stocks.calls == [("get_kline", {"symbol": "AAPL", "limit": 20, "kline_t": "1D"})]
+    assert client.stocks.calls == [
+        ("get_all_klines_with_df", {}),
+        ("get_kline", {"symbol": "AAPL", "limit": 20, "kline_t": "1D"}),
+    ]
 
 
 @pytest.mark.asyncio
@@ -123,6 +126,7 @@ async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
 
     assert set(result.items) == {"AAPL", "MSFT"}
     assert client.stocks.calls == [
+        ("get_all_klines_with_df", {}),
         ("get_kline", {"symbol": "AAPL", "limit": 15}),
         ("get_kline", {"symbol": "MSFT", "limit": 15}),
     ]

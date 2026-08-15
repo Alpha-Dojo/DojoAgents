@@ -76,9 +76,10 @@ class FinancialDomainRegistry:
         data_root: Path,
         preload: bool = True,
         portfolio_data_root: Path | None = None,
+        kline_max_concurrent: int = 50,
     ) -> None:
         self.client = client
-        self.gateway = DojoDataGateway(client)
+        self.gateway = DojoDataGateway(client, kline_max_concurrent=kline_max_concurrent)
         self.data_root = data_root.expanduser().resolve()
         self.sector_store = SectorStore(self.gateway)
         self.stock_store = StockStore(self.gateway)

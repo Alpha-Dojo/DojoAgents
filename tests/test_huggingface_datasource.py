@@ -13,6 +13,35 @@ import pytest
 from dojo.datasource.config import HFConfig
 from dojo.datasource.huggingface import HuggingFaceDataSource, HuggingFaceKlineDataSource
 from dojo.client.async_client import AsyncDojo
+from dojo.datasource.registry import HF_REGISTRY
+
+
+def test_offline_stock_kline_registry_filters_and_orders_by_bar_time() -> None:
+    spec = HF_REGISTRY["/api/qdata/v1/stock/kline"]
+    assert spec.time_field == "bar_time"
+    assert spec.order_desc is True
+
+
+def test_offline_kline_filters_datetime_window_and_returns_recent_limit(tmp_path, monkeypatch) -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [
+            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-01"), "close": 1.0},
+            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-02"), "close": 2.0},
+            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-03"), "close": 3.0},
+        ]
+    ).set_index(pd.Index(["AAA", "AAA", "AAA"], name="index_symbol"))
+    source = HuggingFaceKlineDataSource(_config(tmp_path))
+    monkeypatch.setattr(source, "fetch_df", lambda **_kwargs: frame)
+
+    result = source.fetch(
+        method="GET",
+        path="/api/qdata/v1/stock/kline",
+        params={"symbol": "AAA", "start_time": "2026-01-01", "end_time": "2026-01-03", "limit": 2},
+    )
+
+    assert [row["close"] for row in result["data"]["data"]] == [3.0, 2.0]
 
 
 def _config(tmp_path, *, retries: int = 2) -> HFConfig:
