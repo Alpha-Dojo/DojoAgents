@@ -84,8 +84,8 @@
           "sector_name",
           "direction",
           "window_1d",
+          "window_3d",
           "window_5d",
-          "window_20d",
           "window_label",
           "leader_concentration_tier",
           "reason"
@@ -100,10 +100,22 @@
               "en": { "type": "string" }
             }
           },
-          "direction": { "enum": ["Positive", "Negative", "Divergent"] },
-          "window_1d": { "type": "number" },
-          "window_5d": { "type": "number" },
-          "window_20d": { "type": "number" },
+          "direction": {
+            "enum": ["Positive", "Negative", "Divergent"],
+            "description": "Follow the sector's signed move (Positive/Negative). Divergent only when constituents are split near 1:1 longs vs shorts — not for single-stock or flat-noise rows with a clear tape direction."
+          },
+          "window_1d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 1d window. Null only when the tool call failed after fallback."
+          },
+          "window_3d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 3d window. Null only when the tool call failed after fallback."
+          },
+          "window_5d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 5d window. Null only when the tool call failed after fallback."
+          },
           "window_label": {
             "enum": [
               "persistent_up",
