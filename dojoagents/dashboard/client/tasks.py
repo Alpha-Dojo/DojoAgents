@@ -174,6 +174,7 @@ async def run_pipeline_via_dashboard(
     pipeline_id: str,
     trading_date: str,
     session_id: str,
+    model: str = "default",
     market: str = "",
     model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,

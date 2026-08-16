@@ -235,10 +235,7 @@ class TaskActivator:
             except ValueError as exc:
                 raise TaskActivationError(str(exc)) from exc
             if not path.is_file():
-                raise TaskActivationError(
-                    f"Required input artifact not found: {resolved_name}. "
-                    f"Run the upstream task first."
-                )
+                raise TaskActivationError(f"Required input artifact not found: {resolved_name}. " f"Run the upstream task first.")
             if artifact.format == "json" and (trading_date or market):
                 self._validate_input_identity(path, trading_date, market, resolved_name)
 
@@ -259,13 +256,9 @@ class TaskActivator:
             return
         file_date = str(payload.get("trading_date") or "").strip()
         if trading_date and file_date and file_date != trading_date:
-            raise TaskActivationError(
-                f"trading_date mismatch: request={trading_date}, {filename}={file_date}"
-            )
+            raise TaskActivationError(f"trading_date mismatch: request={trading_date}, {filename}={file_date}")
         file_market = str(payload.get("market") or "").strip().lower()
         if file_market == "sh":
             file_market = "cn"
         if market and file_market and file_market != market:
-            raise TaskActivationError(
-                f"market mismatch: request={market}, {filename}={file_market}"
-            )
+            raise TaskActivationError(f"market mismatch: request={market}, {filename}={file_market}")

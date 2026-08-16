@@ -673,9 +673,7 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     if not getattr(args, "force_rerun", False) and pipeline_id == "daily-market-events":
         output_root = Path(config.tasks.output_root).expanduser()
-        file_path = (
-            output_root / "event-trigger" / f"market_event_triggers_{market}_{trading_date}.jsonl"
-        )
+        file_path = output_root / "event-trigger" / f"market_event_triggers_{market}_{trading_date}.jsonl"
         if file_path.is_file():
             LOGGER.info("Task output %s already exists. Skipping pipeline execution.", file_path)
             if not getattr(args, "skip_upload", False):
