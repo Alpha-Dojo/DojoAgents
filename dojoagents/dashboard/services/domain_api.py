@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 from datetime import date
 from dojoagents.dashboard.schemas.benchmark import DojoMeshBenchmarksResponse
 from dojoagents.dashboard.schemas.dojo_core import CoreTickerPeBandResponse
@@ -73,8 +73,16 @@ from dojoagents.dashboard.services.market_sector_lead import (
     _stock_bilingual_name,
     concept_code_for,
 )
-from dojoagents.dashboard.services.market_window import MarketAnalysisWindow, resolve_market_analysis_window
+from dojoagents.dashboard.services.market_window import (
+    resolve_market_analysis_window,
+)
 from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
+from dojoagents.dashboard.services.sector_search_policy import (
+    SECTOR_CONCEPT_SYNONYMS,
+    expand_sector_search_queries,
+    expand_sector_search_terms,
+    pick_best_match,
+)
 from dojoagents.dashboard.services.sector_leader_concentration import compute_leader_concentration
 from dojoagents.dashboard.services.market_stats import compute_market_stats
 from dojoagents.dashboard.services.portfolio_service import DEFAULT_BENCHMARKS
@@ -453,10 +461,7 @@ def _portfolio_performance_response(
     stats_by_market: dict[str, SectorPerformanceStats] = {}
     candidate_nav_by_market: dict[str, list[SectorPerformancePoint]] = {}
     candidate_stats_by_market: dict[str, SectorPerformanceStats] = {}
-    benchmark_symbol_by_market = {
-        to_native_market_code(market) or market: str(symbol)
-        for market, symbol in (data.get("benchmark_symbol_by_market") or {}).items()
-    }
+    benchmark_symbol_by_market = {to_native_market_code(market) or market: str(symbol) for market, symbol in (data.get("benchmark_symbol_by_market") or {}).items()}
     for market, series in (data.get("series_by_market") or {}).items():
         series_data = _model_dict(series)
         market_key = to_native_market_code(market) or market
@@ -516,13 +521,36 @@ def _precomputed_market_candidates(market: Optional[str]) -> list[Optional[str]]
     return candidates or [None]
 
 
+# Machine-readable codes for SectorPathResolutionError (agent layer maps to tool hints).
+SECTOR_PATH_INVALID_FORMAT = "invalid_sector_path_format"
+SECTOR_PATH_REJECTED_INDEX_GUESS = "rejected_index_guess"
+SECTOR_PATH_UNKNOWN = "unknown_sector_path"
+
+
 class SectorPathResolutionError(ValueError):
-    def __init__(self, message: str, *, suggestions: list[Any] | None = None) -> None:
+    """Domain path lookup failure with a short fact message and typed code.
+
+    Agent/tool layers may append playbook text; this class must not embed tool names.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        suggestions: list[Any] | None = None,
+        path_id: str = "",
+        attempted: str = "",
+    ) -> None:
         super().__init__(message)
+        self.code = code
         self.suggestions = list(suggestions or [])
+        self.path_id = path_id
+        self.attempted = attempted
 
 
 def _looks_like_index_guess(level1_id: str, level2_id: str, level3_id: str) -> bool:
+    """Heuristic: reject digit-only id triples that look like array indices, not opaque sector ids."""
     parts = (level1_id.strip(), level2_id.strip(), level3_id.strip())
     if not all(parts):
         return False
@@ -542,7 +570,10 @@ def _collect_sector_path_suggestions(
     needle = str(query or "").strip()
     if not needle:
         return []
-    return store.search_resolved_paths(needle, limit=limit)
+    search = getattr(store, "search_resolved_paths", None)
+    if not callable(search):
+        return []
+    return search(needle, limit=limit)
 
 
 def _append_sector_path_suggestions(message: str, suggestions: list[Any]) -> str:
@@ -556,12 +587,18 @@ def _append_sector_path_suggestions(message: str, suggestions: list[Any]) -> str
 def _raise_sector_path_resolution_error(
     message: str,
     *,
+    code: str,
     suggestions: list[Any] | None = None,
+    path_id: str = "",
+    attempted: str = "",
 ) -> None:
     resolved_suggestions = list(suggestions or [])
     raise SectorPathResolutionError(
         _append_sector_path_suggestions(message, resolved_suggestions),
+        code=code,
         suggestions=resolved_suggestions,
+        path_id=path_id,
+        attempted=attempted,
     )
 
 
@@ -591,61 +628,21 @@ def _sector_path_id_format_error(path_id: str) -> str:
     segment_count = str(path_id or "").count("/") + 1 if str(path_id or "").strip() else 0
     if segment_count == 2:
         return (
-            f"Invalid sector_path_id {path_id!r}: expected level1_id/level2_id/level3_id (three segments). "
-            "scope=L2 does NOT mean a two-segment path. Copy the full sector_path_id from "
-            "search_sector_taxonomy, then set scope='L2' to list all constituents under that L2 branch."
+            f"Invalid sector_path_id {path_id!r}: expected level1_id/level2_id/level3_id "
+            "(three segments). scope=L2 widens constituent listing under an L2 branch; "
+            "it does not shorten sector_path_id to two segments."
         )
-    return (
-        f"Invalid sector_path_id {path_id!r}. Expected format level1_id/level2_id/level3_id "
-        "from search_sector_taxonomy."
-    )
+    return f"Invalid sector_path_id {path_id!r}. Expected format level1_id/level2_id/level3_id."
 
 
-_SECTOR_CONCEPT_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "具身智能": ("机器人", "robotics", "robot", "自动化", "automation", "机械", "embodied"),
-    "embodied ai": ("机器人", "robotics", "robot", "automation", "具身"),
-    "embodied intelligence": ("机器人", "robotics", "robot", "automation"),
-    "人工智能": ("ai", "artificial intelligence", "机器学习", "machine learning", "深度学习"),
-    "ai": ("人工智能", "artificial intelligence", "机器学习", "machine learning"),
-    "半导体": ("芯片", "chip", "semiconductor", "集成电路"),
-    "chip": ("半导体", "芯片", "semiconductor"),
-    "新能源": ("光伏", "solar", "风电", "wind", "储能", "battery", "electric vehicle", "ev"),
-    "高息": ("dividend", "utility", "reit", "银行", "bank"),
-    "机器人": ("robotics", "robot", "自动化", "automation", "具身智能"),
-}
-
-
-def _expand_sector_search_queries(query: str) -> list[str]:
-    needle = str(query or "").strip()
-    if not needle:
-        return []
-    lowered = needle.lower()
-    expanded: list[str] = [needle]
-    for key, synonyms in _SECTOR_CONCEPT_SYNONYMS.items():
-        key_lower = key.lower()
-        if key_lower == lowered or key_lower in lowered or lowered in key_lower:
-            for term in synonyms:
-                if term not in expanded:
-                    expanded.append(term)
-            if key not in expanded:
-                expanded.append(key)
-            continue
-        for term in synonyms:
-            term_lower = term.lower()
-            if term_lower == lowered or term_lower in lowered or lowered in term_lower:
-                if key not in expanded:
-                    expanded.append(key)
-                for related in synonyms:
-                    if related not in expanded:
-                        expanded.append(related)
-                break
-    return expanded
+# Back-compat alias for callers/tests that still import the private expander name.
+_expand_sector_search_queries = expand_sector_search_queries
+_SECTOR_CONCEPT_SYNONYMS = SECTOR_CONCEPT_SYNONYMS
 
 
 def _sector_search_item(path: Any, *, hit: Any | None = None) -> dict[str, Any]:
+    """Build a taxonomy search hit DTO (facts only — no next_call / playbook)."""
     sector_path_id = _format_sector_path_id(path.level1_id, path.level2_id, path.level3_id)
-    matched_level = str(getattr(hit, "matched_level", "") or "L3")
-    constituent_scope = matched_level if matched_level in {"L1", "L2", "L3"} else "L3"
     item: dict[str, Any] = {
         "sector_path_id": sector_path_id,
         "level1_id": path.level1_id,
@@ -655,35 +652,8 @@ def _sector_search_item(path: Any, *, hit: Any | None = None) -> dict[str, Any]:
         "level2_name_en": path.level2_en,
         "level3_name_zh": path.level3_zh,
         "level3_name_en": path.level3_en,
-        "breadcrumb_zh": " > ".join(
-            part for part in (path.level1_zh, path.level2_zh, path.level3_zh) if part
-        ),
-        "breadcrumb_en": " > ".join(
-            part for part in (path.level1_en, path.level2_en, path.level3_en) if part
-        ),
-        "scope_hint": (
-            f"matched_level={matched_level}: use scope={constituent_scope!r} in filter_sector_constituents "
-            "but always pass the full three sector ids (or sector_path_id)."
-        ),
-        "next_call": {
-            "tool": "filter_sector_constituents",
-            "arguments": {
-                "sector_path_id": sector_path_id,
-                "level1_id": path.level1_id,
-                "level2_id": path.level2_id,
-                "level3_id": path.level3_id,
-                "market": "us",
-                "scope": constituent_scope,
-                "days": 1,
-            },
-        },
-        "get_sector_analysis_example": {
-            "sector_path_id": sector_path_id,
-            "level1_id": path.level1_id,
-            "level2_id": path.level2_id,
-            "level3_id": path.level3_id,
-            "scope": constituent_scope,
-        },
+        "breadcrumb_zh": " > ".join(part for part in (path.level1_zh, path.level2_zh, path.level3_zh) if part),
+        "breadcrumb_en": " > ".join(part for part in (path.level1_en, path.level2_en, path.level3_en) if part),
     }
     if hit is not None:
         item["match_score"] = hit.score
@@ -710,9 +680,6 @@ def resolve_sector_path(
     level2_id: str = "",
     level3_id: str = "",
     sector_name: Optional[str] = None,
-    level1_name: Optional[str] = None,
-    level2_name: Optional[str] = None,
-    level3_name: Optional[str] = None,
     market: Optional[str] = None,
 ) -> Any:
     store = registry.sector_store
@@ -720,75 +687,111 @@ def resolve_sector_path(
     if path_id:
         parsed = _parse_sector_path_id(path_id)
         if parsed is None:
-            raise SectorPathResolutionError(_sector_path_id_format_error(path_id))
+            raise SectorPathResolutionError(
+                _sector_path_id_format_error(path_id),
+                code=SECTOR_PATH_INVALID_FORMAT,
+                path_id=path_id,
+                attempted=path_id,
+            )
         l1, l2, l3 = parsed
         path = store.find_resolved_path(l1, l2, l3)
         if path is not None:
             return path
         suggestions = _collect_sector_path_suggestions(
             store,
-            query=str(sector_name or level3_name or level2_name or level1_name or "").strip(),
+            query=str(sector_name or "").strip(),
         )
         if _looks_like_index_guess(l1, l2, l3):
             _raise_sector_path_resolution_error(
-                f"Rejected guessed sector_path_id {path_id}. "
-                "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                "verbatim from best_match. Do not construct ids or use array indices.",
+                f"Rejected guessed sector_path_id {path_id}.",
+                code=SECTOR_PATH_REJECTED_INDEX_GUESS,
                 suggestions=suggestions,
+                path_id=path_id,
+                attempted=path_id,
             )
         _raise_sector_path_resolution_error(
-            f"unknown sector_path_id: {path_id}. "
-            "Call search_sector_taxonomy with the concept keyword and copy ids from best_match.",
+            f"unknown sector_path_id: {path_id}.",
+            code=SECTOR_PATH_UNKNOWN,
             suggestions=suggestions,
+            path_id=path_id,
+            attempted=path_id,
         )
 
     l1 = str(level1_id or "").strip()
     l2 = str(level2_id or "").strip()
     l3 = str(level3_id or "").strip()
-    name_query = str(sector_name or level3_name or "").strip()
+    name_query = str(sector_name or "").strip()
 
     if l1 and l2 and l3:
         path = store.find_resolved_path(l1, l2, l3)
         if path is not None:
             return path
-        if not name_query and not level1_name and not level2_name and not level3_name:
+        path = _fallback_precomputed_sector_path(
+            registry,
+            level1_id=l1,
+            level2_id=l2,
+            level3_id=l3,
+            market=market,
+        )
+        if path is not None:
+            return path
+        if not name_query:
             if _looks_like_index_guess(l1, l2, l3):
                 suggestions = _collect_sector_path_suggestions(store, query=l3 or l2 or l1)
+                attempted = f"{l1}/{l2}/{l3}"
                 _raise_sector_path_resolution_error(
-                    f"Rejected guessed sector path {l1}/{l2}/{l3}. "
-                    "Call search_sector_taxonomy and copy sector_path_id or level1_id/level2_id/level3_id "
-                    "from best_match. Do not construct ids or use array indices.",
+                    f"Rejected guessed sector path {attempted}.",
+                    code=SECTOR_PATH_REJECTED_INDEX_GUESS,
                     suggestions=suggestions,
+                    path_id=attempted,
+                    attempted=attempted,
                 )
 
     if l1 and l2 and not l3 and not name_query:
-        anchor = store.find_anchor_path_for_level2(l1, l2)
+        find_anchor = getattr(store, "find_anchor_path_for_level2", None)
+        anchor = find_anchor(l1, l2) if callable(find_anchor) else None
         if anchor is not None:
             return anchor
 
     if l1 and l1 == l2 == l3:
-        path = store.find_resolved_path_by_any_sector_id(l1)
+        find_any = getattr(
+            store,
+            "find_resolved_path_by_any_sector_id",
+            None,
+        )
+        path = find_any(l1) if callable(find_any) else None
         if path is not None:
             return path
 
     if l3 and not l1 and not l2:
-        path = store.find_resolved_path_by_level3_id(l3)
+        find_level3 = getattr(
+            store,
+            "find_resolved_path_by_level3_id",
+            None,
+        )
+        path = find_level3(l3) if callable(find_level3) else None
         if path is not None:
             return path
 
-    label_path = store.find_resolved_path_by_labels(
-        level_1_zh=level1_name or (l1 if _looks_like_sector_label(l1) else ""),
-        level_1_en=level1_name or (l1 if _looks_like_sector_label(l1) else ""),
-        level_2_zh=level2_name or (l2 if _looks_like_sector_label(l2) else ""),
-        level_2_en=level2_name or (l2 if _looks_like_sector_label(l2) else ""),
-        level_3_zh=level3_name or name_query or (l3 if _looks_like_sector_label(l3) else ""),
-        level_3_en=level3_name or name_query or (l3 if _looks_like_sector_label(l3) else ""),
+    find_labels = getattr(store, "find_resolved_path_by_labels", None)
+    label_path = (
+        find_labels(
+            level_1_zh=l1 if _looks_like_sector_label(l1) else "",
+            level_1_en=l1 if _looks_like_sector_label(l1) else "",
+            level_2_zh=l2 if _looks_like_sector_label(l2) else "",
+            level_2_en=l2 if _looks_like_sector_label(l2) else "",
+            level_3_zh=name_query or (l3 if _looks_like_sector_label(l3) else ""),
+            level_3_en=name_query or (l3 if _looks_like_sector_label(l3) else ""),
+        )
+        if callable(find_labels)
+        else None
     )
     if label_path is not None:
         return label_path
 
     if name_query:
-        matches = store.search_resolved_paths(name_query, limit=2)
+        search = getattr(store, "search_resolved_paths", None)
+        matches = search(name_query, limit=2) if callable(search) else []
         if len(matches) == 1:
             return matches[0]
 
@@ -804,19 +807,22 @@ def resolve_sector_path(
             return path
 
     query = name_query or (l3 if _looks_like_sector_label(l3) else "") or l3 or l2 or l1
-    suggestions = store.search_resolved_paths(query, limit=3) if query else []
+    search = getattr(store, "search_resolved_paths", None)
+    suggestions = search(query, limit=3) if query and callable(search) else []
     attempted = "/".join(part for part in (l1, l2, l3) if part) or query or "?"
-    message = (
-        f"unknown sector path: {attempted}. "
-        "Call search_sector_taxonomy with the concept keyword, pick the best match, then pass "
-        "sector_path_id or level1_id/level2_id/level3_id verbatim."
-    )
+    message = f"unknown sector path: {attempted}."
     if l1 and l2 and not l3:
         message += (
-            " For L2-scope constituents, still pass all three ids from best_match "
-            "(or level1_id+level2_id when uniquely resolved) and set scope='L2'."
+            " L2-scope constituent listing still requires a resolved three-segment path "
+            "(or uniquely resolved level1_id+level2_id) plus scope='L2'."
         )
-    _raise_sector_path_resolution_error(message, suggestions=suggestions)
+    _raise_sector_path_resolution_error(
+        message,
+        code=SECTOR_PATH_UNKNOWN,
+        suggestions=suggestions,
+        path_id=_format_sector_path_id(l1, l2, l3) if l1 and l2 and l3 else "",
+        attempted=attempted,
+    )
 
 
 def _fallback_precomputed_sector_path(
@@ -863,9 +869,6 @@ def resolve_sector_analysis_path(
     level2_id: str,
     level3_id: str,
     sector_name: Optional[str] = None,
-    level1_name: Optional[str] = None,
-    level2_name: Optional[str] = None,
-    level3_name: Optional[str] = None,
     market: Optional[str] = None,
 ) -> Any | None:
     try:
@@ -875,9 +878,6 @@ def resolve_sector_analysis_path(
             level2_id=level2_id,
             level3_id=level3_id,
             sector_name=sector_name,
-            level1_name=level1_name,
-            level2_name=level2_name,
-            level3_name=level3_name,
             market=market,
         )
     except SectorPathResolutionError:
@@ -959,49 +959,216 @@ def build_taxonomy_tree(registry) -> dict[str, Any]:
         if len(example_l3_paths) >= 5:
             break
 
-    first = example_l3_paths[0] if example_l3_paths else None
-    filter_example = None
-    if first is not None:
-        filter_example = {
-            "level1_id": first["level1_id"],
-            "level2_id": first["level2_id"],
-            "level3_id": first["level3_id"],
-            "market": "us",
-            "scope": "L3",
-            "days": 1,
-        }
-
     return {
         "version": data.get("version") or "api",
         "id_scheme": data.get("id_scheme") or "sector_id",
-        "usage": (
-            "Copy level1_id, level2_id, level3_id from the SAME L3 branch below. "
-            "These are opaque sector_id strings (e.g. 153/160/161), NOT array indices 1/2/3."
+        "id_note": (
+            "level1_id/level2_id/level3_id are opaque sector_id strings "
+            "(e.g. 153/160/161), not array indices."
         ),
-        "playbook": {
-            "step_1": "For keyword/concept requests use search_sector_taxonomy first; use get_taxonomy_tree for full tree.",
-            "step_2": "Pick one entry from example_l3_paths OR search_sector_taxonomy results.",
-            "step_3": "Call filter_sector_constituents with the three ids plus market.",
-            "forbidden": "Never pass 1, 2, 3 or child index as ids. Never use search_company_ticker for themes.",
-            "alternative": "Or call filter_sector_constituents with sector_name = exact L3 name_zh or name_en.",
-        },
         "example_l3_paths": example_l3_paths,
-        "filter_sector_constituents_example": filter_example,
         "tree": tree,
     }
 
 
-def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> dict[str, Any]:
+def _normalize_taxonomy_locale(locale: str | None) -> str:
+    return "en" if str(locale or "").strip().lower() == "en" else "zh"
+
+
+def _locale_text(value: Any, locale: str) -> str:
+    """Project bilingual `{zh,en}` / BilingualText / plain str to one locale."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        primary = str(value.get(locale) or "").strip()
+        if primary:
+            return primary
+        other = "en" if locale == "zh" else "zh"
+        return str(value.get(other) or "").strip()
+    zh = getattr(value, "zh", None)
+    en = getattr(value, "en", None)
+    if zh is not None or en is not None:
+        primary = str(zh if locale == "zh" else en or "").strip()
+        if primary:
+            return primary
+        return str(en if locale == "zh" else zh or "").strip()
+    return str(value).strip()
+
+
+def project_taxonomy_l3_catalog(
+    payload: Mapping[str, Any] | None,
+    *,
+    locale: str = "zh",
+) -> dict[str, Any]:
+    """Flatten nested taxonomy into an agent-friendly L3 catalog.
+
+    Accepts ``build_taxonomy_tree`` / ``TaxonomyTreeResponse`` payloads (``tree``)
+    or taxonomy documents (``level_1``). Does not change HTTP API contracts.
+    """
+    resolved_locale = _normalize_taxonomy_locale(locale)
+    items: list[dict[str, str]] = []
+    raw = payload if isinstance(payload, Mapping) else {}
+
+    tree = raw.get("tree")
+    if isinstance(tree, list) and tree:
+        for l1 in tree:
+            if not isinstance(l1, Mapping):
+                continue
+            l1_id = str(l1.get("level1_id") or l1.get("id") or "").strip()
+            for l2 in l1.get("children") or []:
+                if not isinstance(l2, Mapping):
+                    continue
+                l2_id = str(l2.get("level2_id") or l2.get("id") or "").strip()
+                for l3 in l2.get("children") or []:
+                    if not isinstance(l3, Mapping):
+                        continue
+                    l3_id = str(l3.get("level3_id") or l3.get("id") or "").strip()
+                    if not (l1_id and l2_id and l3_id):
+                        continue
+                    items.append(
+                        {
+                            "sector_path_id": f"{l1_id}/{l2_id}/{l3_id}",
+                            "name": _locale_text(l3.get("name"), resolved_locale),
+                            "description": _locale_text(
+                                l3.get("definition") if l3.get("definition") is not None else l3.get("description"),
+                                resolved_locale,
+                            ),
+                        }
+                    )
+    else:
+        for l1 in raw.get("level_1") or []:
+            if not isinstance(l1, Mapping):
+                continue
+            l1_id = str(l1.get("level1_id") or l1.get("id") or "").strip()
+            for l2 in l1.get("level_2") or []:
+                if not isinstance(l2, Mapping):
+                    continue
+                l2_id = str(l2.get("level2_id") or l2.get("id") or "").strip()
+                for l3 in l2.get("level_3") or []:
+                    if not isinstance(l3, Mapping):
+                        continue
+                    l3_id = str(l3.get("level3_id") or l3.get("id") or "").strip()
+                    if not (l1_id and l2_id and l3_id):
+                        continue
+                    items.append(
+                        {
+                            "sector_path_id": f"{l1_id}/{l2_id}/{l3_id}",
+                            "name": _locale_text(l3.get("name"), resolved_locale),
+                            "description": _locale_text(
+                                l3.get("definition") if l3.get("definition") is not None else l3.get("description"),
+                                resolved_locale,
+                            ),
+                        }
+                    )
+
+    return {
+        "locale": resolved_locale,
+        "count": len(items),
+        "items": items,
+    }
+
+
+def build_taxonomy_l3_catalog_for_agent(registry, *, locale: str = "zh") -> dict[str, Any]:
+    """Build the agent-facing flat L3 catalog from the live sector store."""
+    return project_taxonomy_l3_catalog(build_taxonomy_tree(registry), locale=locale)
+
+
+def _build_l3_options_for_search_hits(store: Any, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """All L3 under L2 branches touched by ranked hits (flat menu; does not re-search)."""
+    if not items:
+        return []
+
+    hit_paths = {str(item.get("sector_path_id") or "") for item in items if item.get("sector_path_id")}
+    l2_keys: list[tuple[str, str]] = []
+    seen_l2: set[tuple[str, str]] = set()
+    for item in items:
+        key = (str(item.get("level1_id") or ""), str(item.get("level2_id") or ""))
+        if not key[0] or not key[1] or key in seen_l2:
+            continue
+        seen_l2.add(key)
+        l2_keys.append(key)
+
+    options: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for level1_id, level2_id in l2_keys:
+        for path in store.iter_resolved_paths():
+            if path.level1_id != level1_id or path.level2_id != level2_id:
+                continue
+            sector_path_id = _format_sector_path_id(path.level1_id, path.level2_id, path.level3_id)
+            if sector_path_id in seen_paths:
+                continue
+            seen_paths.add(sector_path_id)
+            options.append(
+                {
+                    "sector_path_id": sector_path_id,
+                    "name_zh": path.level3_zh or "",
+                    "name_en": path.level3_en or "",
+                    "level2_name_zh": path.level2_zh or "",
+                    "level2_name_en": path.level2_en or "",
+                    "hit": sector_path_id in hit_paths,
+                }
+            )
+
+    options.sort(
+        key=lambda row: (
+            not row.get("hit"),
+            str(row.get("level2_name_zh") or ""),
+            str(row.get("name_zh") or ""),
+            str(row.get("sector_path_id") or ""),
+        )
+    )
+    return options
+
+
+def build_sector_taxonomy_search(
+    registry,
+    *,
+    query: str = "",
+    limit: int = 10,
+    sector_path_id: str = "",
+) -> dict[str, Any]:
+    store = registry.sector_store
+    path_id = str(sector_path_id or "").strip()
+    id_note = (
+        "sector_path_id and level1_id/level2_id/level3_id are opaque ids resolved by exact "
+        "lookup. Copy them verbatim; do not construct ids or use array indices. "
+        "l3_options lists every L3 under L2 branches touched by items (hit=true means "
+        "also present in items). When best_match is null / ambiguous=true, pick from items "
+        "by name — do not invent ids."
+    )
+    if path_id:
+        path = resolve_sector_path(registry, sector_path_id=path_id)
+        item = _sector_search_item(path)
+        item["match_score"] = 100
+        item["matched_level"] = "path_id"
+        item["matched_label"] = path_id
+        items = [item]
+        return {
+            "query": path_id,
+            "expanded_queries": None,
+            "count": 1,
+            "id_note": id_note,
+            "ambiguous": False,
+            "best_match": item,
+            "items": items,
+            "l3_options": _build_l3_options_for_search_hits(store, items),
+        }
+
     needle = str(query or "").strip()
     if not needle:
-        raise ValueError("query is required")
+        raise ValueError("query or sector_path_id is required")
 
-    store = registry.sector_store
     cap = max(1, min(limit, 25))
-    search_queries = _expand_sector_search_queries(needle)
+    search_terms = expand_sector_search_terms(needle)
     best_hits: dict[tuple[str, str, str], Any] = {}
-    for term in search_queries:
-        for hit in store.search_resolved_paths_scored(term, limit=cap * 2):
+    for term in search_terms:
+        for hit in store.search_resolved_paths_scored(
+            term.text,
+            limit=cap * 2,
+            source=term.source,
+        ):
             key = (hit.path.level1_id, hit.path.level2_id, hit.path.level3_id)
             existing = best_hits.get(key)
             if existing is None or hit.score > existing.score:
@@ -1011,30 +1178,25 @@ def build_sector_taxonomy_search(registry, *, query: str, limit: int = 10) -> di
         best_hits.values(),
         key=lambda hit: (
             -hit.score,
-            hit.path.level3_zh or hit.path.level3_en or "",
+            0 if hit.matched_level == "L3" else 1 if hit.matched_level == "L2" else 2,
+            abs(len(hit.matched_label) - len(needle)),
             hit.path.level3_id,
         ),
     )[:cap]
     items = [_sector_search_item(hit.path, hit=hit) for hit in ranked]
+    l3_options = _build_l3_options_for_search_hits(store, items)
+    best = pick_best_match(items)
+    expanded = [term.text for term in search_terms[1:]] or None
 
-    top = items[0] if items else None
     return {
         "query": needle,
-        "expanded_queries": search_queries[1:] or None,
+        "expanded_queries": expanded,
         "count": len(items),
-        "id_resolution": (
-            "Each item includes sector_path_id and level1_id/level2_id/level3_id. "
-            "Copy them verbatim into filter_sector_constituents or get_sector_analysis — "
-            "IDs resolve by exact lookup, not fuzzy name matching."
-        ),
-        "usage": (
-            "1) Pick the highest match_score item. "
-            "2) Copy sector_path_id from best_match — do NOT construct sector_path_id yourself. "
-            "3) Call filter_sector_constituents with next_call.arguments (change market). "
-            "4) Optional: get_sector_analysis with get_sector_analysis_example."
-        ),
-        "best_match": top,
+        "id_note": id_note,
+        "ambiguous": best is None and bool(items),
+        "best_match": best,
         "items": items,
+        "l3_options": l3_options,
     }
 
 
@@ -1378,6 +1540,12 @@ async def build_sector_analysis(
     level1_id = str(path.level1_id)
     level2_id = str(path.level2_id)
     level3_id = str(path.level3_id)
+    kline_store = registry.kline_store
+    if getattr(kline_store, "sector_precomputed_store", None) is None and getattr(registry, "sector_precomputed_store", None) is not None:
+        kline_store.sector_precomputed_store = registry.sector_precomputed_store
+    prioritize = getattr(kline_store, "prioritize_sector_path", None)
+    if callable(prioritize):
+        await prioritize(path)
 
     async def compute_metrics_payload() -> dict[str, Any]:
         result = await compute_sector_scope_metrics(
@@ -1483,9 +1651,8 @@ async def build_sector_constituents_v1(
     market: Optional[str],
     days: int,
     sector_name: Optional[str] = None,
-    level1_name: Optional[str] = None,
-    level2_name: Optional[str] = None,
-    level3_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> SectorConstituentsResponseV1:
     path = resolve_sector_path(
         registry,
@@ -1493,9 +1660,6 @@ async def build_sector_constituents_v1(
         level2_id=level2_id,
         level3_id=level3_id,
         sector_name=sector_name,
-        level1_name=level1_name,
-        level2_name=level2_name,
-        level3_name=level3_name,
         market=market,
     )
     # Removed performance_cache usage
@@ -1506,6 +1670,8 @@ async def build_sector_constituents_v1(
         scope=scope,
         market=to_native_market_code(market) if market else None,
         days=days,
+        start_date=start_date,
+        end_date=end_date,
     )
     native_market = to_native_market_code(response.market) if response.market else None
     items = [item.model_dump(mode="json") | {"market": to_native_market_code(item.market) or item.market} for item in response.items]

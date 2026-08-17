@@ -22,7 +22,14 @@ import {
   saveActiveRunDraft,
   saveStreamDraft,
 } from './agentStorage';
-import type { AgentActivityStep, AgentApiMessage, AgentChatMessage, AgentLocale } from '../types/agent';
+import type {
+  AgentActivityStep,
+  AgentApiMessage,
+  AgentChatMessage,
+  AgentContextUsageSnapshot,
+  AgentLocale,
+  AgentToolTraceItem,
+} from '../types/agent';
 import {
   appendEvalHint,
   appendTextDelta,
@@ -31,6 +38,7 @@ import {
   appendThinkStart,
   appendToolStart,
   finalizeThinkSteps,
+  reconcileToolTrace,
   resolveCurrentThinkId,
   resolveToolResult,
   toggleThinkStep,
@@ -64,6 +72,7 @@ interface InternalRunState {
   onComplete?: (finalMessages: AgentChatMessage[]) => void;
   onPersistDraft?: (messages: AgentChatMessage[]) => void;
   onRunError?: (message: string) => void;
+  contextUsage: AgentContextUsageSnapshot | null;
 }
 
 export interface SessionRunView {
@@ -72,11 +81,13 @@ export interface SessionRunView {
   livePhase: AgentLivePhase;
   retryNotice: string | null;
   error: string | null;
+  contextUsage: AgentContextUsageSnapshot | null;
 }
 
 interface StartRunParams {
   sessionId: string;
   modelId: string;
+  providerModel: string;
   locale: AgentLocale;
   timezoneIana?: string;
   dashboardTab?: string;
@@ -129,6 +140,7 @@ function emptyView(): SessionRunView {
     livePhase: null,
     retryNotice: null,
     error: null,
+    contextUsage: null,
   };
 }
 
@@ -370,8 +382,22 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
             patchRunDraft(state);
           });
         },
-        onDone: () => {
+        onContextUsage: (
+          snapshot: AgentContextUsageSnapshot,
+          _state: 'estimated' | 'reconciled',
+        ) => {
           consumeEvent(() => {
+            state.contextUsage = snapshot;
+            notify();
+          });
+        },
+        onDone: (_modelId: string, toolTrace?: AgentToolTraceItem[]) => {
+          consumeEvent(() => {
+            state.assistantSteps = reconcileToolTrace(
+              state.assistantSteps,
+              toolTrace ?? [],
+              state.uiLocale,
+            );
             finalizeRunFromState(state);
           });
         },
@@ -462,6 +488,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         livePhase: 'planning',
         retryNotice: null,
         error: null,
+        contextUsage: null,
         cursor,
         eventCursor: cursor,
         subscribeAbort: null,
@@ -534,7 +561,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
       try {
         ({ run_id: runId } = await createAgentRun({
           session_id: params.sessionId,
-          model_id: params.modelId,
+          model_id: params.providerModel,
           locale: params.locale,
           timezone_iana: params.timezoneIana,
           dashboard_tab: params.dashboardTab,
@@ -557,6 +584,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         livePhase: 'planning',
         retryNotice: null,
         error: null,
+        contextUsage: null,
         cursor: 0,
         eventCursor: 0,
         subscribeAbort: null,
@@ -632,6 +660,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
         livePhase: state.livePhase,
         retryNotice: state.retryNotice,
         error: state.error,
+        contextUsage: state.contextUsage,
       };
     },
     [version],

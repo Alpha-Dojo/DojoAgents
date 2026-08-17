@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from dojoagents.dashboard.services.precompute_sector_horizon import (
+from dojoagents.dashboard.jobs.precompute.sector_horizon import (
     SECTOR_HORIZON_METRICS_COLUMNS,
     compute_sector_horizon_metrics_frame,
     max_drawdown_pct,

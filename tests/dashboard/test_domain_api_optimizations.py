@@ -150,7 +150,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 1.23,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [

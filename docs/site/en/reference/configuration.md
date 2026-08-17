@@ -19,8 +19,14 @@ llm_provider:
     openai:
       author: openai
       model: gpt-4.1
+      models:
+        - gpt-4.1
+        - gpt-4o
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
+      extra_headers:
+        X-Tenant-ID: ${OPENAI_TENANT_ID}
+        X-Request-Source: dojoagents
       context_window: 128000
 
 agent:
@@ -113,6 +119,19 @@ API keys can be configured in two ways:
 - `api_key`: direct config file value; only suitable for local private environments.
 
 Dashboard and API responses must expose config through `ConfigStore.redacted()`. Provider keys, DojoSDK keys, and gateway tokens must not be returned to the frontend in plaintext.
+
+Each provider may define `extra_headers` as a mapping of HTTP header names to
+string values. DojoAgents attaches these headers to that provider's chat and
+provider metadata requests. Environment placeholders are supported in header
+values. All `extra_headers` values are masked in Dashboard/API config responses,
+so secrets such as proxy authorization tokens are not exposed.
+
+Each provider may define multiple candidate models with `models`. `model`
+remains the provider default for backward compatibility. If `model` is
+omitted, the first `models` item becomes the default. Chat clients select a
+candidate with the ID returned by `GET /api/v1/models`, for example
+`openai:gpt-4o`; the legacy provider name `openai` still selects that
+provider's default.
 
 ## Update Rules
 

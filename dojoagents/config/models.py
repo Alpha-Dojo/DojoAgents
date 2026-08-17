@@ -11,10 +11,12 @@ DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 @dataclass(frozen=True)
 class LLMProviderConfig:
     model: str | None = None
+    models: tuple[str, ...] = ()
     author: str | None = None
     base_url: str | None = None
     api_key_env: str | None = None
     api_key: str | None = None
+    extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
 
 
@@ -109,11 +111,11 @@ class ProfilerConfig:
 @dataclass(frozen=True)
 class FinancialDashboardConfig:
     enabled: bool = True
-    sdk_cache_dir: str = "~/.cache/huggingface/hub"
+    sdk_cache_dir: str = "~/.cache/dojo"
     dashboard_data_root: str = "~/.dojo/dashboard-data"
     stock_quote_refresh_seconds: int = 15
     constituent_kline_post_close_poll_seconds: int = 300
-    constituent_kline_max_concurrent: int = 8
+    constituent_kline_max_concurrent: int = 50
     ticker_market_cap_min_sh: float = 1_000_000_000.0
     ticker_market_cap_min_us: float = 1_000_000_000.0
     ticker_market_cap_min_hk: float = 1_000_000_000.0
@@ -187,8 +189,39 @@ class TasksConfig:
 
 
 @dataclass(frozen=True)
+class HarnessConfig:
+    id: str = "financial"
+    factory: str | None = "dojoagents.harnesses.built_in.financial:create_harness"
+    manifest: str | None = None
+    config: dict[str, Any] = field(default_factory=dict)
+    extra_skill_dirs: list[str] = field(default_factory=list)
+    extra_tool_dirs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class StoreProviderConfig:
+    provider: str = "file"
+    factory: str | None = None
+    options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SessionRuntimeConfig:
+    require_user_id: bool = True
+    # Long agent/pipeline runs need headroom; heartbeat renews continuously.
+    lease_seconds: int = 300
+    heartbeat_seconds: int = 15
+    event_batch_size: int = 20
+
+
+@dataclass(frozen=True)
 class SessionsConfig:
     enabled: bool = True
+    store: StoreProviderConfig = field(default_factory=StoreProviderConfig)
+    blob_store: StoreProviderConfig = field(default_factory=StoreProviderConfig)
+    runtime: SessionRuntimeConfig = field(default_factory=SessionRuntimeConfig)
+    # Deprecated compatibility fields. Runtime consumers migrate to store/runtime
+    # as the new session service is introduced.
     provider: str = "dojo_repository"
     root: str = "~/.dojo/agents/strands_sessions"
     agent_id: str = "dojo-agent"
@@ -214,5 +247,6 @@ class AgentsConfig:
     dojosdk: DojoSDKConfig = field(default_factory=DojoSDKConfig)
     multi_agent: MultiAgentConfig = field(default_factory=MultiAgentConfig)
     planning: PlanConfig = field(default_factory=PlanConfig)
+    harness: HarnessConfig = field(default_factory=HarnessConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
     tasks: TasksConfig = field(default_factory=TasksConfig)

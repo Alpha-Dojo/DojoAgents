@@ -23,7 +23,7 @@ class StockQuote(BaseModel):
     turn_rate: float = Field(..., description="Stock turn rate")
     pe: float = Field(..., description="Stock P/E Ratio")
     pb: float = Field(..., description="Stock P/B Ratio")
-    dividend_yield: float  = Field(..., description="Stock dividend yield")
+    dividend_yield: float = Field(0.0, description="Stock dividend yield")
 
 
 class Stock(BaseModel):
@@ -40,5 +40,6 @@ class Stock(BaseModel):
     long_business_summary: Optional[str] = Field(None, description="Business summary")
     currency: Optional[str] = Field(None, description="Trading currency")
     forward_pe: Optional[float] = Field(None, description="Forward P/E from stock basic profile")
+    quote_type: Optional[str] = Field(None, description="Instrument type (e.g. EQUITY, ETF, MUTUALFUND)")
     stock_quote: Optional[StockQuote] = Field(None, description="Stock quote")
     is_delisted: Optional[bool] = Field(None, description="Whether delisted")

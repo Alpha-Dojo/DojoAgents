@@ -112,9 +112,7 @@ def search_core_tickers(
         for stock in stock_store.list_market(market_code):
             if scope_tickers is not None and stock.ticker not in scope_tickers:
                 continue
-            if require_market_cap_eligible and not stock_store.is_ticker_market_cap_eligible(
-                stock.ticker
-            ):
+            if require_market_cap_eligible and not stock_store.is_ticker_market_cap_eligible(stock.ticker):
                 continue
             quote = stock.stock_quote
             if quote is None:

@@ -54,9 +54,7 @@ def resolve_market_analysis_window(
         end = date.fromisoformat(normalized_end)
         span = (end - start).days + 1
         if span > MAX_MARKET_DATE_RANGE_CALENDAR_DAYS:
-            raise ValueError(
-                f"Date range spans {span} calendar days; maximum is {MAX_MARKET_DATE_RANGE_CALENDAR_DAYS}."
-            )
+            raise ValueError(f"Date range spans {span} calendar days; maximum is {MAX_MARKET_DATE_RANGE_CALENDAR_DAYS}.")
         return MarketAnalysisWindow(
             mode="date_range",
             days=0,
@@ -78,18 +76,14 @@ def resolve_window_bounds_from_trade_dates(
     normalized = sorted({str(item)[:10] for item in trade_dates if str(item or "").strip()})
     if not normalized:
         if window.mode == "date_range":
-            raise ValueError(
-                f"No trading data available between {window.start_date} and {window.end_date}."
-            )
+            raise ValueError(f"No trading data available between {window.start_date} and {window.end_date}.")
         return window
 
     if window.mode == "date_range":
         assert window.start_date and window.end_date
         in_range = [item for item in normalized if window.start_date <= item <= window.end_date]
         if not in_range:
-            raise ValueError(
-                f"No trading data available between {window.start_date} and {window.end_date}."
-            )
+            raise ValueError(f"No trading data available between {window.start_date} and {window.end_date}.")
         return window.with_resolved_bounds(start=in_range[0], end=in_range[-1])
 
     if window.days <= 1:

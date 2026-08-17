@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
-from dojoagents.dashboard.services.precompute_sector_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_daily import (
     PrecomputeInputSnapshot,
     compute_sector_precomputed_frames,
 )
@@ -175,11 +175,7 @@ def test_precompute_skips_sparse_sector_day() -> None:
         stats={},
     )
     _constituents, _ticker_daily, sector_daily, _manifest = compute_sector_precomputed_frames(snapshot)
-    us_l3 = sector_daily[
-        (sector_daily["scope"] == "L3")
-        & (sector_daily["market"] == "us")
-        & (sector_daily["level3_id"] == "16")
-    ]
+    us_l3 = sector_daily[(sector_daily["scope"] == "L3") & (sector_daily["market"] == "us") & (sector_daily["level3_id"] == "16")]
     assert list(us_l3["trade_date"]) == ["2026-07-16"]
     # Cap-weighted: (900*1% + 1*(-10%)) / 901 ≈ 0.9878%
     assert float(us_l3.iloc[0]["daily_return_pct"]) == pytest.approx((900 * 1.0 + 1 * (-10.0)) / 901, abs=1e-3)

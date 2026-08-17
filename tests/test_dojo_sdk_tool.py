@@ -10,9 +10,10 @@ import pytest
 from dojoagents.agent.models import ToolCall
 from dojoagents.agent.runtime import Runtime
 from dojoagents.config.models import DojoSDKConfig
-from dojoagents.tools.dojo_sdk_tool import (
+from dojoagents.harnesses.built_in.financial.tools.sdk_runtime import (
     DojoSDKToolManager,
     HF_REGISTRY,
+    OFFLINE_TOOL_ALIASES,
     OFFLINE_TOOL_BINDINGS,
     get_dojo_sdk_specs,
 )
@@ -32,8 +33,8 @@ YSTOCK_INFO_REPRO_SYMBOLS = {"SPY", "2800.HK", "510300.SH"}
 def test_hf_registry_coverage():
     assert set(OFFLINE_TOOL_BINDINGS).issubset(set(HF_REGISTRY))
     specs = get_dojo_sdk_specs()
-    assert len(specs) == len(OFFLINE_TOOL_BINDINGS)
-    assert len({spec.name for spec in specs}) == len(OFFLINE_TOOL_BINDINGS)
+    assert len(specs) == len(OFFLINE_TOOL_BINDINGS) + len(OFFLINE_TOOL_ALIASES)
+    assert len({spec.name for spec in specs}) == len(specs)
 
 
 def test_dojo_sdk_tools_discovery():
@@ -73,7 +74,7 @@ async def test_dojo_sdk_stock_kline_tool():
     )
     mock_get_kline = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_kline = mock_get_kline
 
@@ -108,14 +109,12 @@ async def test_dojo_sdk_stock_current_quote_tool():
 
     executor = ToolExecutor(registry, SandboxPolicy())
     mock_response = CurrentQuoteResponse(
-        symbol="AAPL",
-        price=180.5,
-        change=1.5,
-        change_pct=0.84,
+        total_num=1,
+        data=[{"symbol": "AAPL", "last_price": 180.5, "change": 1.5, "change_pct": 0.84}],
     )
     mock_get_quote = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_quote = mock_get_quote
 
@@ -129,8 +128,9 @@ async def test_dojo_sdk_stock_current_quote_tool():
 
         assert result.ok
         data = json.loads(result.content)
-        assert data["symbol"] == "AAPL"
-        assert data["price"] == 180.5
+        assert data["total_num"] == 1
+        assert data["data"][0]["symbol"] == "AAPL"
+        assert data["data"][0]["last_price"] == 180.5
         mock_get_quote.assert_called_once_with(symbols=["AAPL"])
 
 
@@ -152,7 +152,12 @@ async def test_dojo_sdk_stock_ystock_info_forwards_repro_args():
 
     assert result.ok
     data = json.loads(result.content)
-    assert data["total_num"] >= 1
+    rows = data.get("data") or []
+    tickers = {row.get("ticker") or row.get("symbol") for row in rows if isinstance(row, dict) and (row.get("ticker") or row.get("symbol"))}
+    # Offline snapshots need not contain every requested symbol, but must not
+    # leak the full market or symbols outside the request.
+    assert data["total_num"] <= len(YSTOCK_INFO_REPRO_SYMBOLS)
+    assert tickers <= YSTOCK_INFO_REPRO_SYMBOLS
 
 
 @pytest.mark.asyncio
@@ -205,7 +210,7 @@ async def test_dojo_sdk_stock_news_tool():
     mock_response = StockNewsResponse(symbol="TSLA", news=[{"title": "Tesla Announces Q2 Earnings"}])
     mock_get_news = AsyncMock(return_value=mock_response)
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.stocks.get_news = mock_get_news
 
@@ -224,6 +229,34 @@ async def test_dojo_sdk_stock_news_tool():
         mock_get_news.assert_called_once_with(symbol="TSLA", page=1, page_size=10)
 
 
+@pytest.mark.asyncio
+async def test_dojo_sdk_benchmark_catalog_tool():
+    registry = ToolRegistry()
+    for spec in get_dojo_sdk_specs():
+        registry.register(spec)
+
+    executor = ToolExecutor(registry, SandboxPolicy())
+    mock_response = {"total_num": 1, "data": [{"symbol": "SPX", "name": "S&P 500"}]}
+    mock_get_catalog = AsyncMock(return_value=mock_response)
+
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
+        instance = mock_async_dojo.return_value
+        instance.benchmark.get_catalog = mock_get_catalog
+
+        result = await executor.execute_one(
+            ToolCall(
+                id="tc-benchmark-catalog",
+                name="dojo.sdk.benchmark.catalog",
+                arguments={},
+            )
+        )
+
+        assert result.ok
+        data = json.loads(result.content)
+        assert data["data"][0]["symbol"] == "SPX"
+        mock_get_catalog.assert_called_once_with()
+
+
 def test_dojo_sdk_config_injection():
     config = DojoSDKConfig(
         api_key="test-api-key",
@@ -232,7 +265,7 @@ def test_dojo_sdk_config_injection():
         max_retries=3,
     )
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         manager = DojoSDKToolManager(config)
         _ = manager.client
 
@@ -255,7 +288,7 @@ async def test_dojo_sdk_precomputed_alpha_factors_tools():
     mock_sector_factors = AsyncMock(return_value={"total_num": 1, "data": [{"sector": "tech", "alpha": 1.25}]})
     mock_ticker_factors = AsyncMock(return_value={"total_num": 1, "data": [{"symbol": "AAPL", "alpha": 0.85}]})
 
-    with patch("dojoagents.tools.dojo_sdk_tool.AsyncDojo") as mock_async_dojo:
+    with patch("dojoagents.harnesses.built_in.financial.tools.sdk_runtime.AsyncDojo") as mock_async_dojo:
         instance = mock_async_dojo.return_value
         instance.sectors.get_precomputed_sector_alpha_factors_daily = mock_sector_factors
         instance.sectors.get_precomputed_ticker_alpha_factors_daily = mock_ticker_factors

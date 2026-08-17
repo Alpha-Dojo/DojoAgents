@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.agent.sector_session import (
+from dojoagents.harnesses.built_in.financial.policies.sector_context import (
     extract_sector_best_match,
     get_sector_best_match,
+    get_sector_search_hit_paths,
     record_sector_search_in_invocation,
     repair_sector_tool_arguments,
 )
@@ -36,15 +37,31 @@ def test_record_sector_search_in_invocation_stores_best_match() -> None:
         name="search_sector_taxonomy",
         ok=True,
         content="",
-        data={"query": "电子元器件", "best_match": _best_match_payload()},
+        data={
+            "query": "电子元器件",
+            "best_match": _best_match_payload(),
+            "items": [
+                _best_match_payload(),
+                {
+                    "sector_path_id": "109/115/116",
+                    "level1_id": "109",
+                    "level2_id": "115",
+                    "level3_id": "116",
+                },
+            ],
+        },
     )
     record_sector_search_in_invocation(invocation_state, result)
     assert get_sector_best_match(invocation_state) == _best_match_payload()
     assert invocation_state["_dojo_sector_search_query"] == "电子元器件"
+    assert get_sector_search_hit_paths(invocation_state) == frozenset({"1/2/3", "109/115/116"})
 
 
-def test_repair_sector_tool_arguments_replaces_guessed_path() -> None:
-    invocation_state: dict = {"_dojo_sector_best_match": _best_match_payload()}
+def test_repair_sector_tool_arguments_replaces_path_absent_from_search_hits() -> None:
+    invocation_state: dict = {
+        "_dojo_sector_best_match": _best_match_payload(),
+        "_dojo_sector_search_hit_paths": ("1/2/3",),
+    }
     repaired = repair_sector_tool_arguments(
         "filter_sector_constituents",
         {"sector_path_id": "1/12/120", "market": "us"},
@@ -53,6 +70,26 @@ def test_repair_sector_tool_arguments_replaces_guessed_path() -> None:
     assert repaired["sector_path_id"] == "1/2/3"
     assert repaired["level1_id"] == "1"
     assert repaired["market"] == "us"
+
+
+def test_repair_sector_tool_arguments_keeps_search_hit_even_when_not_best_match() -> None:
+    invocation_state: dict = {
+        "_dojo_sector_best_match": _best_match_payload(),
+        "_dojo_sector_search_hit_paths": ("1/2/3", "109/115/116"),
+    }
+    original = {
+        "sector_path_id": "109/115/116",
+        "level1_id": "109",
+        "level2_id": "115",
+        "level3_id": "116",
+        "market": "us",
+    }
+    repaired = repair_sector_tool_arguments(
+        "filter_sector_constituents",
+        dict(original),
+        invocation_state,
+    )
+    assert repaired == original
 
 
 def test_repair_sector_tool_arguments_keeps_matching_ids() -> None:
@@ -65,7 +102,7 @@ def test_repair_sector_tool_arguments_keeps_matching_ids() -> None:
         "market": "cn",
     }
     repaired = repair_sector_tool_arguments(
-        "get_sector_analysis",
+        "filter_sector_constituents",
         dict(original),
         invocation_state,
     )
@@ -75,9 +112,27 @@ def test_repair_sector_tool_arguments_keeps_matching_ids() -> None:
 def test_repair_sector_tool_arguments_injects_missing_ids() -> None:
     invocation_state: dict = {"_dojo_sector_best_match": _best_match_payload()}
     repaired = repair_sector_tool_arguments(
-        "get_sector_analysis",
-        {"scope": "L3"},
+        "filter_sector_constituents",
+        {"scope": "L3", "market": "us"},
         invocation_state,
     )
     assert repaired["sector_path_id"] == "1/2/3"
     assert repaired["scope"] == "L3"
+    assert repaired["market"] == "us"
+
+
+def test_repair_sector_tool_arguments_does_not_clobber_well_formed_path_without_hits() -> None:
+    invocation_state: dict = {"_dojo_sector_best_match": _best_match_payload()}
+    original = {
+        "sector_path_id": "109/115/116",
+        "level1_id": "109",
+        "level2_id": "115",
+        "level3_id": "116",
+        "market": "us",
+    }
+    repaired = repair_sector_tool_arguments(
+        "filter_sector_constituents",
+        dict(original),
+        invocation_state,
+    )
+    assert repaired == original

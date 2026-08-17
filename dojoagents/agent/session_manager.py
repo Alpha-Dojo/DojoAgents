@@ -15,7 +15,6 @@ from strands.types.exceptions import SessionException
 from strands.types.session import SessionMessage
 
 from dojoagents.agent.models import AgentResponse, ChatRequest
-from dojoagents.agent.presenters import ToolResultPresenterRegistry
 from dojoagents.agent.multimodal import strands_image_block_to_openai_part
 from dojoagents.agent.session_models import (
     DojoProjectedMessage,
@@ -152,6 +151,7 @@ class DojoAgentSessionManager:
         sync_memory: bool = True,
         export_default_dir: str = "~/Desktop/dojo-chat-export",
         enabled: bool = True,
+        presenter_factory: Any | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -161,6 +161,7 @@ class DojoAgentSessionManager:
         self.sync_memory = sync_memory
         self.export_default_dir = export_default_dir
         self.enabled = enabled
+        self.presenter_factory = presenter_factory
         self.repository = DojoSessionRepository(self.root)
 
     def for_strands(self, session_id: str, *, agent_id: str | None = None):
@@ -374,16 +375,15 @@ class DojoAgentSessionManager:
         raw = message.to_message()
         openai_messages = _openai_messages_from_strands(raw)
         raw_openai = openai_messages[0] if openai_messages else {"role": str(raw.get("role") or ""), "content": _text_from_content(raw.get("content"))}
-        presenter = ToolResultPresenterRegistry()
+        presenter = self.presenter_factory() if self.presenter_factory is not None else None
         tool_results: list[dict[str, Any]] = []
         for projected in openai_messages:
             if projected.get("role") != "tool":
                 continue
             tool_name = str(projected.get("name") or "unknown")
-            normalized = presenter.normalize(
-                tool_name,
-                {"content": str(projected.get("content") or "")},
-            )
+            normalized = {"content": str(projected.get("content") or "")}
+            if presenter is not None:
+                normalized = presenter.normalize(tool_name, normalized)
             projected_data = normalized.get("data")
             if isinstance(projected_data, list):
                 projected_data = {"items": projected_data}
@@ -499,21 +499,23 @@ class DojoAgentSessionManager:
                     if isinstance(row, dict):
                         tool_trace = row.get("tool_trace")
                         if isinstance(tool_trace, list):
-                            presenter = ToolResultPresenterRegistry()
+                            presenter = self.presenter_factory() if self.presenter_factory is not None else None
                             hydrated_trace: list[Any] = []
                             for raw_trace in tool_trace:
                                 if not isinstance(raw_trace, dict) or raw_trace.get("viz_blocks"):
                                     hydrated_trace.append(raw_trace)
                                     continue
                                 trace = dict(raw_trace)
-                                normalized = presenter.normalize(
-                                    str(trace.get("tool") or "unknown"),
-                                    {
-                                        "content": str(trace.get("content") or ""),
-                                        "data": trace.get("data"),
-                                        "truncated": bool(trace.get("truncated", False)),
-                                    },
-                                )
+                                normalized = {
+                                    "content": str(trace.get("content") or ""),
+                                    "data": trace.get("data"),
+                                    "truncated": bool(trace.get("truncated", False)),
+                                }
+                                if presenter is not None:
+                                    normalized = presenter.normalize(
+                                        str(trace.get("tool") or "unknown"),
+                                        normalized,
+                                    )
                                 trace["data"] = normalized.get("data")
                                 trace["viz_blocks"] = list(normalized.get("viz_blocks") or [])
                                 hydrated_trace.append(trace)

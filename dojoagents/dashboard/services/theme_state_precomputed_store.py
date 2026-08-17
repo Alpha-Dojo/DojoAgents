@@ -9,17 +9,21 @@ from typing import Any, Optional
 import pandas as pd
 
 from dojoagents.config.loader import FinancialDashboardConfig
-from dojoagents.dashboard.services.precompute_sector_alpha_factors import SECTOR_ALPHA_FACTORS_FILE
-from dojoagents.dashboard.services.precompute_sector_daily import PRECOMPUTE_DIR
-from dojoagents.dashboard.services.precompute_sector_horizon import SECTOR_HORIZON_METRICS_FILE
-from dojoagents.dashboard.services.precompute_theme_state_daily import (
+from dojoagents.dashboard.jobs.precompute.sector_alpha_factors import SECTOR_ALPHA_FACTORS_FILE
+from dojoagents.dashboard.jobs.precompute.sector_daily import PRECOMPUTE_DIR
+from dojoagents.dashboard.jobs.precompute.sector_horizon import SECTOR_HORIZON_METRICS_FILE
+from dojoagents.dashboard.jobs.precompute.sector_radar_advice import (
+    SECTOR_ADVICE_DAILY_FILE,
+    SECTOR_HEALTH_RADAR_FILE,
+)
+from dojoagents.dashboard.jobs.precompute.theme_state_daily import (
     FUNDAMENTALS_PERIOD_FILE,
     MANIFEST_FILE,
     MARKET_BENCHMARK_DAILY_FILE,
     THEME_STATE_DAILY_FILE,
     THEME_STATE_DIR,
 )
-from dojoagents.dashboard.services.precompute_ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
+from dojoagents.dashboard.jobs.precompute.ticker_alpha_factors import TICKER_ALPHA_FACTORS_FILE
 from dojoagents.logging import LOGGER
 
 
@@ -32,6 +36,8 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df: Optional[pd.DataFrame] = None
         self._fundamentals_df: Optional[pd.DataFrame] = None
         self._horizon_df: Optional[pd.DataFrame] = None
+        self._radar_df: Optional[pd.DataFrame] = None
+        self._advice_df: Optional[pd.DataFrame] = None
         self._alpha_df: Optional[pd.DataFrame] = None
         self._ticker_alpha_df: Optional[pd.DataFrame] = None
         self._manifest: dict[str, Any] | None = None
@@ -54,6 +60,8 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df = None
         self._fundamentals_df = None
         self._horizon_df = None
+        self._radar_df = None
+        self._advice_df = None
         self._alpha_df = None
         self._ticker_alpha_df = None
         self._manifest = None
@@ -79,31 +87,34 @@ class ThemeStatePrecomputedStore:
             benchmark_path = target_dir / MARKET_BENCHMARK_DAILY_FILE
             fundamentals_path = target_dir / FUNDAMENTALS_PERIOD_FILE
             horizon_path = target_dir / SECTOR_HORIZON_METRICS_FILE
+            radar_path = target_dir / SECTOR_HEALTH_RADAR_FILE
+            advice_path = target_dir / SECTOR_ADVICE_DAILY_FILE
             alpha_path = target_dir / SECTOR_ALPHA_FACTORS_FILE
             ticker_alpha_path = target_dir / TICKER_ALPHA_FACTORS_FILE
-            benchmark_df = (
-                pd.read_parquet(benchmark_path) if benchmark_path.exists() else pd.DataFrame()
-            )
-            fundamentals_df = (
-                pd.read_parquet(fundamentals_path) if fundamentals_path.exists() else pd.DataFrame()
-            )
+            benchmark_df = pd.read_parquet(benchmark_path) if benchmark_path.exists() else pd.DataFrame()
+            fundamentals_df = pd.read_parquet(fundamentals_path) if fundamentals_path.exists() else pd.DataFrame()
             horizon_df = pd.read_parquet(horizon_path) if horizon_path.exists() else pd.DataFrame()
+            radar_df = pd.read_parquet(radar_path) if radar_path.exists() else pd.DataFrame()
+            advice_df = pd.read_parquet(advice_path) if advice_path.exists() else pd.DataFrame()
             alpha_df = pd.read_parquet(alpha_path) if alpha_path.exists() else pd.DataFrame()
-            ticker_alpha_df = (
-                pd.read_parquet(ticker_alpha_path) if ticker_alpha_path.exists() else pd.DataFrame()
-            )
-            manifest = (
-                json.loads(manifest_path.read_text(encoding="utf-8"))
-                if manifest_path.exists()
-                else {}
-            )
+            ticker_alpha_df = pd.read_parquet(ticker_alpha_path) if ticker_alpha_path.exists() else pd.DataFrame()
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
         except Exception as exc:
             self._last_error = f"local_reload_failed: {exc}"
             LOGGER.warning("Failed to reload theme-state precomputed snapshot: %s", exc)
             self.clear_cache()
             return
 
-        for frame in (theme_df, benchmark_df, fundamentals_df, horizon_df, alpha_df, ticker_alpha_df):
+        for frame in (
+            theme_df,
+            benchmark_df,
+            fundamentals_df,
+            horizon_df,
+            radar_df,
+            advice_df,
+            alpha_df,
+            ticker_alpha_df,
+        ):
             for col in ("market", "trade_date", "ticker", "level1_id", "level2_id", "level3_id", "link_key", "scope"):
                 if col in frame.columns:
                     frame[col] = frame[col].astype(str)
@@ -113,6 +124,8 @@ class ThemeStatePrecomputedStore:
         self._benchmark_df = benchmark_df
         self._fundamentals_df = fundamentals_df
         self._horizon_df = horizon_df
+        self._radar_df = radar_df
+        self._advice_df = advice_df
         self._alpha_df = alpha_df
         self._ticker_alpha_df = ticker_alpha_df
         self._manifest = manifest
@@ -134,12 +147,7 @@ class ThemeStatePrecomputedStore:
     ) -> dict[str, Any] | None:
         if frame is None or frame.empty:
             return None
-        mask = (
-            (frame["level1_id"] == str(level1_id))
-            & (frame["level2_id"] == str(level2_id))
-            & (frame["level3_id"] == str(level3_id))
-            & (frame["market"] == str(market))
-        )
+        mask = (frame["level1_id"] == str(level1_id)) & (frame["level2_id"] == str(level2_id)) & (frame["level3_id"] == str(level3_id)) & (frame["market"] == str(market))
         subset = frame.loc[mask]
         if subset.empty:
             return None
@@ -264,21 +272,13 @@ class ThemeStatePrecomputedStore:
         if self._fundamentals_df is None or self._fundamentals_df.empty:
             return []
         frame = self._fundamentals_df
-        mask = (
-            (frame["level1_id"] == str(level1_id))
-            & (frame["level2_id"] == str(level2_id))
-            & (frame["level3_id"] == str(level3_id))
-            & (frame["market"] == str(market))
-        )
+        mask = (frame["level1_id"] == str(level1_id)) & (frame["level2_id"] == str(level2_id)) & (frame["level3_id"] == str(level3_id)) & (frame["market"] == str(market))
         subset = frame.loc[mask].copy()
         if subset.empty:
             return []
         if "report_period_key" in subset.columns:
             subset = subset.sort_values("report_period_key", ascending=False)
-        return [
-            {str(k): (None if pd.isna(v) else v) for k, v in row.items()}
-            for row in subset.to_dict(orient="records")
-        ]
+        return [{str(k): (None if pd.isna(v) else v) for k, v in row.items()} for row in subset.to_dict(orient="records")]
 
     def list_rotation(
         self,
@@ -296,15 +296,76 @@ class ThemeStatePrecomputedStore:
         day = frame[frame["trade_date"] == trade_date]
         day = day[day["row_status"].isin(["ok", "partial"])]
         if "rotation_rank" in day.columns and int((day["rotation_rank"] > 0).sum()) > 0:
-            scored = day[day["rotation_rank"] > 0].sort_values(
-                ["rotation_rank", "level3_id"], ascending=[True, True]
-            )
+            scored = day[day["rotation_rank"] > 0].sort_values(["rotation_rank", "level3_id"], ascending=[True, True])
             unscored = day[day["rotation_rank"] <= 0]
             if not unscored.empty and "rs_rank_5d" in unscored.columns:
                 unscored = unscored.sort_values(["rs_rank_5d", "level3_id"], ascending=[True, True])
             day = pd.concat([scored, unscored], ignore_index=True)
         elif "rs_rank_5d" in day.columns:
             day = day.sort_values(["rs_rank_5d", "level3_id"], ascending=[True, True])
+        else:
+            day = day.sort_values(["level3_id"], ascending=[True])
+        if limit > 0:
+            day = day.head(limit)
+        return [{str(k): (None if pd.isna(v) else v) for k, v in row.items()} for row in day.to_dict(orient="records")]
+
+    def get_health_radar(
+        self,
+        *,
+        level1_id: str,
+        level2_id: str,
+        level3_id: str,
+        market: str,
+        as_of: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._latest_keyed_row(
+            self._radar_df,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            market=market,
+            as_of=as_of,
+        )
+
+    def get_advice(
+        self,
+        *,
+        level1_id: str,
+        level2_id: str,
+        level3_id: str,
+        market: str,
+        as_of: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._latest_keyed_row(
+            self._advice_df,
+            level1_id=level1_id,
+            level2_id=level2_id,
+            level3_id=level3_id,
+            market=market,
+            as_of=as_of,
+        )
+
+    def list_advice_board(
+        self,
+        *,
+        market: str,
+        horizon: str = "short",
+        as_of: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        if self._advice_df is None or self._advice_df.empty:
+            return []
+        normalized_horizon = str(horizon).strip().lower()
+        if normalized_horizon not in {"short", "mid"}:
+            raise ValueError("horizon must be 'short' or 'mid'")
+        frame = self._advice_df[self._advice_df["market"] == str(market)]
+        if frame.empty:
+            return []
+        trade_date = as_of or str(frame["trade_date"].max())
+        day = frame[frame["trade_date"] == trade_date].copy()
+        rank_column = f"{normalized_horizon}_rank"
+        if rank_column in day.columns:
+            day = day.sort_values([rank_column, "level3_id"], ascending=[True, True])
         else:
             day = day.sort_values(["level3_id"], ascending=[True])
         if limit > 0:

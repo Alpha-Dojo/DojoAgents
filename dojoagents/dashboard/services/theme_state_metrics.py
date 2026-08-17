@@ -112,11 +112,7 @@ def rotation_score_frame(
     Rows missing any RS component receive NaN.
     """
     w5, w10, w20 = weights
-    blend = (
-        w5 * _zscore_series(relative_strength_5d)
-        + w10 * _zscore_series(relative_strength_10d)
-        + w20 * _zscore_series(relative_strength_20d)
-    )
+    blend = w5 * _zscore_series(relative_strength_5d) + w10 * _zscore_series(relative_strength_10d) + w20 * _zscore_series(relative_strength_20d)
     mult = breadth_score.map(breadth_confirmation_multiplier)
     return blend * mult
 
@@ -348,17 +344,11 @@ def select_report_period_key(
     ticker_quarters: Mapping[str, Mapping[str, Mapping[str, float]]],
 ) -> str | None:
     """Pick the natural quarter with best YoY coverage (not the newest fiscal label)."""
-    candidates = {
-        str(key)
-        for quarters in ticker_quarters.values()
-        for key in quarters.keys()
-    }
+    candidates = {str(key) for quarters in ticker_quarters.values() for key in quarters.keys()}
     if not candidates:
         return None
 
-    scored: list[tuple[int, str]] = [
-        (_revenue_pair_count(ticker_quarters, key), key) for key in candidates
-    ]
+    scored: list[tuple[int, str]] = [(_revenue_pair_count(ticker_quarters, key), key) for key in candidates]
     meeting = [(pairs, key) for pairs, key in scored if pairs >= MIN_ELIGIBLE_COUNT]
     pool = meeting if meeting else scored
     # Max pairs, then newest natural quarter key.
@@ -372,17 +362,11 @@ def list_report_period_keys(
     max_periods: int = 8,
 ) -> list[str]:
     """Return up to ``max_periods`` coverage-qualified quarter keys, newest-first."""
-    candidates = {
-        str(key)
-        for quarters in ticker_quarters.values()
-        for key in quarters.keys()
-    }
+    candidates = {str(key) for quarters in ticker_quarters.values() for key in quarters.keys()}
     if not candidates:
         return []
 
-    scored: list[tuple[int, str]] = [
-        (_revenue_pair_count(ticker_quarters, key), key) for key in candidates
-    ]
+    scored: list[tuple[int, str]] = [(_revenue_pair_count(ticker_quarters, key), key) for key in candidates]
     meeting = [(pairs, key) for pairs, key in scored if pairs >= MIN_ELIGIBLE_COUNT]
     pool = meeting if meeting else scored
     # Newest natural quarter first (string key sorts year:qN correctly for q1..q4).

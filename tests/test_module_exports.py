@@ -87,3 +87,21 @@ class TestPlanningExports:
             "StepType",
             "get_plan_tools",
         }
+
+
+class TestHarnessExports:
+    def test_formal_namespace_exports_core_contracts(self):
+        import dojoagents.harnesses as mod
+
+        assert set(mod.__all__) == {
+            "AgentHarness",
+            "HarnessBuildContext",
+            "HarnessBuilder",
+            "HarnessCapabilities",
+            "HarnessDescriptor",
+            "HarnessLoader",
+            "HarnessRuntime",
+            "HarnessRuntimeContext",
+            "HarnessSessionContext",
+            "HarnessTurnContext",
+        }

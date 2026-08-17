@@ -55,6 +55,22 @@ class TaxonomyTreeResponse(BaseModel):
     tree: List[TaxonomyL1Node] = Field(default_factory=list)
 
 
+class TaxonomyL3CatalogItem(BaseModel):
+    """Agent-facing flat L3 taxonomy row (monolingual)."""
+
+    sector_path_id: str = Field(..., description="Opaque L1/L2/L3 path, e.g. 153/160/161")
+    name: str = Field(..., description="L3 name in the requested locale")
+    description: str = Field("", description="L3 definition/description in the requested locale")
+
+
+class TaxonomyL3CatalogResponse(BaseModel):
+    """Agent-facing L3 catalog projected from the nested taxonomy tree."""
+
+    locale: Literal["zh", "en"] = "zh"
+    count: int = 0
+    items: List[TaxonomyL3CatalogItem] = Field(default_factory=list)
+
+
 class MarketStatsSnapshot(BaseModel):
     market: str
     listed_count: int
@@ -233,6 +249,37 @@ class MarketDynamicsResponse(BaseModel):
     has_more_before: bool = False
     has_more_after: bool = False
     trading_dates: List[str] = Field(default_factory=list)
+
+
+class SectorAttributionFactorEvidence(BaseModel):
+    quote: str
+    url: Optional[str] = None
+    title: Optional[str] = None
+
+
+class SectorAttributionFactorItem(BaseModel):
+    event_time: str
+    claim: str = ""
+    mechanism: str = ""
+    sector_id: str
+    market: str
+    factor_topic: str = ""
+    role: str = "explains_move"
+    price_direction: Optional[str] = None
+    importance: Optional[str] = None
+    stance: Optional[str] = None
+    affected_tickers: List[str] = Field(default_factory=list)
+    evidence: List[SectorAttributionFactorEvidence] = Field(default_factory=list)
+
+
+class SectorAttributionFactorsResponse(BaseModel):
+    market: str
+    sector_id: str
+    locale: Literal["zh", "en"] = "zh"
+    start_date: str
+    end_date: str
+    total_num: int = 0
+    items: List[SectorAttributionFactorItem] = Field(default_factory=list)
 
 
 class StockScreenItem(BaseModel):

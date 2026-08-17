@@ -1,13 +1,20 @@
 import json
+import re
 from typing import Any, Protocol, Callable
 from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
+_IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
 
 
 def _redact_provider_metadata(value: Any) -> Any:
+    if isinstance(value, str):
+        match = _IMAGE_DATA_URL_RE.match(value)
+        if match:
+            return f"[image-data mime={match.group(1).lower()} encoded_chars={len(match.group(2))}]"
+        return value
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -139,10 +146,18 @@ class StaticLLMProvider:
 class OpenAICompatibleProvider:
     name = "openai"
 
-    def __init__(self, *, api_key: str | None = None, base_url: str | None = None, author: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        author: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.author = author
+        self.extra_headers = dict(extra_headers or {})
 
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
@@ -155,11 +170,20 @@ class OpenAICompatibleProvider:
             return None
         prompt_i = int(prompt or 0)
         completion_i = int(completion or 0)
-        return {
+        result = {
             "prompt_tokens": prompt_i,
             "completion_tokens": completion_i,
             "total_tokens": int(total if total is not None else prompt_i + completion_i),
         }
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        cached_tokens = getattr(prompt_details, "cached_tokens", None)
+        if isinstance(cached_tokens, int):
+            result["cache_read_tokens"] = cached_tokens
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        reasoning_tokens = getattr(completion_details, "reasoning_tokens", None)
+        if isinstance(reasoning_tokens, int):
+            result["reasoning_tokens"] = reasoning_tokens
+        return result
 
     async def chat(
         self,
@@ -178,10 +202,15 @@ class OpenAICompatibleProvider:
             )
         from openai import AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            default_headers=self.extra_headers or None,
+        )
 
         actual_model = model
-        if self.name == "model-router" and self.author and not model.startswith(f"{self.author}/"):
+        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower()
+        if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
         try:
@@ -223,6 +252,10 @@ class OpenAICompatibleProvider:
             full_reasoning = []
             tool_calls_buffer: dict[int, dict[str, Any]] = {}
             stream_usage: dict[str, int] | None = None
+            event_sink = (metadata or {}).get("_dojo_event_sink")
+            reasoning_started = False
+            reasoning_ended = False
+            content_started = False
             async for chunk in response:
                 chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
                 if chunk_usage is not None:
@@ -236,8 +269,17 @@ class OpenAICompatibleProvider:
                 )
                 if reasoning_delta:
                     full_reasoning.append(reasoning_delta)
+                    if event_sink is not None and not content_started:
+                        if not reasoning_started:
+                            event_sink.thinking_start()
+                            reasoning_started = True
+                        event_sink.thinking_delta(reasoning_delta)
                 content_delta = delta.content or ""
                 if content_delta:
+                    if event_sink is not None and reasoning_started and not reasoning_ended:
+                        event_sink.thinking_end()
+                        reasoning_ended = True
+                    content_started = True
                     full_content.append(content_delta)
                     stream_callback(content_delta)
                 if delta.tool_calls:
@@ -253,6 +295,9 @@ class OpenAICompatibleProvider:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
                         tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
+            if event_sink is not None and reasoning_started and not reasoning_ended:
+                event_sink.thinking_end()
+                reasoning_ended = True
             final_tool_calls = []
             for idx, tc in sorted(tool_calls_buffer.items()):
                 args_dict = {}
@@ -265,6 +310,9 @@ class OpenAICompatibleProvider:
             metadata: dict[str, Any] = {
                 "provider": self.name,
                 "reasoning_content": "".join(full_reasoning),
+                # Prevent the Strands bridge from replaying final reasoning
+                # after streamed answer deltas.
+                "reasoning_streamed": bool(full_reasoning),
             }
             if stream_usage is not None:
                 metadata["usage"] = stream_usage
@@ -322,11 +370,13 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         api_key_env = config.get("api_key_env")
         base_url = config.get("base_url")
         model = config.get("model")
+        extra_headers = config.get("extra_headers") or {}
     else:
         api_key = getattr(config, "api_key", None)
         api_key_env = getattr(config, "api_key_env", None)
         base_url = getattr(config, "base_url", None)
         model = getattr(config, "model", None)
+        extra_headers = getattr(config, "extra_headers", {}) or {}
 
     if not api_key and api_key_env:
         api_key = os.getenv(api_key_env)
@@ -337,6 +387,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url,
+                "default_headers": extra_headers or None,
             },
             model_id=model or "gpt-4o",
         )
@@ -345,6 +396,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.deepseek.com",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "deepseek-chat",
         )
@@ -353,6 +405,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "qwen-max",
         )
@@ -361,6 +414,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.moonshot.cn/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "moonshot-v1-8k",
         )
@@ -369,6 +423,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "glm-4",
         )
@@ -377,6 +432,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
             client_args={
                 "api_key": api_key,
                 "base_url": base_url or "https://api.minimax.chat/v1",
+                "default_headers": extra_headers or None,
             },
             model_id=model or "abab6.5-chat",
         )

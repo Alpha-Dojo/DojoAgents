@@ -5,7 +5,7 @@ import pytest
 from dojoagents.agent.models import ToolCall
 from dojoagents.dashboard.services import domain_api
 from dojoagents.dashboard.services.sector_store import SectorStore
-from dojoagents.dashboard.tools import domain_tools
+from dojoagents.dashboard.integrations import financial_domain_tools as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
@@ -48,13 +48,35 @@ def test_resolve_sector_path_accepts_taxonomy_ids(sector_registry) -> None:
 def test_resolve_sector_path_rejects_guessed_numeric_path_id(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError) as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="1/12/120")
+    assert exc.value.code == domain_api.SECTOR_PATH_REJECTED_INDEX_GUESS
     assert "Rejected guessed sector_path_id" in str(exc.value)
     assert "1/12/120" in str(exc.value)
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
-def test_build_sector_taxonomy_search_usage_forbids_constructing_ids(sector_registry) -> None:
+def test_build_sector_taxonomy_search_returns_facts_without_playbook(sector_registry) -> None:
     payload = domain_api.build_sector_taxonomy_search(sector_registry, query="软件")
-    assert "do NOT construct sector_path_id" in payload["usage"]
+    assert "do not construct ids" in payload["id_note"]
+    assert "usage" not in payload
+    assert "id_resolution" not in payload
+    first = payload["items"][0]
+    assert "next_call" not in first
+    assert "scope_hint" not in first
+    assert "get_sector_analysis_example" not in first
+    assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
+
+
+def test_build_sector_taxonomy_search_by_sector_path_id(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(
+        sector_registry,
+        sector_path_id="1/2/3",
+        query="ignored",
+    )
+    assert payload["count"] == 1
+    best = payload["best_match"]
+    assert best["sector_path_id"] == "1/2/3"
+    assert best["level3_name_en"] == "Application Software"
+    assert best["match_score"] == 100
 
 
 def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
@@ -65,10 +87,12 @@ def test_resolve_sector_path_rejects_unknown_ids(sector_registry) -> None:
             level2_id="9",
             level3_id="9",
         )
+    assert exc.value.code == domain_api.SECTOR_PATH_REJECTED_INDEX_GUESS
     assert "Rejected guessed sector path" in str(exc.value)
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
-def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
         sector_name="应用软件",
@@ -76,10 +100,10 @@ def test_resolve_sector_path_accepts_level3_name(sector_registry) -> None:
     assert path.level3_id == "3"
 
 
-def test_resolve_sector_path_accepts_english_level3_name(sector_registry) -> None:
+def test_resolve_sector_path_accepts_english_sector_name(sector_registry) -> None:
     path = domain_api.resolve_sector_path(
         sector_registry,
-        level3_name="Application Software",
+        sector_name="Application Software",
     )
     assert path.level2_id == "2"
 
@@ -90,17 +114,50 @@ def test_build_sector_taxonomy_search_returns_filter_examples(sector_registry) -
     first = payload["items"][0]
     assert first["level1_id"]
     assert first["sector_path_id"] == f"{first['level1_id']}/{first['level2_id']}/{first['level3_id']}"
-    assert first["next_call"]["arguments"]["level3_id"] == first["level3_id"]
+    assert "next_call" not in first
     assert payload["best_match"]["level3_id"] == first["level3_id"]
     assert first["match_score"] >= 1
 
     payload = domain_api.build_taxonomy_tree(sector_registry)
     assert payload.get("example_l3_paths")
-    assert payload.get("filter_sector_constituents_example")
+    assert "playbook" not in payload
+    assert "filter_sector_constituents_example" not in payload
+    assert "opaque" in payload["id_note"]
     first = payload["example_l3_paths"][0]
     assert first["level1_id"] == "1"
     assert first["level2_id"] == "2"
     assert first["level3_id"] == "3"
+
+
+def test_build_sector_taxonomy_search_appends_l3_options_for_hit_l2s(sector_registry) -> None:
+    payload = domain_api.build_sector_taxonomy_search(sector_registry, query="软件")
+    items = payload["items"]
+    assert items
+    options = payload["l3_options"]
+    assert options
+
+    hit_paths = {item["sector_path_id"] for item in items}
+    option_paths = {row["sector_path_id"] for row in options}
+    assert hit_paths.issubset(option_paths)
+
+    for item in items:
+        l1, l2, _l3 = item["sector_path_id"].split("/", 2)
+        siblings = [
+            path
+            for path in sector_registry.sector_store.iter_resolved_paths()
+            if path.level1_id == l1 and path.level2_id == l2
+        ]
+        for path in siblings:
+            sid = f"{path.level1_id}/{path.level2_id}/{path.level3_id}"
+            assert sid in option_paths
+
+    for row in options:
+        assert set(row) >= {"sector_path_id", "name_zh", "name_en", "level2_name_zh", "level2_name_en", "hit"}
+        assert row["hit"] is (row["sector_path_id"] in hit_paths)
+
+    # Ranked hit list unchanged relative to best_match.
+    assert payload["best_match"]["sector_path_id"] == items[0]["sector_path_id"]
+    assert payload["count"] == len(items)
 
 
 def test_resolve_sector_path_accepts_sector_path_id(sector_registry) -> None:
@@ -109,14 +166,18 @@ def test_resolve_sector_path_accepts_sector_path_id(sector_registry) -> None:
 
 
 def test_resolve_sector_path_rejects_invalid_sector_path_id(sector_registry) -> None:
-    with pytest.raises(domain_api.SectorPathResolutionError, match="Invalid sector_path_id"):
+    with pytest.raises(domain_api.SectorPathResolutionError, match="Invalid sector_path_id") as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="bad-format")
+    assert exc.value.code == domain_api.SECTOR_PATH_INVALID_FORMAT
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
 def test_resolve_sector_path_rejects_two_segment_sector_path_id(sector_registry) -> None:
     with pytest.raises(domain_api.SectorPathResolutionError, match="three segments") as exc:
         domain_api.resolve_sector_path(sector_registry, sector_path_id="1/2")
+    assert exc.value.code == domain_api.SECTOR_PATH_INVALID_FORMAT
     assert "scope=L2" in str(exc.value)
+    assert "search_sector_taxonomy" not in str(exc.value)
 
 
 def test_resolve_sector_path_accepts_level1_level2_anchor(sector_registry) -> None:
@@ -131,18 +192,73 @@ def test_resolve_sector_path_accepts_level1_level2_anchor(sector_registry) -> No
 
 
 def test_resolve_sector_path_rejects_unknown_level1_level2_pair(sector_registry) -> None:
-    with pytest.raises(domain_api.SectorPathResolutionError, match="unknown sector path: 9/9"):
+    with pytest.raises(domain_api.SectorPathResolutionError, match="unknown sector path: 9/9") as exc:
         domain_api.resolve_sector_path(
             sector_registry,
             level1_id="9",
             level2_id="9",
         )
+    assert exc.value.code == domain_api.SECTOR_PATH_UNKNOWN
+    assert "Call search_sector_taxonomy" not in str(exc.value)
 
 
 def test_expand_sector_search_queries_includes_synonyms() -> None:
-    expanded = domain_api._expand_sector_search_queries("具身智能")
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("具身智能")
     assert "机器人" in expanded
     assert "robotics" in expanded
+    # domain_api keeps a thin alias for older imports
+    assert domain_api._expand_sector_search_queries("具身智能") == expanded
+
+
+def test_expand_sector_search_queries_does_not_treat_airlines_as_ai() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("航空 airlines 航空运输")
+    assert "航空运输" in expanded
+    assert "airlines" in expanded
+    assert "ai" not in {item.lower() for item in expanded}
+    assert "人工智能" not in expanded
+
+
+def test_expand_sector_search_queries_still_expands_standalone_ai() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import expand_sector_search_queries
+
+    expanded = expand_sector_search_queries("ai")
+    assert "人工智能" in expanded
+    assert "artificial intelligence" in expanded
+
+
+def test_term_appears_in_rejects_ai_substring_inside_airlines() -> None:
+    from dojoagents.dashboard.services.sector_search_policy import match_label_score, term_appears_in
+
+    assert term_appears_in("ai", "airlines") is False
+    assert term_appears_in("ai", "Air Transport") is False
+    assert term_appears_in("ai", "AI Foundation Models") is True
+    assert match_label_score("ai", "Air Transport") == 0
+    assert match_label_score("ai", "AI Foundation Models and Agent Services") > 0
+    assert match_label_score("航空运输", "航空运输") == 100
+
+
+def test_tool_layer_translates_sector_path_errors(sector_registry) -> None:
+    import asyncio
+
+    registry = ToolRegistry()
+    domain_tools.register_dashboard_domain_tools(registry, sector_registry)
+    spec = registry.get("filter_sector_constituents")
+    assert spec is not None
+
+    with pytest.raises(RuntimeError, match="Call search_sector_taxonomy") as exc:
+        asyncio.run(
+            spec.handler(
+                {
+                    "sector_path_id": "1/12/120",
+                    "market": "us",
+                }
+            )
+        )
+    assert "Rejected guessed sector_path_id" in str(exc.value)
 
 
 def test_enrich_indicator_valuation_merges_quote_pe_pb() -> None:
@@ -173,9 +289,6 @@ def test_reject_guessed_sector_ids_before_api_call(sector_registry) -> None:
 
 @pytest.mark.asyncio
 async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> None:
-    async def fake_analysis(registry, path, *, scope):
-        return {"scope": scope, "level3_id": path.level3_id}
-
     async def fake_constituents(registry, **kwargs):
         path = domain_api.resolve_sector_path(
             registry,
@@ -183,29 +296,15 @@ async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> Non
             level2_id=str(kwargs.get("level2_id") or ""),
             level3_id=str(kwargs.get("level3_id") or ""),
             sector_name=kwargs.get("sector_name"),
-            level1_name=kwargs.get("level1_name"),
-            level2_name=kwargs.get("level2_name"),
-            level3_name=kwargs.get("level3_name"),
             market=kwargs.get("market"),
         )
         return {"count": 1, "level3_id": path.level3_id, "items": []}
 
-    monkeypatch.setattr(domain_tools, "build_sector_analysis", fake_analysis)
     monkeypatch.setattr(domain_tools, "build_sector_constituents_v1", fake_constituents)
 
     registry = ToolRegistry()
     domain_tools.register_dashboard_domain_tools(registry, sector_registry)
     executor = ToolExecutor(registry, SandboxPolicy(timeout_seconds=5))
-
-    analysis = await executor.execute_one(
-        ToolCall(
-            id="a1",
-            name="get_sector_analysis",
-            arguments={"sector_name": "应用软件"},
-        )
-    )
-    assert analysis.ok is True
-    assert analysis.data["level3_id"] == "3"
 
     constituents = await executor.execute_one(
         ToolCall(

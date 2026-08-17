@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date
-from typing import Any, Optional
+from typing import Any
 
-from dojoagents.agent.escalation import AgentEscalationError
-from dojoagents.agent.harnesses.portfolio_eval import _position_rows_from_detail
-from dojoagents.agent.harnesses.portfolio_task_intent import is_liquidation_intent
+from dojoagents.tools.escalation import AgentEscalationError
+from dojoagents.dashboard.services.portfolio_eval import (
+    _position_rows_from_detail,
+)
+from dojoagents.dashboard.services.portfolio_intent import (
+    is_liquidation_intent,
+)
 from dojoagents.dashboard.schemas.portfolio import CreatePortfolioOrderRequest, ResolvedOrderBar
 from dojoagents.dashboard.services.ticker_symbol_resolution import resolve_ticker_symbol
 from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, price_within_daily_range
@@ -77,11 +80,7 @@ def _row_dict(row: Any) -> dict[str, Any]:
         return row
     if hasattr(row, "model_dump"):
         return row.model_dump()
-    return {
-        key: getattr(row, key)
-        for key in ("bar_time", "datetime", "date", "open", "high", "low", "close")
-        if hasattr(row, key)
-    }
+    return {key: getattr(row, key) for key in ("bar_time", "datetime", "date", "open", "high", "low", "close") if hasattr(row, key)}
 
 
 def _bar_payload(row: Any) -> dict[str, float] | None:
@@ -118,11 +117,7 @@ def _latest_bar(bars: list[dict[str, float]]) -> dict[str, float] | None:
 
 
 def _find_bar_for_price(bars: list[dict[str, float]], price: float) -> dict[str, float] | None:
-    matches = [
-        bar
-        for bar in bars
-        if price_within_daily_range(price, float(bar["low"]), float(bar["high"]))
-    ]
+    matches = [bar for bar in bars if price_within_daily_range(price, float(bar["low"]), float(bar["high"]))]
     if not matches:
         return None
     return matches[-1]
@@ -260,10 +255,7 @@ def _resolve_sell_quantity(
 
     _raise_escalation(
         "sell_qty_unspecified",
-        (
-            f"Sell quantity not specified for {canonical_ticker}. "
-            "Ask the user what portion to sell before placing the order."
-        ),
+        (f"Sell quantity not specified for {canonical_ticker}. " "Ask the user what portion to sell before placing the order."),
         context={
             "ticker": canonical_ticker,
             "market": internal_market,
@@ -344,10 +336,7 @@ def _resolve_price_and_time(
         if not price_within_daily_range(price, low, high):
             _raise_escalation(
                 "price_not_fillable",
-                (
-                    f"limit price {price:.4f} is outside the {order_time} range "
-                    f"[{low:.4f}, {high:.4f}] (open {bar['open']:.4f})"
-                ),
+                (f"limit price {price:.4f} is outside the {order_time} range " f"[{low:.4f}, {high:.4f}] (open {bar['open']:.4f})"),
                 context={
                     "ticker": ticker,
                     "date": order_time,
@@ -396,9 +385,7 @@ def _resolve_price_and_time(
             meta.bar_high = float(latest["high"])
             meta.bar_open = float(latest["open"])
             meta.bar_close = float(latest["close"])
-            meta.notes.append(
-                f"Matched limit price to the latest trading day {latest['date']} (current-price semantics)."
-            )
+            meta.notes.append(f"Matched limit price to the latest trading day {latest['date']} (current-price semantics).")
             return price, latest["date"], meta
 
         bar = _find_bar_for_price(bars, price)
@@ -414,10 +401,7 @@ def _resolve_price_and_time(
                 )
             _raise_escalation(
                 "price_not_fillable",
-                (
-                    f"no trading day found where {ticker} traded between the limit price "
-                    f"{price:.4f} and daily high/low"
-                ),
+                (f"no trading day found where {ticker} traded between the limit price " f"{price:.4f} and daily high/low"),
                 context=context,
             )
         meta.price_source = "user"
@@ -551,10 +535,7 @@ async def resolve_portfolio_order_request(
         if resolved_qty <= 0:
             _raise_escalation(
                 "invalid_order_quantity",
-                (
-                    f"default 10% position size for {canonical_ticker} is below the minimum tradable lot "
-                    f"for market {internal_market}"
-                ),
+                (f"default 10% position size for {canonical_ticker} is below the minimum tradable lot " f"for market {internal_market}"),
                 context={
                     "ticker": canonical_ticker,
                     "market": internal_market,
@@ -564,9 +545,7 @@ async def resolve_portfolio_order_request(
                 },
             )
         meta.qty_source = "default_10pct"
-        meta.notes.append(
-            f"Defaulted quantity to {resolved_qty:.0f} shares ({DEFAULT_POSITION_PCT:.0%} of available cash)."
-        )
+        meta.notes.append(f"Defaulted quantity to {resolved_qty:.0f} shares ({DEFAULT_POSITION_PCT:.0%} of available cash).")
     else:
         from dojoagents.tools.process_registry import active_user_message
 

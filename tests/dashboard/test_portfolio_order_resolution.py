@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dojoagents.agent.escalation import AgentEscalationError
+from dojoagents.tools.escalation import AgentEscalationError
 from dojoagents.dashboard.services.portfolio_allocation import normalize_shares
 from dojoagents.dashboard.schemas.portfolio import PortfolioCapitalConfig, PortfolioDetail, PortfolioPositionView
 from dojoagents.dashboard.services.portfolio_order_resolution import (
@@ -429,4 +429,3 @@ async def test_resolve_sell_uses_qty_pct_when_provided() -> None:
 
     assert body.qty == 500.0
     assert meta.qty_source == "qty_pct"
-

@@ -240,8 +240,19 @@ export function formatToolArguments(
       }
       return bits.length > 0 ? bits.join(' · ') : null;
     }
-    case 'filter_sector_constituents':
-      return market ? `${locale === 'zh' ? '市场' : 'Market'} ${market}` : null;
+    case 'filter_sector_constituents': {
+      const pathId =
+        (typeof args.sector_path_id === 'string' && args.sector_path_id.trim()) ||
+        [args.level1_id, args.level2_id, args.level3_id]
+          .map((part) => (typeof part === 'string' ? part.trim() : ''))
+          .filter(Boolean)
+          .join('/') ||
+        null;
+      const bits: string[] = [];
+      if (pathId) bits.push(pathId);
+      if (market) bits.push(`${locale === 'zh' ? '市场' : 'Market'} ${market}`);
+      return bits.length > 0 ? bits.join(' · ') : null;
+    }
     case 'screen_market_stocks': {
       const bits: string[] = [];
       if (market) bits.push(market);

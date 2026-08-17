@@ -216,11 +216,18 @@ def _extract_usage(payload: dict[str, Any]) -> dict[str, int] | None:
         return None
     prompt_i = int(prompt or 0)
     completion_i = int(completion or 0)
-    return {
+    result = {
         "prompt_tokens": prompt_i,
         "completion_tokens": completion_i,
         "total_tokens": int(total if isinstance(total, int) else prompt_i + completion_i),
     }
+    cached = usage.get("cachedContentTokenCount")
+    if isinstance(cached, int):
+        result["cache_read_tokens"] = cached
+    reasoning = usage.get("thoughtsTokenCount")
+    if isinstance(reasoning, int):
+        result["reasoning_tokens"] = reasoning
+    return result
 
 
 def _iter_candidate_parts(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -491,9 +498,17 @@ def _parse_response_payload(
 class GeminiNativeProvider:
     name = "gemini"
 
-    def __init__(self, *, api_key: str | None = None, api_key_env: str | None = None, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        api_key_env: str | None = None,
+        base_url: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.api_key = api_key or (os.getenv(api_key_env) if api_key_env else None)
         self.base_url = _normalize_base_url(base_url)
+        self.extra_headers = dict(extra_headers or {})
 
     async def chat(
         self,
@@ -539,7 +554,7 @@ class GeminiNativeProvider:
         event_sink = invocation_state.get("_dojo_event_sink")
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=120.0, headers=self.extra_headers) as client:
                 allow_streaming = stream and not tools
                 if stream and tools:
                     LOGGER.info(

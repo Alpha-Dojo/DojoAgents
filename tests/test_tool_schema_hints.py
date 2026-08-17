@@ -3,18 +3,26 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import BaseModel, Field
 
-from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message, get_tool_artifact_schema_hint
-from dojoagents.agent.tool_schema_hints import (
+from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+    build_financial_artifact_pointer as build_artifact_pointer_message,
+)
+from dojoagents.harnesses.built_in.financial.presenters.schema_hints import (
     TOOL_NAME_ALIASES,
-    infer_schema_hint_from_model,
+    _deep_merge_dicts,
+    _merge_hints,
+    get_schema_hint_registry,
     get_tool_schema_hint,
+    infer_schema_hint_from_model,
+    register_financial_response_models,
 )
 from dojoagents.dashboard.schemas.domain_api import (
     MarketOverviewResponse,
     SectorMoversResponse,
     StockScreenResponse,
-    TickerFinancialsResponseV1,
+    TaxonomyL3CatalogResponse,
+    TaxonomyTreeResponse,
     TickerPriceTrendsResponseV1,
 )
 from dojoagents.tools.dojo_tools_runtime import (
@@ -23,7 +31,6 @@ from dojoagents.tools.dojo_tools_runtime import (
     tool_pick,
     tool_table,
 )
-from dojoagents.tools.dojo_tools_stub import build_dojo_tools_stub_code
 
 
 def test_market_overview_hint_exposes_table_specs() -> None:
@@ -65,11 +72,13 @@ def test_tabular_tools_get_table_spec() -> None:
     assert "datetime" in kline_hint["row_fields"]
 
 
-def test_alias_resolves_kline_tool() -> None:
-    assert TOOL_NAME_ALIASES["dojo.sdk.stock.kline"] == "get_ticker_price_trends"
+def test_raw_dojo_sdk_kline_uses_data_contract() -> None:
+    assert "dojo.sdk.stock.kline" not in TOOL_NAME_ALIASES
     hint = get_tool_schema_hint("dojo.sdk.stock.kline")
     assert hint is not None
-    assert hint["default_table"] == "klines"
+    assert hint["default_table"] == "data"
+    assert hint["tables"]["data"]["path"] == "data"
+    assert "klines" not in hint["tables"]
 
 
 def test_financials_table_tries_items_then_indicators() -> None:
@@ -283,3 +292,120 @@ def test_tool_df_uses_per_table_row_fields_for_market_overview() -> None:
     subset = tool_pick(df_bench, ["symbol", "name_zh", "price", "change_percent"])
     assert subset.iloc[0]["name_zh"] == "上证指数"
     assert subset.iloc[0]["symbol"] == "000001.SH"
+
+
+def test_registry_binds_response_models() -> None:
+    register_financial_response_models()
+    registry = get_schema_hint_registry()
+    assert registry.get_model("get_taxonomy_tree") is TaxonomyL3CatalogResponse
+    assert registry.get_model("get_market_overview") is MarketOverviewResponse
+
+
+def test_taxonomy_tree_hint_is_flat_l3_catalog() -> None:
+    hint = get_tool_schema_hint("get_taxonomy_tree")
+    assert hint is not None
+    assert hint["shape"] == "tabular"
+    assert hint["default_table"] == "items"
+    assert "items" in hint["tables"]
+    assert "sector_path_id" in hint["usage_notes"]
+    assert "tool_print" in hint["pandas_example"]
+
+
+def test_infer_taxonomy_tree_from_model() -> None:
+    hint = infer_schema_hint_from_model(TaxonomyTreeResponse)
+    assert hint["shape"] == "tree"
+    assert hint["tree_key"] == "tree"
+
+
+def test_infer_taxonomy_l3_catalog_from_model() -> None:
+    hint = infer_schema_hint_from_model(TaxonomyL3CatalogResponse)
+    assert hint["default_table"] == "items"
+    assert "items" in hint["tables"]
+    assert "sector_path_id" in hint["tables"]["items"]["row_fields"]
+
+
+def test_infer_keeps_list_and_dict_tables() -> None:
+    class Row(BaseModel):
+        ticker: str
+
+    class Mixed(BaseModel):
+        items: list[Row] = Field(default_factory=list)
+        markets: dict[str, Row] = Field(default_factory=dict)
+
+    hint = infer_schema_hint_from_model(Mixed)
+    assert "items" in hint["tables"]
+    assert "markets" in hint["tables"]
+    assert hint["default_table"] == "items"
+
+
+def test_deep_merge_dicts_replaces_lists() -> None:
+    base = {"row_fields": ["a", "b"], "type": "list", "path": "items"}
+    override = {"row_fields": ["a"]}
+    merged = _deep_merge_dicts(base, override)
+    assert merged["type"] == "list"
+    assert merged["path"] == "items"
+    assert merged["row_fields"] == ["a"]
+
+
+def test_merge_hints_deep_merges_table_specs() -> None:
+    base = {
+        "shape": "tabular",
+        "default_table": "items",
+        "tables": {
+            "items": {
+                "type": "list",
+                "path": "items",
+                "expand_bilingual": ["name"],
+                "row_fields": ["ticker", "name_zh", "pe"],
+            }
+        },
+    }
+    override = {"tables": {"items": {"row_fields": ["ticker"]}}}
+    merged = _merge_hints(base, override)
+    assert merged["tables"]["items"]["type"] == "list"
+    assert merged["tables"]["items"]["path"] == "items"
+    assert merged["tables"]["items"]["expand_bilingual"] == ["name"]
+    assert merged["tables"]["items"]["row_fields"] == ["ticker"]
+
+
+def test_infer_marks_bare_dict_as_untyped() -> None:
+    class Loose(BaseModel):
+        meta: dict
+        items: list[dict] = []
+
+    hint = infer_schema_hint_from_model(Loose)
+    assert "meta" in hint.get("untyped_fields", [])
+
+
+def test_infer_tree_with_bare_children_list() -> None:
+    class Node(BaseModel):
+        id: str
+        children: list = []
+
+    class Tree(BaseModel):
+        tree: list[Node] = Field(default_factory=list)
+
+    hint = infer_schema_hint_from_model(Tree)
+    assert hint["shape"] == "tree"
+    assert hint["tree_key"] == "tree"
+
+
+def test_get_tool_schema_hint_returns_isolated_copy() -> None:
+    first = get_tool_schema_hint("get_market_overview")
+    assert first is not None
+    first["tables"]["markets"]["row_fields"] = ["mutated"]
+    first["usage_notes"] = "mutated"
+
+    second = get_tool_schema_hint("get_market_overview")
+    assert second is not None
+    assert second["tables"]["markets"]["row_fields"] != ["mutated"]
+    assert second["usage_notes"] != "mutated"
+
+
+def test_static_catalog_no_longer_duplicates_registry_tools() -> None:
+    from dojoagents.harnesses.built_in.financial.presenters.schema_hints import STATIC_TOOL_SCHEMA_HINTS
+
+    register_financial_response_models()
+    registered = {name for name, _ in get_schema_hint_registry().items()}
+    overlap = registered.intersection(STATIC_TOOL_SCHEMA_HINTS)
+    assert not overlap

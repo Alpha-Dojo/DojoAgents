@@ -152,8 +152,12 @@ class SamplingHandler:
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
+                extra_headers=provider_cfg.extra_headers,
             )
             model = provider_cfg.model or ""
+        from dojoagents.agent.usage import ensure_metered_provider
+
+        provider = ensure_metered_provider(provider)
 
         messages = []
         for msg in params.messages:
@@ -180,11 +184,14 @@ class SamplingHandler:
                     }
                 )
 
-        llm_result = await provider.chat(
-            messages=messages,
-            tools=tools_list,
-            model=model,
-        )
+        from dojoagents.agent.usage import usage_scope
+
+        with usage_scope("tool_internal", "tool_internal.mcp"):
+            llm_result = await provider.chat(
+                messages=messages,
+                tools=tools_list,
+                model=model,
+            )
 
         if llm_result.tool_calls:
             content_blocks = []

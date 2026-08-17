@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dojoagents.agent.harnesses.portfolio_eval import (
+from dojoagents.harnesses.built_in.financial.policies.legacy.portfolio_eval import (
     PortfolioEvalSubmission,
     eval_summary_from_detail,
     parse_eval_submission,

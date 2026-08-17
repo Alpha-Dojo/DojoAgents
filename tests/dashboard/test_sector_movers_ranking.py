@@ -20,16 +20,22 @@ def test_sector_eligible_requires_multi_member_basket() -> None:
 
 
 def test_sector_eligible_respects_total_market_cap_floor() -> None:
-    assert sector_eligible_for_movers_ranking(
-        member_count=5,
-        total_market_cap=50.0,
-        min_total_market_cap=100.0,
-    ) is False
-    assert sector_eligible_for_movers_ranking(
-        member_count=5,
-        total_market_cap=150.0,
-        min_total_market_cap=100.0,
-    ) is True
+    assert (
+        sector_eligible_for_movers_ranking(
+            member_count=5,
+            total_market_cap=50.0,
+            min_total_market_cap=100.0,
+        )
+        is False
+    )
+    assert (
+        sector_eligible_for_movers_ranking(
+            member_count=5,
+            total_market_cap=150.0,
+            min_total_market_cap=100.0,
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(

@@ -36,18 +36,7 @@ def _block_char_count(part: Any) -> int:
         rc = part["reasoningContent"]
         return len(str(rc.get("reasoningText", {}).get("text", "")))
     if "image" in part:
-        image = part.get("image")
-        if isinstance(image, dict):
-            source = image.get("source")
-            if isinstance(source, dict):
-                raw_bytes = source.get("bytes")
-                if isinstance(raw_bytes, (bytes, bytearray)):
-                    return len(raw_bytes)
-                if isinstance(raw_bytes, str):
-                    return len(raw_bytes)
-                location = source.get("location")
-                if isinstance(location, dict) and str(location.get("type") or "").strip():
-                    return len(str(location["type"]))
+        # Image bytes/base64 length is unrelated to billed vision tokens.
         return 4096
     return len(json.dumps(part, ensure_ascii=False))
 
@@ -348,11 +337,17 @@ class ContextCompressor:
                 middle_prompt += f"Tool Calls: {json.dumps(tcs)}\n"
 
         try:
-            summary_result = await llm_provider.chat(
-                messages=[{"role": "user", "content": middle_prompt}],
-                tools=[],
-                model=model,
-            )
+            from dojoagents.agent.usage import usage_scope
+
+            with usage_scope(
+                "context_compression",
+                "context_compression.session_summary",
+            ):
+                summary_result = await llm_provider.chat(
+                    messages=[{"role": "user", "content": middle_prompt}],
+                    tools=[],
+                    model=model,
+                )
             content = summary_result.content
             if "[LONG-TERM FACTS]" in content:
                 parts = content.split("[LONG-TERM FACTS]")

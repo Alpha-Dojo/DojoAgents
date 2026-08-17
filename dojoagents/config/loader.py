@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import copy
+import logging
 import os
 import re
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from dojoagents.config.models import (
     FinancialDashboardConfig,
     DojoExtensionsConfig,
     GatewayConfig,
+    HarnessConfig,
     LLMConfig,
     LLMProviderConfig,
     LoggingConfig,
@@ -31,11 +33,14 @@ from dojoagents.config.models import (
     WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
+    SessionRuntimeConfig,
     SessionsConfig,
+    StoreProviderConfig,
     TasksConfig,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_LOGGER = logging.getLogger("dojoagents")
 _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
@@ -50,6 +55,17 @@ _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "minimax": "minimax",
     "openrouter": "",
 }
+
+
+def load_yaml_mapping(path: str | Path) -> dict[str, Any]:
+    """Load a YAML mapping through the repository's shared config boundary."""
+
+    config_path = Path(path).expanduser()
+    with config_path.open("r", encoding="utf-8") as handle:
+        value = yaml.safe_load(handle) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"configuration must be a mapping: {config_path}")
+    return _expand_env(value)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -102,14 +118,45 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
     raw_model = _as_non_empty_string(raw.get("model"))
+    raw_models = raw.get("models", [])
+    if raw_models is None:
+        raw_models = []
+    if not isinstance(raw_models, (list, tuple)):
+        raise ValueError(f"llm_provider.providers.{name}.models must be a list")
+    models: list[str] = []
+    for index, value in enumerate(raw_models):
+        model = _as_non_empty_string(value)
+        if model is None:
+            raise ValueError(f"llm_provider.providers.{name}.models.{index} must be a " "non-empty string")
+        if model not in models:
+            models.append(model)
+    if raw_model is None and models:
+        raw_model = models[0]
+    elif raw_model is not None and raw_model not in models:
+        models.insert(0, raw_model)
     parsed_author, parsed_model = _split_author_and_model(raw_model)
     author = _as_non_empty_string(raw.get("author")) or parsed_author or _DEFAULT_PROVIDER_AUTHORS.get(name, "")
+    raw_extra_headers = raw.get("extra_headers", {})
+    if raw_extra_headers is None:
+        raw_extra_headers = {}
+    if not isinstance(raw_extra_headers, dict):
+        raise ValueError(f"llm_provider.providers.{name}.extra_headers must be a mapping")
+    extra_headers: dict[str, str] = {}
+    for raw_header_name, raw_header_value in raw_extra_headers.items():
+        header_name = _as_non_empty_string(raw_header_name)
+        if header_name is None:
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers keys must be non-empty strings")
+        if not isinstance(raw_header_value, str):
+            raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
+        extra_headers[header_name] = raw_header_value
     return LLMProviderConfig(
         model=parsed_model,
+        models=tuple(models),
         author=author or None,
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
     )
 
@@ -125,18 +172,81 @@ def _resolve_optional_api_key(raw: dict[str, Any]) -> str | None:
     return text or None
 
 
-def resolve_provider_config(llm: LLMConfig, requested_name: str | None = None) -> tuple[str | None, LLMProviderConfig | None]:
+def provider_model_candidates(provider: LLMProviderConfig) -> tuple[str, ...]:
+    if provider.models:
+        return provider.models
+    return (provider.model,) if provider.model else ()
+
+
+def _provider_for_model(
+    provider: LLMProviderConfig,
+    model: str,
+) -> LLMProviderConfig:
+    author, slug = _split_author_and_model(model)
+    return replace(
+        provider,
+        model=slug,
+        author=author or provider.author,
+    )
+
+
+def resolve_provider_config(
+    llm: LLMConfig,
+    requested_name: str | None = None,
+) -> tuple[str | None, LLMProviderConfig | None]:
     if not llm.providers:
         return None, None
-    if requested_name and requested_name in llm.providers:
-        return requested_name, llm.providers[requested_name]
+    requested = requested_name.strip() if isinstance(requested_name, str) else ""
+    if requested and requested in llm.providers:
+        return requested, llm.providers[requested]
+    if ":" in requested:
+        provider_name, model = requested.split(":", 1)
+        provider = llm.providers.get(provider_name)
+        if provider is not None:
+            if model in provider_model_candidates(provider):
+                return provider_name, _provider_for_model(provider, model)
+            raise ValueError(f"Model {model!r} is not configured for provider " f"{provider_name!r}")
+    if requested and requested != "default":
+        matches = [(name, provider, model) for name, provider in llm.providers.items() for model in provider_model_candidates(provider) if model == requested]
+        if len(matches) == 1:
+            name, provider, model = matches[0]
+            return name, _provider_for_model(provider, model)
     name = llm.default if isinstance(llm.default, str) and llm.default in llm.providers else None
     if name is None:
         name = next(iter(llm.providers))
     return name, llm.providers[name]
 
 
-def _to_config(raw: dict[str, Any]) -> AgentsConfig:
+def _reject_unknown_keys(raw: dict[str, Any], allowed: set[str], section: str) -> None:
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValueError(f"{section} contains unknown keys: {', '.join(unknown)}")
+
+
+def _resolve_path(value: str, base_dir: Path | None) -> str:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return str(path.resolve())
+    if base_dir is None:
+        return str(path)
+    return str((base_dir / path).resolve())
+
+
+def _store_provider_config(raw: dict[str, Any], *, section: str) -> StoreProviderConfig:
+    _reject_unknown_keys(raw, {"provider", "factory", "options"}, section)
+    provider = str(raw.get("provider", "file"))
+    factory = raw.get("factory")
+    if factory is not None:
+        factory = str(factory)
+    options = raw.get("options", {})
+    if not isinstance(options, dict):
+        raise ValueError(f"{section}.options must be a mapping")
+    if provider != "file" and not factory:
+        raise ValueError(f"{section}.factory is required for provider {provider!r}")
+    return StoreProviderConfig(provider=provider, factory=factory, options=dict(options))
+
+
+def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw: dict[str, Any] | None = None) -> AgentsConfig:
     providers = {name: _provider_config(name, value or {}) for name, value in raw.get("llm_provider", {}).get("providers", {}).items()}
     llm = LLMConfig(
         default=raw.get("llm_provider", {}).get("default"),
@@ -204,8 +314,99 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
     planning_raw = raw.get("planning", {})
+    harness_raw = raw.get("harness", {})
     sessions_raw = raw.get("sessions", {})
     tasks_raw = raw.get("tasks", {})
+
+    if not isinstance(harness_raw, dict):
+        raise ValueError("harness must be a mapping")
+    _reject_unknown_keys(
+        harness_raw,
+        {"id", "factory", "manifest", "config", "extra_skill_dirs", "extra_tool_dirs"},
+        "harness",
+    )
+    harness_factory = harness_raw.get("factory", HarnessConfig().factory)
+    harness_manifest = harness_raw.get("manifest")
+    if (harness_factory is None) == (harness_manifest is None):
+        raise ValueError("harness must configure exactly one of factory or manifest")
+    harness_config_raw = harness_raw.get("config", {})
+    if not isinstance(harness_config_raw, dict):
+        raise ValueError("harness.config must be a mapping")
+    harness = HarnessConfig(
+        id=str(harness_raw.get("id", "financial")),
+        factory=str(harness_factory) if harness_factory is not None else None,
+        manifest=_resolve_path(str(harness_manifest), base_dir) if harness_manifest is not None else None,
+        config=dict(harness_config_raw),
+        extra_skill_dirs=[_resolve_path(str(path), base_dir) for path in harness_raw.get("extra_skill_dirs", [])],
+        extra_tool_dirs=[_resolve_path(str(path), base_dir) for path in harness_raw.get("extra_tool_dirs", [])],
+    )
+
+    if not isinstance(sessions_raw, dict):
+        raise ValueError("sessions must be a mapping")
+    _reject_unknown_keys(
+        sessions_raw,
+        {
+            "enabled",
+            "store",
+            "blob_store",
+            "runtime",
+            "provider",
+            "root",
+            "agent_id",
+            "persist_openai_history",
+            "sync_memory",
+            "export_default_dir",
+        },
+        "sessions",
+    )
+    root = str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions"))
+    legacy_provider = str(sessions_raw.get("provider", "dojo_repository"))
+    nested_store_raw = sessions_raw.get("store")
+    if nested_store_raw is None:
+        store_config = StoreProviderConfig(
+            provider="file",
+            options={"root": root, "compatibility_mode": legacy_provider},
+        )
+    else:
+        if not isinstance(nested_store_raw, dict):
+            raise ValueError("sessions.store must be a mapping")
+        store_config = _store_provider_config(nested_store_raw, section="sessions.store")
+        if store_config.provider == "file" and not store_config.options:
+            store_config = StoreProviderConfig(
+                provider="file",
+                factory=store_config.factory,
+                options={"root": root, "compatibility_mode": legacy_provider},
+            )
+    nested_blob_raw = sessions_raw.get("blob_store")
+    if nested_blob_raw is None:
+        blob_config = StoreProviderConfig(provider="file", options={"root": root})
+    else:
+        if not isinstance(nested_blob_raw, dict):
+            raise ValueError("sessions.blob_store must be a mapping")
+        blob_config = _store_provider_config(nested_blob_raw, section="sessions.blob_store")
+        if blob_config.provider == "file" and not blob_config.options:
+            blob_config = StoreProviderConfig(provider="file", factory=blob_config.factory, options={"root": root})
+    runtime_raw = sessions_raw.get("runtime", {})
+    if not isinstance(runtime_raw, dict):
+        raise ValueError("sessions.runtime must be a mapping")
+    _reject_unknown_keys(
+        runtime_raw,
+        {"require_user_id", "lease_seconds", "heartbeat_seconds", "event_batch_size"},
+        "sessions.runtime",
+    )
+    session_runtime = SessionRuntimeConfig(
+        require_user_id=bool(runtime_raw.get("require_user_id", True)),
+        lease_seconds=int(runtime_raw.get("lease_seconds", 300)),
+        heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 15)),
+        event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
+    )
+    explicit_raw = raw if source_raw is None else source_raw
+    explicit_sessions = explicit_raw.get("sessions", {})
+    if isinstance(explicit_sessions, dict) and ({"provider", "root"} & set(explicit_sessions)):
+        _LOGGER.warning(
+            "Deprecated flat session configuration converted to file store",
+            extra={"event": "sessions.config.deprecated", "provider": legacy_provider},
+        )
     return AgentsConfig(
         version=int(raw.get("version", 1)),
         llm_provider=llm,
@@ -238,11 +439,11 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             profiler=ProfilerConfig(enabled=bool(dashboard_raw.get("profiler", {}).get("enabled", False))),
             financial=FinancialDashboardConfig(
                 enabled=bool(financial_raw.get("enabled", True)),
-                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/huggingface/hub")),
+                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/dojo")),
                 dashboard_data_root=str(financial_raw.get("dashboard_data_root", "~/.dojo/dashboard-data")),
                 stock_quote_refresh_seconds=int(financial_raw.get("stock_quote_refresh_seconds", 15)),
                 constituent_kline_post_close_poll_seconds=int(financial_raw.get("constituent_kline_post_close_poll_seconds", 300)),
-                constituent_kline_max_concurrent=int(financial_raw.get("constituent_kline_max_concurrent", 8)),
+                constituent_kline_max_concurrent=int(financial_raw.get("constituent_kline_max_concurrent", 50)),
                 ticker_market_cap_min_sh=float(financial_raw.get("ticker_market_cap_min_sh", 1_000_000_000.0)),
                 ticker_market_cap_min_us=float(financial_raw.get("ticker_market_cap_min_us", 1_000_000_000.0)),
                 ticker_market_cap_min_hk=float(financial_raw.get("ticker_market_cap_min_hk", 1_000_000_000.0)),
@@ -258,8 +459,8 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
         ),
         mcp_servers=dict(raw.get("mcp_servers", {})),
         dojosdk=DojoSDKConfig(
-            api_key=raw.get("dojosdk", {}).get("api_key"),
-            base_url=raw.get("dojosdk", {}).get("base_url"),
+            api_key=_as_non_empty_string(os.getenv("DOJO_API_KEY")) or raw.get("dojosdk", {}).get("api_key"),
+            base_url=_as_non_empty_string(os.getenv("DOJO_BASE_URL")) or raw.get("dojosdk", {}).get("base_url"),
             timeout=float(raw.get("dojosdk", {}).get("timeout", 60.0)),
             max_retries=int(raw.get("dojosdk", {}).get("max_retries", 1)),
         ),
@@ -274,8 +475,12 @@ def _to_config(raw: dict[str, Any]) -> AgentsConfig:
             plan_store_path=str(planning_raw.get("plan_store_path", "~/.dojo/agents/plans")),
             max_plan_steps=int(planning_raw.get("max_plan_steps", 10)),
         ),
+        harness=harness,
         sessions=SessionsConfig(
             enabled=bool(sessions_raw.get("enabled", True)),
+            store=store_config,
+            blob_store=blob_config,
+            runtime=session_runtime,
             provider=str(sessions_raw.get("provider", "dojo_repository")),
             root=str(sessions_raw.get("root", "~/.dojo/agents/strands_sessions")),
             agent_id=str(sessions_raw.get("agent_id", "dojo-agent")),
@@ -319,7 +524,7 @@ class ConfigStore:
         return _expand_env(_deep_merge(defaults, loaded))
 
     def _load_and_validate(self) -> AgentsConfig:
-        return _to_config(self._load_raw())
+        return _to_config(self._load_raw(), base_dir=self.path.parent.resolve(), source_raw=self.raw())
 
     def snapshot(self) -> AgentsConfig:
         fingerprint = self._stat_fingerprint()
@@ -337,6 +542,20 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+            if provider.get("extra_headers"):
+                provider["extra_headers"] = {key: "***" for key in provider["extra_headers"]}
+        sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")
+
+        def redact_options(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: "***" if any(fragment in key.lower() for fragment in sensitive_fragments) else redact_options(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact_options(item) for item in value]
+            return value
+
+        data["harness"]["config"] = redact_options(data["harness"]["config"])
+        data["sessions"]["store"]["options"] = redact_options(data["sessions"]["store"]["options"])
+        data["sessions"]["blob_store"]["options"] = redact_options(data["sessions"]["blob_store"]["options"])
         web = data.get("tools", {}).get("web")
         if isinstance(web, dict):
             web["api_key_configured"] = bool(web.get("api_key"))

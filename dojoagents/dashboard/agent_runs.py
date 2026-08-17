@@ -11,10 +11,17 @@ from typing import Any, Literal
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.config.models import LLMProviderConfig
+from dojoagents.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 RunStatus = Literal["running", "done", "error", "cancelled"]
 
 _RUN_TTL_SECONDS = 60 * 60
+
+
+class UnsupportedInputModalityError(ValueError):
+    """The selected model cannot consume one or more request modalities."""
 
 
 def _content_input_modalities(content: Any) -> set[str]:
@@ -43,6 +50,7 @@ def _content_input_modalities(content: Any) -> set[str]:
 def _request_input_modalities(request: ChatRequest) -> set[str]:
     modalities = _content_input_modalities(request.message)
     metadata = request.metadata if isinstance(request.metadata, dict) else {}
+    modalities.update(_content_input_modalities(request.runtime_content))
     modalities.update(_content_input_modalities(metadata.get("user_content")))
     history = metadata.get("history")
     if isinstance(history, list):
@@ -58,6 +66,8 @@ class AgentRunRecord:
     id: str
     session_id: str
     model: str
+    owner_tenant_id: str = ""
+    owner_user_id: str = ""
     status: RunStatus = "running"
     events: list[dict[str, Any]] = field(default_factory=list)
     result_metadata: dict[str, Any] = field(default_factory=dict)
@@ -65,6 +75,11 @@ class AgentRunRecord:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     task: concurrent.futures.Future[Any] | None = None
+
+    def is_visible_to(self, principal: Any) -> bool:
+        if not self.owner_user_id:
+            return True
+        return self.owner_user_id == str(getattr(principal, "user_id", "") or "") and self.owner_tenant_id == str(getattr(principal, "tenant_id", "") or "")
 
     def append_event(self, payload: dict[str, Any]) -> None:
         self.events.append(payload)
@@ -124,7 +139,9 @@ async def validate_request_modalities(request: ChatRequest, agent: Any) -> None:
     model_label = provider_cfg.model or "unknown"
     if provider_cfg.author:
         model_label = f"{provider_cfg.author}/{model_label}"
-    raise ValueError(f"Model '{model_label}' does not support input modalities: {', '.join(unsupported)}. " f"Supported input modalities: {', '.join(sorted(supported))}.")
+    raise UnsupportedInputModalityError(
+        f"Model '{model_label}' does not support input modalities: {', '.join(unsupported)}. " f"Supported input modalities: {', '.join(sorted(supported))}."
+    )
 
 
 class AgentRunManager:
@@ -161,7 +178,14 @@ class AgentRunManager:
         await self._prune_expired()
         await validate_request_modalities(request, agent)
         run_id = f"run-{uuid.uuid4().hex[:8]}"
-        record = AgentRunRecord(id=run_id, session_id=request.session_id, model=model)
+        principal = request.principal
+        record = AgentRunRecord(
+            id=run_id,
+            session_id=request.session_id,
+            model=model,
+            owner_tenant_id=str(getattr(principal, "tenant_id", "") or ""),
+            owner_user_id=str(getattr(principal, "user_id", "") or ""),
+        )
         async with self._lock:
             self._runs[run_id] = record
         if on_started is not None:
@@ -198,6 +222,12 @@ class AgentRunManager:
                     result = on_completed(record, response)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.info(
+                    "Dashboard background run completed: run_id=%s event_count=%d content_length=%d",
+                    run_id,
+                    len(record.events),
+                    len(record.result_content),
+                )
             except asyncio.CancelledError:
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error("Run cancelled", code="cancelled")
@@ -207,6 +237,11 @@ class AgentRunManager:
                     result = on_cancelled(record)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.info(
+                    "Dashboard background run cancelled: run_id=%s event_count=%d",
+                    run_id,
+                    len(record.events),
+                )
                 raise
             except Exception as exc:  # noqa: BLE001
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
@@ -217,8 +252,21 @@ class AgentRunManager:
                     result = on_failed(record, exc)
                     if asyncio.iscoroutine(result):
                         await result
+                LOGGER.exception(
+                    "Dashboard background run failed: run_id=%s status=%s event_count=%d",
+                    run_id,
+                    record.status,
+                    len(record.events),
+                )
 
         record.task = asyncio.run_coroutine_threadsafe(_execute(), self._loop)
+        LOGGER.info(
+            "Dashboard background run scheduled: run_id=%s session_id=%s model=%s canonical_session=%s",
+            run_id,
+            request.session_id,
+            model,
+            bool(getattr(agent, "session_service", None)),
+        )
         return record
 
     async def cancel_run(self, run_id: str) -> bool:

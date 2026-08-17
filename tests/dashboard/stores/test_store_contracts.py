@@ -78,24 +78,19 @@ def test_in_memory_stock_and_sector_getters_are_synchronous() -> None:
 
 @pytest.mark.asyncio
 async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
-    import pandas as pd
+    def kline_rows(*, symbol: str, **_kwargs):
+        return [
+            {
+                "symbol": symbol,
+                "bar_time": "2026-06-20",
+                "open": 99,
+                "high": 101,
+                "low": 98,
+                "close": 100,
+            }
+        ]
 
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {
-                        "symbol": "AAPL",
-                        "bar_time": "2026-06-20",
-                        "open": 99,
-                        "high": 101,
-                        "low": 98,
-                        "close": 100,
-                    }
-                ]
-            )
-        }
-    )
+    client = FakeDojo(stocks={"get_kline": kline_rows})
     store = KlineStore(client, StockStore(client), StockSectorStore(client))
 
     response = await store.get_or_fetch_kline("AAPL", kline_t="1D", limit=20)
@@ -103,30 +98,28 @@ async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
     assert response is not None
     assert response.symbol == "AAPL"
     assert response.bars[0].close == 100
-    assert store.load_all("AAPL")[0]["bar_time"] == "2026-06-20"
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert response.as_of == "2026-06-20"
+    assert client.stocks.calls == [
+        ("get_all_klines_with_df", {}),
+        ("get_kline", {"symbol": "AAPL", "limit": 20, "kline_t": "1D"}),
+    ]
 
 
 @pytest.mark.asyncio
 async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
-    import pandas as pd
+    def kline_rows(*, symbol: str, **_kwargs):
+        return [
+            {
+                "symbol": symbol,
+                "bar_time": "2026-06-20",
+                "open": 1,
+                "high": 2,
+                "low": 1,
+                "close": 2,
+            }
+        ]
 
-    def rows() -> pd.DataFrame:
-        return pd.DataFrame(
-            [
-                {
-                    "symbol": symbol,
-                    "bar_time": "2026-06-20",
-                    "open": 1,
-                    "high": 2,
-                    "low": 1,
-                    "close": 2,
-                }
-                for symbol in ["AAPL", "MSFT"]
-            ]
-        )
-
-    client = FakeDojo(stocks={"get_all_klines_with_df": rows})
+    client = FakeDojo(stocks={"get_kline": kline_rows})
     store = KlineStore(client, StockStore(client), StockSectorStore(client))
 
     result = await store.get_klines(["AAPL", "MSFT"], limit=15)
@@ -134,6 +127,8 @@ async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
     assert set(result.items) == {"AAPL", "MSFT"}
     assert client.stocks.calls == [
         ("get_all_klines_with_df", {}),
+        ("get_kline", {"symbol": "AAPL", "limit": 15}),
+        ("get_kline", {"symbol": "MSFT", "limit": 15}),
     ]
 
 
@@ -168,25 +163,20 @@ async def test_kline_store_exposes_load_contract() -> None:
 
 @pytest.mark.asyncio
 async def test_sector_klines_group_cached_rows_by_scope(monkeypatch) -> None:
-    client = FakeDojo()
-    store = KlineStore(client, StockStore(client), StockSectorStore(client))
-    import pandas as pd
+    def kline_rows(*, symbol: str, **_kwargs):
+        return [
+            {
+                "symbol": symbol,
+                "bar_time": "2026-06-20",
+                "open": 1,
+                "high": 2,
+                "low": 1,
+                "close": 2,
+            }
+        ]
 
-    store._in_memory_updates = {
-        symbol: pd.DataFrame(
-            [
-                {
-                    "symbol": symbol,
-                    "bar_time": "2026-06-20",
-                    "open": 1,
-                    "high": 2,
-                    "low": 1,
-                    "close": 2,
-                }
-            ]
-        )
-        for symbol in ("L1", "L2", "L3")
-    }
+    client = FakeDojo(stocks={"get_kline": kline_rows})
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
     monkeypatch.setattr(
         kline_store_module,
         "collect_sector_scope_tickers",

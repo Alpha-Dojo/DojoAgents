@@ -175,7 +175,11 @@ class BenchmarkStore:
         self._selected_defaults: dict[str, str | None] = {market: None for market in MARKETS}
 
     async def load(self) -> None:
-        self._catalog = await self._load_catalog()
+        sdk_client = getattr(self.client, "client", self.client)
+        if getattr(sdk_client, "_online", False) is True:
+            self._catalog = _fallback_catalog()
+        else:
+            self._catalog = await self._load_catalog()
         self._catalog_loaded = True
         self._response_cache.clear()
         self._selected_defaults = {market: None for market in MARKETS}

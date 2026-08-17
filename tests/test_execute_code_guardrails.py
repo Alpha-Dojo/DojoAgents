@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from dojoagents.agent.execute_code_guardrails import (
+from dojoagents.harnesses.built_in.financial.policies.execute_code_guardrails import (
     ExecuteCodeClassification,
     classify_execute_code,
     execute_code_guardrail_from_classification,

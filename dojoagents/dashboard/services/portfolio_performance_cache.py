@@ -12,11 +12,7 @@ def portfolio_content_fingerprint(raw: dict[str, Any]) -> str:
         "updated_at": raw.get("updated_at"),
         "config": raw.get("config"),
         "orders": raw.get("orders"),
-        "candidates": [
-            {"ticker": row.get("ticker"), "market": row.get("market")}
-            for row in (raw.get("candidates") or [])
-            if isinstance(row, dict)
-        ],
+        "candidates": [{"ticker": row.get("ticker"), "market": row.get("market")} for row in (raw.get("candidates") or []) if isinstance(row, dict)],
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]

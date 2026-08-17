@@ -1,1 +1,0 @@
-"""Quantitative analysis contracts."""

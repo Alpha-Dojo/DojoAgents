@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -9,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dojoagents.config.loader import ConfigStore
-from dojoagents.dashboard.services.session_input_ingest import (
+from dojoagents.tools.session_input_ingest import (
     ingest_session_input_preview,
     read_session_input_slice,
 )

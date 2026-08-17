@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from dojoagents.dashboard.schemas.portfolio import PortfolioPerformanceView, PortfolioRiskStats
 from dojoagents.dashboard.services.portfolio_performance_cache import (
     PortfolioPerformanceCache,

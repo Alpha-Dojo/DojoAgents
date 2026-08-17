@@ -1,0 +1,30 @@
+id: sector-attribution
+name: 板块异动归因分析师
+version: 1
+harness_profile: tool_orchestrated
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - get_market_overview
+  - get_sector_movers
+  - web_search
+  - web_extract
+  - filter_sector_constituents
+  - execute_code
+  - write_session_file
+outputs:
+  - filename: market_news_raw_pack_{market}_{trading_date}.json
+    format: json
+    required: true
+    schema: schema/market_news_raw_pack.schema.json
+triggers:
+  commands:
+    - /task sector-attribution
+constraints:
+  max_tool_calls_per_turn: 1
+  tool_budget:
+    web_search: 30
+    web_extract: 15
+    filter_sector_constituents: 10

@@ -6,12 +6,12 @@ from typing import Any
 
 import pytest
 
-from dojoagents.agent.harnesses.artifact_synthesis import ArtifactSynthesisHarness
-from dojoagents.agent.harnesses.tool_orchestrated import ToolOrchestratedHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy.artifact_synthesis import ArtifactSynthesisHarness
+from dojoagents.harnesses.built_in.financial.policies.legacy.tool_orchestrated import ToolOrchestratedHarness
 from dojoagents.agent.models import ChatRequest, ToolCall, ToolResult
-from dojoagents.agent.harness import HarnessLoopState
+from dojoagents.harnesses.built_in.financial.policies.legacy_harness import HarnessLoopState
 from dojoagents.tasks.activator import TaskActivator, TaskActivationError
-from dojoagents.tasks.artifacts import resolve_dated_filename
+from dojoagents.tasks.artifacts import resolve_filename_template
 from dojoagents.tasks.command_router import CommandRouter
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tasks.output_paths import resolve_task_output_file
@@ -23,8 +23,9 @@ from dojoagents.tools.session_file_tool import read_session_output, write_sessio
 @pytest.fixture
 def task_roots(tmp_path: Path) -> tuple[Path, Path]:
     repo_root = Path(__file__).resolve().parents[1]
-    built_in = repo_root / "dojoagents" / "tasks" / "built_in"
-    pipelines = repo_root / "dojoagents" / "tasks" / "pipelines"
+    financial = repo_root / "dojoagents" / "harnesses" / "built_in" / "financial"
+    built_in = financial / "tasks" / "definitions"
+    pipelines = financial / "pipelines" / "definitions"
     return built_in, pipelines
 
 
@@ -39,11 +40,16 @@ def task_output_root(tmp_path: Path) -> Path:
     return tmp_path / "task-outputs"
 
 
-def _task_metadata(task_id: str, *, trading_date: str = "2026-07-02") -> dict[str, Any]:
+def _task_metadata(
+    task_id: str,
+    *,
+    trading_date: str = "2026-07-02",
+    market: str = "us",
+) -> dict[str, Any]:
     return {
         "active_task": {
             "task_id": task_id,
-            "params": {"trading_date": trading_date},
+            "params": {"trading_date": trading_date, "market": market},
         }
     }
 
@@ -60,26 +66,81 @@ def _write_task_file(
     return path
 
 
-def test_resolve_dated_filename() -> None:
+def test_resolve_filename_template() -> None:
     assert (
-        resolve_dated_filename("market_news_raw_pack.json", {"trading_date": "2026-07-03"})
-        == "market_news_raw_pack_2026-07-03.json"
+        resolve_filename_template(
+            "market_news_raw_pack_{market}_{trading_date}.json",
+            {"market": "us", "trading_date": "2026-07-03"},
+        )
+        == "market_news_raw_pack_us_2026-07-03.json"
     )
     assert (
-        resolve_dated_filename("market_event_triggers.jsonl", {"trading_date": "2026-07-03"})
-        == "market_event_triggers_2026-07-03.jsonl"
+        resolve_filename_template(
+            "market_event_triggers_{market}_{trading_date}.jsonl",
+            {"market": "cn", "trading_date": "2026-07-03"},
+        )
+        == "market_event_triggers_cn_2026-07-03.jsonl"
     )
-    assert resolve_dated_filename("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
+    assert resolve_filename_template("market_news_raw_pack.json", {}) == "market_news_raw_pack.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "688825.SS"}) == "ticker_sector_labels_688825_SS.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "0700.HK"}) == "ticker_sector_labels_0700_HK.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"ticker": "NVDA"}) == "ticker_sector_labels_NVDA.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {}) == "ticker_sector_labels_{ticker}.json"
+    assert resolve_filename_template("ticker_sector_labels_{ticker}.json", {"q": "长鑫科技"}) == "ticker_sector_labels_{ticker}.json"
+    assert (
+        resolve_filename_template(
+            "attribution_factors_{market}_{sector_id}_{trading_date}.jsonl",
+            {"market": "cn", "sector_id": "1/2/6", "trading_date": "2026-07-22"},
+        )
+        == "attribution_factors_cn_1_2_6_2026-07-22.jsonl"
+    )
+    assert (
+        resolve_filename_template(
+            "attribution_factors_{market}_{sector_id}_{trading_date}.jsonl",
+            {"market": "cn", "trading_date": "2026-07-22"},
+        )
+        == "attribution_factors_cn_{sector_id}_2026-07-22.jsonl"
+    )
+
+
+def test_parse_task_params_supports_market_flags() -> None:
+    from dojoagents.tasks.activator import parse_task_params
+
+    assert parse_task_params("2026-07-22 --market us")["market"] == "us"
+    assert parse_task_params("2026-07-22 market=cn")["market"] == "cn"
+    assert parse_task_params("--market=hk 2026-07-22")["market"] == "hk"
+
+
+def test_sector_attribution_requires_market(
+    task_manager: TaskPromptManager,
+    task_output_root: Path,
+) -> None:
+    activator = TaskActivator(
+        manager=task_manager,
+        sessions_root="/tmp",
+        task_output_root=str(task_output_root),
+        auto_detect=False,
+    )
+    request = ChatRequest(
+        message="/task sector-attribution 2026-07-02",
+        user_id="u1",
+        session_id="sess-missing-market",
+        channel="dashboard",
+    )
+    with pytest.raises(TaskActivationError, match="market"):
+        activator.activate_task(request, task_id="sector-attribution", params={"trading_date": "2026-07-02"})
 
 
 def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> None:
     assert "sector-attribution" in task_manager.list_tasks()
     assert "event-trigger" in task_manager.list_tasks()
+    assert "ticker-sector-classify" in task_manager.list_tasks()
+    assert "attribution-factor-crawl" in task_manager.list_tasks()
     assert "daily-market-events" in task_manager.list_pipelines()
     spec = task_manager.get_task("sector-attribution")
     assert spec is not None
     assert spec.contract.harness_profile == "tool_orchestrated"
-    assert "market_news_raw_pack_2026-07-02.json" in task_manager.build_injection_block(
+    assert "market_news_raw_pack_us_2026-07-02.json" in task_manager.build_injection_block(
         ChatRequest(
             message="run",
             user_id="u1",
@@ -87,9 +148,9 @@ def test_task_manager_loads_builtin_tasks(task_manager: TaskPromptManager) -> No
             metadata={
                 "active_task": {
                     "task_id": "sector-attribution",
-                    "params": {"trading_date": "2026-07-02"},
+                    "params": {"trading_date": "2026-07-02", "market": "us"},
                     "harness_profile": "tool_orchestrated",
-                    "outputs": [{"filename": "market_news_raw_pack_2026-07-02.json", "format": "json"}],
+                    "outputs": [{"filename": "market_news_raw_pack_us_2026-07-02.json", "format": "json"}],
                 }
             },
         )
@@ -105,7 +166,7 @@ def test_command_router_activates_task(task_manager: TaskPromptManager, task_out
     )
     router = CommandRouter(manager=task_manager, activator=activator, skill_manager=None)
     request = ChatRequest(
-        message="/task sector-attribution 2026-07-02",
+        message="/task sector-attribution 2026-07-02 market=us",
         user_id="u1",
         session_id="sess-task",
         channel="dashboard",
@@ -115,7 +176,50 @@ def test_command_router_activates_task(task_manager: TaskPromptManager, task_out
     assert isinstance(active, dict)
     assert active["task_id"] == "sector-attribution"
     assert active["params"]["trading_date"] == "2026-07-02"
-    assert active["outputs"][0]["filename"] == "market_news_raw_pack_2026-07-02.json"
+    assert active["params"]["market"] == "us"
+    assert active["outputs"][0]["filename"] == "market_news_raw_pack_us_2026-07-02.json"
+    assert "get_sector_movers" in active["constraints"]["allowed_tools"]
+    assert "write_session_file" in active["constraints"]["allowed_tools"]
+    assert "ACTIVE TASK:" in str(processed.metadata.get("active_task_prompt") or "")
+    assert "filter_sector_constituents" in active["constraints"]["allowed_tools"]
+
+
+def test_command_router_activates_ticker_sector_classify_allowlist(
+    task_manager: TaskPromptManager,
+    task_output_root: Path,
+) -> None:
+    activator = TaskActivator(
+        manager=task_manager,
+        sessions_root="/tmp",
+        task_output_root=str(task_output_root),
+        auto_detect=False,
+    )
+    router = CommandRouter(manager=task_manager, activator=activator, skill_manager=None)
+    processed = router.preprocess(
+        ChatRequest(
+            message="/task ticker-sector-classify 688825.SS",
+            user_id="u1",
+            session_id="sess-classify",
+            channel="dashboard",
+        )
+    )
+    active = processed.metadata.get("active_task")
+    assert isinstance(active, dict)
+    allowed = set(active["constraints"]["allowed_tools"])
+    assert "search_company_ticker" in allowed
+    assert "search_sector_taxonomy" in allowed
+    assert "write_session_file" in allowed
+    assert "execute_code" in allowed
+    assert "filter_sector_constituents" not in allowed
+    assert active["params"].get("q") == "688825.SS"
+    assert "ticker" not in active["params"]
+    assert active["outputs"][0]["filename"] == "ticker_sector_labels_{ticker}.json"
+    assert active["outputs"][0]["base_filename"] == "ticker_sector_labels_{ticker}.json"
+    from dojoagents.tasks.run_context import PACK_DASHBOARD_PROTOCOL, PACK_TASK_BODY, RunContext
+
+    ctx = RunContext.resolve(processed)
+    assert ctx.has_prompt_pack(PACK_TASK_BODY)
+    assert not ctx.has_prompt_pack(PACK_DASHBOARD_PROTOCOL)
 
 
 def test_command_router_activates_pipeline(task_manager: TaskPromptManager, task_output_root: Path) -> None:
@@ -127,7 +231,7 @@ def test_command_router_activates_pipeline(task_manager: TaskPromptManager, task
     )
     router = CommandRouter(manager=task_manager, activator=activator, skill_manager=None)
     request = ChatRequest(
-        message="/pipeline daily-market-events 2026-07-02",
+        message="/pipeline daily-market-events 2026-07-02 market=us",
         user_id="u1",
         session_id="sess-pipe",
         channel="dashboard",
@@ -138,10 +242,10 @@ def test_command_router_activates_pipeline(task_manager: TaskPromptManager, task
     assert isinstance(pipeline, dict)
     assert pipeline["id"] == "daily-market-events"
     assert pipeline["step"] == 1
-    assert active["task_id"] == "sector-attribution"
+    assert active["task_id"] == "event-trigger"
 
 
-def test_event_trigger_requires_raw_pack(
+def test_event_trigger_activates_without_raw_pack(
     task_output_root: Path,
     task_manager: TaskPromptManager,
 ) -> None:
@@ -152,13 +256,20 @@ def test_event_trigger_requires_raw_pack(
         auto_detect=False,
     )
     request = ChatRequest(
-        message="/task event-trigger 2026-07-02",
+        message="/task event-trigger 2026-07-02 market=us",
         user_id="u1",
-        session_id="sess-missing",
+        session_id="sess-mainline",
         channel="dashboard",
     )
-    with pytest.raises(TaskActivationError, match="market_news_raw_pack_2026-07-02.json"):
-        activator.activate_task(request, task_id="event-trigger", params={"trading_date": "2026-07-02"})
+    activated = activator.activate_task(
+        request,
+        task_id="event-trigger",
+        params={"trading_date": "2026-07-02", "market": "us"},
+    )
+    active = activated.metadata["active_task"]
+    assert active["task_id"] == "event-trigger"
+    assert active["inputs"] == []
+    assert active["outputs"][0]["filename"] == "market_event_triggers_us_2026-07-02.jsonl"
 
 
 def test_read_and_write_session_output_roundtrip(tmp_path: Path) -> None:
@@ -184,8 +295,9 @@ def test_task_mode_writes_to_task_output_root(tmp_path: Path, task_output_root: 
     payload = write_session_file(
         sessions_root=tmp_path,
         session_id="sess-io",
-        filename="market_news_raw_pack_2026-07-02.json",
+        filename="market_news_raw_pack_us_2026-07-02.json",
         content={
+            "market": "us",
             "trading_date": "2026-07-02",
             "window_start_date": "2026-07-02",
             "window_end_date": "2026-07-02",
@@ -199,19 +311,19 @@ def test_task_mode_writes_to_task_output_root(tmp_path: Path, task_output_root: 
     )
     assert payload["storage_kind"] == "task"
     assert "sector-attribution" in payload["path"]
-    assert not (tmp_path / "sess-io" / "outputs" / "market_news_raw_pack_2026-07-02.json").exists()
+    assert not (tmp_path / "sess-io" / "outputs" / "market_news_raw_pack_us_2026-07-02.json").exists()
 
     read_back = read_session_output(
         sessions_root=tmp_path,
         session_id="sess-io",
-        filename="market_news_raw_pack_2026-07-02.json",
+        filename="market_news_raw_pack_us_2026-07-02.json",
         task_output_root=task_output_root,
         request_metadata={
             "active_task": {
                 "task_id": "event-trigger",
                 "inputs": [
                     {
-                        "filename": "market_news_raw_pack_2026-07-02.json",
+                        "filename": "market_news_raw_pack_us_2026-07-02.json",
                         "source_task_id": "sector-attribution",
                     }
                 ],
@@ -226,10 +338,11 @@ def test_schema_validator_accepts_raw_pack(tmp_path: Path, task_manager: TaskPro
     spec = task_manager.get_task("sector-attribution")
     assert spec is not None
     artifact = spec.contract.outputs[0]
-    path = tmp_path / "market_news_raw_pack_2026-07-02.json"
+    path = tmp_path / "market_news_raw_pack_us_2026-07-02.json"
     path.write_text(
         json.dumps(
             {
+                "market": "us",
                 "trading_date": "2026-07-02",
                 "window_start_date": "2026-07-02",
                 "window_end_date": "2026-07-02",
@@ -244,31 +357,16 @@ def test_schema_validator_accepts_raw_pack(tmp_path: Path, task_manager: TaskPro
     assert issues == []
 
 
-def test_pipeline_runner_advances_to_event_trigger(
+def test_pipeline_runner_completes_single_step_event_trigger(
     task_output_root: Path,
     task_manager: TaskPromptManager,
 ) -> None:
     session_id = "sess-advance"
-    _write_task_file(
-        task_output_root,
-        "sector-attribution",
-        "market_news_raw_pack_2026-07-02.json",
-        {
-            "trading_date": "2026-07-02",
-            "window_start_date": "2026-07-02",
-            "window_end_date": "2026-07-02",
-            "sector_moves": [
-                {
-                    "sector_path_id": "1/2/8",
-                    "sector_name": {"zh": "半导体封测", "en": "Packaging"},
-                    "market": "us",
-                    "change_percent": -8.2,
-                }
-            ],
-            "news_items": [],
-            "sectors_without_news": ["1/2/8"],
-        },
+    path = resolve_task_output_file(
+        task_output_root, "event-trigger", "market_event_triggers_us_2026-07-02.jsonl"
     )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
     activator = TaskActivator(
         manager=task_manager,
         sessions_root="/tmp",
@@ -282,21 +380,25 @@ def test_pipeline_runner_advances_to_event_trigger(
         task_output_root=str(task_output_root),
     )
     request = ChatRequest(
-        message="/pipeline daily-market-events 2026-07-02",
+        message="/pipeline daily-market-events 2026-07-02 market=us",
         user_id="u1",
         session_id=session_id,
         channel="dashboard",
         metadata={
-            "pipeline": {"id": "daily-market-events", "step": 1, "params": {"trading_date": "2026-07-02"}},
+            "pipeline": {
+                "id": "daily-market-events",
+                "step": 1,
+                "params": {"trading_date": "2026-07-02", "market": "us"},
+            },
             "active_task": {
-                "task_id": "sector-attribution",
-                "params": {"trading_date": "2026-07-02"},
-                "harness_profile": "tool_orchestrated",
+                "task_id": "event-trigger",
+                "params": {"trading_date": "2026-07-02", "market": "us"},
+                "harness_profile": "artifact_synthesis",
                 "outputs": [
                     {
-                        "filename": "market_news_raw_pack_2026-07-02.json",
-                        "format": "json",
-                        "schema": "schema/market_news_raw_pack.schema.json",
+                        "filename": "market_event_triggers_us_2026-07-02.jsonl",
+                        "format": "jsonl",
+                        "schema": "schema/market_event_triggers.schema.json",
                     }
                 ],
             },
@@ -306,14 +408,9 @@ def test_pipeline_runner_advances_to_event_trigger(
 
     response = AgentResponse(content="done", session_id=session_id)
     advance = runner.maybe_advance(request, response)
-    assert advance.next_request is not None
-    assert advance.next_request.metadata["active_task"]["task_id"] == "event-trigger"
-    assert (
-        advance.next_request.metadata["active_task"]["inputs"][0]["filename"]
-        == "market_news_raw_pack_2026-07-02.json"
-    )
-    assert advance.next_request.metadata["active_task"]["inputs"][0]["source_task_id"] == "sector-attribution"
-    assert advance.next_request.metadata["pipeline"]["step"] == 2
+    assert advance.next_request is None
+    assert advance.completed is True
+    assert not advance.validation_errors
 
 
 def test_tool_orchestrated_harness_blocks_days_usage() -> None:
@@ -340,6 +437,32 @@ def test_tool_orchestrated_harness_blocks_days_usage() -> None:
     assert "start_date" in blocked
 
 
+def test_tool_orchestrated_progress_is_generic_not_sector_attribution() -> None:
+    harness = ToolOrchestratedHarness()
+    request = ChatRequest(
+        message="run",
+        user_id="u1",
+        session_id="s1",
+        metadata={
+            "active_task": {
+                "task_id": "ticker-sector-classify",
+                "harness_profile": "tool_orchestrated",
+                "constraints": {"max_tool_calls_per_turn": 1},
+                "outputs": [{"filename": "ticker_sector_labels.json", "format": "json"}],
+            }
+        },
+    )
+    state = HarnessLoopState(request=request)
+    decision = harness.validate_progress(state)
+    assert decision.complete is False
+    assert decision.stop_code == "task_incomplete"
+    text = " ".join(decision.issues + decision.next_steps)
+    assert "get_market_overview" not in text
+    assert "get_sector_movers" not in text
+    assert "write_session_file" in text
+    assert "ticker_sector_labels.json" in text
+
+
 def test_artifact_synthesis_harness_blocks_write_before_read() -> None:
     harness = ArtifactSynthesisHarness()
     request = ChatRequest(
@@ -351,14 +474,14 @@ def test_artifact_synthesis_harness_blocks_write_before_read() -> None:
                 "task_id": "event-trigger",
                 "harness_profile": "artifact_synthesis",
                 "constraints": {"must_read_input_before_write": True},
-                "inputs": [{"filename": "market_news_raw_pack_2026-07-02.json", "required": True}],
-                "outputs": [{"filename": "market_event_triggers_2026-07-02.jsonl", "format": "jsonl"}],
+                "inputs": [{"filename": "market_news_raw_pack_us_2026-07-02.json", "required": True}],
+                "outputs": [{"filename": "market_event_triggers_us_2026-07-02.jsonl", "format": "jsonl"}],
             }
         },
     )
     state = HarnessLoopState(request=request)
     blocked = harness.block_tool_call(
-        ToolCall(id="1", name="write_session_file", arguments={"filename": "market_event_triggers_2026-07-02.jsonl"}),
+        ToolCall(id="1", name="write_session_file", arguments={"filename": "market_event_triggers_us_2026-07-02.jsonl"}),
         state,
     )
     assert blocked is not None
@@ -378,12 +501,12 @@ def test_artifact_synthesis_harness_allows_write_after_read_in_same_turn() -> No
                 "constraints": {"must_read_input_before_write": True},
                 "inputs": [
                     {
-                        "filename": "market_news_raw_pack_2026-07-02.json",
+                        "filename": "market_news_raw_pack_us_2026-07-02.json",
                         "base_filename": "market_news_raw_pack.json",
                         "required": True,
                     }
                 ],
-                "outputs": [{"filename": "market_event_triggers_2026-07-02.jsonl", "format": "jsonl"}],
+                "outputs": [{"filename": "market_event_triggers_us_2026-07-02.jsonl", "format": "jsonl"}],
             }
         },
     )
@@ -393,11 +516,11 @@ def test_artifact_synthesis_harness_allows_write_after_read_in_same_turn() -> No
             call_id="read-1",
             name="read_session_output",
             ok=True,
-            data={"filename": "market_news_raw_pack_2026-07-02.json"},
+            data={"filename": "market_news_raw_pack_us_2026-07-02.json"},
         )
     )
     blocked = harness.block_tool_call(
-        ToolCall(id="2", name="write_session_file", arguments={"filename": "market_event_triggers_2026-07-02.jsonl"}),
+        ToolCall(id="2", name="write_session_file", arguments={"filename": "market_event_triggers_us_2026-07-02.jsonl"}),
         state,
     )
     assert blocked is None
@@ -415,7 +538,7 @@ def test_artifact_synthesis_harness_repairs_undated_read_filename() -> None:
                 "harness_profile": "artifact_synthesis",
                 "inputs": [
                     {
-                        "filename": "market_news_raw_pack_2026-07-02.json",
+                        "filename": "market_news_raw_pack_us_2026-07-02.json",
                         "base_filename": "market_news_raw_pack.json",
                         "required": True,
                     }
@@ -434,4 +557,4 @@ def test_artifact_synthesis_harness_repairs_undated_read_filename() -> None:
         ],
         state,
     )
-    assert repaired[0].arguments["filename"] == "market_news_raw_pack_2026-07-02.json"
+    assert repaired[0].arguments["filename"] == "market_news_raw_pack_us_2026-07-02.json"

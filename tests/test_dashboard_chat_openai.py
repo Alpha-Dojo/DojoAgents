@@ -69,6 +69,7 @@ def test_completion_request_new_format():
     assert info["stream"] is False
     assert info["model"] == "gpt-4.1"
     assert req.metadata["history"] == []
+    assert req.metadata["model_override"] == "gpt-4.1"
 
 
 def test_completion_request_old_format_backward_compat():
@@ -92,7 +93,10 @@ def test_completion_request_old_format_backward_compat():
 def test_completion_request_extracts_quant_from_metadata():
     """Quant context is extracted from metadata."""
     from dojoagents.dashboard.server import _completion_request
-    from dojoagents.quant.context import QuantContext
+    from dojoagents.harnesses.built_in.financial.context import (
+        FinancialContext,
+        FinancialRequestContextCodec,
+    )
 
     payload = {
         "model": "gpt-4.1",
@@ -102,8 +106,11 @@ def test_completion_request_extracts_quant_from_metadata():
             "quant": {"market": "crypto", "symbols": ["BTC-USD"], "timeframe": "1d"},
         },
     }
-    req, info = _completion_request(payload)
-    assert isinstance(req.quant, QuantContext)
+    req, info = _completion_request(
+        payload,
+        surface=FinancialRequestContextCodec(),
+    )
+    assert isinstance(req.quant, FinancialContext)
     assert req.quant.market == "crypto"
     assert "BTC-USD" in req.quant.symbols
 

@@ -3,6 +3,7 @@ import os
 import shlex
 from abc import ABC, abstractmethod
 
+
 class BaseEnvironment(ABC):
     def __init__(self, cwd: str, timeout: float = 120.0):
         self.cwd = os.path.realpath(os.path.abspath(os.path.expanduser(cwd)))
@@ -18,7 +19,7 @@ class BaseEnvironment(ABC):
         eff_timeout = timeout or self.timeout
         cwd_marker = f"__DOJO_CWD_{self._session_id}__"
         cwd_file = f"/tmp/dojo-cwd-{self._session_id}.txt"
-        
+
         wrapped_command = (
             f"cd {shlex.quote(self.cwd)} || exit 126\n"
             f"{command}\n"
@@ -27,15 +28,13 @@ class BaseEnvironment(ABC):
             f"printf '\\n{cwd_marker}%s{cwd_marker}\\n' \"$(pwd -P)\"\n"
             f"exit $__exit_code"
         )
-        
+
         process = await self._run_bash(wrapped_command, eff_timeout)
         try:
-            stdout_bytes, _ = await asyncio.wait_for(
-                process.communicate(),
-                timeout=eff_timeout
-            )
+            stdout_bytes, _ = await asyncio.wait_for(process.communicate(), timeout=eff_timeout)
             output = stdout_bytes.decode("utf-8", errors="replace")
             from dojoagents.agent.redact import redact_sensitive_text
+
             output = redact_sensitive_text(output)
             returncode = process.returncode
         except asyncio.TimeoutError:

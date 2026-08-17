@@ -78,7 +78,7 @@ function columnLabelKey(col: AgentVizTableColumn, sourceTool?: string): string |
   if (sourceTool === 'list_or_search_portfolios' && col.key === 'name') {
     return 'agentViz.col.portfolio';
   }
-  if (sourceTool === 'get_taxonomy_tree' && col.key === 'name_zh') {
+  if (sourceTool === 'get_taxonomy_tree' && (col.key === 'name' || col.key === 'name_zh')) {
     return 'agentViz.col.sector';
   }
   return COL_LABEL_KEYS[col.key];
@@ -189,8 +189,6 @@ function resolveBlockTitle(block: AgentVizBlock, t: TranslateFn, locale: AppLoca
     get_market_overview: 'agentViz.marketOverview',
     get_sector_movers: 'agentViz.sectorMovers',
     screen_market_stocks: 'agentViz.marketScreen',
-    get_sector_analysis: (kind) =>
-      kind === 'line' ? 'agentViz.sectorNav' : 'agentViz.sectorPerformance',
     filter_sector_constituents: 'agentViz.sectorConstituents',
     get_ticker_realtime_quote: 'agentViz.realtimeQuotes',
     list_or_search_portfolios: 'agentViz.portfolios',

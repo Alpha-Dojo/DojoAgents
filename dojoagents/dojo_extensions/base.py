@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from dojoagents.quant.context import QuantContext
 from dojoagents.tools.registry import ToolSpec
 
 
@@ -28,9 +27,9 @@ class DojoExtension(Protocol):
     def health(self) -> ExtensionHealth: ...
 
     def tool_specs(self) -> list[ToolSpec]: ...
-    
+
     def execute_command(self, command: str) -> str: ...
 
     def dashboard_cards(self) -> list[DashboardCardSpec]: ...
 
-    def prompt_context(self, quant_context: QuantContext) -> str: ...
+    def prompt_context(self, request_context: Any) -> str: ...

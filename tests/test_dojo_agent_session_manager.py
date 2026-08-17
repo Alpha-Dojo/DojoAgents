@@ -3,6 +3,9 @@ from pathlib import Path
 
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.agent.session_manager import DojoAgentSessionManager
+from dojoagents.harnesses.built_in.financial.presenters.legacy_registry import (
+    ToolResultPresenterRegistry,
+)
 from strands.types.session import SessionMessage
 
 
@@ -64,7 +67,10 @@ def test_session_manager_lists_messages_and_exports(tmp_path):
 
 
 def test_session_manager_rebuilds_tool_result_viz_blocks_for_history(tmp_path):
-    manager = DojoAgentSessionManager(root=tmp_path / "sessions")
+    manager = DojoAgentSessionManager(
+        root=tmp_path / "sessions",
+        presenter_factory=ToolResultPresenterRegistry,
+    )
     manager.for_strands("sess-viz", agent_id="dojo-agent")
     manager.repository.create_message(
         "sess-viz",
@@ -78,11 +84,7 @@ def test_session_manager_rebuilds_tool_result_viz_blocks_for_history(tmp_path):
                             "status": "success",
                             "toolUseId": "call-list",
                             "name": "portfolio_read_list",
-                            "content": [
-                                {
-                                    "text": '[{"id":"p-1","name":"Core","kind":"manual","pinned":true}]'
-                                }
-                            ],
+                            "content": [{"text": '[{"id":"p-1","name":"Core","kind":"manual","pinned":true}]'}],
                         }
                     }
                 ],
@@ -101,7 +103,10 @@ def test_session_manager_rebuilds_tool_result_viz_blocks_for_history(tmp_path):
 
 
 def test_session_manager_rebuilds_missing_turn_trace_viz_blocks(tmp_path):
-    manager = DojoAgentSessionManager(root=tmp_path / "sessions")
+    manager = DojoAgentSessionManager(
+        root=tmp_path / "sessions",
+        presenter_factory=ToolResultPresenterRegistry,
+    )
     turns_path = manager._turns_path("sess-trace")
     turns_path.parent.mkdir(parents=True, exist_ok=True)
     turns_path.write_text(
@@ -114,11 +119,7 @@ def test_session_manager_rebuilds_missing_turn_trace_viz_blocks(tmp_path):
                         "call_id": "call-detail",
                         "tool": "portfolio_read_list",
                         "ok": True,
-                        "data": {
-                            "items": [
-                                {"id": "p-1", "name": "Core", "kind": "manual", "pinned": True}
-                            ]
-                        },
+                        "data": {"items": [{"id": "p-1", "name": "Core", "kind": "manual", "pinned": True}]},
                         "viz_blocks": [],
                     }
                 ],

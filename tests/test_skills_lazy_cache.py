@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import pytest
 from dojoagents.skills.manager import SkillManager
 from dojoagents.skills.cache import SkillPromptCache
+from dojoagents.agent.models import ToolCall
+from dojoagents.tools.executor import ToolExecutor
+from dojoagents.tools.registry import ToolRegistry
+from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.skill_manage import SkillsListTool, SkillViewTool
 
 
 def test_skill_prompt_cache(tmp_path):
-    cache_file = tmp_path / ".skills_cache.json"
-    cache = SkillPromptCache(cache_file)
+    cache = SkillPromptCache()
 
     skill_file = tmp_path / "SKILL.md"
     skill_file.write_text(
@@ -50,18 +52,14 @@ def test_skill_manager_lazy_skills(tmp_path):
     )
 
     # Test with lazy_skills=True
-    manager = SkillManager(
-        skill_dirs=[tmp_path], enable_cache=True, lazy_skills=True
-    )
+    manager = SkillManager(skill_dirs=[tmp_path], enable_cache=True, lazy_skills=True)
     prompt = manager.prompt_block()
     assert "Available Skills (Mandatory Lazy Loader)" in prompt
     assert "science helper" in prompt
     assert "science guidelines" not in prompt
 
     # Test with lazy_skills=False
-    manager_full = SkillManager(
-        skill_dirs=[tmp_path], enable_cache=True, lazy_skills=False
-    )
+    manager_full = SkillManager(skill_dirs=[tmp_path], enable_cache=True, lazy_skills=False)
     prompt_full = manager_full.prompt_block()
     assert "Available Skills (Mandatory Lazy Loader)" not in prompt_full
     assert "science guidelines" in prompt_full
@@ -76,9 +74,7 @@ async def test_skills_list_and_view_tools(tmp_path):
         encoding="utf-8",
     )
 
-    manager = SkillManager(
-        skill_dirs=[tmp_path], enable_cache=True, lazy_skills=True
-    )
+    manager = SkillManager(skill_dirs=[tmp_path], enable_cache=True, lazy_skills=True)
 
     list_tool = SkillsListTool(manager)
     list_spec = list_tool.get_tool_spec()
@@ -104,3 +100,9 @@ async def test_skills_list_and_view_tools(tmp_path):
     res_view_fail = await view_spec.handler({"name": "non-existent"})
     assert res_view_fail["metadata"]["ok"] is False
     assert "not found" in res_view_fail["content"]
+
+    registry = ToolRegistry()
+    registry.register(view_spec)
+    result = await ToolExecutor(registry, SandboxPolicy()).execute(ToolCall("missing-skill", "skill_view", {"name": "non-existent"}))
+    assert result.ok is False
+    assert "not found" in result.error

@@ -5,7 +5,7 @@ const TOOL_LABELS: Record<string, { zh: string; en: string }> = {
   get_market_overview: { zh: '获取市场概览', en: 'Market overview' },
   get_sector_movers: { zh: '获取板块涨跌', en: 'Sector movers' },
   screen_market_stocks: { zh: '全市场选股', en: 'Market screen' },
-  get_sector_analysis: { zh: '分析行业板块', en: 'Sector analysis' },
+  get_sector_attribution_factors: { zh: '查询归因因子', en: 'Attribution factors' },
   filter_sector_constituents: { zh: '筛选成分股', en: 'Sector constituents' },
   get_ticker_realtime_quote: { zh: '获取实时报价', en: 'Realtime quote' },
   get_ticker_financials: { zh: '获取财务数据', en: 'Financials' },

@@ -19,21 +19,20 @@ from tests.dashboard.fakes.fake_dojo import FakeDojo
 
 
 def _service(tmp_path, *, with_kline: bool = True) -> tuple[PortfolioService, PortfolioStore]:
-    client = FakeDojo()
+    kline_rows = [
+        {
+            "symbol": "AAPL",
+            "bar_time": "2025-01-02",
+            "open": 100,
+            "high": 105,
+            "low": 95,
+            "close": 102,
+        }
+    ]
+    client = FakeDojo(stocks={"get_kline": kline_rows if with_kline else []})
     stocks = StockStore(client)
     sectors = StockSectorStore(client)
     klines = KlineStore(client, stocks, sectors)
-    if with_kline:
-        klines.raw_by_symbol["AAPL"] = [
-            {
-                "symbol": "AAPL",
-                "bar_time": "2025-01-02",
-                "open": 100,
-                "high": 105,
-                "low": 95,
-                "close": 102,
-            }
-        ]
     store = PortfolioStore(tmp_path)
     return PortfolioService(store, stocks, sectors, klines), store
 

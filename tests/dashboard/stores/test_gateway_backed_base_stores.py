@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from dojoagents.dashboard.services.benchmark_store import BenchmarkStore
@@ -144,6 +146,33 @@ async def test_stock_store_loads_catalog_and_quotes_through_gateway() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stock_store_matches_market_specific_quote_symbols() -> None:
+    class MarketSymbolGateway(BaseGateway):
+        async def stocks(self, *, market=None):
+            rows = {
+                "sh": [{"ticker": "600519.SS", "market": "cn", "short_name": "Kweichow Moutai"}],
+                "hk": [{"ticker": "0700.HK", "market": "hk", "short_name": "Tencent"}],
+                "us": [{"ticker": " aapl ", "market": "us", "short_name": "Apple"}],
+            }
+            return GatewayResult(rows.get(market, []), None, "sdk_snapshot", False)
+
+        async def stock_quotes(self, market, symbols):
+            rows = {
+                "sh": [{"symbol": "600519", "last_price": 1500}],
+                "hk": [{"symbol": "00700", "last_price": 500}],
+                "us": [{"symbol": "AAPL", "last_price": 200}],
+            }
+            return GatewayResult(rows[market], None, "sdk_online", False)
+
+    store = StockStore(MarketSymbolGateway())
+    await store.load()
+
+    assert store.get("sh", "600519.SS").stock_quote.last_price == 1500
+    assert store.get("hk", "0700.HK").stock_quote.last_price == 500
+    assert store.get("us", "AAPL").stock_quote.last_price == 200
+
+
+@pytest.mark.asyncio
 async def test_sector_stores_load_taxonomy_and_relations_through_gateway() -> None:
     gateway = BaseGateway()
     taxonomy = SectorStore(gateway)
@@ -199,6 +228,18 @@ async def test_benchmark_store_prefers_catalog_default_symbol() -> None:
     assert response.markets["us"].default_benchmark == "^SPX"
     assert [item.symbol for item in response.markets["us"].benchmarks] == ["^SPX", "^NDX"]
     assert ("benchmark_catalog", None) in gateway.calls
+
+
+@pytest.mark.asyncio
+async def test_benchmark_store_skips_catalog_in_online_mode() -> None:
+    gateway = BaseGateway()
+    gateway.client = SimpleNamespace(_online=True)
+    store = BenchmarkStore(gateway)
+
+    await store.load()
+
+    assert ("benchmark_catalog", None) not in gateway.calls
+    assert store.available_symbols("us") == ["^SPX"]
 
 
 @pytest.mark.asyncio

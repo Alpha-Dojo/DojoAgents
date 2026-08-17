@@ -35,7 +35,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 1.23,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [
@@ -65,9 +65,7 @@ async def test_build_sector_movers_uses_resolved_sector_names() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_supports_date_range_window() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="半导体", level3_en="Semiconductors")),
         stock_store=SimpleNamespace(
             get=lambda market, ticker: SimpleNamespace(
                 ticker=ticker,
@@ -90,7 +88,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
                     "level3_id": "3",
                     "daily_return_pct": 2.5,
                     "total_market_cap": 200.0,
-                    "member_count": 2,
+                    "member_count": 5,
                 }
             ],
             get_sector_constituents=lambda **_kwargs: [{"ticker": "NVDA", "market_cap": 100.0}],
@@ -117,9 +115,7 @@ async def test_build_sector_movers_supports_date_range_window() -> None:
 @pytest.mark.asyncio
 async def test_build_sector_movers_excludes_single_member_sectors() -> None:
     registry = SimpleNamespace(
-        sector_store=SimpleNamespace(
-            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")
-        ),
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="单票", level3_en="Solo")),
         stock_store=SimpleNamespace(get=lambda *_args, **_kwargs: None),
         sector_precomputed_store=SimpleNamespace(
             resolve_window_bounds=lambda window: window,
@@ -202,17 +198,91 @@ def _quoted_stock(ticker: str, market: str = "sh"):
         short_name=ticker,
         long_name=ticker,
         currency="CNY",
+        quote_type="EQUITY",
         stock_quote=SimpleNamespace(
             name=ticker,
             last_price=10.0,
             change_percent=1.0,
+            volume=1,
             turn_rate=0.5,
-            market_cap=100.0,
+            market_cap=10_000_000_000.0,
             pe=12.0,
             pb=1.5,
             amount=1000.0,
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_build_sector_constituents_historical_window_overrides_quote_change() -> None:
+    path = SimpleNamespace(level1_id="1", level2_id="18", level3_id="21")
+    calls: dict[str, object] = {}
+
+    def get_ticker_daily_for_window(window, tickers, market=None):
+        calls["window"] = window
+        calls["tickers"] = list(tickers)
+        return [{"ticker": "000001.SZ", "daily_return_pct": -3.5}]
+
+    def get_ticker_daily_by_window(_days, _tickers):
+        raise AssertionError("days path must not run when start_date/end_date are set")
+
+    registry = SimpleNamespace(
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: path),
+        stock_store=SimpleNamespace(get=lambda _market, ticker: _quoted_stock(ticker)),
+        kline_store=SimpleNamespace(),
+        sector_precomputed_store=SimpleNamespace(
+            get_sector_constituents=lambda **_kwargs: [{"ticker": "000001.SZ", "market": "cn"}],
+            get_ticker_daily_for_window=get_ticker_daily_for_window,
+            get_ticker_daily_by_window=get_ticker_daily_by_window,
+        ),
+    )
+
+    response = await domain_api.build_sector_constituents_v1(
+        registry,
+        level1_id="1",
+        level2_id="18",
+        level3_id="21",
+        scope="L3",
+        market="cn",
+        days=5,
+        start_date="2026-07-22",
+        end_date="2026-07-22",
+    )
+
+    assert response.count == 1
+    item = response.items[0]
+    assert item.change_percent == -3.5
+    assert item.window_change_percent == -3.5
+    assert calls["tickers"] == ["000001.SZ"]
+    assert getattr(calls["window"], "mode", None) == "date_range"
+
+
+@pytest.mark.asyncio
+async def test_build_sector_constituents_historical_empty_raises() -> None:
+    path = SimpleNamespace(level1_id="1", level2_id="18", level3_id="21")
+    registry = SimpleNamespace(
+        sector_store=SimpleNamespace(find_resolved_path=lambda *_args: path),
+        stock_store=SimpleNamespace(get=lambda _market, ticker: _quoted_stock(ticker)),
+        kline_store=SimpleNamespace(),
+        sector_precomputed_store=SimpleNamespace(
+            get_sector_constituents=lambda **_kwargs: [{"ticker": "000001.SZ", "market": "cn"}],
+            get_ticker_daily_for_window=lambda *_args, **_kwargs: [],
+            get_ticker_daily_by_window=lambda *_args, **_kwargs: [],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="No trading data available"):
+        await domain_api.build_sector_constituents_v1(
+            registry,
+            level1_id="1",
+            level2_id="18",
+            level3_id="21",
+            scope="L3",
+            market="cn",
+            days=1,
+            start_date="2026-07-22",
+            end_date="2026-07-22",
+        )
 
 
 @pytest.mark.asyncio
@@ -247,6 +317,8 @@ async def test_build_sector_constituents_reads_source_cn_market_rows() -> None:
     assert response.market == "cn"
     assert response.count == 1
     assert response.items[0].ticker == "000001.SZ"
+    assert response.items[0].change_percent == 1.0
+    assert response.items[0].window_change_percent == 2.5
 
 
 @pytest.mark.asyncio

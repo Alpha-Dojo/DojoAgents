@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -16,6 +15,7 @@ from dojoagents.skills.manager import SkillManager
 ALLOWED_SUBDIRS = {"references", "scripts", "templates", "assets"}
 MAX_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
+
 
 class SkillManagerTool:
     def __init__(self, main_skills_dir: Path, skill_manager: SkillManager) -> None:
@@ -32,43 +32,21 @@ class SkillManagerTool:
             parameters={
                 "type": "object",
                 "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["list", "create", "edit", "patch", "delete", "write_file", "remove_file"],
-                        "description": "Action to perform."
-                    },
+                    "action": {"type": "string", "enum": ["list", "create", "edit", "patch", "delete", "write_file", "remove_file"], "description": "Action to perform."},
                     "name": {
                         "type": "string",
-                        "description": "Skill name (lowercase, hyphens/underscores allowed, e.g., 'stock-trend-analysis'). Required for all actions except 'list'."
+                        "description": "Skill name (lowercase, hyphens/underscores allowed, e.g., 'stock-trend-analysis'). Required for all actions except 'list'.",
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "Full SKILL.md content (YAML frontmatter + markdown body). Required for 'create' and 'edit'."
-                    },
-                    "file_path": {
-                        "type": "string",
-                        "description": "Subfile path under references/, scripts/, templates/, or assets/. Required for write_file/remove_file."
-                    },
-                    "file_content": {
-                        "type": "string",
-                        "description": "Content of the supporting file. Required for write_file."
-                    },
-                    "old_string": {
-                        "type": "string",
-                        "description": "The exact or close text to match in patch action."
-                    },
-                    "new_string": {
-                        "type": "string",
-                        "description": "Replacement text in patch action."
-                    },
-                    "replace_all": {
-                        "type": "boolean",
-                        "description": "For 'patch': replace all occurrences instead of requiring a unique match (default: false)."
-                    }
+                    "content": {"type": "string", "description": "Full SKILL.md content (YAML frontmatter + markdown body). Required for 'create' and 'edit'."},
+                    "file_path": {"type": "string", "description": "Subfile path under references/, scripts/, templates/, or assets/. Required for write_file/remove_file."},
+                    "file_content": {"type": "string", "description": "Content of the supporting file. Required for write_file."},
+                    "old_string": {"type": "string", "description": "The exact or close text to match in patch action."},
+                    "new_string": {"type": "string", "description": "Replacement text in patch action."},
+                    "replace_all": {"type": "boolean", "description": "For 'patch': replace all occurrences instead of requiring a unique match (default: false)."},
                 },
-                "required": ["action"]
+                "required": ["action"],
             },
-            handler=self.handle_call
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -80,10 +58,7 @@ class SkillManagerTool:
                 if not skills:
                     return {"content": "No active skills found in the system.", "metadata": {"ok": True, "skills": []}}
                 skills_list_str = ", ".join(skills)
-                return {
-                    "content": f"Currently available skills: {skills_list_str}",
-                    "metadata": {"ok": True, "skills": skills}
-                }
+                return {"content": f"Currently available skills: {skills_list_str}", "metadata": {"ok": True, "skills": skills}}
             except Exception as e:
                 return {"content": f"Failed to list skills: {e}", "metadata": {"ok": False}}
 
@@ -96,10 +71,7 @@ class SkillManagerTool:
             return {"content": f"Skill name exceeds {MAX_NAME_LENGTH} characters.", "metadata": {"ok": False}}
 
         if not re.match(r"^[a-z0-9][a-z0-9._-]*$", name):
-            return {
-                "content": f"Invalid skill name '{name}'. Use lowercase letters, numbers, hyphens, dots, and underscores.",
-                "metadata": {"ok": False}
-            }
+            return {"content": f"Invalid skill name '{name}'. Use lowercase letters, numbers, hyphens, dots, and underscores.", "metadata": {"ok": False}}
 
         skill_dir = self.main_skills_dir / name
         skill_md = skill_dir / "SKILL.md"
@@ -182,9 +154,7 @@ class SkillManagerTool:
                     return {"content": err, "metadata": {"ok": False}}
 
                 orig_text = target_file.read_text(encoding="utf-8")
-                new_content, match_count, strategy, error = fuzzy_find_and_replace(
-                    orig_text, old_string, new_string, replace_all
-                )
+                new_content, match_count, strategy, error = fuzzy_find_and_replace(orig_text, old_string, new_string, replace_all)
                 if error:
                     return {"content": f"Patch failed: {error}", "metadata": {"ok": False}}
 
@@ -194,10 +164,7 @@ class SkillManagerTool:
                         return {"content": "Patch would break SKILL.md frontmatter structure.", "metadata": {"ok": False}}
 
                 self._atomic_write(target_file, new_content)
-                return {
-                    "content": f"Patched '{file_path}' in skill '{name}' ({match_count} replacement(s) using strategy '{strategy}').",
-                    "metadata": {"ok": True}
-                }
+                return {"content": f"Patched '{file_path}' in skill '{name}' ({match_count} replacement(s) using strategy '{strategy}').", "metadata": {"ok": True}}
 
             elif action == "delete":
                 if not skill_dir.exists():
@@ -272,7 +239,7 @@ class SkillsListTool:
                 "type": "object",
                 "properties": {},
             },
-            handler=self.handle_call
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -293,18 +260,13 @@ class SkillsListTool:
                         if not self.skill_manager._matches_tool_requirements(frontmatter):
                             continue
                         seen_skills.add(skill_name)
-                        skills_data.append({
-                            "name": skill_name,
-                            "category": frontmatter.get("category", "general"),
-                            "description": frontmatter.get("description", "No description provided.")
-                        })
+                        skills_data.append(
+                            {"name": skill_name, "category": frontmatter.get("category", "general"), "description": frontmatter.get("description", "No description provided.")}
+                        )
                     except Exception:
                         continue
-            
-            return {
-                "content": json.dumps(skills_data, indent=2, ensure_ascii=False),
-                "metadata": {"ok": True}
-            }
+
+            return {"content": json.dumps(skills_data, indent=2, ensure_ascii=False), "metadata": {"ok": True}}
         except Exception as e:
             return {"content": f"Failed to list skills: {e}", "metadata": {"ok": False}}
 
@@ -319,22 +281,17 @@ class SkillViewTool:
             description="View the detailed instructions and documentation of a specific skill by name.",
             parameters={
                 "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "The exact name of the skill to view (e.g. 'dojo-quant-analyst')."
-                    }
-                },
-                "required": ["name"]
+                "properties": {"name": {"type": "string", "description": "The exact name of the skill to view (e.g. 'dojo-quant-analyst')."}},
+                "required": ["name"],
             },
-            handler=self.handle_call
+            handler=self.handle_call,
         )
 
     async def handle_call(self, args: dict[str, Any]) -> dict[str, Any]:
         name = args.get("name", "").strip()
         if not name:
             return {"content": "Skill name is required.", "metadata": {"ok": False}}
-        
+
         try:
             for root in self.skill_manager.skill_dirs:
                 if not root.exists():
@@ -343,10 +300,7 @@ class SkillViewTool:
                 if skill_file.exists():
                     frontmatter, body = self.skill_manager._get_skill_content(skill_file)
                     content = skill_file.read_text(encoding="utf-8")
-                    return {
-                        "content": content,
-                        "metadata": {"ok": True}
-                    }
+                    return {"content": content, "metadata": {"ok": True}}
             return {"content": f"Skill '{name}' not found.", "metadata": {"ok": False}}
         except Exception as e:
             return {"content": f"Failed to view skill: {e}", "metadata": {"ok": False}}

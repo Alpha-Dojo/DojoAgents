@@ -42,11 +42,7 @@ def compute_risk_stats(
     end_value = filled_nav[-1]
     cumulative = (end_value / start_value - 1) * 100 if start_value else None
 
-    returns = [
-        current / previous - 1
-        for previous, current in zip(filled_nav, filled_nav[1:])
-        if previous > 0
-    ]
+    returns = [current / previous - 1 for previous, current in zip(filled_nav, filled_nav[1:]) if previous > 0]
 
     volatility: float | None = None
     sharpe: float | None = None
@@ -219,9 +215,7 @@ def build_market_performance(
     if calendar_dates:
         chart_dates = {day for day in calendar_dates if day >= start_date}
     else:
-        chart_dates = {day for day in benchmark_closes if day >= start_date} | {
-            day for closes in ticker_closes.values() for day in closes if day >= start_date
-        }
+        chart_dates = {day for day in benchmark_closes if day >= start_date} | {day for closes in ticker_closes.values() for day in closes if day >= start_date}
 
     trading_days = trading_days_for_market(market, start_date, end_date)
     if len(trading_days) < 2:
@@ -241,9 +235,7 @@ def build_market_performance(
     for day in trading_days:
         while order_index < len(market_orders):
             order = market_orders[order_index]
-            fill_date = str(
-                order.get("fill_time") or order.get("order_time") or order.get("created_at") or ""
-            )[:10]
+            fill_date = str(order.get("fill_time") or order.get("order_time") or order.get("created_at") or "")[:10]
             if fill_date > day:
                 break
             cash, positions = _apply_filled_order(cash, positions, order)

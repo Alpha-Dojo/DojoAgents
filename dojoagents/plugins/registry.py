@@ -8,7 +8,8 @@ import sys
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from types import MappingProxyType
+from typing import Any, Callable, Dict, List, Mapping, Optional
 from strands.plugins.plugin import Plugin
 from dojoagents.logging import LOGGER
 
@@ -38,13 +39,24 @@ CLAUDE_TO_DOJO_HOOKS = {
 @dataclass
 class PluginManifest:
     name: str
-    version: str = "0.1.9"
+    version: str = "0.2.0"
     description: str = ""
     provides_tools: List[str] = field(default_factory=list)
     provides_hooks: List[str] = field(default_factory=list)
     path: Optional[str] = None
     source: str = "user"  # "built_in" 或 "user"
     is_claude: bool = False
+
+
+@dataclass(frozen=True)
+class PluginContributionSnapshot:
+    skill_dirs: tuple[Path, ...]
+    mcp_configs: Mapping[str, Mapping[str, Any]]
+    tools: tuple[Any, ...]
+    hooks: Mapping[str, tuple[Callable, ...]]
+    declarative_hooks: Mapping[str, tuple[Mapping[str, Any], ...]]
+    tool_sources: Mapping[str, str]
+    mcp_sources: Mapping[str, str]
 
 
 class DojoPluginContext:
@@ -67,6 +79,7 @@ class DojoPluginContext:
         parameters = schema.get("parameters", {"type": "object", "properties": {}})
         spec = ToolSpec(name=name, description=description, parameters=parameters, handler=handler)
         self._registry._tools.append(spec)
+        self._registry._tool_sources[name] = f"plugin:{self.manifest.name}"
         LOGGER.info(f"Registered tool '{name}' from plugin '{self.manifest.name}'")
 
 
@@ -78,11 +91,34 @@ class DojoPluginRegistry:
         self._hooks: Dict[str, List[Callable]] = {}
         self._decl_hooks: Dict[str, List[Dict[str, Any]]] = {}  # 声明式钩子字典
         self._tools: List[Any] = []  # 插件注册的自定义工具列表
+        self._tool_sources: Dict[str, str] = {}
         self._skill_dirs: List[Path] = []
         self._mcp_configs: Dict[str, Dict[str, Any]] = {}
+        self._mcp_sources: Dict[str, str] = {}
         self._agent_configs: List[Dict[str, Any]] = []
         self._manifests: Dict[str, PluginManifest] = {}
         self._discovered = False
+
+    def contribution_snapshot(self) -> PluginContributionSnapshot:
+        """Return a detached, immutable view for one Runtime composition."""
+
+        mcp = MappingProxyType({name: MappingProxyType(dict(config)) for name, config in self._mcp_configs.items()})
+        hooks = MappingProxyType({name: tuple(callbacks) for name, callbacks in self._hooks.items()})
+        declarative = MappingProxyType({name: tuple(MappingProxyType(dict(item)) for item in items) for name, items in self._decl_hooks.items()})
+        return PluginContributionSnapshot(
+            skill_dirs=tuple(self._skill_dirs),
+            mcp_configs=mcp,
+            tools=tuple(self._tools),
+            hooks=hooks,
+            declarative_hooks=declarative,
+            tool_sources=MappingProxyType(dict(self._tool_sources)),
+            mcp_sources=MappingProxyType(dict(self._mcp_sources)),
+        )
+
+    def register_runtime_hook(self, hook_name: str, callback: Callable) -> None:
+        """Compatibility registration boundary for instance setup code."""
+
+        self._hooks.setdefault(hook_name, []).append(callback)
 
     def _resolve_manifest_paths(self, data: Any, root_path: str) -> Any:
         if isinstance(data, str):
@@ -105,8 +141,10 @@ class DojoPluginRegistry:
             self._hooks.clear()
             self._decl_hooks.clear()
             self._tools.clear()
+            self._tool_sources.clear()
             self._skill_dirs.clear()
             self._mcp_configs.clear()
+            self._mcp_sources.clear()
             self._agent_configs.clear()
             self._manifests.clear()
 
@@ -169,7 +207,7 @@ class DojoPluginRegistry:
             try:
                 manifest = PluginManifest(
                     name=meta.get("name", child.name),
-                    version=meta.get("version", "0.1.9"),
+                    version=meta.get("version", "0.2.0"),
                     description=meta.get("description", ""),
                     provides_tools=meta.get("provides_tools", []),
                     provides_hooks=meta.get("provides_hooks", []),
@@ -260,6 +298,7 @@ class DojoPluginRegistry:
 
         if mcp_configs:
             self._mcp_configs.update(mcp_configs)
+            self._mcp_sources.update({server_id: f"plugin:{manifest.name}" for server_id in mcp_configs})
             LOGGER.info(f"Loaded {len(mcp_configs)} MCP server configs from plugin '{manifest.name}'")
 
         # 5. 保存声明式构件/钩子至注册表

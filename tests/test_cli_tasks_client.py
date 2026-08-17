@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-RealAsyncClient = httpx.AsyncClient
-
-from dojoagents.cli.tasks_client import (
+from dojoagents.dashboard.client.tasks import (
     DashboardTaskClientError,
     _dashboard_client,
     _is_local_dashboard,
@@ -17,11 +16,29 @@ from dojoagents.cli.tasks_client import (
     wait_for_chat_run,
 )
 
+RealAsyncClient = httpx.AsyncClient
+
 
 def test_dashboard_base_url_from_config_override() -> None:
-    assert dashboard_base_url_from_config("~/.dojo/agents.yaml", override="http://127.0.0.1:9999/") == (
-        "http://127.0.0.1:9999"
-    )
+    assert dashboard_base_url_from_config("~/.dojo/agents.yaml", override="http://127.0.0.1:9999/") == ("http://127.0.0.1:9999")
+
+
+@pytest.mark.parametrize(
+    ("configured_host", "expected"),
+    [
+        ("0.0.0.0", "http://127.0.0.1:8765"),
+        ("::", "http://[::1]:8765"),
+        ("::1", "http://[::1]:8765"),
+    ],
+)
+def test_dashboard_base_url_converts_wildcard_bind_hosts_to_loopback(
+    configured_host: str,
+    expected: str,
+) -> None:
+    config = SimpleNamespace(dashboard=SimpleNamespace(host=configured_host, port=8765))
+    store = SimpleNamespace(snapshot=lambda: config)
+    with patch("dojoagents.dashboard.client.tasks.ConfigStore", return_value=store):
+        assert dashboard_base_url_from_config("agents.yaml") == expected
 
 
 @pytest.mark.parametrize(
@@ -30,6 +47,8 @@ def test_dashboard_base_url_from_config_override() -> None:
         ("http://127.0.0.1:8765", True),
         ("http://localhost:8765", True),
         ("http://[::1]:8765", True),
+        ("http://0.0.0.0:8765", True),
+        ("http://[::]:8765", True),
         ("http://10.0.0.5:8765", False),
     ],
 )
@@ -56,7 +75,7 @@ async def test_check_dashboard_health_success() -> None:
         return httpx.Response(200, json={"revision": "abc"})
 
     transport = httpx.MockTransport(handler)
-    with patch("dojoagents.cli.tasks_client.httpx.AsyncClient", side_effect=_client_factory(transport)):
+    with patch("dojoagents.dashboard.client.tasks.httpx.AsyncClient", side_effect=_client_factory(transport)):
         assert await check_dashboard_health("http://127.0.0.1:8765") is True
 
 
@@ -70,17 +89,19 @@ async def test_create_chat_run_posts_pipeline_message() -> None:
         return httpx.Response(200, json={"run_id": "run-123", "session_id": "sess-1"})
 
     transport = httpx.MockTransport(handler)
-    with patch("dojoagents.cli.tasks_client.httpx.AsyncClient", side_effect=_client_factory(transport)):
+    with patch("dojoagents.dashboard.client.tasks.httpx.AsyncClient", side_effect=_client_factory(transport)):
         payload = await create_chat_run(
             base_url="http://127.0.0.1:8765",
             message="/pipeline daily-market-events 2026-06-01",
             session_id="cli-task-daily-market-events-2026-06-01",
+            model="deepseek-v4-flash-0731",
         )
 
     assert payload["run_id"] == "run-123"
     assert captured["path"] == "/api/chat/runs"
     assert "/pipeline daily-market-events 2026-06-01" in captured["payload"]
     assert "cli-task-daily-market-events-2026-06-01" in captured["payload"]
+    assert "deepseek-v4-flash-0731" in captured["payload"]
 
 
 @pytest.mark.asyncio
@@ -105,8 +126,8 @@ async def test_wait_for_chat_run_polls_until_terminal_status() -> None:
         )
 
     transport = httpx.MockTransport(handler)
-    with patch("dojoagents.cli.tasks_client.httpx.AsyncClient", side_effect=_client_factory(transport)):
-        with patch("dojoagents.cli.tasks_client.asyncio.sleep", new_callable=AsyncMock):
+    with patch("dojoagents.dashboard.client.tasks.httpx.AsyncClient", side_effect=_client_factory(transport)):
+        with patch("dojoagents.dashboard.client.tasks.asyncio.sleep", new_callable=AsyncMock):
             record = await wait_for_chat_run("http://127.0.0.1:8765", "run-123", poll_interval=0.01)
 
     assert calls["count"] == 2
@@ -120,7 +141,7 @@ async def test_create_chat_run_raises_on_http_error() -> None:
         return httpx.Response(503, text="dashboard unavailable")
 
     transport = httpx.MockTransport(handler)
-    with patch("dojoagents.cli.tasks_client.httpx.AsyncClient", side_effect=_client_factory(transport)):
+    with patch("dojoagents.dashboard.client.tasks.httpx.AsyncClient", side_effect=_client_factory(transport)):
         with pytest.raises(DashboardTaskClientError, match="503"):
             await create_chat_run(
                 base_url="http://127.0.0.1:8765",

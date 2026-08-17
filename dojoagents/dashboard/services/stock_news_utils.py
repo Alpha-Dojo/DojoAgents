@@ -46,7 +46,7 @@ def news_row_key(row: dict) -> str:
     for key in ("id", "news_id"):
         value = row.get(key)
         if value is not None:
-            if isinstance(value,str):
+            if isinstance(value, str):
                 return str(value).strip()
             else:
                 return value
@@ -57,6 +57,7 @@ def news_row_key(row: dict) -> str:
 
 def _sort_datetime_key(text: str) -> str:
     import pandas as pd
+
     if not text:
         return ""
     normalized = text.replace("Z", "+00:00")

@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
-from dojoagents.dashboard.services.file_store_base import _atomic_write_text
+from dojoagents.sessions.atomic import _atomic_write_text
 from dojoagents.logging import LOGGER
 
 MARKETS = ("us", "sh", "hk")
 INDEX_FILENAME = "index.json"
 STORE_VERSION = 3
+V2_VERSION = 2
 
 
 def _utc_now_iso() -> str:
@@ -88,9 +89,9 @@ class PortfolioStore:
     def _copy_default_portfolios(self) -> None:
         import shutil
 
-        default_dir = Path(__file__).parents[2] / "data" / "default_portfolios"
+        default_dir = Path(__file__).resolve().parent.parent / "data" / "default_portfolios"
         if not default_dir.exists():
-            default_dir = Path(__file__).parents[2] / "data" / "default_portfolio"
+            default_dir = Path(__file__).resolve().parent.parent / "data" / "default_portfolio"
 
         if default_dir.exists() and default_dir.is_dir():
             LOGGER.info(f"Copying default portfolios from {default_dir} to {self.root}")
@@ -165,36 +166,44 @@ class PortfolioStore:
     @staticmethod
     def _normalize_document(payload: dict[str, Any]) -> dict[str, Any]:
         version = int(payload.get("version") or 1)
-        if version >= STORE_VERSION:
-            payload.setdefault("candidates", [])
-            payload.setdefault("orders", [])
-            payload.pop("holdings", None)
+        if version < V2_VERSION:
             return payload
 
-        if version < 2:
-            payload = PortfolioStore._to_v2(payload)
-
-        candidates: list[dict[str, Any]] = []
+        normalized_holdings: list[dict[str, Any]] = []
         for raw in payload.get("holdings") or []:
             if not isinstance(raw, dict) or not raw.get("ticker"):
                 continue
-            candidates.append(
-                {
-                    "ticker": str(raw.get("ticker")),
-                    "market": str(raw.get("market") or ""),
-                    "added_at": raw.get("added_at") or _utc_now_iso(),
-                }
+            holding = dict(raw)
+            holding.setdefault(
+                "shares_locked",
+                bool(holding.get("manual_shares", False)),
             )
-        payload["candidates"] = candidates
-        payload["orders"] = []
-        payload.pop("holdings", None)
+            holding.setdefault(
+                "manual_shares",
+                bool(holding["shares_locked"]),
+            )
+            holding.setdefault("open_date_locked", False)
+            holding.setdefault("cost_override", None)
+            holding.setdefault("cost_locked", False)
+            normalized_holdings.append(holding)
+        payload["holdings"] = normalized_holdings
+        if "candidates" not in payload:
+            payload["candidates"] = [
+                {
+                    "ticker": str(holding["ticker"]),
+                    "market": str(holding.get("market") or ""),
+                    "added_at": holding.get("added_at") or _utc_now_iso(),
+                }
+                for holding in normalized_holdings
+            ]
+        payload.setdefault("orders", [])
         payload["version"] = STORE_VERSION
         return payload
 
     @staticmethod
     def _to_v2(payload: dict[str, Any]) -> dict[str, Any]:
         migrated = dict(payload)
-        migrated["version"] = STORE_VERSION
+        migrated["version"] = V2_VERSION
         migrated.setdefault("pinned", False)
         holdings = migrated.get("holdings")
         normalized_holdings: list[dict[str, Any]] = []
@@ -234,7 +243,7 @@ class PortfolioStore:
                 continue
 
             portfolio_id = str(payload.get("id") or portfolio_id)
-            if int(payload.get("version") or 1) >= STORE_VERSION:
+            if int(payload.get("version") or 1) >= V2_VERSION:
                 report["skipped"].append(portfolio_id)
                 continue
             report["would_migrate"].append(portfolio_id)
@@ -245,12 +254,22 @@ class PortfolioStore:
             if not backup_path.exists():
                 _atomic_write_text(backup_path, original)
             migrated = self._to_v2(payload)
-            self._write_portfolio_file(migrated)
+            content = json.dumps(migrated, ensure_ascii=False, indent=2) + "\n"
+            _atomic_write_text(path, content)
             self._upsert_index_row(migrated)
             report["migrated"].append(portfolio_id)
 
         if not dry_run:
-            self._save_index()
+            self._index["version"] = V2_VERSION
+            _atomic_write_text(
+                self.index_path,
+                json.dumps(
+                    self._index,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+            )
         return report
 
     def _upsert_index_row(self, payload: dict[str, Any]) -> None:
@@ -300,6 +319,7 @@ class PortfolioStore:
             "created_at": now,
             "updated_at": now,
             "config": _default_config(),
+            "holdings": [],
             "candidates": [],
             "orders": [],
         }
@@ -345,8 +365,40 @@ class PortfolioStore:
             or cost_locked_by_ticker is not None
             or cost_override_by_ticker is not None
         ):
-            # Legacy v2 holding metadata updates are ignored in v3 (positions come from orders).
-            pass
+            for holding in payload.get("holdings") or []:
+                if not isinstance(holding, dict):
+                    continue
+                ticker = str(holding.get("ticker") or "")
+                shares_was_locked = bool(holding.get("shares_locked"))
+                open_date_was_locked = bool(holding.get("open_date_locked"))
+                cost_was_locked = bool(holding.get("cost_locked"))
+                if shares_locked_by_ticker is not None and ticker in shares_locked_by_ticker:
+                    holding["shares_locked"] = bool(shares_locked_by_ticker[ticker])
+                    holding["manual_shares"] = holding["shares_locked"]
+                if open_date_locked_by_ticker is not None and ticker in open_date_locked_by_ticker:
+                    holding["open_date_locked"] = bool(open_date_locked_by_ticker[ticker])
+                if cost_locked_by_ticker is not None and ticker in cost_locked_by_ticker:
+                    holding["cost_locked"] = bool(cost_locked_by_ticker[ticker])
+                if (
+                    shares_by_ticker is not None
+                    and ticker in shares_by_ticker
+                    and (not shares_was_locked or (shares_locked_by_ticker is not None and shares_locked_by_ticker.get(ticker) is False))
+                ):
+                    holding["shares"] = float(shares_by_ticker[ticker])
+                if manual_shares_by_ticker is not None and ticker in manual_shares_by_ticker:
+                    holding["manual_shares"] = bool(manual_shares_by_ticker[ticker])
+                if (
+                    open_date_by_ticker is not None
+                    and ticker in open_date_by_ticker
+                    and (not open_date_was_locked or (open_date_locked_by_ticker is not None and open_date_locked_by_ticker.get(ticker) is False))
+                ):
+                    holding["open_date"] = open_date_by_ticker[ticker]
+                if (
+                    cost_override_by_ticker is not None
+                    and ticker in cost_override_by_ticker
+                    and (not cost_was_locked or (cost_locked_by_ticker is not None and cost_locked_by_ticker.get(ticker) is False))
+                ):
+                    holding["cost_override"] = cost_override_by_ticker[ticker]
 
         payload["updated_at"] = _utc_now_iso()
         self._write_portfolio_file(payload)
@@ -361,8 +413,17 @@ class PortfolioStore:
         *,
         reset_manual: bool = True,
     ) -> Optional[dict[str, Any]]:
-        del shares_by_ticker, reset_manual
-        return self._read_portfolio_file(portfolio_id)
+        payload = self._read_portfolio_file(portfolio_id)
+        if not payload:
+            return None
+        for holding in payload.get("holdings") or []:
+            ticker = str(holding.get("ticker") or "")
+            if ticker in shares_by_ticker and not holding.get("shares_locked"):
+                holding["shares"] = float(shares_by_ticker[ticker])
+                if reset_manual:
+                    holding["manual_shares"] = False
+        self._write_portfolio_file(payload)
+        return payload
 
     def delete(self, portfolio_id: str) -> bool:
         path = self._portfolio_path(self.root, portfolio_id)
@@ -405,11 +466,7 @@ class PortfolioStore:
                 candidates = []
                 payload["candidates"] = candidates
 
-            existing = {
-                (str(row.get("ticker")), str(row.get("market")))
-                for row in candidates
-                if isinstance(row, dict) and row.get("ticker") and row.get("market")
-            }
+            existing = {(str(row.get("ticker")), str(row.get("market"))) for row in candidates if isinstance(row, dict) and row.get("ticker") and row.get("market")}
             changed = False
             for ticker, market in entries:
                 normalized_ticker = ticker.strip()
@@ -444,8 +501,32 @@ class PortfolioStore:
         market: str,
         shares: float = 0.0,
     ) -> Optional[dict[str, Any]]:
-        del shares
-        return self.add_candidate(portfolio_id, ticker=ticker, market=market)
+        payload = self.add_candidate(
+            portfolio_id,
+            ticker=ticker,
+            market=market,
+        )
+        if not payload:
+            return None
+        holdings = payload.setdefault("holdings", [])
+        canonical = ticker.strip()
+        if not any(isinstance(row, dict) and str(row.get("ticker")) == canonical and str(row.get("market")) == market for row in holdings):
+            holdings.append(
+                {
+                    "ticker": canonical,
+                    "market": market,
+                    "shares": float(shares),
+                    "manual_shares": False,
+                    "shares_locked": False,
+                    "open_date": None,
+                    "open_date_locked": False,
+                    "cost_override": None,
+                    "cost_locked": False,
+                    "added_at": _utc_now_iso(),
+                }
+            )
+            self._write_portfolio_file(payload)
+        return payload
 
     def _candidate_row_matches(
         self,
@@ -495,21 +576,14 @@ class PortfolioStore:
                 candidates = []
                 payload["candidates"] = candidates
 
-            targets = [
-                (ticker.strip(), market)
-                for ticker, market in entries
-                if ticker.strip()
-            ]
+            targets = [(ticker.strip(), market) for ticker, market in entries if ticker.strip()]
             if not targets:
                 return payload
 
             before = len(candidates)
 
             def _should_remove(row: Any) -> bool:
-                return any(
-                    self._candidate_row_matches(row, ticker=target_ticker, market=target_market)
-                    for target_ticker, target_market in targets
-                )
+                return any(self._candidate_row_matches(row, ticker=target_ticker, market=target_market) for target_ticker, target_market in targets)
 
             payload["candidates"] = [row for row in candidates if not _should_remove(row)]
             if len(payload["candidates"]) == before:
@@ -530,7 +604,24 @@ class PortfolioStore:
         ticker: str,
         market: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
-        return self.remove_candidate(portfolio_id, ticker=ticker, market=market)
+        payload = self.remove_candidate(
+            portfolio_id,
+            ticker=ticker,
+            market=market,
+        )
+        if not payload:
+            return None
+        payload["holdings"] = [
+            row
+            for row in payload.get("holdings") or []
+            if not self._candidate_row_matches(
+                row,
+                ticker=ticker,
+                market=market,
+            )
+        ]
+        self._write_portfolio_file(payload)
+        return payload
 
     def add_order(
         self,

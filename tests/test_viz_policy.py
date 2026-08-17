@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dojoagents.agent.models import ToolResult
-from dojoagents.agent.viz_policy import (
+from dojoagents.harnesses.built_in.financial.policies.visualization_rules import (
     VizPolicyContext,
     VizPolicyMatch,
     build_viz_policy_catalog,
@@ -74,9 +74,7 @@ def test_allows_optional_for_read_only_analysis() -> None:
         channel="dashboard",
         user_message="分析组合",
         locale="zh",
-        tool_results=(
-            ToolResult(call_id="d1", name="portfolio_read_detail", ok=True, data={"id": "p-1"}),
-        ),
+        tool_results=(ToolResult(call_id="d1", name="portfolio_read_detail", ok=True, data={"id": "p-1"}),),
     )
     decision = check_agent_viz_build(ctx)
     assert not decision.block_agent_viz_build
@@ -84,7 +82,7 @@ def test_allows_optional_for_read_only_analysis() -> None:
     assert decision.match.stance == "optional"
 
 
-def test_encouraged_when_execute_code_has_viz_hint() -> None:
+def test_optional_when_execute_code_has_viz_hint_without_blocks() -> None:
     ctx = VizPolicyContext(
         channel="dashboard",
         user_message="回撤分析",
@@ -101,7 +99,27 @@ def test_encouraged_when_execute_code_has_viz_hint() -> None:
     )
     match = resolve_viz_policy(ctx)
     assert match.scene_id == "quant_viz_data_ready"
-    assert match.stance == "encouraged"
+    assert match.stance == "optional"
+
+
+def test_skips_quant_viz_scene_when_execute_code_already_has_viz_blocks() -> None:
+    ctx = VizPolicyContext(
+        channel="dashboard",
+        user_message="回撤分析",
+        locale="en",
+        tool_results=(
+            ToolResult(
+                call_id="c1",
+                name="execute_code",
+                ok=True,
+                content='stdout\n--- viz_hint ---\n{"mapping_hint":"drawdown_analysis"}',
+                data={"dates": ["2026-01-01", "2026-01-02"], "prices": [100.0, 95.0]},
+                viz_blocks=[{"kind": "line", "title": "Drawdown"}],
+            ),
+        ),
+    )
+    match = resolve_viz_policy(ctx)
+    assert match.scene_id != "quant_viz_data_ready"
 
 
 def test_turn_anchor_for_transactional_message() -> None:
@@ -112,7 +130,9 @@ def test_turn_anchor_for_transactional_message() -> None:
 
 
 def test_custom_rule_can_forbid_new_scene() -> None:
-    from dojoagents.agent import viz_policy as viz_policy_module
+    from dojoagents.harnesses.built_in.financial.policies import (
+        visualization_rules as viz_policy_module,
+    )
 
     saved = list(viz_policy_module._extra_rules)
 

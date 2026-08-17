@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "market",
+    "trading_date",
+    "event_time",
+    "event_rank",
+    "confidence",
+    "driver_status",
+    "index_evidence",
+    "event_summary",
+    "sector_impacts"
+  ],
+  "properties": {
+    "market": { "enum": ["us", "cn", "hk"] },
+    "trading_date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "event_time": { "type": "string" },
+    "event_rank": {
+      "enum": ["mainline", "sub_event", "single_stock", "noise"]
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "driver_status": { "enum": ["verified", "pending", "missing"] },
+    "index_evidence": {
+      "type": ["string", "null"],
+      "description": "Required string for mainline; null allowed for non-mainline rows."
+    },
+    "event_summary": {
+      "type": "object",
+      "required": ["headline", "category", "source", "content", "surprise"],
+      "properties": {
+        "headline": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
+        },
+        "category": {
+          "enum": [
+            "geo_military",
+            "geo_diplomatic",
+            "macro_data",
+            "macro_policy",
+            "industry_supply",
+            "industry_demand",
+            "corporate_earnings",
+            "corporate_guidance",
+            "corporate_mna",
+            "product_tech",
+            "capital_flow",
+            "market_structure",
+            "analyst_revision",
+            "exogenous_shock",
+            "other"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
+        },
+        "content": {
+          "type": "object",
+          "required": ["zh", "en"],
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
+        },
+        "surprise": { "enum": ["expected", "slight", "significant"] }
+      }
+    },
+    "sector_impacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sector_id",
+          "sector_name",
+          "direction",
+          "window_1d",
+          "window_3d",
+          "window_5d",
+          "window_label",
+          "leader_concentration_tier",
+          "reason"
+        ],
+        "properties": {
+          "sector_id": { "type": "string" },
+          "sector_name": {
+            "type": "object",
+            "required": ["zh", "en"],
+            "properties": {
+              "zh": { "type": "string" },
+              "en": { "type": "string" }
+            }
+          },
+          "direction": {
+            "enum": ["Positive", "Negative", "Divergent"],
+            "description": "Follow the sector's signed move (Positive/Negative). Divergent only when constituents are split near 1:1 longs vs shorts — not for single-stock or flat-noise rows with a clear tape direction."
+          },
+          "window_1d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 1d window. Null only when the tool call failed after fallback."
+          },
+          "window_3d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 3d window. Null only when the tool call failed after fallback."
+          },
+          "window_5d": {
+            "type": ["number", "null"],
+            "description": "Sector return over the 5d window. Null only when the tool call failed after fallback."
+          },
+          "window_label": {
+            "enum": [
+              "persistent_up",
+              "persistent_down",
+              "short_long_diverge",
+              "flat",
+              "unclassified"
+            ]
+          },
+          "divergence_days": { "type": ["number", "null"] },
+          "leader_concentration_tier": {
+            "enum": ["healthy", "moderate", "extreme"]
+          },
+          "leader_name": { "type": ["string", "null"] },
+          "leader_weight_pct": { "type": ["number", "null"] },
+          "reason": { "type": "string", "maxLength": 100 }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

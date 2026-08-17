@@ -4,10 +4,10 @@ import io
 import json
 from contextlib import redirect_stdout
 
-import pytest
-
-from dojoagents.agent.tool_result_artifacts import build_artifact_pointer_message
-from dojoagents.agent.tool_schema_hints import get_tool_schema_hint
+from dojoagents.harnesses.built_in.financial.presenters.artifacts import (
+    build_financial_artifact_pointer as build_artifact_pointer_message,
+)
+from dojoagents.harnesses.built_in.financial.presenters.schema_hints import get_tool_schema_hint
 from dojoagents.tools.dojo_tools_runtime import (
     format_execute_code_error_hint,
     tool_columns,
@@ -17,7 +17,6 @@ from dojoagents.tools.dojo_tools_runtime import (
     tool_meta,
     tool_pick,
     tool_print,
-    tool_table,
 )
 
 
@@ -69,6 +68,38 @@ def test_tool_df_benchmarks_supports_column_subset() -> None:
     subset = tool_pick(df, ["symbol", "name_zh", "price", "change_percent"])
     assert subset.iloc[0]["name_zh"] == "上证指数"
     assert subset.iloc[0]["symbol"] == "000001.SH"
+
+
+def test_tool_df_supports_dojo_sdk_data_rows_without_schema_hint() -> None:
+    res = {
+        "ok": True,
+        "data": {
+            "total_num": 2,
+            "data": [
+                {"symbol": "AAPL", "last_price": 200.0},
+                {"symbol": "MSFT", "last_price": 500.0},
+            ],
+        },
+    }
+
+    df = tool_df(res)
+
+    assert df["symbol"].tolist() == ["AAPL", "MSFT"]
+
+
+def test_tool_df_falls_back_to_real_data_when_schema_path_is_stale() -> None:
+    res = {
+        "ok": True,
+        "data": {"total_num": 1, "data": [{"symbol": "AAPL", "close": 202.5}]},
+        "schema_hint": {
+            "default_table": "klines",
+            "tables": {"klines": {"type": "list", "path": "klines", "row_fields": ["symbol", "close"]}},
+        },
+    }
+
+    df = tool_df(res)
+
+    assert df.to_dict("records") == [{"symbol": "AAPL", "close": 202.5}]
 
 
 def test_tool_pick_skips_missing_columns() -> None:
@@ -125,11 +156,19 @@ def test_sector_movers_tool_print() -> None:
 
 
 def test_format_execute_code_error_hint_appends_column_guidance() -> None:
-    tb = 'KeyError: "[\'name_zh\'] not in index"'
+    tb = "KeyError: \"['name_zh'] not in index\""
     code = "df = dojo_tools.tool_df(res)\nprint(df[['name_zh']])"
     enriched = format_execute_code_error_hint(tb, code)
     assert "execute_code hints" in enriched
     assert "tool_pick" in enriched
+
+
+def test_format_execute_code_error_hint_explains_live_rpc_unwrap() -> None:
+    enriched = format_execute_code_error_hint("KeyError: 0", "res = dojo_tools.dojo_sdk_stock_kline({...})")
+
+    assert "tool_json(res)" in enriched
+    assert "payload['data']" in enriched
+    assert "only when loading a persisted result" in enriched
 
 
 def test_artifact_pointer_parse_hint_uses_tool_print() -> None:
@@ -253,7 +292,7 @@ def test_tool_merge_joins_constituents_and_financials() -> None:
         "data": {"items": [{"ticker": "AAPL", "market": "us", "window_change_percent": 5.2}]},
         "schema_hint": const_hint,
     }
-    merged = tool_merge(res_a, res_b)
+    merged = tool_merge(res_a, res_b, on=["ticker", "market"])
     assert merged.iloc[0]["ticker"] == "AAPL"
     assert merged.iloc[0]["pe"] == 30
     assert merged.iloc[0]["window_change_percent"] == 5.2

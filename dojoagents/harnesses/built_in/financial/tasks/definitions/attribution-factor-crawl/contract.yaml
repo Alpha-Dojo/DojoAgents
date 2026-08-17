@@ -1,0 +1,33 @@
+id: attribution-factor-crawl
+name: 板块单日归因因子提取
+version: 2
+harness_profile: tool_orchestrated
+channels:
+  - dashboard
+  - gateway
+  - scheduler
+required_tools:
+  - search_sector_taxonomy
+  - get_sector_movers
+  - filter_sector_constituents
+  - web_search
+  - web_extract
+  - execute_code
+  - write_session_file
+outputs:
+  - filename: attribution_factors_{market}_{sector_id}_{trading_date}.jsonl
+    format: jsonl
+    required: true
+    schema: schema/attribution_factor.schema.json
+triggers:
+  commands:
+    - /task attribution-factor-crawl
+constraints:
+  max_tool_calls_per_turn: 1
+  tool_budget:
+    search_sector_taxonomy: 1
+    get_sector_movers: 2
+    filter_sector_constituents: 2
+    web_search: 12
+    web_extract: 8
+    execute_code: 4

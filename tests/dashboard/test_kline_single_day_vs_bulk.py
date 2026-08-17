@@ -9,7 +9,6 @@ from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.services.portfolio_kline_fetch import fetch_kline_bars_for_symbol
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
-
 TARGET = "2026-07-03"
 SYMBOL = "0700.HK"
 
@@ -128,7 +127,7 @@ async def test_kline_store_single_day_returns_target_bar_when_sdk_has_full_windo
     assert response is not None
     assert len(response.bars) == 1
     assert response.bars[0].bar_time == TARGET
-    assert gateway.calls == [{"start_time": TARGET, "end_time": TARGET}]
+    assert gateway.calls == [{"start_time": TARGET, "end_time": TARGET, "market": "hk"}]
 
 
 @pytest.mark.asyncio

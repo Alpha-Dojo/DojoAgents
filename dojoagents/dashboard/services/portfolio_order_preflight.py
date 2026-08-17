@@ -55,11 +55,7 @@ class OrderPreflightResult:
         for row in self.markets:
             if row.shortfall <= 1e-9:
                 continue
-            parts.append(
-                f"{row.native_market}: available {row.available:.2f}, "
-                f"required {row.required:.2f}, shortfall {row.shortfall:.2f} "
-                f"({row.order_count} buy orders)"
-            )
+            parts.append(f"{row.native_market}: available {row.available:.2f}, " f"required {row.required:.2f}, shortfall {row.shortfall:.2f} " f"({row.order_count} buy orders)")
         return "Capital budget exceeded — " + "; ".join(parts)
 
 
@@ -91,20 +87,14 @@ def _uniform_qty(orders: list[CreatePortfolioOrderRequest]) -> float | None:
 
 def _build_user_options(snapshot: MarketBudgetSnapshot) -> list[str]:
     options = [
-        (
-            f"Raise {snapshot.native_market} initial capital to about "
-            f"{snapshot.required:,.0f} in Folio settings (capital_by_market)."
-        ),
+        (f"Raise {snapshot.native_market} initial capital to about " f"{snapshot.required:,.0f} in Folio settings (capital_by_market)."),
         "Reduce the number of symbols in this build batch.",
     ]
     if snapshot.uniform_qty is not None and snapshot.market == "sh" and snapshot.uniform_qty >= 100:
         affordable = 0
         if snapshot.required > 0:
             affordable = max(0, int(snapshot.available // (snapshot.required / snapshot.order_count)))
-        options.append(
-            f"Keep {snapshot.uniform_qty:.0f} shares per symbol only if you also reduce to about "
-            f"{affordable} symbols or lower for the current budget."
-        )
+        options.append(f"Keep {snapshot.uniform_qty:.0f} shares per symbol only if you also reduce to about " f"{affordable} symbols or lower for the current budget.")
     else:
         options.append("Ask for an explicit per-symbol share allocation if unequal sizing is acceptable.")
     options.append("Do NOT silently reduce share counts unless the user explicitly requests it.")

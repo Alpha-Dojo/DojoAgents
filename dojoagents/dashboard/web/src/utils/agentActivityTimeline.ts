@@ -5,6 +5,7 @@ import type {
   AgentEvalHintItem,
   AgentThinkBlock,
   AgentToolActivityItem,
+  AgentToolTraceItem,
 } from '../types/agent';
 import { formatToolResultData } from './agentToolDetail';
 import { createRandomId } from './randomId';
@@ -209,6 +210,45 @@ export function resolveToolResult(
   }
 
   return [...steps, { kind: 'tool', id: createRandomId(), item: nextItem }];
+}
+
+export function reconcileToolTrace(
+  steps: AgentActivityStep[],
+  trace: AgentToolTraceItem[],
+  locale: 'zh' | 'en',
+): AgentActivityStep[] {
+  let nextSteps = steps;
+  for (const result of trace) {
+    const matching = result.call_id
+      ? nextSteps.find(
+          (step) => step.kind === 'tool' && step.item.callId === result.call_id,
+        )
+      : undefined;
+    if (matching?.kind === 'tool' && matching.item.status !== 'running') {
+      continue;
+    }
+    if (!matching) {
+      nextSteps = appendToolStart(
+        nextSteps,
+        result.tool,
+        result.arguments ?? {},
+        result.call_id,
+      );
+    }
+    nextSteps = resolveToolResult(
+      nextSteps,
+      result.tool,
+      result.ok,
+      result.latency_ms ?? 0,
+      locale,
+      result.error,
+      null,
+      result.data,
+      result.viz_blocks,
+      result.call_id,
+    );
+  }
+  return nextSteps;
 }
 
 export function appendEvalHint(steps: AgentActivityStep[], issues: string[]): AgentActivityStep[] {
