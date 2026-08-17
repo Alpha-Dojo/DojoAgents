@@ -554,8 +554,8 @@ async def _write_attribution_factors(client: AsyncDojo, items: list[dict[str, An
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
         generation_time = datetime.now(timezone.utc).isoformat()
-        batch = [{**item, "generation_time": generation_time} for item in items[offset : offset + _WRITE_BATCH_SIZE]]
-        await client.analysis.create_attribution_factor(body={"items": batch})
+        batch = items[offset : offset + _WRITE_BATCH_SIZE]
+        await client.analysis.create_attribution_factor(body={"items": batch, "generation_time": generation_time})
         written += len(batch)
         LOGGER.info("Wrote attribution-factor batch: %d/%d", written, len(items))
     return written

@@ -413,10 +413,10 @@ async def test_write_attribution_factors_splits_at_api_limit() -> None:
         written = await _write_attribution_factors(client, items)
 
     assert written == 3
-    batches = [call.kwargs["body"]["items"] for call in create.await_args_list]
-    assert [[{key: value for key, value in item.items() if key != "generation_time"} for item in batch] for batch in batches] == [items[:2], items[2:]]
-    assert all(datetime.fromisoformat(item["generation_time"]).tzinfo is not None for batch in batches for item in batch)
-    assert all(len({item["generation_time"] for item in batch}) == 1 for batch in batches)
+    bodies = [call.kwargs["body"] for call in create.await_args_list]
+    assert [body["items"] for body in bodies] == [items[:2], items[2:]]
+    assert all(datetime.fromisoformat(body["generation_time"]).tzinfo is not None for body in bodies)
+    assert all("generation_time" not in item for body in bodies for item in body["items"])
 
 
 @pytest.mark.asyncio

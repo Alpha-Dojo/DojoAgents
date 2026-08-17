@@ -409,8 +409,8 @@ async def _write_sector_briefs(client: AsyncDojo, items: list[dict[str, Any]]) -
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
         generation_time = datetime.now(timezone.utc).isoformat()
-        batch = [{**item, "generation_time": generation_time} for item in items[offset : offset + _WRITE_BATCH_SIZE]]
-        await client.analysis.create_sector_brief_extract(body={"items": batch})
+        batch = items[offset : offset + _WRITE_BATCH_SIZE]
+        await client.analysis.create_sector_brief_extract(body={"items": batch, "generation_time": generation_time})
         written += len(batch)
         LOGGER.info("Wrote sector-brief batch: %d/%d", written, len(items))
     return written
