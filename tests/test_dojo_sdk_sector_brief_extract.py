@@ -16,6 +16,7 @@ BODY = {
             "market": "cn",
             "sector_id": "1/9/10",
             "as_of_date": "2026-07-31",
+            "generation_time": "2026-07-31T20:00:00Z",
             "key_drivers": [
                 {
                     "title": {"zh": "算力需求增长", "en": "Compute demand expands"},

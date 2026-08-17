@@ -11,7 +11,7 @@ import shutil
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlencode, urlparse
@@ -553,7 +553,8 @@ def _sdk_client(config: Any) -> AsyncDojo:
 async def _write_attribution_factors(client: AsyncDojo, items: list[dict[str, Any]]) -> int:
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
-        batch = items[offset : offset + _WRITE_BATCH_SIZE]
+        generation_time = datetime.now(timezone.utc).isoformat()
+        batch = [{**item, "generation_time": generation_time} for item in items[offset : offset + _WRITE_BATCH_SIZE]]
         await client.analysis.create_attribution_factor(body={"items": batch})
         written += len(batch)
         LOGGER.info("Wrote attribution-factor batch: %d/%d", written, len(items))

@@ -778,6 +778,7 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
                 market=item_market,
                 trading_date=item_trading_date,
                 event_time=str(item.get("event_time") or ""),
+                generation_time=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 event_summary=item.get("event_summary") or {},
                 sector_impacts=item.get("sector_impacts") or [],
             )

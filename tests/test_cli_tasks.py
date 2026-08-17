@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -474,13 +475,16 @@ async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_
         succeeded = await _upload_daily_market_events("agents.yaml", "2026-08-11", "cn")
 
     assert succeeded is True
-    client.analysis.create_market_dynamics.assert_awaited_once_with(
-        market="cn",
-        trading_date="2026-08-11",
-        event_time="2026-08-11T09:30:00+08:00",
-        event_summary={"category": "geo_military"},
-        sector_impacts=[],
-    )
+    kwargs = client.analysis.create_market_dynamics.await_args.kwargs
+    generation_time = kwargs.pop("generation_time")
+    assert datetime.datetime.fromisoformat(generation_time).tzinfo is not None
+    assert kwargs == {
+        "market": "cn",
+        "trading_date": "2026-08-11",
+        "event_time": "2026-08-11T09:30:00+08:00",
+        "event_summary": {"category": "geo_military"},
+        "sector_impacts": [],
+    }
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ import json
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -408,7 +408,8 @@ def _api_write_items(payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]
 async def _write_sector_briefs(client: AsyncDojo, items: list[dict[str, Any]]) -> int:
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
-        batch = items[offset : offset + _WRITE_BATCH_SIZE]
+        generation_time = datetime.now(timezone.utc).isoformat()
+        batch = [{**item, "generation_time": generation_time} for item in items[offset : offset + _WRITE_BATCH_SIZE]]
         await client.analysis.create_sector_brief_extract(body={"items": batch})
         written += len(batch)
         LOGGER.info("Wrote sector-brief batch: %d/%d", written, len(items))

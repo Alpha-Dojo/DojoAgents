@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -412,10 +413,10 @@ async def test_write_attribution_factors_splits_at_api_limit() -> None:
         written = await _write_attribution_factors(client, items)
 
     assert written == 3
-    assert [call.kwargs["body"]["items"] for call in create.await_args_list] == [
-        items[:2],
-        items[2:],
-    ]
+    batches = [call.kwargs["body"]["items"] for call in create.await_args_list]
+    assert [[{key: value for key, value in item.items() if key != "generation_time"} for item in batch] for batch in batches] == [items[:2], items[2:]]
+    assert all(datetime.fromisoformat(item["generation_time"]).tzinfo is not None for batch in batches for item in batch)
+    assert all(len({item["generation_time"] for item in batch}) == 1 for batch in batches)
 
 
 @pytest.mark.asyncio
