@@ -55,6 +55,22 @@ class TaxonomyTreeResponse(BaseModel):
     tree: List[TaxonomyL1Node] = Field(default_factory=list)
 
 
+class TaxonomyL3CatalogItem(BaseModel):
+    """Agent-facing flat L3 taxonomy row (monolingual)."""
+
+    sector_path_id: str = Field(..., description="Opaque L1/L2/L3 path, e.g. 153/160/161")
+    name: str = Field(..., description="L3 name in the requested locale")
+    description: str = Field("", description="L3 definition/description in the requested locale")
+
+
+class TaxonomyL3CatalogResponse(BaseModel):
+    """Agent-facing L3 catalog projected from the nested taxonomy tree."""
+
+    locale: Literal["zh", "en"] = "zh"
+    count: int = 0
+    items: List[TaxonomyL3CatalogItem] = Field(default_factory=list)
+
+
 class MarketStatsSnapshot(BaseModel):
     market: str
     listed_count: int

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 from datetime import date
 from dojoagents.dashboard.schemas.benchmark import DojoMeshBenchmarksResponse
 from dojoagents.dashboard.schemas.dojo_core import CoreTickerPeBandResponse
@@ -969,6 +969,110 @@ def build_taxonomy_tree(registry) -> dict[str, Any]:
         "example_l3_paths": example_l3_paths,
         "tree": tree,
     }
+
+
+def _normalize_taxonomy_locale(locale: str | None) -> str:
+    return "en" if str(locale or "").strip().lower() == "en" else "zh"
+
+
+def _locale_text(value: Any, locale: str) -> str:
+    """Project bilingual `{zh,en}` / BilingualText / plain str to one locale."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        primary = str(value.get(locale) or "").strip()
+        if primary:
+            return primary
+        other = "en" if locale == "zh" else "zh"
+        return str(value.get(other) or "").strip()
+    zh = getattr(value, "zh", None)
+    en = getattr(value, "en", None)
+    if zh is not None or en is not None:
+        primary = str(zh if locale == "zh" else en or "").strip()
+        if primary:
+            return primary
+        return str(en if locale == "zh" else zh or "").strip()
+    return str(value).strip()
+
+
+def project_taxonomy_l3_catalog(
+    payload: Mapping[str, Any] | None,
+    *,
+    locale: str = "zh",
+) -> dict[str, Any]:
+    """Flatten nested taxonomy into an agent-friendly L3 catalog.
+
+    Accepts ``build_taxonomy_tree`` / ``TaxonomyTreeResponse`` payloads (``tree``)
+    or taxonomy documents (``level_1``). Does not change HTTP API contracts.
+    """
+    resolved_locale = _normalize_taxonomy_locale(locale)
+    items: list[dict[str, str]] = []
+    raw = payload if isinstance(payload, Mapping) else {}
+
+    tree = raw.get("tree")
+    if isinstance(tree, list) and tree:
+        for l1 in tree:
+            if not isinstance(l1, Mapping):
+                continue
+            l1_id = str(l1.get("level1_id") or l1.get("id") or "").strip()
+            for l2 in l1.get("children") or []:
+                if not isinstance(l2, Mapping):
+                    continue
+                l2_id = str(l2.get("level2_id") or l2.get("id") or "").strip()
+                for l3 in l2.get("children") or []:
+                    if not isinstance(l3, Mapping):
+                        continue
+                    l3_id = str(l3.get("level3_id") or l3.get("id") or "").strip()
+                    if not (l1_id and l2_id and l3_id):
+                        continue
+                    items.append(
+                        {
+                            "sector_path_id": f"{l1_id}/{l2_id}/{l3_id}",
+                            "name": _locale_text(l3.get("name"), resolved_locale),
+                            "description": _locale_text(
+                                l3.get("definition") if l3.get("definition") is not None else l3.get("description"),
+                                resolved_locale,
+                            ),
+                        }
+                    )
+    else:
+        for l1 in raw.get("level_1") or []:
+            if not isinstance(l1, Mapping):
+                continue
+            l1_id = str(l1.get("level1_id") or l1.get("id") or "").strip()
+            for l2 in l1.get("level_2") or []:
+                if not isinstance(l2, Mapping):
+                    continue
+                l2_id = str(l2.get("level2_id") or l2.get("id") or "").strip()
+                for l3 in l2.get("level_3") or []:
+                    if not isinstance(l3, Mapping):
+                        continue
+                    l3_id = str(l3.get("level3_id") or l3.get("id") or "").strip()
+                    if not (l1_id and l2_id and l3_id):
+                        continue
+                    items.append(
+                        {
+                            "sector_path_id": f"{l1_id}/{l2_id}/{l3_id}",
+                            "name": _locale_text(l3.get("name"), resolved_locale),
+                            "description": _locale_text(
+                                l3.get("definition") if l3.get("definition") is not None else l3.get("description"),
+                                resolved_locale,
+                            ),
+                        }
+                    )
+
+    return {
+        "locale": resolved_locale,
+        "count": len(items),
+        "items": items,
+    }
+
+
+def build_taxonomy_l3_catalog_for_agent(registry, *, locale: str = "zh") -> dict[str, Any]:
+    """Build the agent-facing flat L3 catalog from the live sector store."""
+    return project_taxonomy_l3_catalog(build_taxonomy_tree(registry), locale=locale)
 
 
 def _build_l3_options_for_search_hits(store: Any, items: list[dict[str, Any]]) -> list[dict[str, Any]]:

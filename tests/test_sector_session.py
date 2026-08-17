@@ -102,7 +102,7 @@ def test_repair_sector_tool_arguments_keeps_matching_ids() -> None:
         "market": "cn",
     }
     repaired = repair_sector_tool_arguments(
-        "get_sector_analysis",
+        "filter_sector_constituents",
         dict(original),
         invocation_state,
     )
@@ -112,12 +112,13 @@ def test_repair_sector_tool_arguments_keeps_matching_ids() -> None:
 def test_repair_sector_tool_arguments_injects_missing_ids() -> None:
     invocation_state: dict = {"_dojo_sector_best_match": _best_match_payload()}
     repaired = repair_sector_tool_arguments(
-        "get_sector_analysis",
-        {"scope": "L3"},
+        "filter_sector_constituents",
+        {"scope": "L3", "market": "us"},
         invocation_state,
     )
     assert repaired["sector_path_id"] == "1/2/3"
     assert repaired["scope"] == "L3"
+    assert repaired["market"] == "us"
 
 
 def test_repair_sector_tool_arguments_does_not_clobber_well_formed_path_without_hits() -> None:

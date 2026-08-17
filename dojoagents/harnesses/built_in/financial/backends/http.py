@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from types import MappingProxyType
 from typing import Any, Mapping
 
 import httpx
+
+from dojoagents.dashboard.services.domain_api import project_taxonomy_l3_catalog
 
 from .base import FinancialToolDefinition
 
@@ -22,7 +25,6 @@ _TOOL_ROUTES: dict[str, tuple[str, str]] = {
     "get_market_overview": ("GET", "/api/v1/market/overview"),
     "get_sector_movers": ("GET", "/api/v1/market/sector-movers"),
     "screen_market_stocks": ("GET", "/api/v1/market/screener"),
-    "get_sector_analysis": ("GET", "/api/v1/sector/analysis"),
     "get_sector_attribution_factors": (
         "GET",
         "/api/v1/sector/attribution-factors",
@@ -128,6 +130,9 @@ class HTTPFinancialToolBackend:
             raise RuntimeError(f"financial tool '{tool_name}' is unsupported by HTTP backend")
         method, path = route
         payload = dict(arguments)
+        taxonomy_locale = "zh"
+        if tool_name == "get_taxonomy_tree":
+            taxonomy_locale = str(payload.pop("locale", "zh") or "zh").strip() or "zh"
         for key in ("portfolio_id",):
             marker = "{" + key + "}"
             if marker in path:
@@ -172,6 +177,16 @@ class HTTPFinancialToolBackend:
                 "metadata": {
                     "backend": "dashboard-http",
                     "error_code": f"http_{response.status_code}",
+                },
+            }
+        if tool_name == "get_taxonomy_tree" and isinstance(data, dict):
+            data = project_taxonomy_l3_catalog(data, locale=taxonomy_locale)
+            return {
+                "content": json.dumps(data, ensure_ascii=False, indent=2),
+                "data": data,
+                "metadata": {
+                    "backend": "dashboard-http",
+                    "error_code": None,
                 },
             }
         return {

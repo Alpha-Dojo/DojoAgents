@@ -31,7 +31,6 @@ def test_register_dashboard_domain_tools_adds_alpha_dashboard_tool_names() -> No
         "get_market_overview",
         "get_sector_movers",
         "screen_market_stocks",
-        "get_sector_analysis",
         "get_sector_attribution_factors",
         "filter_sector_constituents",
         "get_ticker_realtime_quote",

@@ -1,6 +1,6 @@
 id: event-trigger
 name: 单市场主线分析师
-version: 3
+version: 4
 harness_profile: artifact_synthesis
 channels:
   - dashboard
@@ -9,6 +9,7 @@ channels:
 required_tools:
   - get_sector_movers
   - filter_sector_constituents
+  - get_market_overview
   - execute_code
   - web_search
   - web_extract
@@ -25,8 +26,9 @@ triggers:
 constraints:
   forbid_full_json_in_chat: true
   tool_budget:
-    get_sector_movers: 5
+    get_sector_movers: 8
     filter_sector_constituents: 20
+    get_market_overview: 3
     web_search: 30
     web_extract: 15
     dojo.sdk.benchmark.kline: 6
