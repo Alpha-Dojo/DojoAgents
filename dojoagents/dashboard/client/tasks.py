@@ -176,7 +176,6 @@ async def run_pipeline_via_dashboard(
     session_id: str,
     model: str = "default",
     market: str = "",
-    model: str = "default",
     poll_interval: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> dict[str, Any]:
     parts = [f"/pipeline {pipeline_id}", trading_date]
