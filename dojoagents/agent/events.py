@@ -129,6 +129,22 @@ class ContextCompactedEvent(AgentEvent):
     estimated_prompt_tokens: int = 0
 
 
+class _ReplayedAgentEvent(AgentEvent):
+    def __init__(self, payload: dict[str, Any]) -> None:
+        super().__init__(
+            type=str(payload["type"]),
+            run_id=str(payload["run_id"]),
+            seq=int(payload["seq"]),
+            session_id=str(payload["session_id"]),
+            schema_version=str(payload.get("schema_version") or "2.0"),
+            timestamp=str(payload.get("timestamp") or _utc_timestamp()),
+        )
+        self.payload = dict(payload)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self.payload)
+
+
 class AgentEventSink:
     def __init__(
         self,
@@ -167,6 +183,25 @@ class AgentEventSink:
             **payload,
         )
         event_payload = event.to_dict()
+        self.events.append(event_payload)
+        if self._emit is not None:
+            self._emit(event)
+        for listener in tuple(self._listeners):
+            listener(event)
+        return event_payload
+
+    def replay(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Emit one validated cached event through the normal listeners."""
+
+        self._seq += 1
+        event_payload = {
+            **dict(payload),
+            "type": str(payload.get("type") or ""),
+            "run_id": self.run_id,
+            "seq": self._seq,
+            "session_id": self.session_id,
+        }
+        event = _ReplayedAgentEvent(event_payload)
         self.events.append(event_payload)
         if self._emit is not None:
             self._emit(event)

@@ -13,6 +13,7 @@ import yaml
 from dojoagents.config.models import (
     AgentConfig,
     AgentsConfig,
+    ChatCacheConfig,
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
     DashboardConfig,
@@ -316,6 +317,7 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     planning_raw = raw.get("planning", {})
     harness_raw = raw.get("harness", {})
     sessions_raw = raw.get("sessions", {})
+    chat_cache_raw = raw.get("chat_cache", {})
     tasks_raw = raw.get("tasks", {})
 
     if not isinstance(harness_raw, dict):
@@ -400,6 +402,25 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         heartbeat_seconds=int(runtime_raw.get("heartbeat_seconds", 15)),
         event_batch_size=int(runtime_raw.get("event_batch_size", 20)),
     )
+    if not isinstance(chat_cache_raw, dict):
+        raise ValueError("chat_cache must be a mapping")
+    _reject_unknown_keys(chat_cache_raw, {"enabled", "store"}, "chat_cache")
+    chat_cache_store_raw = chat_cache_raw.get("store", {})
+    if not isinstance(chat_cache_store_raw, dict):
+        raise ValueError("chat_cache.store must be a mapping")
+    if str(chat_cache_store_raw.get("provider", "none")) == "none":
+        _reject_unknown_keys(chat_cache_store_raw, {"provider", "factory", "options"}, "chat_cache.store")
+        options = chat_cache_store_raw.get("options", {})
+        if not isinstance(options, dict):
+            raise ValueError("chat_cache.store.options must be a mapping")
+        chat_cache_store = StoreProviderConfig(provider="none", options=dict(options))
+    else:
+        chat_cache_store = _store_provider_config(chat_cache_store_raw, section="chat_cache.store")
+    chat_cache_enabled = chat_cache_raw.get("enabled", False)
+    if type(chat_cache_enabled) is not bool:
+        raise ValueError("chat_cache.enabled must be a boolean")
+    if chat_cache_enabled and chat_cache_store.provider == "none":
+        raise ValueError("chat_cache.store requires an external provider when enabled")
     explicit_raw = raw if source_raw is None else source_raw
     explicit_sessions = explicit_raw.get("sessions", {})
     if isinstance(explicit_sessions, dict) and ({"provider", "root"} & set(explicit_sessions)):
@@ -487,6 +508,10 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             persist_openai_history=bool(sessions_raw.get("persist_openai_history", True)),
             sync_memory=bool(sessions_raw.get("sync_memory", True)),
             export_default_dir=str(sessions_raw.get("export_default_dir", "~/Desktop/dojo-chat-export")),
+        ),
+        chat_cache=ChatCacheConfig(
+            enabled=chat_cache_enabled,
+            store=chat_cache_store,
         ),
         tasks=TasksConfig(
             enabled=bool(tasks_raw.get("enabled", True)),

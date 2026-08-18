@@ -5,8 +5,10 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Any, TypeVar, AsyncGenerator, AsyncIterable
+from urllib.parse import urlsplit
 
 from dojoagents.plugins import get_plugin_registry
 
@@ -83,6 +85,14 @@ def _current_user_content(request: ChatRequest) -> str | list[dict[str, Any]]:
     if request.runtime_content is not None:
         return request.runtime_content
     return request.metadata.get("user_content", request.message)
+
+
+def _base_url_origin(value: str) -> str:
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.hostname:
+        return ""
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    return f"{parsed.scheme}://{host}{f':{parsed.port}' if parsed.port is not None else ''}"
 
 
 class GuardrailHaltException(Exception):
@@ -510,6 +520,7 @@ class AgentLoop:
         session_service: Any | None = None,
         harness_descriptor: Any | None = None,
         memory_sync_worker: Any | None = None,
+        chat_cache: Any | None = None,
         legacy_behavior: Any | None = None,
         token_ledger_root: str | None = None,
     ) -> None:
@@ -531,6 +542,7 @@ class AgentLoop:
         self.session_service = session_service
         self.harness_descriptor = harness_descriptor
         self.memory_sync_worker = memory_sync_worker
+        self.chat_cache = chat_cache
         self.legacy_behavior = legacy_behavior
         session_root = getattr(session_manager, "root", None)
         self.token_ledger_root = token_ledger_root or (str(Path(session_root) / "_token_ledger") if session_root is not None else None)
@@ -576,6 +588,82 @@ class AgentLoop:
             )
             active_request = canonical_run.request
             active_sink = canonical_run.event_sink
+
+        cache_plan = None
+        cache_collector = None
+        if canonical_run is not None and self.chat_cache is not None:
+            from dojoagents.chat_cache import CacheContext, CacheEventCollector, materialize_event_template
+
+            provider_name = str(getattr(self.llm_provider, "name", type(self.llm_provider).__name__))
+            model_id = str(self.config.model or "unconfigured")
+            base_url = str(getattr(self.provider_config, "base_url", None) or getattr(self.llm_provider, "base_url", None) or "")
+            descriptor = self.harness_descriptor
+            context = CacheContext(
+                provider=provider_name,
+                model=model_id,
+                base_url_origin=_base_url_origin(base_url),
+                harness_id=str(getattr(descriptor, "id", "") or ""),
+                harness_version=str(getattr(descriptor, "version", "") or ""),
+                harness_state_schema_version=int(getattr(descriptor, "state_schema_version", 0) or 0),
+                history_empty=not bool(active_request.metadata.get("history")),
+            )
+            try:
+                cache_plan = await self.chat_cache.prepare(active_request, context)
+                cached = await self.chat_cache.get(cache_plan) if cache_plan is not None else None
+            except Exception:
+                LOGGER.exception("Chat cache lookup failed; executing normally")
+                cache_plan = None
+                cached = None
+            if cache_plan is not None and cached is not None:
+                try:
+                    replayed_at = datetime.now(UTC)
+                    replayed = [
+                        materialize_event_template(
+                            payload,
+                            run_id=canonical_run.coordinator.run_id,
+                            session_id=active_request.session_id,
+                            turn_id=canonical_run.turn_id,
+                            cache_id=cache_plan.cache_id,
+                            source_created_at=cached.created_at,
+                            replayed_at=replayed_at,
+                        )
+                        for payload in cached.events
+                    ]
+                    response = AgentResponse(
+                        content=cached.response_content,
+                        session_id=active_request.session_id,
+                        metadata={
+                            **dict(cached.response_metadata),
+                            "cache": {"hit": True, "cache_id": cache_plan.cache_id},
+                        },
+                    )
+                except Exception:
+                    LOGGER.exception("Cached chat is invalid; executing normally")
+                else:
+                    try:
+                        await self.chat_cache.bind_run(
+                            cache_plan,
+                            canonical_run.coordinator.run_id,
+                            active_request.session_id,
+                            canonical_run.turn_id,
+                            replayed_at,
+                        )
+                    except Exception:
+                        LOGGER.exception("Chat cache run alias failed; canonical replay will continue")
+                    try:
+                        for payload in replayed:
+                            active_sink.replay(payload)
+                        await canonical_run.commit(response)
+                        return response
+                    except asyncio.CancelledError:
+                        await canonical_run.cancel()
+                        raise
+                    except BaseException as exc:
+                        await canonical_run.fail(exc)
+                        raise
+            if cache_plan is not None:
+                cache_collector = CacheEventCollector(cache_plan)
+                active_sink.add_listener(cache_collector)
 
         turn_context = None
         state_handle = None
@@ -652,6 +740,28 @@ class AgentLoop:
                         )
                 if canonical_run is not None:
                     await canonical_run.commit(response, transcript=turn_result.transcript)
+                if cache_plan is not None and cache_collector is not None and not cache_collector.overflowed and not response.artifacts:
+                    from dojoagents.chat_cache import CachedChat
+
+                    now = datetime.now(UTC)
+                    value = CachedChat(
+                        cache_id=cache_plan.cache_id,
+                        pattern_id=cache_plan.pattern_id,
+                        locale=cache_plan.locale,
+                        model_id=f"{getattr(self.llm_provider, 'name', type(self.llm_provider).__name__)}:{self.config.model or 'unconfigured'}",
+                        response_content=response.content,
+                        response_metadata={
+                            "stopped": response.metadata.get("stopped"),
+                            "tool_trace": list(response.metadata.get("tool_trace") or ()),
+                        },
+                        events=tuple(cache_collector.events),
+                        created_at=now,
+                        expires_at=now + timedelta(seconds=cache_plan.ttl_seconds),
+                    )
+                    try:
+                        await self.chat_cache.put(cache_plan, value)
+                    except Exception:
+                        LOGGER.exception("Chat cache write failed after canonical commit")
                 return response
             except asyncio.CancelledError:
                 if canonical_run is not None:
@@ -682,6 +792,8 @@ class AgentLoop:
                         )
                 raise
             finally:
+                if cache_collector is not None and active_sink is not None:
+                    active_sink.remove_listener(cache_collector)
                 if not after_turn_attempted and self.harness_runtime is not None and turn_context is not None:
                     await self.harness_runtime.after_turn(turn_context)
 

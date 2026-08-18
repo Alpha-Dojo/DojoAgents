@@ -368,6 +368,9 @@ class CanonicalAgentRun:
         )
         await self._prepare_terminal()
         messages = self._turn_messages(response, transcript)
+        completion = {"stopped": response.metadata.get("stopped")}
+        if isinstance(response.metadata.get("cache"), dict):
+            completion["cache"] = dict(response.metadata["cache"])
         turn = TurnRecord(
             session_uid=self.session_uid,
             session_id=self.request.session_id,
@@ -376,7 +379,7 @@ class CanonicalAgentRun:
             sequence=self.turn_sequence,
             input={"message": self.request.message, "context": self.request.context},
             output={"content": response.content},
-            completion={"stopped": response.metadata.get("stopped")},
+            completion=completion,
             tool_trace=tuple(response.metadata.get("tool_trace") or ()),
         )
         # Invocation-level usage is appended immediately by UsageCollector.
