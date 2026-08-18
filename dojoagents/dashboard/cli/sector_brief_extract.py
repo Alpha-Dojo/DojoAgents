@@ -405,10 +405,9 @@ def _api_write_items(payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]
     return list(items_by_uid.values())
 
 
-async def _write_sector_briefs(client: AsyncDojo, items: list[dict[str, Any]]) -> int:
+async def _write_sector_briefs(client: AsyncDojo, items: list[dict[str, Any]], *, generation_time: str) -> int:
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
-        generation_time = datetime.now(timezone.utc).isoformat()
         batch = items[offset : offset + _WRITE_BATCH_SIZE]
         await client.analysis.create_sector_brief_extract(body={"items": batch, "generation_time": generation_time})
         written += len(batch)
@@ -437,6 +436,7 @@ async def _task_runtime(
 
 async def run_sector_brief_extract(args: argparse.Namespace) -> int:
     as_of_date = _validate_args(args)
+    generation_time = datetime.now(timezone.utc).isoformat()
     store = ConfigStore(args.config)
     config = store.snapshot()
     configure_logging(config.logging)
@@ -542,7 +542,7 @@ async def run_sector_brief_extract(args: argparse.Namespace) -> int:
 
     client = _sdk_client(config)
     try:
-        written = await _write_sector_briefs(client, items)
+        written = await _write_sector_briefs(client, items, generation_time=generation_time)
         LOGGER.info("Successfully wrote %d sector briefs through DojoSDK", written)
         return 0
     finally:

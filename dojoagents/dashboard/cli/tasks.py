@@ -635,6 +635,7 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
     raw_date = args.date or datetime.date.today().isoformat()
     trading_date = _validate_trading_date(raw_date)
     market = str(getattr(args, "market", "") or "").strip().lower()
+    generation_time = datetime.datetime.now(datetime.timezone.utc).isoformat() if pipeline_id == "daily-market-events" else None
     manager = load_task_manager(args.config)
     pipeline = manager.get_pipeline(pipeline_id)
     if pipeline is None:
@@ -677,7 +678,7 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
         if file_path.is_file():
             LOGGER.info("Task output %s already exists. Skipping pipeline execution.", file_path)
             if not getattr(args, "skip_upload", False):
-                return 0 if await _upload_daily_market_events(args.config, trading_date, market) else 1
+                return 0 if await _upload_daily_market_events(args.config, trading_date, market, generation_time=generation_time) else 1
             return 0
 
     max_retries = int(args.max_retries) if args.max_retries is not None else 3
@@ -715,13 +716,13 @@ async def run_pipeline_task(args: argparse.Namespace) -> int:
 
     if exit_code == 0 and pipeline_id == "daily-market-events":
         if not getattr(args, "skip_upload", False):
-            return 0 if await _upload_daily_market_events(args.config, trading_date, market) else 1
+            return 0 if await _upload_daily_market_events(args.config, trading_date, market, generation_time=generation_time) else 1
     else:
         LOGGER.error(f"Pipeline execution failed: exit_code: {exit_code}")
     return exit_code
 
 
-async def _upload_daily_market_events(config_path: str, trading_date: str, market: str) -> bool:
+async def _upload_daily_market_events(config_path: str, trading_date: str, market: str, *, generation_time: str) -> bool:
     store = ConfigStore(config_path)
     config = store.snapshot()
 
@@ -750,6 +751,15 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
         LOGGER.info("No market events to upload.")
         return True
 
+    skipped_noise = sum(1 for item in items if isinstance(item, dict) and str(item.get("event_rank") or "").strip().lower() == "noise")
+    upload_items = [item for item in items if not (isinstance(item, dict) and str(item.get("event_rank") or "").strip().lower() == "noise")]
+    if skipped_noise:
+        LOGGER.info("Skipped %d noise market events before API upload.", skipped_noise)
+    if not upload_items:
+        LOGGER.info("No non-noise market events to upload.")
+        return True
+    items = upload_items
+
     sdk_cfg = config.dojosdk
     client_kwargs = {
         "api_key": sdk_cfg.api_key if sdk_cfg else None,
@@ -774,13 +784,22 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
                     item_trading_date,
                 )
                 return False
+            sector_impacts = []
+            for impact in item.get("sector_impacts") or []:
+                normalized_impact = dict(impact)
+                normalized_impact.setdefault("affected_markets", [item_market])
+                sector_impacts.append(normalized_impact)
             await client.analysis.create_market_dynamics(
                 market=item_market,
                 trading_date=item_trading_date,
                 event_time=str(item.get("event_time") or ""),
-                generation_time=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                generation_time=generation_time,
+                event_rank=item.get("event_rank"),
+                confidence=item.get("confidence"),
+                driver_status=item.get("driver_status"),
+                index_evidence=item.get("index_evidence"),
                 event_summary=item.get("event_summary") or {},
-                sector_impacts=item.get("sector_impacts") or [],
+                sector_impacts=sector_impacts,
             )
         LOGGER.info("Successfully uploaded market events.")
         return True

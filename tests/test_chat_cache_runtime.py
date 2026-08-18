@@ -174,11 +174,11 @@ async def test_cache_hit_is_shared_across_principals_and_replays_into_new_canoni
     bob = SessionPrincipal("bob", "tenant-b")
 
     first = await loop.run(
-        ChatRequest("public question", session_id="session-a", principal=alice, metadata={"locale": "en"}),
+        ChatRequest("public question", session_id="session-a", principal=alice),
         event_sink=AgentEventSink(run_id="run-a", session_id="session-a"),
     )
     second = await loop.run(
-        ChatRequest("public question", session_id="session-b", principal=bob, metadata={"locale": "en"}),
+        ChatRequest("public question", session_id="session-b", principal=bob),
         event_sink=AgentEventSink(run_id="run-b", session_id="session-b"),
     )
 

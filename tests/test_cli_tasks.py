@@ -406,7 +406,8 @@ async def test_tasks_run_local_uploads_even_when_cleanup_fails() -> None:
                 code = await run_tasks_command(args)
 
     assert code == 0
-    upload.assert_awaited_once_with(args.config, "2026-06-01", "us")
+    assert upload.await_args.args == (args.config, "2026-06-01", "us")
+    assert datetime.datetime.fromisoformat(upload.await_args.kwargs["generation_time"]).tzinfo is not None
 
 
 @pytest.mark.asyncio
@@ -455,10 +456,31 @@ async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_
                 "market": "cn",
                 "trading_date": "2026-08-11",
                 "event_time": "2026-08-11T09:30:00+08:00",
+                "event_rank": "mainline",
+                "confidence": "high",
+                "driver_status": "verified",
+                "index_evidence": "上证指数上涨",
                 "event_summary": {"category": "geo_military"},
-                "sector_impacts": [],
+                "sector_impacts": [
+                    {
+                        "sector_id": "1/2/3",
+                        "sector_name": {"zh": "板块", "en": "Sector"},
+                        "direction": "Positive",
+                        "window_1d": 1.74,
+                        "window_3d": 2.0,
+                        "window_5d": 3.0,
+                        "window_label": "persistent_up",
+                        "divergence_days": None,
+                        "leader_concentration_tier": "healthy",
+                        "leader_name": None,
+                        "leader_weight_pct": None,
+                        "reason": "测试",
+                    }
+                ],
             }
         )
+        + "\n"
+        + json.dumps({"market": "cn", "trading_date": "2026-08-11", "event_rank": "noise"})
         + "\n",
         encoding="utf-8",
     )
@@ -472,18 +494,44 @@ async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_
 
     with patch("dojoagents.dashboard.cli.tasks.ConfigStore") as config_store, patch("dojoagents.dashboard.cli.tasks.AsyncDojo", return_value=client):
         config_store.return_value.snapshot.return_value = config
-        succeeded = await _upload_daily_market_events("agents.yaml", "2026-08-11", "cn")
+        succeeded = await _upload_daily_market_events(
+            "agents.yaml",
+            "2026-08-11",
+            "cn",
+            generation_time="2026-08-11T02:00:00+00:00",
+        )
 
     assert succeeded is True
+    assert client.analysis.create_market_dynamics.await_count == 1
     kwargs = client.analysis.create_market_dynamics.await_args.kwargs
     generation_time = kwargs.pop("generation_time")
-    assert datetime.datetime.fromisoformat(generation_time).tzinfo is not None
+    assert generation_time == "2026-08-11T02:00:00+00:00"
     assert kwargs == {
         "market": "cn",
         "trading_date": "2026-08-11",
         "event_time": "2026-08-11T09:30:00+08:00",
+        "event_rank": "mainline",
+        "confidence": "high",
+        "driver_status": "verified",
+        "index_evidence": "上证指数上涨",
         "event_summary": {"category": "geo_military"},
-        "sector_impacts": [],
+        "sector_impacts": [
+            {
+                "sector_id": "1/2/3",
+                "sector_name": {"zh": "板块", "en": "Sector"},
+                "affected_markets": ["cn"],
+                "direction": "Positive",
+                "window_1d": 1.74,
+                "window_3d": 2.0,
+                "window_5d": 3.0,
+                "window_label": "persistent_up",
+                "divergence_days": None,
+                "leader_concentration_tier": "healthy",
+                "leader_name": None,
+                "leader_weight_pct": None,
+                "reason": "测试",
+            }
+        ],
     }
 
 

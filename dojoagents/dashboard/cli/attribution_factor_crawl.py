@@ -550,10 +550,9 @@ def _sdk_client(config: Any) -> AsyncDojo:
     return AsyncDojo(**{key: value for key, value in kwargs.items() if value is not None})
 
 
-async def _write_attribution_factors(client: AsyncDojo, items: list[dict[str, Any]]) -> int:
+async def _write_attribution_factors(client: AsyncDojo, items: list[dict[str, Any]], *, generation_time: str) -> int:
     written = 0
     for offset in range(0, len(items), _WRITE_BATCH_SIZE):
-        generation_time = datetime.now(timezone.utc).isoformat()
         batch = items[offset : offset + _WRITE_BATCH_SIZE]
         await client.analysis.create_attribution_factor(body={"items": batch, "generation_time": generation_time})
         written += len(batch)
@@ -563,6 +562,7 @@ async def _write_attribution_factors(client: AsyncDojo, items: list[dict[str, An
 
 async def run_attribution_factor_crawl(args: argparse.Namespace) -> int:
     trading_date = _validate_args(args)
+    generation_time = datetime.now(timezone.utc).isoformat()
     store = ConfigStore(args.config)
     config = store.snapshot()
     configure_logging(config.logging)
@@ -665,7 +665,7 @@ async def run_attribution_factor_crawl(args: argparse.Namespace) -> int:
 
     client = _sdk_client(config)
     try:
-        written = await _write_attribution_factors(client, items)
+        written = await _write_attribution_factors(client, items, generation_time=generation_time)
         LOGGER.info(
             "Successfully wrote %d attribution factors through create_attribution_factor%s",
             written,
