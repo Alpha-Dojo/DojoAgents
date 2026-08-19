@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from dojoagents.agent.events import AgentEvent, AgentEventSink
@@ -235,6 +235,10 @@ class CanonicalAgentRun:
     recovering: bool = False
     replay_from_start: bool = False
     message_base: int = 0
+    message_checkpoint_lock: asyncio.Lock = field(
+        default_factory=asyncio.Lock,
+        repr=False,
+    )
 
     @classmethod
     async def begin(
@@ -431,9 +435,10 @@ class CanonicalAgentRun:
         transcript: list[dict[str, Any]] | None,
         response: AgentResponse | None = None,
     ) -> tuple[SessionMessageRecord, ...]:
-        return await self.coordinator.append_messages(
-            self._turn_messages(transcript, response),
-        )
+        async with self.message_checkpoint_lock:
+            return await self.coordinator.append_messages(
+                self._turn_messages(transcript, response),
+            )
 
     async def start_tool(
         self,
