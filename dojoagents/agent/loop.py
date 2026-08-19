@@ -304,6 +304,9 @@ class DojoStrandsModelBridge(Model):
         invocation_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
+        checkpoint = (invocation_state or {}).get("_dojo_checkpoint_transcript")
+        if callable(checkpoint):
+            await checkpoint(messages)
         dojo_msgs = strands_to_dojo_messages(messages, system_prompt)
         dojo_tools = []
         if tool_specs:
@@ -1659,7 +1662,6 @@ class AgentLoop:
                 args = event.tool_use.get("input") or {}
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or tool_name or "tool"
                 if canonical_run is not None:
-                    await canonical_run.persist_transcript([dict(message) for message in agent.messages[turn_message_start:]])
                     tool_record = await canonical_run.start_tool(
                         str(tool_use_id),
                         str(tool_name or "tool"),
@@ -1763,25 +1765,6 @@ class AgentLoop:
                         dict(event.result),
                         not is_failed,
                     )
-                    transcript = [dict(message) for message in agent.messages[turn_message_start:]]
-                    transcript.append(
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "toolResult": {
-                                        "status": str(event.result.get("status") or "error"),
-                                        "toolUseId": call_id,
-                                        "name": tool_name,
-                                        "content": list(event.result.get("content") or []),
-                                    }
-                                }
-                            ],
-                        }
-                    )
-                    await canonical_run.persist_transcript(transcript)
-                    if checkpoint_state is not None:
-                        await checkpoint_state()
 
         hooks.append(check_guardrails_before)
         hooks.append(check_guardrails_after)
@@ -1850,6 +1833,19 @@ class AgentLoop:
             session_manager=strands_session_manager,
         )
         turn_message_start = len(agent.messages)
+        if canonical_run is not None:
+
+            async def checkpoint_transcript(messages) -> None:
+                current_turn = [dict(message) for message in list(messages)[turn_message_start:]]
+                await canonical_run.persist_transcript(current_turn)
+                if checkpoint_state is not None and any(
+                    isinstance(block, dict) and "toolResult" in block
+                    for message in current_turn
+                    for block in (message.get("content") if isinstance(message.get("content"), list) else ())
+                ):
+                    await checkpoint_state()
+
+            invocation_state["_dojo_checkpoint_transcript"] = checkpoint_transcript
 
         # 7. Run Agent
         user_prompt = openai_content_to_strands_blocks(user_content)

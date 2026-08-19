@@ -219,6 +219,63 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
 
 
 @pytest.mark.asyncio
+async def test_parallel_tools_checkpoint_one_stable_batch_before_next_model(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id=f"call-{index}",
+                        name="quote",
+                        arguments={"ticker": ticker, "delay": delay},
+                    )
+                    for index, (ticker, delay) in enumerate(
+                        (
+                            ("AAPL", 0.04),
+                            ("MSFT", 0.01),
+                            ("NVDA", 0.03),
+                            ("GOOG", 0.02),
+                        ),
+                        start=1,
+                    )
+                ],
+            ),
+            LLMResult(content="batch complete"),
+        ]
+    )
+    loop = _loop(provider, service)
+
+    async def quote(args):
+        await asyncio.sleep(args["delay"])
+        return {"content": args["ticker"]}
+
+    loop.tool_executor.registry.register(
+        ToolSpec(
+            name="quote",
+            description="Return a quote.",
+            parameters={"type": "object"},
+            handler=quote,
+        )
+    )
+
+    response = await loop.run(ChatRequest("prices?", session_id="s-parallel", principal=principal))
+    history = await service.history(principal, "s-parallel", HistoryQuery())
+
+    assert response.content == "batch complete"
+    assert [message.role for message in history.items] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert {block["tool_use_id"] for block in history.items[2].content if block["type"] == "tool_result"} == {"call-1", "call-2", "call-3", "call-4"}
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_durable_history_replaces_empty_request_history(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
