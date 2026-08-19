@@ -852,28 +852,43 @@ class AgentLoop:
                         )
                 if canonical_run is not None:
                     await canonical_run.commit(response, transcript=turn_result.transcript)
-                if cache_plan is not None and cache_collector is not None and not cache_collector.overflowed and not response.artifacts:
-                    from dojoagents.chat_cache import CachedChat
+                if cache_plan is not None and cache_collector is not None:
+                    cache_ref = cache_plan.cache_id[:16]
+                    if cache_collector.overflowed:
+                        LOGGER.info(
+                            "chat_cache_write result=skipped reason=collector_overflow cache_id=%s max_event_count=%d max_entry_bytes=%d",
+                            cache_ref,
+                            cache_plan.max_event_count,
+                            cache_plan.max_entry_bytes,
+                        )
+                    elif response.artifacts:
+                        LOGGER.info(
+                            "chat_cache_write result=skipped reason=response_artifacts cache_id=%s artifact_count=%d",
+                            cache_ref,
+                            len(response.artifacts),
+                        )
+                    else:
+                        from dojoagents.chat_cache import CachedChat
 
-                    now = datetime.now(UTC)
-                    value = CachedChat(
-                        cache_id=cache_plan.cache_id,
-                        pattern_id=cache_plan.pattern_id,
-                        locale=cache_plan.locale,
-                        model_id=f"{getattr(self.llm_provider, 'name', type(self.llm_provider).__name__)}:{self.config.model or 'unconfigured'}",
-                        response_content=response.content,
-                        response_metadata={
-                            "stopped": response.metadata.get("stopped"),
-                            "tool_trace": list(response.metadata.get("tool_trace") or ()),
-                        },
-                        events=tuple(cache_collector.events),
-                        created_at=now,
-                        expires_at=now + timedelta(seconds=cache_plan.ttl_seconds),
-                    )
-                    try:
-                        await self.chat_cache.put(cache_plan, value)
-                    except Exception:
-                        LOGGER.exception("Chat cache write failed after canonical commit")
+                        now = datetime.now(UTC)
+                        value = CachedChat(
+                            cache_id=cache_plan.cache_id,
+                            pattern_id=cache_plan.pattern_id,
+                            locale=cache_plan.locale,
+                            model_id=f"{getattr(self.llm_provider, 'name', type(self.llm_provider).__name__)}:{self.config.model or 'unconfigured'}",
+                            response_content=response.content,
+                            response_metadata={
+                                "stopped": response.metadata.get("stopped"),
+                                "tool_trace": list(response.metadata.get("tool_trace") or ()),
+                            },
+                            events=tuple(cache_collector.events),
+                            created_at=now,
+                            expires_at=now + timedelta(seconds=cache_plan.ttl_seconds),
+                        )
+                        try:
+                            await self.chat_cache.put(cache_plan, value)
+                        except Exception:
+                            LOGGER.exception("Chat cache write failed after canonical commit")
                 return response
             except asyncio.CancelledError:
                 if canonical_run is not None:

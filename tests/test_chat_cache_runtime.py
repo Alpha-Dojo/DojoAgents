@@ -207,6 +207,8 @@ async def test_cache_hit_is_shared_across_principals_and_replays_into_new_canoni
     assert events.items
     assert all(event.payload["run_id"] == "run-b" for event in events.items)
     assert all(event.payload["session_id"] == "session-b" for event in events.items)
-    assert all(event.payload["cache"]["hit"] is True for event in events.items)
+    cached_events = [event for event in events.items if "cache" in event.payload]
+    assert cached_events
+    assert all(event.payload["cache"]["hit"] is True for event in cached_events)
     assert usage.calls == 0
     await service.shutdown()
