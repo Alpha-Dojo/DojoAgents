@@ -152,12 +152,13 @@ class AgentEventSink:
         run_id: str,
         session_id: str,
         emit: Callable[[AgentEvent], None] | None = None,
+        start_seq: int = 0,
     ) -> None:
         self.run_id = run_id
         self.session_id = session_id
         self._emit = emit
         self._listeners: list[Callable[[AgentEvent], None]] = []
-        self._seq = 0
+        self._seq = max(0, int(start_seq))
         self.events: list[dict[str, Any]] = []
 
     def add_listener(self, listener: Callable[[AgentEvent], None]) -> None:

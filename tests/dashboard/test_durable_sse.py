@@ -32,5 +32,6 @@ async def test_second_service_replays_persisted_events_after_sequence(tmp_path):
 
     await blobs.shutdown()
     await store.shutdown()
-    assert [event["sequence"] for event in replay] == [2]
+    assert [event["sequence"] for event in replay] == [2, 3]
+    assert replay[-1]["type"] == "error"
     assert replay[0]["text"] == "two"

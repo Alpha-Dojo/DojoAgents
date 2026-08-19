@@ -20,7 +20,10 @@ from dojoagents.sessions.models import (
     TurnQuery,
     TurnRecord,
 )
-from dojoagents.sessions.compat.strands import canonical_to_strands, strands_to_canonical
+from dojoagents.sessions.compat.strands import (
+    canonical_to_strands,
+    strands_to_canonical,
+)
 from dojoagents.sessions.run_coordinator import RunCoordinator
 from dojoagents.sessions.service import SessionService
 
@@ -229,6 +232,9 @@ class CanonicalAgentRun:
     heartbeat: _RunHeartbeat
     agent_id: str
     memory_sync_worker: SessionMemorySyncWorker | None = None
+    recovering: bool = False
+    replay_from_start: bool = False
+    message_base: int = 0
 
     @classmethod
     async def begin(
@@ -266,15 +272,38 @@ class CanonicalAgentRun:
             raise HarnessSessionIncompatibleError(f"session is bound to harness {session.harness_id!r}, not {descriptor.id!r}")
 
         history = await service.history(principal, request.session_id, HistoryQuery(limit=10_000))
+        recovering = bool(request.metadata.get("_dojo_recovering"))
+        pending_messages: tuple[SessionMessageRecord, ...] = ()
+        if recovering:
+            run_id = _durable_run_id(event_sink=event_sink, metadata=request.metadata)
+            pending_messages = await service.load_run_messages(principal, run_id)
+        replay_from_start = recovering and len(pending_messages) <= 1
         metadata = dict(request.metadata)
+        metadata["defer_run_done"] = True
         durable_history = [_history_message(item) for item in history.items]
-        if durable_history or "history" not in metadata:
+        if recovering and not replay_from_start:
+            durable_history.extend(_history_message(item) for item in pending_messages)
             metadata["history"] = durable_history
-        request = replace(request, metadata=metadata)
+            request = replace(
+                request,
+                message=("Continue the interrupted turn from the durable transcript. " "Do not repeat completed tool calls."),
+                runtime_content=None,
+                metadata=metadata,
+            )
+        else:
+            if durable_history or "history" not in metadata:
+                metadata["history"] = durable_history
+            request = replace(request, metadata=metadata)
 
         turns = await service.turns(principal, request.session_id, TurnQuery(limit=10_000))
         turn_sequence = max((item.sequence for item in turns.items), default=0) + 1
-        message_sequence = max((item.sequence for item in history.items), default=0) + 1
+        message_sequence = (
+            max(
+                (item.sequence for item in (*history.items, *pending_messages)),
+                default=0,
+            )
+            + 1
+        )
         if event_sink is not None and event_sink.session_id != request.session_id:
             raise ValueError("event sink session_id does not match request session_id")
         run_id = _durable_run_id(event_sink=event_sink, metadata=metadata)
@@ -283,7 +312,7 @@ class CanonicalAgentRun:
             service,
             principal,
             request.session_id,
-            holder_id=f"agent:{agent_id}:{uuid.uuid4().hex}",
+            holder_id=str(metadata.get("_run_holder_id") or f"agent:{agent_id}:{uuid.uuid4().hex}"),
             model=model,
         )
         await coordinator.begin(run_id, idempotency_key=str(metadata.get("idempotency_key") or turn_id))
@@ -292,7 +321,7 @@ class CanonicalAgentRun:
             run_id,
             request.session_id,
             descriptor.id,
-            coordinator.handle.lease.expires_at.isoformat() if coordinator.handle is not None else None,
+            (coordinator.handle.lease.expires_at.isoformat() if coordinator.handle is not None else None),
         )
         sink = event_sink or AgentEventSink(run_id=run_id, session_id=request.session_id)
         owner_task = asyncio.current_task()
@@ -300,7 +329,7 @@ class CanonicalAgentRun:
             raise RuntimeError("canonical run requires an active asyncio task")
         event_writer = _DurableEventWriter(coordinator, sink)
         heartbeat = _RunHeartbeat(coordinator, owner_task)
-        return cls(
+        canonical = cls(
             service=service,
             coordinator=coordinator,
             request=request,
@@ -314,7 +343,15 @@ class CanonicalAgentRun:
             heartbeat=heartbeat,
             agent_id=agent_id,
             memory_sync_worker=memory_sync_worker,
+            recovering=recovering,
+            replay_from_start=replay_from_start,
+            message_base=(0 if replay_from_start else len(pending_messages)),
         )
+        if recovering and not replay_from_start:
+            await canonical.persist_transcript(
+                [{"role": "user", "content": request.message}],
+            )
+        return canonical
 
     async def _prepare_terminal(self) -> None:
         await self.heartbeat.close()
@@ -322,28 +359,30 @@ class CanonicalAgentRun:
 
     def _turn_messages(
         self,
-        response: AgentResponse,
         transcript: list[dict[str, Any]] | None,
+        response: AgentResponse | None = None,
     ) -> tuple[SessionMessageRecord, ...]:
         raw_messages = [dict(message) for message in (transcript or []) if isinstance(message, dict) and message.get("role") in {"user", "assistant", "tool", "system"}]
-        safe_user = {"role": "user", "content": [{"text": self.request.message}]}
-        if (
-            raw_messages
-            and raw_messages[0].get("role") == "user"
-            and not any(isinstance(block, dict) and "toolResult" in block for block in (raw_messages[0].get("content") or []))
-        ):
-            # runtime_content can contain transient image data URLs; persist only
-            # the durable request text for the first user message of this turn.
-            raw_messages[0] = safe_user
-        else:
-            raw_messages.insert(0, safe_user)
+        continuation = self.recovering and not self.replay_from_start
+        if not continuation:
+            original_message = str(self.request.metadata.get("_recovery_original_message") or self.request.message)
+            safe_user = {"role": "user", "content": [{"text": original_message}]}
+            if (
+                raw_messages
+                and raw_messages[0].get("role") == "user"
+                and not any(isinstance(block, dict) and "toolResult" in block for block in (raw_messages[0].get("content") or []))
+            ):
+                raw_messages[0] = safe_user
+            else:
+                raw_messages.insert(0, safe_user)
 
-        final_content = raw_messages[-1].get("content") if raw_messages else None
-        final_has_text = isinstance(final_content, str) and bool(final_content.strip())
-        if isinstance(final_content, list):
-            final_has_text = any(isinstance(block, dict) and bool(str(block.get("text") or "").strip()) for block in final_content)
-        if not raw_messages or raw_messages[-1].get("role") != "assistant" or (response.content and not final_has_text):
-            raw_messages.append({"role": "assistant", "content": [{"text": response.content}]})
+        if response is not None:
+            final_content = raw_messages[-1].get("content") if raw_messages else None
+            final_has_text = isinstance(final_content, str) and bool(final_content.strip())
+            if isinstance(final_content, list):
+                final_has_text = any(isinstance(block, dict) and bool(str(block.get("text") or "").strip()) for block in final_content)
+            if not raw_messages or raw_messages[-1].get("role") != "assistant" or (response.content and not final_has_text):
+                raw_messages.append({"role": "assistant", "content": [{"text": response.content}]})
 
         records: list[SessionMessageRecord] = []
         for offset, raw in enumerate(raw_messages):
@@ -354,8 +393,69 @@ class CanonicalAgentRun:
                 agent_id=self.agent_id,
                 sequence=self.message_sequence + offset,
             )
-            records.append(replace(record, message_id=f"{self.turn_id}:message:{offset}"))
+            content = raw.get("content")
+            blocks = content if isinstance(content, list) else ()
+            has_tool_use = any(isinstance(block, dict) and "toolUse" in block for block in blocks)
+            has_tool_result = any(isinstance(block, dict) and "toolResult" in block for block in blocks)
+            if continuation and offset == 0 and raw.get("role") == "user":
+                boundary_kind = "recovery_control"
+                visibility = "internal"
+            elif has_tool_use:
+                boundary_kind = "assistant_tool_use"
+                visibility = "conversation"
+            elif has_tool_result or raw.get("role") == "tool":
+                boundary_kind = "tool_result"
+                visibility = "conversation"
+            elif raw.get("role") == "user":
+                boundary_kind = "user_input"
+                visibility = "conversation"
+            else:
+                boundary_kind = "final_assistant"
+                visibility = "conversation"
+            ordinal = self.message_base + offset
+            records.append(
+                replace(
+                    record,
+                    message_id=f"{self.turn_id}:message:{ordinal}",
+                    run_id=self.coordinator.run_id,
+                    turn_id=self.turn_id,
+                    state="pending",
+                    boundary_kind=boundary_kind,
+                    visibility=visibility,
+                )
+            )
         return tuple(records)
+
+    async def persist_transcript(
+        self,
+        transcript: list[dict[str, Any]] | None,
+        response: AgentResponse | None = None,
+    ) -> tuple[SessionMessageRecord, ...]:
+        return await self.coordinator.append_messages(
+            self._turn_messages(transcript, response),
+        )
+
+    async def start_tool(
+        self,
+        call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ):
+        mutation_tools = frozenset(str(item) for item in self.request.metadata.get("_mutation_tools", ()))
+        return await self.coordinator.start_tool(
+            call_id,
+            tool_name,
+            arguments,
+            tool_name in mutation_tools,
+        )
+
+    async def finish_tool(
+        self,
+        call_id: str,
+        result: Any,
+        ok: bool,
+    ):
+        return await self.coordinator.finish_tool(call_id, result, ok)
 
     async def commit(self, response: AgentResponse, *, transcript: list[dict[str, Any]] | None = None) -> TurnRecord:
         principal = self.request.principal
@@ -366,8 +466,8 @@ class CanonicalAgentRun:
             self.request.session_id,
             len(self.event_sink.events),
         )
+        await self.persist_transcript(transcript, response)
         await self._prepare_terminal()
-        messages = self._turn_messages(response, transcript)
         completion = {"stopped": response.metadata.get("stopped")}
         if isinstance(response.metadata.get("cache"), dict):
             completion["cache"] = dict(response.metadata["cache"])
@@ -377,14 +477,26 @@ class CanonicalAgentRun:
             run_id=self.coordinator.run_id,
             turn_id=self.turn_id,
             sequence=self.turn_sequence,
-            input={"message": self.request.message, "context": self.request.context},
+            input={
+                "message": str(self.request.metadata.get("_recovery_original_message") or self.request.message),
+                "context": self.request.context,
+            },
             output={"content": response.content},
             completion=completion,
             tool_trace=tuple(response.metadata.get("tool_trace") or ()),
         )
         # Invocation-level usage is appended immediately by UsageCollector.
         # Persisting the Turn aggregate here would double-count the same calls.
-        committed = await self.coordinator.commit(turn, messages=messages)
+        committed = await self.coordinator.commit(
+            turn,
+            terminal_payload={
+                "model_id": str(response.metadata.get("model_id") or ""),
+                "tool_trace": list(response.metadata.get("tool_trace") or ()),
+                "tool_steps": len(response.metadata.get("tool_trace") or ()),
+            },
+        )
+        if self.coordinator.terminal_event is not None:
+            self.event_sink.replay(self.coordinator.terminal_event.payload)
         LOGGER.info(
             "Canonical agent run committed: run_id=%s session_id=%s persisted_event_count=%d",
             self.coordinator.run_id,
@@ -407,13 +519,18 @@ class CanonicalAgentRun:
             type(error).__name__,
             error,
         )
-        if not self.event_sink.events or self.event_sink.events[-1].get("type") not in {"done", "error"}:
-            self.event_sink.error(str(error), code="agent_run_failed")
         await self._prepare_terminal()
-        await self.coordinator.fail({"code": "agent_run_failed", "type": type(error).__name__, "message": str(error)})
+        code = "chat_deadline_exceeded" if isinstance(error, TimeoutError) else "agent_run_failed"
+        await self.coordinator.fail({"code": code, "type": type(error).__name__, "message": str(error)})
+        if self.coordinator.terminal_event is not None:
+            self.event_sink.replay(self.coordinator.terminal_event.payload)
 
     async def cancel(self) -> None:
-        if not self.event_sink.events or self.event_sink.events[-1].get("type") not in {"done", "error"}:
-            self.event_sink.error("Run cancelled", code="cancelled")
         await self._prepare_terminal()
         await self.coordinator.cancel({"code": "agent_run_cancelled"})
+        if self.coordinator.terminal_event is not None:
+            self.event_sink.replay(self.coordinator.terminal_event.payload)
+
+    async def suspend(self) -> None:
+        await self._prepare_terminal()
+        await self.coordinator.suspend()

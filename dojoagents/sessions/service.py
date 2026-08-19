@@ -7,7 +7,10 @@ from typing import Any, Protocol
 
 from dojoagents.config.models import SessionsConfig
 from dojoagents.sessions.blob_store import BlobStore
-from dojoagents.sessions.errors import HarnessSessionIncompatibleError, SessionsDisabledError
+from dojoagents.sessions.errors import (
+    HarnessSessionIncompatibleError,
+    SessionsDisabledError,
+)
 from dojoagents.sessions.models import (
     BlobMetadata,
     BlobWriteMetadata,
@@ -18,6 +21,7 @@ from dojoagents.sessions.models import (
     ObjectQuery,
     SessionCreateSpec,
     SessionListQuery,
+    SessionMessageRecord,
     SessionObjectSpec,
     SessionPatch,
     SessionPrincipal,
@@ -30,6 +34,7 @@ from dojoagents.sessions.models import (
     ContextUsageQuery,
     ContextUsageSnapshot,
     FinishRunCommand,
+    RunToolRecord,
 )
 from dojoagents.sessions.store import SessionStore
 
@@ -252,7 +257,13 @@ class SessionService:
         self._enabled()
         return await self._store.list_sessions(principal, query)
 
-    async def update_session(self, principal: SessionPrincipal, session_id: str, patch: SessionPatch, expected_version: int):
+    async def update_session(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        patch: SessionPatch,
+        expected_version: int,
+    ):
         self._enabled()
         return await self._store.update_session(principal, session_id, patch, expected_version)
 
@@ -326,6 +337,77 @@ class SessionService:
             snapshots,
         )
 
+    async def append_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        messages: tuple[SessionMessageRecord, ...],
+    ) -> tuple[SessionMessageRecord, ...]:
+        self._enabled()
+        return await self._store.append_run_messages(
+            principal,
+            run_id,
+            lease,
+            messages,
+        )
+
+    async def load_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[SessionMessageRecord, ...]:
+        self._enabled()
+        return await self._store.load_run_messages(principal, run_id)
+
+    async def start_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        mutation: bool,
+    ) -> RunToolRecord:
+        self._enabled()
+        return await self._store.start_run_tool(
+            principal,
+            run_id,
+            lease,
+            call_id,
+            tool_name,
+            arguments,
+            mutation,
+        )
+
+    async def finish_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        result: Any,
+        ok: bool,
+    ) -> RunToolRecord:
+        self._enabled()
+        return await self._store.finish_run_tool(
+            principal,
+            run_id,
+            lease,
+            call_id,
+            result,
+            ok,
+        )
+
+    async def load_run_tools(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[RunToolRecord, ...]:
+        self._enabled()
+        return await self._store.load_run_tools(principal, run_id)
+
     async def read_events(self, principal: SessionPrincipal, run_id: str, *, after_seq: int, limit: int):
         self._enabled()
         return await self._store.read_events(principal, run_id, after_seq, limit)
@@ -346,15 +428,29 @@ class SessionService:
         self._enabled()
         return await self._store.renew_lease(principal, lease)
 
+    async def release_lease(self, principal: SessionPrincipal, lease):
+        self._enabled()
+        return await self._store.release_lease(principal, lease)
+
     async def get_checkpoint(self, principal: SessionPrincipal, session_id: str, namespace: str, key: str):
         self._enabled()
         return await self._store.get_checkpoint(principal, session_id, namespace, key)
 
-    async def put_checkpoint(self, principal: SessionPrincipal, checkpoint: CheckpointWrite, expected_version: int | None):
+    async def put_checkpoint(
+        self,
+        principal: SessionPrincipal,
+        checkpoint: CheckpointWrite,
+        expected_version: int | None,
+    ):
         self._enabled()
         return await self._store.put_checkpoint(principal, checkpoint, expected_version)
 
-    async def list_objects(self, principal: SessionPrincipal, session_id: str, query: ObjectQuery | None = None):
+    async def list_objects(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        query: ObjectQuery | None = None,
+    ):
         self._enabled()
         return await self._store.list_objects(principal, session_id, query or ObjectQuery())
 

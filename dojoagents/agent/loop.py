@@ -36,7 +36,11 @@ from dojoagents.agent.guardrails import (
 )
 from dojoagents.agent.context_length import ContextLengthExceededError
 from dojoagents.agent.context_usage import PromptContextSource
-from dojoagents.agent.compressor import ContextCompressor, _estimate_tokens_rough, flatten_messages_for_compress
+from dojoagents.agent.compressor import (
+    ContextCompressor,
+    _estimate_tokens_rough,
+    flatten_messages_for_compress,
+)
 from dojoagents.agent.hooks.token_compression import TokenCompressionHook
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
@@ -132,9 +136,17 @@ class DojoBridgedTool(AgentTool):
     @property
     def tool_spec(self) -> StrandsToolSpec:
         if self.dojo_spec:
-            return {"name": _safe_tool_name(self.dojo_spec.name), "description": self.dojo_spec.description, "inputSchema": {"json": self.dojo_spec.parameters}}
+            return {
+                "name": _safe_tool_name(self.dojo_spec.name),
+                "description": self.dojo_spec.description,
+                "inputSchema": {"json": self.dojo_spec.parameters},
+            }
         else:
-            return {"name": _safe_tool_name(self.dojo_name), "description": f"Dynamic tool {self.dojo_name}", "inputSchema": {"json": {"type": "object"}}}
+            return {
+                "name": _safe_tool_name(self.dojo_name),
+                "description": f"Dynamic tool {self.dojo_name}",
+                "inputSchema": {"json": {"type": "object"}},
+            }
 
     @property
     def tool_type(self) -> str:
@@ -175,7 +187,12 @@ class DojoBridgedTool(AgentTool):
             if not transformed:
                 from dojoagents.agent.models import ToolResult
 
-                res = ToolResult(dojo_call.id, dojo_call.name, False, error="Harness removed the tool call")
+                res = ToolResult(
+                    dojo_call.id,
+                    dojo_call.name,
+                    False,
+                    error="Harness removed the tool call",
+                )
                 record_result(res)
                 yield ToolResultEvent(
                     {
@@ -198,7 +215,10 @@ class DojoBridgedTool(AgentTool):
                     dojo_call.name,
                     False,
                     error=decision.message or f"Tool blocked by Harness policy ({decision.code})",
-                    metadata={"decision_code": decision.code, "decision_action": decision.action},
+                    metadata={
+                        "decision_code": decision.code,
+                        "decision_action": decision.action,
+                    },
                 )
                 if self.turn_context is not None:
                     self.turn_context.blocked_calls.append(
@@ -243,7 +263,12 @@ class DojoBridgedTool(AgentTool):
 
         status = "success" if res.ok else "error"
         content_text = res.content if res.ok else res.error
-        result = {"status": status, "toolUseId": tool_use["toolUseId"], "name": self.tool_name, "content": [{"text": content_text}]}
+        result = {
+            "status": status,
+            "toolUseId": tool_use["toolUseId"],
+            "name": self.tool_name,
+            "content": [{"text": content_text}],
+        }
         yield ToolResultEvent(result)
 
 
@@ -259,7 +284,13 @@ class DojoStrandsModelBridge(Model):
     def get_config(self) -> Any:
         return self._config
 
-    async def structured_output(self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]:
+    async def structured_output(
+        self,
+        output_model: type[T],
+        prompt: Messages,
+        system_prompt: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         raise NotImplementedError("structured_output is not supported on DojoStrandsModelBridge")
 
     async def stream(
@@ -277,7 +308,13 @@ class DojoStrandsModelBridge(Model):
         dojo_tools = []
         if tool_specs:
             for spec in tool_specs:
-                dojo_tools.append({"name": spec["name"], "description": spec["description"], "parameters": spec["inputSchema"].get("json", spec["inputSchema"])})
+                dojo_tools.append(
+                    {
+                        "name": spec["name"],
+                        "description": spec["description"],
+                        "parameters": spec["inputSchema"].get("json", spec["inputSchema"]),
+                    }
+                )
 
         import asyncio
 
@@ -299,7 +336,14 @@ class DojoStrandsModelBridge(Model):
                     len(dojo_tools),
                     str((invocation_state or {}).get("session_id") or ""),
                 )
-                res = await self.llm_provider.chat(dojo_msgs, dojo_tools, model=self._model_id, stream=True, stream_callback=callback, metadata=invocation_state)
+                res = await self.llm_provider.chat(
+                    dojo_msgs,
+                    dojo_tools,
+                    model=self._model_id,
+                    stream=True,
+                    stream_callback=callback,
+                    metadata=invocation_state,
+                )
                 LOGGER.info(
                     "DojoStrandsModelBridge provider chat completed: provider=%s implementation=%s model=%s content_len=%d tool_calls=%d reasoning_len=%d",
                     getattr(self.llm_provider, "name", type(self.llm_provider).__name__),
@@ -351,7 +395,12 @@ class DojoStrandsModelBridge(Model):
                     raise item
                 elif isinstance(item, str):
                     has_text_delta = True
-                    yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": item}}}
+                    yield {
+                        "contentBlockDelta": {
+                            "contentBlockIndex": 0,
+                            "delta": {"text": item},
+                        }
+                    }
                 else:
                     llm_result = item
                     if invocation_state is not None:
@@ -360,7 +409,14 @@ class DojoStrandsModelBridge(Model):
                             invocation_state["_dojo_last_usage"] = dict(usage)
                         else:
                             prompt_est = _estimate_tokens_rough(dojo_msgs)
-                            completion_est = _estimate_tokens_rough([{"role": "assistant", "content": llm_result.content or ""}])
+                            completion_est = _estimate_tokens_rough(
+                                [
+                                    {
+                                        "role": "assistant",
+                                        "content": llm_result.content or "",
+                                    }
+                                ]
+                            )
                             invocation_state["_dojo_last_usage"] = {
                                 "prompt_tokens": prompt_est,
                                 "completion_tokens": completion_est,
@@ -387,7 +443,12 @@ class DojoStrandsModelBridge(Model):
                     legacy_behavior.transform_model_result(llm_result, invocation_state)
 
             if not has_text_delta and llm_result.content:
-                yield {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": llm_result.content}}}
+                yield {
+                    "contentBlockDelta": {
+                        "contentBlockIndex": 0,
+                        "delta": {"text": llm_result.content},
+                    }
+                }
 
             yield {"contentBlockStop": {"contentBlockIndex": 0}}
 
@@ -406,7 +467,12 @@ class DojoStrandsModelBridge(Model):
                             },
                         }
                     }
-                    yield {"contentBlockDelta": {"contentBlockIndex": block_index, "delta": {"toolUse": {"input": json.dumps(tc.arguments, ensure_ascii=False)}}}}
+                    yield {
+                        "contentBlockDelta": {
+                            "contentBlockIndex": block_index,
+                            "delta": {"toolUse": {"input": json.dumps(tc.arguments, ensure_ascii=False)}},
+                        }
+                    }
                     yield {"contentBlockStop": {"contentBlockIndex": block_index}}
 
             stop_reason = "end_turn"
@@ -421,7 +487,12 @@ class DojoStrandsModelBridge(Model):
                 event_sink.thinking_delta(reasoning_content)
                 event_sink.thinking_end()
 
-            yield {"messageStop": {"stopReason": stop_reason, "additionalModelResponseFields": {"reasoning_content": reasoning_content or ""}}}
+            yield {
+                "messageStop": {
+                    "stopReason": stop_reason,
+                    "additionalModelResponseFields": {"reasoning_content": reasoning_content or ""},
+                }
+            }
         except Exception as e:
             LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
             raise e
@@ -453,7 +524,10 @@ def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | 
                 tool_call = {
                     "id": tu.get("toolUseId"),
                     "type": "function",
-                    "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)},
+                    "function": {
+                        "name": tu.get("name"),
+                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False),
+                    },
                 }
                 provider_metadata = tu.get("dojoProviderMetadata")
                 if isinstance(provider_metadata, dict) and provider_metadata:
@@ -465,7 +539,14 @@ def strands_to_dojo_messages(strands_messages: list[dict], system_prompt: str | 
                 for res_block in tr.get("content", []):
                     if "text" in res_block:
                         res_content += res_block["text"]
-                tool_results.append({"role": "tool", "name": tr.get("name") or "unknown", "tool_call_id": tr.get("toolUseId"), "content": res_content})
+                tool_results.append(
+                    {
+                        "role": "tool",
+                        "name": tr.get("name") or "unknown",
+                        "tool_call_id": tr.get("toolUseId"),
+                        "content": res_content,
+                    }
+                )
 
         if role == "system":
             if text_content:
@@ -591,8 +672,12 @@ class AgentLoop:
 
         cache_plan = None
         cache_collector = None
-        if canonical_run is not None and self.chat_cache is not None:
-            from dojoagents.chat_cache import CacheContext, CacheEventCollector, materialize_event_template
+        if canonical_run is not None and self.chat_cache is not None and not active_request.metadata.get("_dojo_recovering"):
+            from dojoagents.chat_cache import (
+                CacheContext,
+                CacheEventCollector,
+                materialize_event_template,
+            )
 
             provider_name = str(getattr(self.llm_provider, "name", type(self.llm_provider).__name__))
             model_id = str(self.config.model or "unconfigured")
@@ -669,7 +754,10 @@ class AgentLoop:
         state_handle = None
         state_version = None
         if self.harness_runtime is not None:
-            from dojoagents.harnesses.context import HarnessSessionContext, HarnessTurnContext
+            from dojoagents.harnesses.context import (
+                HarnessSessionContext,
+                HarnessTurnContext,
+            )
             from dojoagents.harnesses.state import HarnessSessionState
 
             state = HarnessSessionState()
@@ -708,6 +796,13 @@ class AgentLoop:
             canonical_turn_id if isinstance(canonical_turn_id, str) and canonical_turn_id.strip() else str(active_request.metadata.get("turn_id") or f"turn-{uuid.uuid4().hex}")
         )
         canonical_session_uid = getattr(canonical_run, "session_uid", None) if canonical_run is not None else None
+        recovery_attempts = getattr(
+            getattr(getattr(canonical_run, "coordinator", None), "handle", None),
+            "run",
+            None,
+        )
+        recovery_attempts = getattr(recovery_attempts, "recovery_attempts", 0)
+        recovery_start_index = max(1, recovery_attempts) * 1000 + 1 if getattr(canonical_run, "recovering", False) is True and isinstance(recovery_attempts, int) else 1
         collector = UsageCollector(
             session_uid=(canonical_session_uid if isinstance(canonical_session_uid, str) and canonical_session_uid.strip() else active_request.session_id),
             run_id=run_id,
@@ -715,13 +810,27 @@ class AgentLoop:
             harness_id=str(getattr(self.harness_descriptor, "id", "") or ""),
             agent_id="dojo-agent",
             coordinator=(canonical_run.coordinator if canonical_run is not None else None),
+            start_index=recovery_start_index,
         )
         with bind_usage_collector(collector):
             try:
+
+                async def checkpoint_harness_state() -> None:
+                    nonlocal state_version
+                    if state_handle is None or turn_context is None:
+                        return
+                    saved = await state_handle.save_state(
+                        turn_context.session.state.values,
+                        expected_version=state_version,
+                    )
+                    state_version = saved.version
+
                 turn_result = await self._run_core(
                     active_request,
                     event_sink=active_sink,
                     turn_context=turn_context,
+                    canonical_run=canonical_run,
+                    checkpoint_state=checkpoint_harness_state,
                 )
                 response = turn_result.response
                 if self.harness_runtime is not None and turn_context is not None:
@@ -766,7 +875,13 @@ class AgentLoop:
             except asyncio.CancelledError:
                 if canonical_run is not None:
                     try:
-                        await canonical_run.cancel()
+                        control = active_request.metadata.get("_run_control") or {}
+                        if control.get("timeout"):
+                            await canonical_run.fail(TimeoutError("Chat execution deadline exceeded"))
+                        elif control.get("suspending"):
+                            await canonical_run.suspend()
+                        else:
+                            await canonical_run.cancel()
                     except SessionLeaseLostError:
                         LOGGER.warning(
                             "Canonical run cancel skipped; session lease already lost: session_id=%s",
@@ -803,6 +918,8 @@ class AgentLoop:
         *,
         event_sink: AgentEventSink | None = None,
         turn_context: Any | None = None,
+        canonical_run: Any | None = None,
+        checkpoint_state: Any | None = None,
     ) -> _AgentTurnResult:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
@@ -817,7 +934,11 @@ class AgentLoop:
                 HarnessLoopState,
             )
         harness_state = state_factory(request=request)
-        from dojoagents.tools.process_registry import active_user_message, active_write_session_file_guard, WriteSessionFileGuardContext
+        from dojoagents.tools.process_registry import (
+            active_user_message,
+            active_write_session_file_guard,
+            WriteSessionFileGuardContext,
+        )
 
         user_msg_token = active_user_message.set(str(request.message or ""))
         write_guard_token = None
@@ -830,7 +951,10 @@ class AgentLoop:
                 None,
             )
 
-        invocation_state: dict[str, Any] = {"session_id": request.session_id, "channel": request.channel}
+        invocation_state: dict[str, Any] = {
+            "session_id": request.session_id,
+            "channel": request.channel,
+        }
 
         def apply_turn_usage(metadata: dict[str, Any]) -> dict[str, Any]:
             collector = active_usage_collector()
@@ -920,7 +1044,10 @@ class AgentLoop:
                 user_text = openai_content_text(user_content)
                 combined = f"{user_text}\n\n{attachment_block}".strip() if user_text else attachment_block
                 if isinstance(user_content, list):
-                    user_content = [*user_content, {"type": "text", "text": attachment_block}]
+                    user_content = [
+                        *user_content,
+                        {"type": "text", "text": attachment_block},
+                    ]
                 else:
                     user_content = combined
         image_turn = openai_content_has_images(user_content)
@@ -1153,7 +1280,15 @@ class AgentLoop:
                             text = str(part.get("text") or "")
                             if text:
                                 content_blocks.append({"text": text})
-                        elif any(key in part for key in ("text", "toolUse", "reasoningContent", "redactedContent")):
+                        elif any(
+                            key in part
+                            for key in (
+                                "text",
+                                "toolUse",
+                                "reasoningContent",
+                                "redactedContent",
+                            )
+                        ):
                             content_blocks.append(dict(part))
                 if "tool_calls" in msg and msg["tool_calls"]:
                     for tc in msg["tool_calls"]:
@@ -1176,7 +1311,11 @@ class AgentLoop:
                                     session_id=request.session_id,
                                     tool_call_id=tool_call_id,
                                 )
-                        tool_use = {"toolUseId": tc.get("id"), "name": func.get("name"), "input": args_dict}
+                        tool_use = {
+                            "toolUseId": tc.get("id"),
+                            "name": func.get("name"),
+                            "input": args_dict,
+                        }
                         if isinstance(provider_metadata, dict) and provider_metadata:
                             tool_use["dojoProviderMetadata"] = dict(provider_metadata)
                         content_blocks.append({"toolUse": tool_use})
@@ -1192,13 +1331,31 @@ class AgentLoop:
                     {
                         "role": "user",
                         "content": [
-                            {"toolResult": {"status": "success", "toolUseId": msg.get("tool_call_id"), "name": msg.get("name"), "content": [{"text": tool_content or ""}]}}
+                            {
+                                "toolResult": {
+                                    "status": "success",
+                                    "toolUseId": msg.get("tool_call_id"),
+                                    "name": msg.get("name"),
+                                    "content": [{"text": tool_content or ""}],
+                                }
+                            }
                         ],
                     }
                 )
             else:
                 if isinstance(content, list) and all(
-                    isinstance(part, dict) and any(key in part for key in ("text", "image", "document", "toolResult", "redactedContent")) for part in content
+                    isinstance(part, dict)
+                    and any(
+                        key in part
+                        for key in (
+                            "text",
+                            "image",
+                            "document",
+                            "toolResult",
+                            "redactedContent",
+                        )
+                    )
+                    for part in content
                 ):
                     blocks = [dict(part) for part in content]
                 else:
@@ -1338,7 +1495,10 @@ class AgentLoop:
             if event.tool_use and invocation_state.get("_dojo_image_turn"):
                 tool_name = str(event.tool_use.get("name") or "")
                 if tool_name in IMAGE_TURN_EXCLUDED_TOOLS:
-                    from dojoagents.agent.guardrails import toolguard_synthetic_result, ToolGuardrailDecision
+                    from dojoagents.agent.guardrails import (
+                        toolguard_synthetic_result,
+                        ToolGuardrailDecision,
+                    )
 
                     decision = ToolGuardrailDecision(
                         action="block",
@@ -1384,7 +1544,10 @@ class AgentLoop:
                                 "Path(",
                             )
                         ):
-                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+                            from dojoagents.agent.guardrails import (
+                                ToolGuardrailDecision,
+                                toolguard_synthetic_result,
+                            )
 
                             decision = ToolGuardrailDecision(
                                 action="block",
@@ -1404,7 +1567,9 @@ class AgentLoop:
                             model_id,
                         )
                         if scenario_decision is not None:
-                            from dojoagents.agent.guardrails import toolguard_synthetic_result
+                            from dojoagents.agent.guardrails import (
+                                toolguard_synthetic_result,
+                            )
 
                             blocked_res = toolguard_synthetic_result(scenario_decision)
                             event.cancel_tool = blocked_res["content"]
@@ -1428,7 +1593,10 @@ class AgentLoop:
                             classification,
                         )
                         if blocked:
-                            from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+                            from dojoagents.agent.guardrails import (
+                                ToolGuardrailDecision,
+                                toolguard_synthetic_result,
+                            )
 
                             decision = ToolGuardrailDecision(
                                 action="block",
@@ -1479,13 +1647,27 @@ class AgentLoop:
                     if block_message:
                         event.cancel_tool = block_message
                         harness_state.blocked_calls.append(
-                            {"tool": repaired.name, "arguments": dict(repaired.arguments), "reason": block_message},
+                            {
+                                "tool": repaired.name,
+                                "arguments": dict(repaired.arguments),
+                                "reason": block_message,
+                            },
                         )
                         return
             if event.tool_use:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or tool_name or "tool"
+                if canonical_run is not None:
+                    await canonical_run.persist_transcript([dict(message) for message in agent.messages[turn_message_start:]])
+                    tool_record = await canonical_run.start_tool(
+                        str(tool_use_id),
+                        str(tool_name or "tool"),
+                        dict(args),
+                    )
+                    if tool_record.state == "unknown":
+                        event.cancel_tool = "The previous mutation may have succeeded before the " "worker stopped. Query current state before any write."
+                        return
                 emit_tool_start(str(tool_name or "tool"), args, str(tool_use_id))
 
         # Define after tool call hook for guardrails
@@ -1505,7 +1687,15 @@ class AgentLoop:
             if is_failed:
                 from dojoagents.utils.event_bus import event_bus
 
-                failure_results = await event_bus.publish("ToolExecutionFailed", {"tool_name": tool_name, "args": args, "error": raw_result, "session_id": request.session_id})
+                failure_results = await event_bus.publish(
+                    "ToolExecutionFailed",
+                    {
+                        "tool_name": tool_name,
+                        "args": args,
+                        "error": raw_result,
+                        "session_id": request.session_id,
+                    },
+                )
                 if failure_results and failure_results[0]:
                     # Update result with auto-fixed output
                     event.result["status"] = "success"
@@ -1518,7 +1708,11 @@ class AgentLoop:
                 from dojoagents.utils.event_bus import event_bus
 
                 data_results = await event_bus.publish(
-                    "DataVolumeLarge", {"data_summary": raw_result[:2000] + "\n... [TRUNCATED] ...\n" + raw_result[-1000:], "session_id": request.session_id}
+                    "DataVolumeLarge",
+                    {
+                        "data_summary": raw_result[:2000] + "\n... [TRUNCATED] ...\n" + raw_result[-1000:],
+                        "session_id": request.session_id,
+                    },
                 )
                 if data_results and data_results[0]:
                     # Replace result with analyst summary
@@ -1545,7 +1739,7 @@ class AgentLoop:
                     "call_id": call_id,
                     "tool": tool_name,
                     "arguments": dict(event.tool_use.get("input") or {}),
-                    "ok": matched_result.ok if matched_result is not None else not is_failed,
+                    "ok": (matched_result.ok if matched_result is not None else not is_failed),
                 }
                 if matched_result is not None:
                     if self.legacy_behavior is not None:
@@ -1563,6 +1757,31 @@ class AgentLoop:
                     )
                 tool_trace.append(trace_item)
                 harness_state.tool_trace = tool_trace
+                if canonical_run is not None:
+                    await canonical_run.finish_tool(
+                        str(call_id),
+                        dict(event.result),
+                        not is_failed,
+                    )
+                    transcript = [dict(message) for message in agent.messages[turn_message_start:]]
+                    transcript.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "toolResult": {
+                                        "status": str(event.result.get("status") or "error"),
+                                        "toolUseId": call_id,
+                                        "name": tool_name,
+                                        "content": list(event.result.get("content") or []),
+                                    }
+                                }
+                            ],
+                        }
+                    )
+                    await canonical_run.persist_transcript(transcript)
+                    if checkpoint_state is not None:
+                        await checkpoint_state()
 
         hooks.append(check_guardrails_before)
         hooks.append(check_guardrails_after)
@@ -1876,7 +2095,10 @@ class AgentLoop:
                             limits=limits,
                         )
                 except Exception as exc:
-                    LOGGER.exception("Harness recovery invoke failed for session_id=%s", request.session_id)
+                    LOGGER.exception(
+                        "Harness recovery invoke failed for session_id=%s",
+                        request.session_id,
+                    )
                     response_text = recovery_prompt
                     metadata["stopped"] = decision.stop_code
                     metadata["harness_recovery_error"] = str(exc)
@@ -1918,7 +2140,13 @@ class AgentLoop:
             [dict(message) for message in agent.messages[turn_message_start:]],
         )
 
-    def _run_exit_hooks(self, response_text: str, request: ChatRequest, messages: list[dict], completed: bool) -> str:
+    def _run_exit_hooks(
+        self,
+        response_text: str,
+        request: ChatRequest,
+        messages: list[dict],
+        completed: bool,
+    ) -> str:
         plugin_registry = get_plugin_registry()
         try:
             original_response_text = response_text
@@ -1977,7 +2205,10 @@ class AgentLoop:
                                 {
                                     "id": tu.get("toolUseId"),
                                     "type": "function",
-                                    "function": {"name": tu.get("name"), "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False)},
+                                    "function": {
+                                        "name": tu.get("name"),
+                                        "arguments": json.dumps(tu.get("input", {}), ensure_ascii=False),
+                                    },
                                     **(
                                         {"metadata": dict(tu.get("dojoProviderMetadata"))}
                                         if isinstance(tu.get("dojoProviderMetadata"), dict) and tu.get("dojoProviderMetadata")
