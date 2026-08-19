@@ -54,6 +54,7 @@ _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "ollama": "ollama",
     "minimax": "minimax",
     "openrouter": "",
+    "orcarouter": "",
 }
 
 

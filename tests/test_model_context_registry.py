@@ -36,8 +36,8 @@ async def test_model_context_registry_fetches_openrouter_models_index_and_matche
             return {
                 "data": [
                     {
-                        "id": "other/glm-5.2",
-                        "canonical_slug": "other/glm-5.2-20260616",
+                        "id": "other/glm-4",
+                        "canonical_slug": "other/glm-4-20260616",
                         "context_length": 2048,
                         "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
                     },
@@ -101,6 +101,86 @@ async def test_model_context_registry_fetches_openrouter_models_index_and_matche
             LLMProviderConfig(model="z-ai/glm-5.2", base_url="https://openrouter.ai/api/v1"),
         )
         == 1048576
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_context_registry_fetches_orcarouter_models_index_and_matches_author_slug(tmp_path, monkeypatch):
+    requested = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "id": "other/gpt-4o",
+                        "canonical_slug": "other/gpt-4o-20260801",
+                        "context_length": 2048,
+                        "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+                    },
+                    {
+                        "id": "openai/gpt-5.5",
+                        "canonical_slug": "openai/gpt-5.5-20260801",
+                        "context_length": 400000,
+                        "architecture": {
+                            "input_modalities": ["text", "image", "text"],
+                            "output_modalities": ["text"],
+                        },
+                        "top_provider": {"context_length": 400000},
+                    },
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            requested["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            requested["url"] = url
+            requested["headers"] = headers
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    registry = ModelContextRegistry(tmp_path / "limits.json", default_context_window=32768)
+
+    info = await registry.resolve_info(
+        "openai",
+        LLMProviderConfig(
+            model="gpt-5.5",
+            author="openai",
+            base_url="https://api.orcarouter.ai/v1",
+            api_key="test-key",
+        ),
+    )
+
+    assert requested["url"] == "https://api.orcarouter.ai/v1/models"
+    assert requested["headers"] == {"Authorization": "Bearer test-key"}
+    assert info == ModelContextInfo(
+        context_window=400000,
+        input_modalities=("text", "image"),
+        output_modalities=("text",),
+        canonical_slug="openai/gpt-5.5-20260801",
+        provider_model_id="openai/gpt-5.5",
+        author="openai",
+        slug="gpt-5.5",
+    )
+    assert (
+        await registry.resolve(
+            "openai",
+            LLMProviderConfig(model="openai/gpt-5.5", base_url="https://api.orcarouter.ai/v1"),
+        )
+        == 400000
     )
 
 
