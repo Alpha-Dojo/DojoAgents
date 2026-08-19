@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dojoagents.dashboard.services.kline_store import KlineStore
 from dojoagents.dashboard.schemas.stock import Stock
+from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
 
 RECENT_VOLUME_LOOKBACK = 20
@@ -66,9 +67,20 @@ async def is_sector_constituent_eligible(
         market=stock.market,
         limit=RECENT_VOLUME_LOOKBACK,
     )
-    if response is None:
+    return is_sector_constituent_eligible_from_response(stock, response)
+
+
+def is_sector_constituent_eligible_from_response(
+    stock: Stock | None,
+    response: StockKlineResponse | None,
+) -> bool:
+    if stock is None or stock.stock_quote is None or response is None:
         return False
-    bars = response.bars
+    if not stock_is_equity_quote_type(stock) or stock_is_us_warrant_by_name(stock):
+        return False
+    if stock.stock_quote.market_cap <= 0 or not stock_passes_ticker_market_cap_min(stock):
+        return False
+    bars = response.bars[-RECENT_VOLUME_LOOKBACK:]
     if not bars or bars[-1].close <= 0:
         return False
     if _quote_has_trading_activity(stock):

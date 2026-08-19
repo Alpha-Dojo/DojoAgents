@@ -21,7 +21,7 @@ dojoagents
 | `scheduler` | none | Load configured scheduled jobs and print the count |
 | `model` | `--config` | Interactive model/provider configuration |
 | `mcp serve` | none | Start the MCP server |
-| `precompute-sector` | `--data-root`, `--start-date`, `--upload` | Precompute sector daily metrics and returns |
+| `precompute-sector` | `--data-root`, `--start-date`, `--market`, `--upload-api`, `--upload` | Precompute sector metrics and optionally write one market through qdata APIs |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | Read a `precompute-sector` snapshot, publish the unified theme-state bundle, and optionally upload it to `dojo_sector_precomputed` |
 | `attribution-factor-crawl` | `--date`, `--concurrency`, `--top-n`, `--min-cap`, `--force-rerun`, `--write-only`, `--skip-write` | Crawl daily sector factors and batch-write them through `create_attribution_factor` |
 | `sector-brief-extract` | `--date`, `--market`, `--lookback-days`, `--concurrency`, `--max-attempts`, `--model`, `--force-rerun`, `--write-only`, `--skip-write` | Extract sector briefs from attribution factors and batch-write them through `create_sector_brief_extract` |
@@ -38,6 +38,7 @@ dojoagents gateway pairing list --platform telegram
 dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
 dojoagents precompute-sector --start-date 2025-01-01
+dojoagents precompute-sector --market cn --start-date 2026-08-12 --upload-api
 dojoagents precompute-sector-theme-state --upload
 dojoagents attribution-factor-crawl --date 2026-07-31
 dojoagents attribution-factor-crawl --date 2026-07-31 --market cn

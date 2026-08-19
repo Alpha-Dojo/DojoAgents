@@ -32,7 +32,6 @@ DOMAIN_TOOLS = {
     "get_market_overview",
     "get_sector_movers",
     "screen_market_stocks",
-    "get_sector_analysis",
     "get_sector_attribution_factors",
     "filter_sector_constituents",
     "get_ticker_realtime_quote",

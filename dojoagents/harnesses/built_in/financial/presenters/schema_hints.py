@@ -29,10 +29,11 @@ DEFAULT_TABLE_PRIORITY = (
 
 _TOOL_TABLE_PANDAS = "dojo_tools.tool_print(res)"
 _TOOL_MULTI_TABLE_PANDAS = "meta = dojo_tools.tool_meta(res); " "dojo_tools.tool_print(res, table='markets'); " "dojo_tools.tool_print(res, table='benchmarks')"
-_TOOL_TREE_PANDAS = "data = dojo_tools.tool_json(res); tree = data.get('tree') or []"
+_TOOL_TREE_PANDAS = "dojo_tools.tool_print(res, table='items')"
 _TOOL_TREE_NOTES = (
-    "Nested L1→L2→L3 via children[]; do NOT flatten with tool_print/tool_df. "
-    "Use dojo_tools.tool_json(res)['tree']. Prefer search_sector_taxonomy for keyword lookup."
+    "Flat L3 catalog in items[]: sector_path_id (L1/L2/L3), name, description "
+    "(locale=zh|en, default zh). Copy sector_path_id verbatim. Prefer "
+    "search_sector_taxonomy for keyword lookup."
 )
 
 
@@ -77,12 +78,11 @@ def register_financial_response_models(registry: SchemaHintRegistry | None = Non
     from dojoagents.dashboard.schemas.domain_api import (
         CompanyTickerSearchResponse,
         MarketOverviewResponse,
-        SectorAnalysisResponse,
         SectorAttributionFactorsResponse,
         SectorConstituentsResponse,
         SectorMoversResponse,
         StockScreenResponse,
-        TaxonomyTreeResponse,
+        TaxonomyL3CatalogResponse,
         TickerFinancialsBatchResponseV1,
         TickerNewsEventsResponseV1,
         TickerPriceTrendsResponseV1,
@@ -93,11 +93,10 @@ def register_financial_response_models(registry: SchemaHintRegistry | None = Non
     reg.register_many(
         {
             "search_company_ticker": CompanyTickerSearchResponse,
-            "get_taxonomy_tree": TaxonomyTreeResponse,
+            "get_taxonomy_tree": TaxonomyL3CatalogResponse,
             "get_market_overview": MarketOverviewResponse,
             "get_sector_movers": SectorMoversResponse,
             "screen_market_stocks": StockScreenResponse,
-            "get_sector_analysis": SectorAnalysisResponse,
             "get_sector_attribution_factors": SectorAttributionFactorsResponse,
             "filter_sector_constituents": SectorConstituentsResponse,
             "get_ticker_realtime_quote": TickerQuotesBatchResponseV1,
@@ -120,8 +119,28 @@ def _ensure_default_models_registered() -> None:
 # Fallback only for tools without a registered ResponseModel.
 STATIC_TOOL_SCHEMA_HINTS: dict[str, dict[str, Any]] = {}
 
+RAW_DOJO_SDK_SCHEMA_HINT: dict[str, Any] = {
+    "shape": "tabular",
+    "top_level_keys": ["total_num", "data"],
+    "default_table": "data",
+    "rows_key": "data",
+    "tables": {
+        "data": {
+            "type": "list",
+            "path": "data",
+            "expand_bilingual": [],
+            "row_fields": [],
+        }
+    },
+    "pandas_example": _TOOL_TABLE_PANDAS,
+    "usage_notes": (
+        "Raw dojo.sdk.* list responses preserve the DojoSDK contract: "
+        "{total_num, data}. Read rows with dojo_tools.tool_df(res) or "
+        "dojo_tools.tool_json(res)['data']; do not expect domain-tool keys such as klines."
+    ),
+}
+
 TOOL_NAME_ALIASES: dict[str, str] = {
-    "dojo.sdk.stock.kline": "get_ticker_price_trends",
     "code_execution": "execute_code",
 }
 
@@ -147,7 +166,7 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
             "Default table sectors: gainers/losers per market with side+rank columns. "
             "change_percent = sector total return over window. Rankings skip member_count<5 "
             "and default to 200亿 (2e10) total-sector cap floor (pass min_cap_*=0 to disable). "
-            "Copy level1_id/level2_id/level3_id into filter_sector_constituents or get_sector_analysis."
+            "Copy level1_id/level2_id/level3_id into filter_sector_constituents."
         ),
     },
     "filter_sector_constituents": {
@@ -226,10 +245,7 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
                 ],
             },
         },
-        "pandas_example": (
-            "dojo_tools.tool_print(res, table='items'); "
-            "dojo_tools.tool_print(res, table='l3_options')"
-        ),
+        "pandas_example": ("dojo_tools.tool_print(res, table='items'); " "dojo_tools.tool_print(res, table='l3_options')"),
         "usage_notes": (
             "items = ranked keyword hits. best_match is set only when high-confidence; "
             "if null / ambiguous, pick from items by name. "
@@ -238,8 +254,9 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
         ),
     },
     "get_taxonomy_tree": {
-        "shape": "tree",
-        "tree_key": "tree",
+        "shape": "tabular",
+        "rows_key": "items",
+        "default_table": "items",
         "pandas_example": _TOOL_TREE_PANDAS,
         "usage_notes": _TOOL_TREE_NOTES,
     },
@@ -327,16 +344,16 @@ def _row_fields_for_model(
             seen.add(name)
     if model is None:
         return fields
-    for name, field in model.model_fields.items():
+    for name, _field in model.model_fields.items():
         if name in skip or name in seen:
             continue
-        if _is_bilingual_text_type(field.annotation):
+        if _is_bilingual_text_type(_field.annotation):
             for col in (f"{name}_zh", f"{name}_en"):
                 if col not in seen:
                     fields.append(col)
                     seen.add(col)
             continue
-        ann = _unwrap_annotation(field.annotation)
+        ann = _unwrap_annotation(_field.annotation)
         if _is_list_annotation(ann):
             continue
         fields.append(name)
@@ -591,6 +608,8 @@ def get_tool_schema_hint(tool_name: str) -> dict[str, Any] | None:
         base = _cached_model_hint(model)
     elif normalized in STATIC_TOOL_SCHEMA_HINTS:
         base = STATIC_TOOL_SCHEMA_HINTS[normalized]
+    elif normalized.startswith("dojo.sdk."):
+        base = RAW_DOJO_SDK_SCHEMA_HINT
 
     override = MANUAL_TOOL_SCHEMA_OVERRIDES.get(normalized)
     if base and override:

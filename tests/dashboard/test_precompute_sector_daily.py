@@ -7,10 +7,15 @@ import pandas as pd
 import pytest
 
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
-from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchResponse, StockKlineBar, StockKlineResponse
 from dojoagents.dashboard.jobs.precompute.sector_daily import (
+    CONSTITUENT_COLUMNS,
     MANIFEST_FILE,
+    SECTOR_DAILY_COLUMNS,
+    TICKER_DAILY_COLUMNS,
+    PrecomputeInputSnapshot,
     build_sector_precomputed,
+    compute_and_stage_sector_precomputed,
     validate_precompute_market_coverage,
 )
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
@@ -55,6 +60,17 @@ class StubKlineStore:
 
     async def get_or_fetch_kline(self, symbol: str, **kwargs):
         self.calls.append({"symbol": symbol, **kwargs})
+        return self._response(symbol)
+
+    async def get_klines(self, symbols: list[str], **kwargs):
+        self.calls.append({"symbols": symbols, **kwargs})
+        return ConstituentKlineBatchResponse(
+            as_of="2025-01-03",
+            items={symbol: self._response(symbol) for symbol in symbols},
+        )
+
+    @staticmethod
+    def _response(symbol: str) -> StockKlineResponse:
         return StockKlineResponse(
             symbol=symbol,
             as_of="2025-01-03",
@@ -127,12 +143,13 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
         ),
     )
     upload_client = StubDojoClient()
+    kline_store = StubKlineStore()
     manifest = await build_sector_precomputed(
         data_root=tmp_path,
         sector_store=StubSectorStore(path),
         stock_sector_store=StubStockSectorStore(assignment),
         stock_store=StubStockStore(stock),
-        kline_store=StubKlineStore(),
+        kline_store=kline_store,
         start_date="2025-01-02",
         upload_client=upload_client,
     )
@@ -143,6 +160,8 @@ async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path
     assert saved_manifest["schema_version"] == "3"
     assert manifest["uploaded_dataset"] == "dojo_sector_precomputed"
     assert upload_client.uploads == [("dojo_sector_precomputed", str(out_dir))]
+    assert len(kline_store.calls) == 1
+    assert kline_store.calls[0]["symbols"] == ["AAA"]
 
     ticker_daily = pd.read_parquet(out_dir / "ticker_daily.parquet")
     assert list(ticker_daily["market"].unique()) == ["sh"]
@@ -233,6 +252,11 @@ def test_validate_precompute_market_coverage_rejects_dropped_market() -> None:
         )
 
 
+def test_validate_precompute_market_coverage_displays_cn_alias() -> None:
+    with pytest.raises(ValueError, match="Market 'cn'.*0 eligible constituents"):
+        validate_precompute_market_coverage({"markets": {"sh": {"candidate_assignments": 10, "eligible_constituents": 0, "missing_quote": 10, "missing_stock": 0}}})
+
+
 def test_validate_precompute_market_coverage_allows_healthy_markets() -> None:
     validate_precompute_market_coverage(
         {
@@ -242,3 +266,53 @@ def test_validate_precompute_market_coverage_allows_healthy_markets() -> None:
             }
         }
     )
+
+
+def test_market_increment_preserves_other_markets_and_earlier_dates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    out_dir = tmp_path / "dojo_sector_precomputed"
+    out_dir.mkdir()
+
+    def constituent(market: str, ticker: str) -> dict:
+        return dict.fromkeys(CONSTITUENT_COLUMNS) | {
+            "level1_id": "1",
+            "level2_id": "2",
+            "level3_id": "3",
+            "market": market,
+            "ticker": ticker,
+            "role": "primary",
+            "market_cap": 2e9,
+            "pe": 20.0,
+        }
+
+    def ticker(market: str, ticker_name: str, trade_date: str) -> dict:
+        return dict.fromkeys(TICKER_DAILY_COLUMNS) | {"market": market, "ticker": ticker_name, "trade_date": trade_date, "close": 10.0}
+
+    def sector(market: str, trade_date: str) -> dict:
+        return dict.fromkeys(SECTOR_DAILY_COLUMNS) | {
+            "trade_date": trade_date,
+            "scope": "L3",
+            "market": market,
+            "level1_id": "1",
+            "level2_id": "2",
+            "level3_id": "3",
+        }
+
+    pd.DataFrame([constituent("us", "US"), constituent("sh", "OLD")])[CONSTITUENT_COLUMNS].to_parquet(out_dir / "constituents.parquet", index=False)
+    pd.DataFrame([ticker("us", "US", "2026-08-10"), ticker("sh", "OLD", "2026-08-10")])[TICKER_DAILY_COLUMNS].to_parquet(out_dir / "ticker_daily.parquet", index=False)
+    pd.DataFrame([sector("us", "2026-08-10"), sector("sh", "2026-08-10")])[SECTOR_DAILY_COLUMNS].to_parquet(out_dir / "sector_daily.parquet", index=False)
+
+    new_frames = (
+        pd.DataFrame([constituent("sh", "NEW")])[CONSTITUENT_COLUMNS],
+        pd.DataFrame([ticker("sh", "NEW", "2026-08-11")])[TICKER_DAILY_COLUMNS],
+        pd.DataFrame([sector("sh", "2026-08-11")])[SECTOR_DAILY_COLUMNS],
+        {"files": {}},
+    )
+    monkeypatch.setattr("dojoagents.dashboard.jobs.precompute.sector_daily.compute_sector_precomputed_frames", lambda _snapshot: new_frames)
+    snapshot = PrecomputeInputSnapshot("2026-08-11", None, "2026-08-11T00:00:00Z", [], [], {"markets": {}})
+
+    _manifest, staging_dir = compute_and_stage_sector_precomputed(snapshot, out_dir, "sh")
+
+    constituents = pd.read_parquet(staging_dir / "constituents.parquet")
+    ticker_daily = pd.read_parquet(staging_dir / "ticker_daily.parquet")
+    assert set(constituents["ticker"]) == {"US", "NEW"}
+    assert set(ticker_daily["trade_date"]) == {"2026-08-10", "2026-08-11"}

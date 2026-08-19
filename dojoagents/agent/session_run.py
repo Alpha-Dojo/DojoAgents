@@ -20,12 +20,13 @@ from dojoagents.sessions.models import (
     TurnQuery,
     TurnRecord,
 )
+from dojoagents.sessions.compat.strands import canonical_to_strands, strands_to_canonical
 from dojoagents.sessions.run_coordinator import RunCoordinator
 from dojoagents.sessions.service import SessionService
 
 
 def _history_message(record: SessionMessageRecord) -> dict[str, Any]:
-    message: dict[str, Any] = {"role": record.role, "content": record.content}
+    message = canonical_to_strands(record)
     if record.message_id:
         message["message_id"] = record.message_id
     return message
@@ -319,7 +320,44 @@ class CanonicalAgentRun:
         await self.heartbeat.close()
         await self.event_writer.close()
 
-    async def commit(self, response: AgentResponse) -> TurnRecord:
+    def _turn_messages(
+        self,
+        response: AgentResponse,
+        transcript: list[dict[str, Any]] | None,
+    ) -> tuple[SessionMessageRecord, ...]:
+        raw_messages = [dict(message) for message in (transcript or []) if isinstance(message, dict) and message.get("role") in {"user", "assistant", "tool", "system"}]
+        safe_user = {"role": "user", "content": [{"text": self.request.message}]}
+        if (
+            raw_messages
+            and raw_messages[0].get("role") == "user"
+            and not any(isinstance(block, dict) and "toolResult" in block for block in (raw_messages[0].get("content") or []))
+        ):
+            # runtime_content can contain transient image data URLs; persist only
+            # the durable request text for the first user message of this turn.
+            raw_messages[0] = safe_user
+        else:
+            raw_messages.insert(0, safe_user)
+
+        final_content = raw_messages[-1].get("content") if raw_messages else None
+        final_has_text = isinstance(final_content, str) and bool(final_content.strip())
+        if isinstance(final_content, list):
+            final_has_text = any(isinstance(block, dict) and bool(str(block.get("text") or "").strip()) for block in final_content)
+        if not raw_messages or raw_messages[-1].get("role") != "assistant" or (response.content and not final_has_text):
+            raw_messages.append({"role": "assistant", "content": [{"text": response.content}]})
+
+        records: list[SessionMessageRecord] = []
+        for offset, raw in enumerate(raw_messages):
+            record = strands_to_canonical(
+                raw,
+                session_uid=self.session_uid,
+                session_id=self.request.session_id,
+                agent_id=self.agent_id,
+                sequence=self.message_sequence + offset,
+            )
+            records.append(replace(record, message_id=f"{self.turn_id}:message:{offset}"))
+        return tuple(records)
+
+    async def commit(self, response: AgentResponse, *, transcript: list[dict[str, Any]] | None = None) -> TurnRecord:
         principal = self.request.principal
         assert principal is not None
         LOGGER.info(
@@ -329,26 +367,7 @@ class CanonicalAgentRun:
             len(self.event_sink.events),
         )
         await self._prepare_terminal()
-        messages = (
-            SessionMessageRecord(
-                self.session_uid,
-                self.request.session_id,
-                self.agent_id,
-                self.message_sequence,
-                "user",
-                self.request.message,
-                message_id=f"{self.turn_id}:user",
-            ),
-            SessionMessageRecord(
-                self.session_uid,
-                self.request.session_id,
-                self.agent_id,
-                self.message_sequence + 1,
-                "assistant",
-                response.content,
-                message_id=f"{self.turn_id}:assistant",
-            ),
-        )
+        messages = self._turn_messages(response, transcript)
         turn = TurnRecord(
             session_uid=self.session_uid,
             session_id=self.request.session_id,

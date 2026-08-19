@@ -28,18 +28,23 @@ def _canonical_block(block: dict[str, Any]) -> dict[str, JsonValue]:
         }
     if "toolUse" in block:
         tool = block.get("toolUse") if isinstance(block.get("toolUse"), dict) else {}
-        return {
+        canonical_tool: dict[str, JsonValue] = {
             "type": "tool_use",
             "id": str(tool.get("toolUseId") or ""),
             "name": str(tool.get("name") or ""),
             "input": tool.get("input") if isinstance(tool.get("input"), dict) else {},
         }
+        provider_metadata = tool.get("dojoProviderMetadata")
+        if isinstance(provider_metadata, dict) and provider_metadata:
+            canonical_tool["provider_metadata"] = provider_metadata
+        return canonical_tool
     if "toolResult" in block:
         result = block.get("toolResult") if isinstance(block.get("toolResult"), dict) else {}
         content = result.get("content") if isinstance(result.get("content"), list) else []
         return {
             "type": "tool_result",
             "tool_use_id": str(result.get("toolUseId") or ""),
+            "name": str(result.get("name") or ""),
             "status": result.get("status"),
             "content": [_canonical_block(item) for item in content if isinstance(item, dict)],
         }
@@ -82,13 +87,15 @@ def _strands_block(block: dict[str, Any]) -> dict[str, Any]:
     if kind == "document_ref":
         return {"document": {key: block.get(key) for key in ("source", "name", "format") if block.get(key) is not None}}
     if kind == "tool_use":
-        return {
-            "toolUse": {
-                "toolUseId": str(block.get("id") or ""),
-                "name": str(block.get("name") or ""),
-                "input": block.get("input") or {},
-            }
+        tool_use = {
+            "toolUseId": str(block.get("id") or ""),
+            "name": str(block.get("name") or ""),
+            "input": block.get("input") or {},
         }
+        provider_metadata = block.get("provider_metadata")
+        if isinstance(provider_metadata, dict) and provider_metadata:
+            tool_use["dojoProviderMetadata"] = dict(provider_metadata)
+        return {"toolUse": tool_use}
     if kind == "tool_result":
         result = {
             "toolUseId": str(block.get("tool_use_id") or ""),
@@ -96,6 +103,8 @@ def _strands_block(block: dict[str, Any]) -> dict[str, Any]:
         }
         if block.get("status") is not None:
             result["status"] = block["status"]
+        if block.get("name"):
+            result["name"] = str(block["name"])
         return {"toolResult": result}
     if kind == "redacted":
         return {"redactedContent": {"reason": str(block.get("reason") or "provider_redacted")}}
@@ -106,7 +115,14 @@ def _strands_block(block: dict[str, Any]) -> dict[str, Any]:
 
 def canonical_to_strands(record: SessionMessageRecord) -> dict[str, Any]:
     content = record.content
-    blocks = content if isinstance(content, list) else [{"type": "text", "text": str(content or "")}]
+    if isinstance(content, list):
+        blocks = content
+    elif isinstance(content, dict) and "type" in content:
+        blocks = [content]
+    elif isinstance(content, dict) and "text" in content:
+        blocks = [{"type": "text", "text": str(content.get("text") or "")}]
+    else:
+        blocks = [{"type": "text", "text": str(content or "")}]
     return {
         "role": record.role,
         "content": [_strands_block(block) for block in blocks if isinstance(block, dict)],

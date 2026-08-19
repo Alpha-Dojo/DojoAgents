@@ -5,7 +5,7 @@ from typing import Any
 from dojoagents.agent.models import ToolResult
 
 _SECTOR_SEARCH_TOOL = "search_sector_taxonomy"
-_SECTOR_FOLLOWUP_TOOLS = frozenset({"get_sector_analysis", "filter_sector_constituents"})
+_SECTOR_FOLLOWUP_TOOLS = frozenset({"filter_sector_constituents"})
 _SECTOR_ID_KEYS = ("sector_path_id", "level1_id", "level2_id", "level3_id")
 _INVOCATION_BEST_MATCH_KEY = "_dojo_sector_best_match"
 _INVOCATION_SEARCH_QUERY_KEY = "_dojo_sector_search_query"

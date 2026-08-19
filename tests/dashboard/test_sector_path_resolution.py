@@ -289,9 +289,6 @@ def test_reject_guessed_sector_ids_before_api_call(sector_registry) -> None:
 
 @pytest.mark.asyncio
 async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> None:
-    async def fake_analysis(registry, path, *, scope):
-        return {"scope": scope, "level3_id": path.level3_id}
-
     async def fake_constituents(registry, **kwargs):
         path = domain_api.resolve_sector_path(
             registry,
@@ -303,22 +300,11 @@ async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> Non
         )
         return {"count": 1, "level3_id": path.level3_id, "items": []}
 
-    monkeypatch.setattr(domain_tools, "build_sector_analysis", fake_analysis)
     monkeypatch.setattr(domain_tools, "build_sector_constituents_v1", fake_constituents)
 
     registry = ToolRegistry()
     domain_tools.register_dashboard_domain_tools(registry, sector_registry)
     executor = ToolExecutor(registry, SandboxPolicy(timeout_seconds=5))
-
-    analysis = await executor.execute_one(
-        ToolCall(
-            id="a1",
-            name="get_sector_analysis",
-            arguments={"sector_name": "应用软件"},
-        )
-    )
-    assert analysis.ok is True
-    assert analysis.data["level3_id"] == "3"
 
     constituents = await executor.execute_one(
         ToolCall(

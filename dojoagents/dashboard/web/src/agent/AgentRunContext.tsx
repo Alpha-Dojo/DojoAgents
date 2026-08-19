@@ -87,6 +87,7 @@ export interface SessionRunView {
 interface StartRunParams {
   sessionId: string;
   modelId: string;
+  providerModel: string;
   locale: AgentLocale;
   timezoneIana?: string;
   dashboardTab?: string;
@@ -560,7 +561,7 @@ export function AgentRunProvider({ children }: { children: ReactNode }) {
       try {
         ({ run_id: runId } = await createAgentRun({
           session_id: params.sessionId,
-          model_id: params.modelId,
+          model_id: params.providerModel,
           locale: params.locale,
           timezone_iana: params.timezoneIana,
           dashboard_tab: params.dashboardTab,

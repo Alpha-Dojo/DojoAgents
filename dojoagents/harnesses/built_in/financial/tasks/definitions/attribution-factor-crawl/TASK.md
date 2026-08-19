@@ -34,7 +34,7 @@
 | 可追溯 | 每条主因因子尽量带 `evidence.quote` + `url` |
 | Discovery 上下文 | `sector_id` 是权威目标；`sector_name` 和 `change_percent` 是待工具复核的已知观测，不得丢弃 |
 
-**禁止**：`get_ticker_news_and_events`、`get_ticker_realtime_quote`、`get_ticker_price_trends`、`get_market_overview`、`get_sector_analysis`、portfolio 工具、读取其他 task 产出。
+**禁止**：`get_ticker_news_and_events`、`get_ticker_realtime_quote`、`get_ticker_price_trends`、`get_market_overview`、portfolio 工具、读取其他 task 产出。
 
 ---
 

@@ -127,7 +127,7 @@ async def test_kline_store_single_day_returns_target_bar_when_sdk_has_full_windo
     assert response is not None
     assert len(response.bars) == 1
     assert response.bars[0].bar_time == TARGET
-    assert gateway.calls == [{"start_time": TARGET, "end_time": TARGET}]
+    assert gateway.calls == [{"start_time": TARGET, "end_time": TARGET, "market": "hk"}]
 
 
 @pytest.mark.asyncio

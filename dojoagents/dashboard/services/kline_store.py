@@ -97,13 +97,12 @@ class KlineStore:
         self.stock_store = stock_store
         self.stock_sector_store = stock_sector_store
         self.sector_precomputed_store = sector_precomputed_store
-        self.data_root = data_root.expanduser().resolve() if data_root else None
-        self._parquet_path = self.data_root / "working-set" / "dojo_stock_kline.parquet" if self.data_root else None
+        # K-line persistence and the indexed DataFrame are owned by DojoSDK.
+        # Keep data_root in the signature for caller compatibility only.
+        del data_root
         self._cache: Dict[str, StockKlineResponse] = {}
         self._cache_limit = 2000
         self._in_memory_updates: dict[str, pd.DataFrame] = {}
-        self.raw_by_symbol: dict[str, list[dict[str, Any]]] = {}
-        self._disk_loaded = False
         self.initial_load_in_progress = False
         self.initial_load_complete = False
         self.last_full_refresh_at: Optional[str] = None
@@ -127,6 +126,8 @@ class KlineStore:
         parameters = tuple(inspect.signature(method).parameters)
         if parameters and parameters[0] == "market":
             return await method(market, symbols, **window)
+        if market is not None:
+            window["market"] = market
         return await method(symbols, **window)
 
     def _cache_response(
@@ -253,7 +254,7 @@ class KlineStore:
         return await self.get_or_fetch_kline(symbol, limit=limit)
 
     async def load(self, limit: int | None = None) -> None:
-        # resolved_limit = limit if limit is not None else KLINE_MAX_LIMIT
+        del limit
         self.initial_load_in_progress = True
         try:
             self.initial_load_complete = True
@@ -264,7 +265,14 @@ class KlineStore:
         self,
         symbols: List[str],
         limit: int | None = None,
+        *,
+        market: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        price_adj_type: str | None = None,
+        refresh: bool = False,
     ) -> ConstituentKlineBatchResponse:
+        del refresh  # DojoSDK owns the source DataFrame and refresh lifecycle.
         resolved_limit = limit if limit is not None else resolve_kline_limit_for_elapsed_days(DATA_START_DATE)
         items: Dict[str, StockKlineResponse] = {}
         latest: Optional[str] = None
@@ -273,10 +281,17 @@ class KlineStore:
         if not canonical_symbols:
             return ConstituentKlineBatchResponse(as_of=None, items={})
 
-        results = await self._gateway_klines(
-            canonical_symbols,
-            limit=resolved_limit,
-        )
+        window = {
+            key: value
+            for key, value in {
+                "limit": resolved_limit,
+                "start_time": start_time,
+                "end_time": end_time,
+                "price_adj_type": price_adj_type,
+            }.items()
+            if value is not None
+        }
+        results = await self._gateway_klines(canonical_symbols, market=market, **window)
         # Prepare the batch frame once, then slice by symbol. Re-running
         # _prepare_kline_df on the full multi-symbol frame per ticker was O(N^2)
         # and blocked the agent event loop (dojo-agent-runs) under GIL.
@@ -289,11 +304,13 @@ class KlineStore:
             subset = grouped.get(symbol)
             if subset is None or subset.empty:
                 continue
-            cache_key = f"{symbol}_None_None_None_None_{resolved_limit}"
+            cache_key = f"{symbol}_None_{start_time}_{end_time}_None_{price_adj_type}_{resolved_limit}"
             response = self._cache_response(
                 cache_key,
                 symbol,
                 subset,
+                start_time=start_time,
+                end_time=end_time,
                 limit=resolved_limit,
                 prepared=True,
             )

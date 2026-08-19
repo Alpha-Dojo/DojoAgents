@@ -908,3 +908,36 @@ async def test_load_tool_result_includes_tool_name_and_schema_hint(tmp_path) -> 
     assert loaded["ok"] is True
     assert loaded["tool_name"] == "get_market_overview"
     assert loaded["schema_hint"]["shape"] == "nested"
+
+
+@pytest.mark.asyncio
+async def test_live_rpc_result_includes_tool_name_and_schema_hint(tmp_path) -> None:
+    from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+
+    async def kline(_args: dict) -> dict:
+        return {
+            "data": {
+                "total_num": 1,
+                "data": [{"symbol": "AAPL", "bar_time": "2026-08-13"}],
+            }
+        }
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            name="dojo.sdk.stock.kline",
+            description="mock kline",
+            parameters={"type": "object", "properties": {}},
+            handler=kline,
+        )
+    )
+    server = AsyncCodeExecutionRPC(
+        str(tmp_path / "rpc.sock"),
+        registry,
+        artifact_adapter=FinancialArtifactAdapter(),
+    )
+
+    response = await server._dispatch_tool("dojo.sdk.stock.kline", {})
+
+    assert response["tool_name"] == "dojo.sdk.stock.kline"
+    assert response["schema_hint"] is not None
