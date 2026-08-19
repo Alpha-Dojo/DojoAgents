@@ -675,7 +675,7 @@ class AgentLoop:
 
         cache_plan = None
         cache_collector = None
-        if canonical_run is not None and self.chat_cache is not None and not active_request.metadata.get("_dojo_recovering"):
+        if canonical_run is not None and self.chat_cache is not None:
             from dojoagents.chat_cache import (
                 CacheContext,
                 CacheEventCollector,
@@ -693,7 +693,6 @@ class AgentLoop:
                 harness_id=str(getattr(descriptor, "id", "") or ""),
                 harness_version=str(getattr(descriptor, "version", "") or ""),
                 harness_state_schema_version=int(getattr(descriptor, "state_schema_version", 0) or 0),
-                history_empty=not bool(active_request.metadata.get("history")),
             )
             try:
                 cache_plan = await self.chat_cache.prepare(active_request, context)
@@ -860,12 +859,6 @@ class AgentLoop:
                             cache_ref,
                             cache_plan.max_event_count,
                             cache_plan.max_entry_bytes,
-                        )
-                    elif response.artifacts:
-                        LOGGER.info(
-                            "chat_cache_write result=skipped reason=response_artifacts cache_id=%s artifact_count=%d",
-                            cache_ref,
-                            len(response.artifacts),
                         )
                     else:
                         from dojoagents.chat_cache import CachedChat

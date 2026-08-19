@@ -35,7 +35,6 @@ class CacheContext:
     harness_id: str
     harness_version: str
     harness_state_schema_version: int
-    history_empty: bool
 
 
 @dataclass(frozen=True)

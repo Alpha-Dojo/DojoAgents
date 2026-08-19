@@ -43,8 +43,6 @@ class MemoryChatCache:
 
     async def prepare(self, request: ChatRequest, context: CacheContext) -> CachePlan | None:
         self.contexts.append(context)
-        if request.metadata.get("history"):
-            return None
         return CachePlan(
             cache_id="cc1_shared",
             pattern_id="public.en",
