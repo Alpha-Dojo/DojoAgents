@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from dojoagents.agent.models import ChatRequest
-from dojoagents.agent.session_run import CanonicalAgentRun
-from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.sessions.models import (
     BeginRunCommand,
     CommitTurnCommand,
@@ -19,62 +15,6 @@ from dojoagents.sessions.models import (
     TurnRecord,
 )
 from dojoagents.sessions.stores.file import FileSessionStore
-
-
-@pytest.mark.asyncio
-async def test_parallel_tool_hooks_serialize_transcript_checkpoints():
-    class Coordinator:
-        run_id = "run-1"
-
-        def __init__(self):
-            self.active = 0
-            self.max_active = 0
-
-        async def append_messages(self, messages):
-            self.active += 1
-            self.max_active = max(self.max_active, self.active)
-            await asyncio.sleep(0.01)
-            self.active -= 1
-            return tuple(messages)
-
-    coordinator = Coordinator()
-    canonical = CanonicalAgentRun(
-        service=None,
-        coordinator=coordinator,
-        request=ChatRequest(
-            "hello",
-            session_id="session-1",
-            principal=SessionPrincipal("alice"),
-        ),
-        descriptor=HarnessDescriptor("harness", "1", "Harness"),
-        session_uid="session-1",
-        turn_id="turn-1",
-        turn_sequence=1,
-        message_sequence=1,
-        event_sink=None,
-        event_writer=None,
-        heartbeat=None,
-        agent_id="dojo-agent",
-    )
-    transcript = [
-        {"role": "user", "content": [{"text": "hello"}]},
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "toolUse": {
-                        "toolUseId": "call-1",
-                        "name": "quote",
-                        "input": {"ticker": "AAPL"},
-                    }
-                }
-            ],
-        },
-    ]
-
-    await asyncio.gather(*(canonical.persist_transcript(transcript) for _ in range(4)))
-
-    assert coordinator.max_active == 1
 
 
 @pytest.mark.asyncio

@@ -219,7 +219,7 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
 
 
 @pytest.mark.asyncio
-async def test_parallel_tools_checkpoint_one_stable_batch_before_next_model(tmp_path):
+async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
     provider = StaticLLMProvider(
@@ -243,6 +243,16 @@ async def test_parallel_tools_checkpoint_one_stable_batch_before_next_model(tmp_
                     )
                 ],
             ),
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-5",
+                        name="quote",
+                        arguments={"ticker": "AMZN", "delay": 0.0},
+                    )
+                ],
+            ),
             LLMResult(content="batch complete"),
         ]
     )
@@ -261,17 +271,32 @@ async def test_parallel_tools_checkpoint_one_stable_batch_before_next_model(tmp_
         )
     )
 
-    response = await loop.run(ChatRequest("prices?", session_id="s-parallel", principal=principal))
+    original_append = service._store.append_run_messages
+    with patch.object(
+        service._store,
+        "append_run_messages",
+        wraps=original_append,
+    ) as append_messages:
+        response = await loop.run(ChatRequest("prices?", session_id="s-parallel", principal=principal))
     history = await service.history(principal, "s-parallel", HistoryQuery())
 
     assert response.content == "batch complete"
+    assert append_messages.await_count == 1
     assert [message.role for message in history.items] == [
         "user",
         "assistant",
         "user",
         "assistant",
+        "user",
+        "assistant",
     ]
-    assert {block["tool_use_id"] for block in history.items[2].content if block["type"] == "tool_result"} == {"call-1", "call-2", "call-3", "call-4"}
+    assert {block["tool_use_id"] for message in history.items if message.role == "user" for block in message.content if block["type"] == "tool_result"} == {
+        "call-1",
+        "call-2",
+        "call-3",
+        "call-4",
+        "call-5",
+    }
     await service.shutdown()
 
 

@@ -304,9 +304,6 @@ class DojoStrandsModelBridge(Model):
         invocation_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
-        checkpoint = (invocation_state or {}).get("_dojo_checkpoint_transcript")
-        if callable(checkpoint):
-            await checkpoint(messages)
         dojo_msgs = strands_to_dojo_messages(messages, system_prompt)
         dojo_tools = []
         if tool_specs:
@@ -816,23 +813,11 @@ class AgentLoop:
         )
         with bind_usage_collector(collector):
             try:
-
-                async def checkpoint_harness_state() -> None:
-                    nonlocal state_version
-                    if state_handle is None or turn_context is None:
-                        return
-                    saved = await state_handle.save_state(
-                        turn_context.session.state.values,
-                        expected_version=state_version,
-                    )
-                    state_version = saved.version
-
                 turn_result = await self._run_core(
                     active_request,
                     event_sink=active_sink,
                     turn_context=turn_context,
                     canonical_run=canonical_run,
-                    checkpoint_state=checkpoint_harness_state,
                 )
                 response = turn_result.response
                 if self.harness_runtime is not None and turn_context is not None:
@@ -930,7 +915,6 @@ class AgentLoop:
         event_sink: AgentEventSink | None = None,
         turn_context: Any | None = None,
         canonical_run: Any | None = None,
-        checkpoint_state: Any | None = None,
     ) -> _AgentTurnResult:
         plugin_registry = get_plugin_registry()
         used_tokens = 0
@@ -1841,19 +1825,6 @@ class AgentLoop:
             session_manager=strands_session_manager,
         )
         turn_message_start = len(agent.messages)
-        if canonical_run is not None:
-
-            async def checkpoint_transcript(messages) -> None:
-                current_turn = [dict(message) for message in list(messages)[turn_message_start:]]
-                await canonical_run.persist_transcript(current_turn)
-                if checkpoint_state is not None and any(
-                    isinstance(block, dict) and "toolResult" in block
-                    for message in current_turn
-                    for block in (message.get("content") if isinstance(message.get("content"), list) else ())
-                ):
-                    await checkpoint_state()
-
-            invocation_state["_dojo_checkpoint_transcript"] = checkpoint_transcript
 
         # 7. Run Agent
         user_prompt = openai_content_to_strands_blocks(user_content)
