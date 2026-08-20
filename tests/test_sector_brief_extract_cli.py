@@ -267,9 +267,12 @@ async def test_write_sector_briefs_splits_batches() -> None:
     client = SimpleNamespace(analysis=SimpleNamespace(create_sector_brief_extract=create))
     items = [{"brief_uid": str(index)} for index in range(3)]
     with patch("dojoagents.dashboard.cli.sector_brief_extract._WRITE_BATCH_SIZE", 2):
-        written = await _write_sector_briefs(client, items)
+        written = await _write_sector_briefs(client, items, generation_time="2026-08-17T01:00:00+00:00")
     assert written == 3
-    assert [call.kwargs["body"]["items"] for call in create.await_args_list] == [items[:2], items[2:]]
+    bodies = [call.kwargs["body"] for call in create.await_args_list]
+    assert [body["items"] for body in bodies] == [items[:2], items[2:]]
+    assert {body["generation_time"] for body in bodies} == {"2026-08-17T01:00:00+00:00"}
+    assert all("generation_time" not in item for body in bodies for item in body["items"])
 
 
 @pytest.mark.asyncio

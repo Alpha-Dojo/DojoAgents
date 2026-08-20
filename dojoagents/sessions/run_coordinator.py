@@ -49,6 +49,7 @@ class RunCoordinator:
         self._buffer: list[SessionEvent] = []
         self._next_sequence = 1
         self._terminal: Any = None
+        self.terminal_event: SessionEvent | None = None
 
     def _active_handle(self) -> RunHandle:
         if self.handle is None:
@@ -133,6 +134,68 @@ class RunCoordinator:
             tuple(snapshots),
         )
 
+    async def append_messages(
+        self,
+        messages: Sequence[SessionMessageRecord],
+    ) -> tuple[SessionMessageRecord, ...]:
+        if not messages:
+            return ()
+        if self._terminal is not None:
+            raise SessionConflictError("run is already terminal")
+        handle = self._active_handle()
+        return await self.service.append_run_messages(
+            self.principal,
+            handle.run.run_id,
+            handle.lease,
+            tuple(messages),
+        )
+
+    async def load_messages(self) -> tuple[SessionMessageRecord, ...]:
+        return await self.service.load_run_messages(
+            self.principal,
+            self.run_id,
+        )
+
+    async def start_tool(
+        self,
+        call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        mutation: bool,
+    ):
+        handle = self._active_handle()
+        return await self.service.start_run_tool(
+            self.principal,
+            handle.run.run_id,
+            handle.lease,
+            call_id,
+            tool_name,
+            arguments,
+            mutation,
+        )
+
+    async def finish_tool(
+        self,
+        call_id: str,
+        result: Any,
+        ok: bool,
+    ):
+        handle = self._active_handle()
+        return await self.service.finish_run_tool(
+            self.principal,
+            handle.run.run_id,
+            handle.lease,
+            call_id,
+            result,
+            ok,
+        )
+
+    async def load_tools(self):
+        return await self.service.load_run_tools(
+            self.principal,
+            self.run_id,
+        )
+
     async def heartbeat(self) -> HeartbeatResult:
         handle = self._active_handle()
         lease_seconds = float(self.service.config.runtime.lease_seconds)
@@ -154,6 +217,7 @@ class RunCoordinator:
         *,
         messages: tuple[SessionMessageRecord, ...] = (),
         usage: tuple[UsageRecord, ...] = (),
+        terminal_payload: dict[str, JsonValue] | None = None,
     ) -> TurnRecord:
         if self._terminal is not None:
             if isinstance(self._terminal, TurnRecord):
@@ -161,9 +225,18 @@ class RunCoordinator:
             raise SessionConflictError("run already ended without a committed turn")
         await self.flush()
         handle = self._active_handle()
+        terminal_event = self._terminal_event("done", terminal_payload or {})
+        self.terminal_event = terminal_event
         result = await self.service.commit_turn(
             self.principal,
-            CommitTurnCommand(handle.run.run_id, handle.lease, turn, messages, usage),
+            CommitTurnCommand(
+                handle.run.run_id,
+                handle.lease,
+                turn,
+                messages,
+                usage,
+                terminal_event,
+            ),
         )
         self._terminal = result
         return result
@@ -174,9 +247,22 @@ class RunCoordinator:
         try:
             await self.flush()
             handle = self._active_handle()
+            terminal_event = self._terminal_event(
+                "error",
+                {
+                    "message": str((error or {}).get("message") or "Run failed"),
+                    "code": str((error or {}).get("code") or "agent_run_failed"),
+                },
+            )
+            self.terminal_event = terminal_event
             result = await self.service.fail_run(
                 self.principal,
-                FinishRunCommand(handle.run.run_id, handle.lease, error),
+                FinishRunCommand(
+                    handle.run.run_id,
+                    handle.lease,
+                    error,
+                    terminal_event,
+                ),
             )
             self._terminal = result
             return result
@@ -195,9 +281,19 @@ class RunCoordinator:
         try:
             await self.flush()
             handle = self._active_handle()
+            terminal_event = self._terminal_event(
+                "error",
+                {"message": "Run cancelled", "code": "cancelled"},
+            )
+            self.terminal_event = terminal_event
             result = await self.service.cancel_run(
                 self.principal,
-                FinishRunCommand(handle.run.run_id, handle.lease, error),
+                FinishRunCommand(
+                    handle.run.run_id,
+                    handle.lease,
+                    error,
+                    terminal_event,
+                ),
             )
             self._terminal = result
             return result
@@ -214,6 +310,41 @@ class RunCoordinator:
         target = run_id or self._active_handle().run.run_id
         return await self.service.request_cancel(self.principal, target)
 
+    async def suspend(self) -> None:
+        if self._terminal is not None:
+            return
+        await self.flush()
+        handle = self._active_handle()
+        await self.service.release_lease(self.principal, handle.lease)
+        self._terminal = True
+
     async def read_events(self, *, after_seq: int = 0, limit: int = 100):
         handle = self._active_handle()
         return await self.service.read_events(self.principal, handle.run.run_id, after_seq=after_seq, limit=limit)
+
+    def _terminal_event(
+        self,
+        event_type: str,
+        values: dict[str, JsonValue],
+    ) -> SessionEvent:
+        handle = self._active_handle()
+        sequence = self._next_sequence
+        self._next_sequence += 1
+        payload = {
+            "type": event_type,
+            "run_id": handle.run.run_id,
+            "seq": sequence,
+            "session_id": self.session_id,
+            "schema_version": "2.0",
+            "timestamp": utc_now().isoformat(),
+            **values,
+        }
+        return SessionEvent(
+            run_id=handle.run.run_id,
+            sequence=sequence,
+            event_type=event_type,
+            payload=payload,
+            lease_id=handle.lease.lease_id,
+            fencing_token=handle.lease.fencing_token,
+            idempotency_key=f"{handle.run.run_id}:event:{sequence}",
+        )

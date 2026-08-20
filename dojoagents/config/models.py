@@ -231,6 +231,12 @@ class SessionsConfig:
 
 
 @dataclass(frozen=True)
+class ChatCacheConfig:
+    enabled: bool = False
+    store: StoreProviderConfig = field(default_factory=lambda: StoreProviderConfig(provider="none"))
+
+
+@dataclass(frozen=True)
 class AgentsConfig:
     version: int = 1
     llm_provider: LLMConfig = field(default_factory=LLMConfig)
@@ -249,4 +255,5 @@ class AgentsConfig:
     planning: PlanConfig = field(default_factory=PlanConfig)
     harness: HarnessConfig = field(default_factory=HarnessConfig)
     sessions: SessionsConfig = field(default_factory=SessionsConfig)
+    chat_cache: ChatCacheConfig = field(default_factory=ChatCacheConfig)
     tasks: TasksConfig = field(default_factory=TasksConfig)

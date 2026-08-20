@@ -155,6 +155,7 @@ class UsageCollector:
         harness_id: str = "",
         agent_id: str = "dojo-agent",
         coordinator: Any | None = None,
+        start_index: int = 1,
     ) -> None:
         self.session_uid = session_uid
         self.run_id = run_id
@@ -164,7 +165,7 @@ class UsageCollector:
         self.coordinator = coordinator
         self.records: list[UsageRecord] = []
         self.context_snapshots: list[ContextUsageSnapshot] = []
-        self._next_index = 1
+        self._next_index = max(1, int(start_index))
 
     @property
     def last_record(self) -> UsageRecord | None:
@@ -410,7 +411,7 @@ class MeteredLLMProvider:
                     metadata=None,
                     messages=messages,
                     content="",
-                    status="cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
+                    status=("cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"),
                     started_at=started_at,
                     estimate_missing=False,
                     pending=pending,

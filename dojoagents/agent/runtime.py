@@ -66,6 +66,7 @@ class RuntimeFactory:
             "mcp_servers": config.mcp_servers,
             "extensions": asdict(config.dojo_extensions),
             "tasks": asdict(config.tasks),
+            "chat_cache": asdict(config.chat_cache),
         }
         return hashlib.sha256(json.dumps(graph, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -118,6 +119,7 @@ class Runtime:
     session_store: Any | None = None
     blob_store: Any | None = None
     session_service: Any | None = None
+    chat_cache: Any | None = None
     harness_runtime_context: Any | None = None
     lifecycle_manager: Any | None = None
     service_bindings: Mapping[str, Any] | None = None
@@ -177,6 +179,7 @@ class Runtime:
         )
         from dojoagents.harnesses.errors import HarnessLifecycleError
         from dojoagents.harnesses.lifecycle import LifecycleManager
+        from dojoagents.chat_cache import create_chat_cache, shutdown_chat_cache
         from dojoagents.sessions.factory import create_blob_store, create_session_store, shutdown_stores
         from dojoagents.sessions.service import SessionService
 
@@ -190,6 +193,7 @@ class Runtime:
                 config=self.config.sessions,
             )
             self.sessions = self.session_service
+            self.chat_cache = await create_chat_cache(self.config.chat_cache)
             self.service_bindings = MappingProxyType(dict(self.service_bindings or {}))
             self.lifecycle_manager = LifecycleManager(
                 self.capabilities.services,
@@ -225,10 +229,12 @@ class Runtime:
                     await self.lifecycle_manager.shutdown()
                 except Exception:
                     LOGGER.exception("Harness service rollback failed")
+            await shutdown_chat_cache(self.chat_cache)
             await shutdown_stores(*(store for store in (self.blob_store, self.session_store) if store is not None))
             self.session_store = None
             self.blob_store = None
             self.session_service = None
+            self.chat_cache = None
             self.sessions = None
             self.state = "failed"
             if isinstance(exc, HarnessLifecycleError):
@@ -241,6 +247,7 @@ class Runtime:
         if self.state in {"stopped", "legacy"}:
             return
         from dojoagents.harnesses.errors import HarnessLifecycleError
+        from dojoagents.chat_cache import shutdown_chat_cache
         from dojoagents.sessions.factory import shutdown_stores
 
         errors: list[str] = []
@@ -256,10 +263,12 @@ class Runtime:
             except Exception as exc:
                 LOGGER.exception("Harness services shutdown failed")
                 errors.append(f"services: {exc}")
+        await shutdown_chat_cache(self.chat_cache)
         await shutdown_stores(*(store for store in (self.blob_store, self.session_store) if store is not None))
         self.session_store = None
         self.blob_store = None
         self.session_service = None
+        self.chat_cache = None
         self.state = "stopped"
         if errors:
             raise HarnessLifecycleError("Runtime shutdown failed: " + "; ".join(errors))
@@ -509,6 +518,7 @@ class Runtime:
             harness_descriptor=self.capabilities.descriptor,
             harness_runtime=harness_runtime,
             memory_sync_worker=memory_worker,
+            chat_cache=self.chat_cache,
             token_ledger_root=(str(Path(self.config.sessions.store.options["root"]).expanduser() / "_token_ledger") if self.config.sessions.store.options.get("root") else None),
         )
         return self.agent

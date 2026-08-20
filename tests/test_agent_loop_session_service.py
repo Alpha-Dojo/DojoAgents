@@ -1,5 +1,7 @@
 import asyncio
 import json
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -9,19 +11,27 @@ from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import ChatRequest, LLMResult, ToolCall
 from dojoagents.agent.providers import StaticLLMProvider
-from dojoagents.config.models import AgentConfig, SessionRuntimeConfig, SessionsConfig, StoreProviderConfig
+from dojoagents.config.models import (
+    AgentConfig,
+    SessionRuntimeConfig,
+    SessionsConfig,
+    StoreProviderConfig,
+)
 from dojoagents.dojo_extensions.registry import DojoExtensionRegistry
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.memory.manager import MemoryManager
 from dojoagents.sessions.blobs.file import FileBlobStore
 from dojoagents.sessions.models import (
+    BeginRunCommand,
     ContextUsageQuery,
     HistoryQuery,
+    SessionCreateSpec,
     SessionListQuery,
     SessionPrincipal,
     TurnQuery,
     UsageQuery,
 )
+from dojoagents.sessions.compat.strands import strands_to_canonical
 from dojoagents.sessions.service import SessionService
 from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.sessions.stores.file import FileSessionStore
@@ -71,7 +81,11 @@ def _loop(provider, service):
         skill_manager=SkillManager([]),
         memory_manager=MemoryManager(),
         extension_registry=DojoExtensionRegistry(),
-        config=AgentConfig(model="test-model", enable_guardrails=False, enable_context_compression=False),
+        config=AgentConfig(
+            model="test-model",
+            enable_guardrails=False,
+            enable_context_compression=False,
+        ),
         session_service=service,
         harness_descriptor=HarnessDescriptor("minimal", "1", "Minimal"),
     )
@@ -132,12 +146,17 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_canonical_history_persists_and_replays_complete_tool_transcript(tmp_path):
+async def test_canonical_history_persists_and_replays_complete_tool_transcript(
+    tmp_path,
+):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
     provider = StaticLLMProvider(
         [
-            LLMResult(content="", tool_calls=[ToolCall(id="call-1", name="quote", arguments={"ticker": "AAPL"})]),
+            LLMResult(
+                content="",
+                tool_calls=[ToolCall(id="call-1", name="quote", arguments={"ticker": "AAPL"})],
+            ),
             LLMResult(content="AAPL is 123.4"),
             LLMResult(content="follow-up complete"),
         ]
@@ -159,7 +178,12 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(t
     await loop.run(ChatRequest("price?", session_id="s1", principal=principal))
     history = await service.history(principal, "s1", HistoryQuery())
 
-    assert [message.role for message in history.items] == ["user", "assistant", "user", "assistant"]
+    assert [message.role for message in history.items] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
     assert history.items[1].content[0] == {
         "type": "tool_use",
         "id": "call-1",
@@ -171,7 +195,12 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(t
     assert history.items[2].content[0]["name"] == "quote"
     assert history.items[2].content[0]["content"] == [{"type": "text", "text": "123.4"}]
     message_paths = sorted((tmp_path / "sessions" / "session_s1" / "agents" / "agent_dojo-agent" / "messages").glob("message_*.json"))
-    assert [path.name for path in message_paths] == ["message_1.json", "message_2.json", "message_3.json", "message_4.json"]
+    assert [path.name for path in message_paths] == [
+        "message_1.json",
+        "message_2.json",
+        "message_3.json",
+        "message_4.json",
+    ]
     state = json.loads((tmp_path / "sessions" / "state.json").read_text(encoding="utf-8"))["data"]
     assert "messages" not in state
 
@@ -186,6 +215,139 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(t
         "tool_call_id": "call-1",
         "content": "123.4",
     }
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id=f"call-{index}",
+                        name="quote",
+                        arguments={"ticker": ticker, "delay": delay},
+                    )
+                    for index, (ticker, delay) in enumerate(
+                        (
+                            ("AAPL", 0.04),
+                            ("MSFT", 0.01),
+                            ("NVDA", 0.03),
+                            ("GOOG", 0.02),
+                        ),
+                        start=1,
+                    )
+                ],
+            ),
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-5",
+                        name="quote",
+                        arguments={"ticker": "AMZN", "delay": 0.0},
+                    )
+                ],
+            ),
+            LLMResult(content="batch complete"),
+        ]
+    )
+    loop = _loop(provider, service)
+
+    async def quote(args):
+        await asyncio.sleep(args["delay"])
+        return {"content": args["ticker"]}
+
+    loop.tool_executor.registry.register(
+        ToolSpec(
+            name="quote",
+            description="Return a quote.",
+            parameters={"type": "object"},
+            handler=quote,
+        )
+    )
+
+    original_append = service._store.append_run_messages
+    with patch.object(
+        service._store,
+        "append_run_messages",
+        wraps=original_append,
+    ) as append_messages:
+        response = await loop.run(ChatRequest("prices?", session_id="s-parallel", principal=principal))
+    history = await service.history(principal, "s-parallel", HistoryQuery())
+
+    assert response.content == "batch complete"
+    assert append_messages.await_count == 1
+    assert [message.role for message in history.items] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert {block["tool_use_id"] for message in history.items if message.role == "user" for block in message.content if block["type"] == "tool_result"} == {
+        "call-1",
+        "call-2",
+        "call-3",
+        "call-4",
+        "call-5",
+    }
+    tools = await service.load_run_tools(
+        principal,
+        (await service.list_runs(principal, "s-parallel"))[0].run_id,
+    )
+    assert len(tools) == 5
+    assert all(item.state == "succeeded" for item in tools)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_before_tool_call_skips_durable_tool_finish(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-blocked",
+                        name="execute_code",
+                        arguments={"code": "print('blocked')"},
+                    )
+                ],
+            ),
+            LLMResult(content="answered from image"),
+        ]
+    )
+    loop = _loop(provider, service)
+    sink = AgentEventSink(run_id="run-blocked", session_id="s-blocked")
+
+    response = await loop.run(
+        ChatRequest(
+            "read image",
+            session_id="s-blocked",
+            principal=principal,
+            runtime_content=[
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,aQ=="},
+                }
+            ],
+        ),
+        event_sink=sink,
+    )
+
+    assert response.content == "answered from image"
+    assert (await service.get_run(principal, "run-blocked")).status == "completed"
+    assert await service.load_run_tools(principal, "run-blocked") == ()
+    history = await service.history(principal, "s-blocked", HistoryQuery())
+    assert any(block.get("type") == "tool_result" for message in history.items for block in (message.content if isinstance(message.content, list) else ()))
     await service.shutdown()
 
 
@@ -360,6 +522,92 @@ async def test_canonical_heartbeat_keeps_long_run_lease_alive(tmp_path):
     response = await asyncio.wait_for(task, timeout=2)
     assert response.content == "hello"
     assert (await service.get_run(principal, "run-heartbeat")).status == "completed"
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_suspended_recoverable_run_replays_from_durable_user_message(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    session = await service.create_session(
+        principal,
+        SessionCreateSpec("s-recover", "minimal", "1", 1),
+    )
+    initial = strands_to_canonical(
+        {"role": "user", "content": [{"text": "resume me"}]},
+        session_uid=session.session_uid,
+        session_id=session.session_id,
+        agent_id="dojo-agent",
+        sequence=0,
+    )
+    initial = replace(
+        initial,
+        message_id="turn-recover:message:0",
+        run_id="run-recover",
+        turn_id="turn-recover",
+        state="pending",
+        boundary_kind="user_input",
+    )
+    await service.begin_run_with_lease(
+        principal,
+        BeginRunCommand(
+            "s-recover",
+            "run-recover",
+            "test-model",
+            "idem-recover",
+            "worker-1",
+            recoverable=True,
+            request={"schema_version": 1, "message": "resume me"},
+            deadline_at=datetime.now(UTC) + timedelta(minutes=5),
+            initial_messages=(initial,),
+        ),
+    )
+    request = ChatRequest(
+        "resume me",
+        session_id="s-recover",
+        principal=principal,
+        metadata={
+            "run_id": "run-recover",
+            "turn_id": "turn-recover",
+            "idempotency_key": "idem-recover",
+            "_run_holder_id": "worker-1",
+            "_run_control": {},
+        },
+    )
+    provider = BlockingProvider()
+    task = asyncio.create_task(_loop(provider, service).run(request))
+    await asyncio.wait_for(provider.started.wait(), timeout=2)
+    request.metadata["_run_control"]["suspending"] = True
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    recovered = await _loop(
+        StaticLLMProvider([LLMResult("recovered")]),
+        service,
+    ).run(
+        ChatRequest(
+            "resume me",
+            session_id="s-recover",
+            principal=principal,
+            metadata={
+                "run_id": "run-recover",
+                "turn_id": "turn-recover",
+                "idempotency_key": "idem-recover",
+                "_run_holder_id": "worker-2",
+                "_dojo_recovering": True,
+                "_recovery_original_message": "resume me",
+                "_run_control": {},
+            },
+        )
+    )
+
+    assert recovered.content == "recovered"
+    history = await service.history(principal, "s-recover", HistoryQuery())
+    assert [item.role for item in history.items] == ["user", "assistant"]
+    assert history.items[0].content == [{"type": "text", "text": "resume me"}]
+    assert history.items[1].content == [{"type": "text", "text": "recovered"}]
+    assert (await service.get_run(principal, "run-recover")).status == "completed"
     await service.shutdown()
 
 

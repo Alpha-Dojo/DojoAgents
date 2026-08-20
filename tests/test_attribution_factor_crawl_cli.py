@@ -409,13 +409,13 @@ async def test_write_attribution_factors_splits_at_api_limit() -> None:
         "dojoagents.dashboard.cli.attribution_factor_crawl._WRITE_BATCH_SIZE",
         2,
     ):
-        written = await _write_attribution_factors(client, items)
+        written = await _write_attribution_factors(client, items, generation_time="2026-08-17T01:00:00+00:00")
 
     assert written == 3
-    assert [call.kwargs["body"]["items"] for call in create.await_args_list] == [
-        items[:2],
-        items[2:],
-    ]
+    bodies = [call.kwargs["body"] for call in create.await_args_list]
+    assert [body["items"] for body in bodies] == [items[:2], items[2:]]
+    assert {body["generation_time"] for body in bodies} == {"2026-08-17T01:00:00+00:00"}
+    assert all("generation_time" not in item for body in bodies for item in body["items"])
 
 
 @pytest.mark.asyncio

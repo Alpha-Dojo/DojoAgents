@@ -12,7 +12,12 @@ from typing import Any, Callable, TypeVar
 
 import portalocker
 
-from dojoagents.sessions.atomic import AtomicJsonStore, CorruptStoreError, FileStoreError, _atomic_write_json
+from dojoagents.sessions.atomic import (
+    AtomicJsonStore,
+    CorruptStoreError,
+    FileStoreError,
+    _atomic_write_json,
+)
 from dojoagents.sessions.identifiers import validate_session_id
 from dojoagents.logging import LOGGER
 from dojoagents.sessions.errors import (
@@ -38,6 +43,7 @@ from dojoagents.sessions.models import (
     LeaseRequest,
     ObjectQuery,
     RunRecord,
+    RunToolRecord,
     RunHandle,
     SessionCreateSpec,
     SessionEvent,
@@ -112,6 +118,10 @@ def _run(data: dict[str, Any]) -> RunRecord:
             "created_at": _dt(data["created_at"]),
             "updated_at": _dt(data["updated_at"]),
             "finished_at": _dt(data.get("finished_at")),
+            "deadline_at": _dt(data.get("deadline_at")),
+            "next_recovery_at": _dt(data.get("next_recovery_at")),
+            "recovery_blocked_at": _dt(data.get("recovery_blocked_at")),
+            "last_recovered_at": _dt(data.get("last_recovered_at")),
         }
     )
 
@@ -164,7 +174,13 @@ def _checkpoint(data: dict[str, Any]) -> CheckpointRecord:
 
 
 def _blob(data: dict[str, Any]) -> BlobRef:
-    return BlobRef(**{**data, "owner": _scope(data["owner"]), "created_at": _dt(data["created_at"])})
+    return BlobRef(
+        **{
+            **data,
+            "owner": _scope(data["owner"]),
+            "created_at": _dt(data["created_at"]),
+        }
+    )
 
 
 def _object(data: dict[str, Any]) -> SessionObjectRecord:
@@ -225,6 +241,7 @@ class FileSessionStore:
             "message_index": {},
             "message_roots": {},
             "runs": {},
+            "run_tools": {},
             "events": {},
             "turns": {},
             "usage": {},
@@ -334,7 +351,13 @@ class FileSessionStore:
         roots[session.session_uid] = path.name
         return path
 
-    def _message_path_sync(self, state: dict[str, Any], session: SessionRecord, agent_id: str, sequence: int) -> Path:
+    def _message_path_sync(
+        self,
+        state: dict[str, Any],
+        session: SessionRecord,
+        agent_id: str,
+        sequence: int,
+    ) -> Path:
         safe_agent_id = self._validate_path_identifier(agent_id, "agent")
         if not isinstance(sequence, int) or sequence < 0:
             raise SessionDataCorruptError(f"invalid message sequence: {sequence!r}")
@@ -354,7 +377,13 @@ class FileSessionStore:
             "dojo_canonical": _encode(message),
         }
 
-    def _read_message_sync(self, state: dict[str, Any], session: SessionRecord, agent_id: str, sequence: int) -> SessionMessageRecord:
+    def _read_message_sync(
+        self,
+        state: dict[str, Any],
+        session: SessionRecord,
+        agent_id: str,
+        sequence: int,
+    ) -> SessionMessageRecord:
         path = self._message_path_sync(state, session, agent_id, sequence)
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
@@ -373,15 +402,24 @@ class FileSessionStore:
             raise SessionDataCorruptError(f"message file identity mismatch: {path}")
         return message
 
-    def _write_message_sync(self, state: dict[str, Any], session: SessionRecord, message: SessionMessageRecord, *, indexed: bool) -> None:
+    def _write_message_sync(
+        self,
+        state: dict[str, Any],
+        session: SessionRecord,
+        message: SessionMessageRecord,
+        *,
+        indexed: bool,
+    ) -> None:
         if message.session_uid != session.session_uid or message.session_id != session.session_id:
             raise SessionConflictError("message does not belong to run session")
         path = self._message_path_sync(state, session, message.agent_id, message.sequence)
         if indexed:
             existing = self._read_message_sync(state, session, message.agent_id, message.sequence)
             if existing != message:
-                raise SessionConflictError("message sequence conflict")
-            return
+                if replace(existing, state=message.state) != message:
+                    raise SessionConflictError("message sequence conflict")
+            else:
+                return
         _atomic_write_json(path, self._message_document(message))
 
     @staticmethod
@@ -504,10 +542,21 @@ class FileSessionStore:
         return max((lease.expires_at - lease.heartbeat_at).total_seconds(), 60.0)
 
     @classmethod
-    def _extend_lease(cls, state: dict[str, Any], session_uid: str, current: SessionLease, *, now: datetime | None = None) -> SessionLease:
+    def _extend_lease(
+        cls,
+        state: dict[str, Any],
+        session_uid: str,
+        current: SessionLease,
+        *,
+        now: datetime | None = None,
+    ) -> SessionLease:
         moment = now or utc_now()
         duration = cls._lease_duration_seconds(current)
-        renewed = replace(current, expires_at=moment + timedelta(seconds=duration), heartbeat_at=moment)
+        renewed = replace(
+            current,
+            expires_at=moment + timedelta(seconds=duration),
+            heartbeat_at=moment,
+        )
         state["leases"][session_uid] = _encode(renewed)
         return renewed
 
@@ -568,21 +617,34 @@ class FileSessionStore:
             scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, filters)
             if query.cursor:
                 payload = decode_cursor(query.cursor, self.cursor_secret, scope_hash)
-                marker = (datetime.fromisoformat(payload["sort"][0]), str(payload["sort"][1]))
+                marker = (
+                    datetime.fromisoformat(payload["sort"][0]),
+                    str(payload["sort"][1]),
+                )
                 records = [item for item in records if (item.updated_at, item.session_uid) < marker]
             page_items = records[: query.limit]
             next_cursor = None
             if len(records) > query.limit:
                 last = page_items[-1]
                 next_cursor = encode_cursor(
-                    {"sort": [last.updated_at.isoformat(), last.session_uid], "direction": "next", "scope_hash": scope_hash},
+                    {
+                        "sort": [last.updated_at.isoformat(), last.session_uid],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
                     self.cursor_secret,
                 )
             return SessionPage(items=tuple(page_items), next_cursor=next_cursor)
 
         return await self._transaction(False, operation)
 
-    async def update_session(self, principal: SessionPrincipal, session_id: str, patch: SessionPatch, expected_version: int) -> SessionRecord:
+    async def update_session(
+        self,
+        principal: SessionPrincipal,
+        session_id: str,
+        patch: SessionPatch,
+        expected_version: int,
+    ) -> SessionRecord:
         def operation(state: dict[str, Any]) -> SessionRecord:
             current = self._session_for(state, principal, session_id)
             self._check_version(current.version, expected_version)
@@ -607,18 +669,34 @@ class FileSessionStore:
             session = self._session_for(state, principal, session_id)
             refs = self._message_refs_sync(state, session.session_uid)
             records = [self._read_message_sync(state, session, item["agent_id"], item["sequence"]) for item in refs]
+            records = [item for item in records if item.state == "committed" and item.visibility == "conversation"]
             if query.agent_id:
                 records = [item for item in records if item.agent_id == query.agent_id]
             records.sort(key=lambda item: item.sequence)
             if query.cursor:
-                scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, {"session_id": session_id, "agent_id": query.agent_id})
+                scope_hash = cursor_scope_hash(
+                    principal.tenant_id,
+                    principal.user_id,
+                    {"session_id": session_id, "agent_id": query.agent_id},
+                )
                 marker = int(decode_cursor(query.cursor, self.cursor_secret, scope_hash)["sort"][0])
                 records = [item for item in records if item.sequence > marker]
             page = records[: query.limit]
             next_cursor = None
             if len(records) > query.limit:
-                scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, {"session_id": session_id, "agent_id": query.agent_id})
-                next_cursor = encode_cursor({"sort": [page[-1].sequence], "direction": "next", "scope_hash": scope_hash}, self.cursor_secret)
+                scope_hash = cursor_scope_hash(
+                    principal.tenant_id,
+                    principal.user_id,
+                    {"session_id": session_id, "agent_id": query.agent_id},
+                )
+                next_cursor = encode_cursor(
+                    {
+                        "sort": [page[-1].sequence],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
+                    self.cursor_secret,
+                )
             return HistoryPage(tuple(page), next_cursor)
 
         return await self._transaction(False, operation)
@@ -626,7 +704,10 @@ class FileSessionStore:
     async def list_turns(self, principal: SessionPrincipal, session_id: str, query: TurnQuery) -> TurnPage:
         def operation(state: dict[str, Any]) -> TurnPage:
             session = self._session_for(state, principal, session_id)
-            records = sorted((_turn(item) for item in state["turns"].get(session.session_uid, [])), key=lambda item: item.sequence)
+            records = sorted(
+                (_turn(item) for item in state["turns"].get(session.session_uid, [])),
+                key=lambda item: item.sequence,
+            )
             scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, {"session_id": session_id})
             if query.cursor:
                 marker = int(decode_cursor(query.cursor, self.cursor_secret, scope_hash)["sort"][0])
@@ -634,7 +715,14 @@ class FileSessionStore:
             page = records[: query.limit]
             next_cursor = None
             if len(records) > query.limit:
-                next_cursor = encode_cursor({"sort": [page[-1].sequence], "direction": "next", "scope_hash": scope_hash}, self.cursor_secret)
+                next_cursor = encode_cursor(
+                    {
+                        "sort": [page[-1].sequence],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
+                    self.cursor_secret,
+                )
             return TurnPage(tuple(page), next_cursor)
 
         return await self._transaction(False, operation)
@@ -648,7 +736,10 @@ class FileSessionStore:
             )
             records = [item for item in records if item.sequence > after_seq]
             page = records[:limit]
-            return EventPage(tuple(page), str(page[-1].sequence) if len(records) > limit and page else None)
+            return EventPage(
+                tuple(page),
+                str(page[-1].sequence) if len(records) > limit and page else None,
+            )
 
         return await self._transaction(False, operation)
 
@@ -676,7 +767,13 @@ class FileSessionStore:
                 records = [item for item in records if (item.completed_at or item.created_at) >= query.from_time]
             if query.to_time:
                 records = [item for item in records if (item.completed_at or item.created_at) <= query.to_time]
-            records.sort(key=lambda item: (item.completed_at or item.created_at, item.invocation_index, item.usage_id))
+            records.sort(
+                key=lambda item: (
+                    item.completed_at or item.created_at,
+                    item.invocation_index,
+                    item.usage_id,
+                )
+            )
 
             def totals(items: list[UsageRecord]) -> UsageTotals:
                 return UsageTotals(
@@ -910,6 +1007,10 @@ class FileSessionStore:
                     status="running",
                     model=command.model,
                     idempotency_key=command.idempotency_key,
+                    recoverable=command.recoverable,
+                    request=command.request,
+                    request_schema_version=(1 if command.request is not None else None),
+                    deadline_at=command.deadline_at,
                     created_at=now,
                     updated_at=now,
                 )
@@ -943,6 +1044,28 @@ class FileSessionStore:
                     heartbeat_at=now,
                 )
             state["leases"][session.session_uid] = _encode(lease)
+            if command.initial_messages:
+                refs = self._message_refs_sync(state, session.session_uid)
+                next_sequence = max((int(item["sequence"]) for item in refs), default=0) + 1
+                for offset, message in enumerate(command.initial_messages):
+                    stored = replace(
+                        message,
+                        sequence=next_sequence + offset,
+                        run_id=existing.run_id,
+                        state="pending",
+                        lease_id=lease.lease_id,
+                        fencing_token=lease.fencing_token,
+                    )
+                    ref = self._message_ref(stored)
+                    if ref not in refs:
+                        self._write_message_sync(state, session, stored, indexed=False)
+                        refs.append(ref)
+                state["message_index"][session.session_uid] = refs
+                existing = replace(
+                    existing,
+                    checkpoint_ordinal=len(command.initial_messages),
+                )
+                state["runs"][run_key] = _encode(existing)
             return RunHandle(run=existing, lease=lease)
 
         return await self._transaction(True, operation)
@@ -1138,11 +1261,231 @@ class FileSessionStore:
 
         return await self._transaction(True, operation)
 
+    async def append_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        messages,
+    ) -> tuple[SessionMessageRecord, ...]:
+        def operation(state: dict[str, Any]) -> tuple[SessionMessageRecord, ...]:
+            session, run = self._session_for_run(state, principal, run_id)
+            self._validate_lease(state, session.session_uid, lease)
+            if run.status != "running":
+                raise SessionConflictError(f"run is already {run.status}")
+            refs = self._message_refs_sync(state, session.session_uid)
+            existing_records = [
+                self._read_message_sync(
+                    state,
+                    session,
+                    item["agent_id"],
+                    item["sequence"],
+                )
+                for item in refs
+            ]
+            next_sequence = max((item.sequence for item in existing_records), default=0) + 1
+            persisted = []
+            new_count = 0
+            for message in messages:
+                duplicate = next(
+                    (item for item in existing_records if message.message_id and item.message_id == message.message_id),
+                    None,
+                )
+                if duplicate is not None:
+                    if duplicate.role != message.role or duplicate.content != message.content:
+                        raise SessionConflictError("message idempotency conflict")
+                    persisted.append(duplicate)
+                    continue
+                stored = replace(
+                    message,
+                    sequence=next_sequence + new_count,
+                    run_id=run_id,
+                    state="pending",
+                    lease_id=lease.lease_id,
+                    fencing_token=lease.fencing_token,
+                )
+                self._write_message_sync(state, session, stored, indexed=False)
+                refs.append(self._message_ref(stored))
+                existing_records.append(stored)
+                persisted.append(stored)
+                new_count += 1
+            refs.sort(key=lambda item: (item["agent_id"], item["sequence"]))
+            state["message_index"][session.session_uid] = refs
+            state["runs"][self._run_key(principal, run_id)] = _encode(
+                replace(
+                    run,
+                    checkpoint_ordinal=len([item for item in existing_records if item.run_id == run_id]),
+                    updated_at=utc_now(),
+                )
+            )
+            return tuple(persisted)
+
+        return await self._transaction(True, operation)
+
+    async def load_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[SessionMessageRecord, ...]:
+        def operation(state: dict[str, Any]) -> tuple[SessionMessageRecord, ...]:
+            session, _ = self._session_for_run(state, principal, run_id)
+            records = [
+                self._read_message_sync(
+                    state,
+                    session,
+                    item["agent_id"],
+                    item["sequence"],
+                )
+                for item in self._message_refs_sync(state, session.session_uid)
+            ]
+            return tuple(
+                sorted(
+                    (item for item in records if item.run_id == run_id and item.state == "pending"),
+                    key=lambda item: item.sequence,
+                )
+            )
+
+        return await self._transaction(False, operation)
+
+    async def start_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        mutation: bool,
+    ) -> RunToolRecord:
+        def operation(state: dict[str, Any]) -> RunToolRecord:
+            session, run = self._session_for_run(state, principal, run_id)
+            self._validate_lease(state, session.session_uid, lease)
+            key = f"{self._run_key(principal, run_id)}:{call_id}"
+            canonical = json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            arguments_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            existing_data = state["run_tools"].get(key)
+            now = utc_now()
+            if existing_data is not None:
+                existing = RunToolRecord(
+                    **{
+                        **existing_data,
+                        "started_at": _dt(existing_data.get("started_at")),
+                        "finished_at": _dt(existing_data.get("finished_at")),
+                        "created_at": _dt(existing_data["created_at"]),
+                        "updated_at": _dt(existing_data["updated_at"]),
+                    }
+                )
+                if existing.tool_name != tool_name or existing.arguments_hash != arguments_hash or existing.mutation != mutation:
+                    raise SessionConflictError("tool call idempotency conflict")
+                if existing.state in {"succeeded", "failed", "unknown"}:
+                    return existing
+                updated = replace(
+                    existing,
+                    state=("unknown" if mutation and existing.fencing_token != lease.fencing_token else "running"),
+                    lease_id=lease.lease_id,
+                    fencing_token=lease.fencing_token,
+                    updated_at=now,
+                )
+            else:
+                updated = RunToolRecord(
+                    run_id=run_id,
+                    session_id=session.session_id,
+                    call_id=call_id,
+                    tool_name=tool_name,
+                    arguments=dict(arguments),
+                    arguments_hash=arguments_hash,
+                    mutation=mutation,
+                    state="running",
+                    idempotency_key=f"{run_id}:tool:{call_id}",
+                    lease_id=lease.lease_id,
+                    fencing_token=lease.fencing_token,
+                    started_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            state["run_tools"][key] = _encode(updated)
+            return updated
+
+        return await self._transaction(True, operation)
+
+    async def finish_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        result: Any,
+        ok: bool,
+    ) -> RunToolRecord:
+        def operation(state: dict[str, Any]) -> RunToolRecord:
+            session, _ = self._session_for_run(state, principal, run_id)
+            self._validate_lease(state, session.session_uid, lease)
+            key = f"{self._run_key(principal, run_id)}:{call_id}"
+            data = state["run_tools"].get(key)
+            if data is None:
+                raise SessionConflictError("tool call was not prepared")
+            record = RunToolRecord(
+                **{
+                    **data,
+                    "started_at": _dt(data.get("started_at")),
+                    "finished_at": _dt(data.get("finished_at")),
+                    "created_at": _dt(data["created_at"]),
+                    "updated_at": _dt(data["updated_at"]),
+                }
+            )
+            if record.state == "unknown":
+                raise SessionConflictError("mutation tool outcome is unknown")
+            if record.state in {"succeeded", "failed"}:
+                if record.result != result:
+                    raise SessionConflictError("tool result idempotency conflict")
+                return record
+            now = utc_now()
+            updated = replace(
+                record,
+                state="succeeded" if ok else "failed",
+                result=result,
+                finished_at=now,
+                updated_at=now,
+            )
+            state["run_tools"][key] = _encode(updated)
+            return updated
+
+        return await self._transaction(True, operation)
+
+    async def load_run_tools(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[RunToolRecord, ...]:
+        def operation(state: dict[str, Any]) -> tuple[RunToolRecord, ...]:
+            self._session_for_run(state, principal, run_id)
+            prefix = f"{self._run_key(principal, run_id)}:"
+            records = []
+            for key, data in state["run_tools"].items():
+                if key.startswith(prefix):
+                    records.append(
+                        RunToolRecord(
+                            **{
+                                **data,
+                                "started_at": _dt(data.get("started_at")),
+                                "finished_at": _dt(data.get("finished_at")),
+                                "created_at": _dt(data["created_at"]),
+                                "updated_at": _dt(data["updated_at"]),
+                            }
+                        )
+                    )
+            return tuple(sorted(records, key=lambda item: item.created_at))
+
+        return await self._transaction(False, operation)
+
     async def commit_turn(self, principal: SessionPrincipal, command: CommitTurnCommand) -> TurnRecord:
         def operation(state: dict[str, Any]) -> TurnRecord:
             session, run = self._session_for_run(state, principal, command.run_id)
             stored_turns = state["turns"].setdefault(session.session_uid, [])
-            duplicate = next((item for item in stored_turns if item["turn_id"] == command.turn.turn_id), None)
+            duplicate = next(
+                (item for item in stored_turns if item["turn_id"] == command.turn.turn_id),
+                None,
+            )
             if duplicate is not None:
                 existing = _turn(duplicate)
                 if existing != command.turn:
@@ -1166,6 +1509,20 @@ class FileSessionStore:
                 if not indexed:
                     stored_messages.append(ref)
             stored_messages.sort(key=lambda item: (item["agent_id"], item["sequence"]))
+            for ref in stored_messages:
+                pending = self._read_message_sync(
+                    state,
+                    session,
+                    ref["agent_id"],
+                    ref["sequence"],
+                )
+                if pending.run_id == run.run_id and pending.state == "pending":
+                    self._write_message_sync(
+                        state,
+                        session,
+                        replace(pending, state="committed"),
+                        indexed=True,
+                    )
 
             stored_usage = state["usage"].setdefault(session.session_uid, [])
             for usage in command.usage:
@@ -1179,12 +1536,73 @@ class FileSessionStore:
                 if duplicate_usage is None:
                     stored_usage.append(encoded)
 
+            stored_events = state["events"].setdefault(
+                self._run_key(principal, run.run_id),
+                [],
+            )
+            terminal_event = command.terminal_event
+            if terminal_event is None:
+                sequence = (
+                    max(
+                        (int(item["sequence"]) for item in stored_events),
+                        default=0,
+                    )
+                    + 1
+                )
+                terminal_event = SessionEvent(
+                    run_id=run.run_id,
+                    sequence=sequence,
+                    event_type="done",
+                    payload={
+                        "type": "done",
+                        "run_id": run.run_id,
+                        "seq": sequence,
+                        "session_id": session.session_id,
+                        "schema_version": "2.0",
+                    },
+                    lease_id=command.lease.lease_id,
+                    fencing_token=command.lease.fencing_token,
+                    idempotency_key=f"{run.run_id}:event:{sequence}",
+                )
+            if terminal_event is not None:
+                encoded_event = _encode(terminal_event)
+                duplicate_event = next(
+                    (item for item in stored_events if item["sequence"] == terminal_event.sequence),
+                    None,
+                )
+                if duplicate_event is not None and duplicate_event != encoded_event:
+                    raise SessionConflictError("terminal event idempotency conflict")
+                if duplicate_event is None:
+                    stored_events.append(encoded_event)
+
             now = utc_now()
-            state["runs"][self._run_key(principal, run.run_id)] = _encode(replace(run, status="completed", version=run.version + 1, updated_at=now, finished_at=now))
+            state["runs"][self._run_key(principal, run.run_id)] = _encode(
+                replace(
+                    run,
+                    status="completed",
+                    version=run.version + 1,
+                    updated_at=now,
+                    finished_at=now,
+                )
+            )
             state["sessions"][session.session_uid] = _encode(
                 replace(
                     session,
-                    message_count=len(stored_messages),
+                    message_count=len(
+                        [
+                            item
+                            for item in (
+                                self._read_message_sync(
+                                    state,
+                                    session,
+                                    ref["agent_id"],
+                                    ref["sequence"],
+                                )
+                                for ref in stored_messages
+                            )
+                            if item.state == "committed" and item.visibility == "conversation"
+                        ]
+                    ),
                     turn_count=len(stored_turns),
                     version=session.version + 1,
                     updated_at=now,
@@ -1204,8 +1622,62 @@ class FileSessionStore:
             if run.status not in {"running", "cancellation_requested"}:
                 raise SessionConflictError(f"run is already {run.status}")
             now = utc_now()
-            updated = replace(run, status=status, error=command.error, version=run.version + 1, updated_at=now, finished_at=now)
+            updated = replace(
+                run,
+                status=status,
+                error=command.error,
+                version=run.version + 1,
+                updated_at=now,
+                finished_at=now,
+            )
             state["runs"][self._run_key(principal, run.run_id)] = _encode(updated)
+            stored_events = state["events"].setdefault(
+                self._run_key(principal, run.run_id),
+                [],
+            )
+            terminal_event = command.terminal_event
+            if terminal_event is None:
+                sequence = (
+                    max(
+                        (int(item["sequence"]) for item in stored_events),
+                        default=0,
+                    )
+                    + 1
+                )
+                terminal_event = SessionEvent(
+                    run_id=run.run_id,
+                    sequence=sequence,
+                    event_type="error",
+                    payload={
+                        "type": "error",
+                        "run_id": run.run_id,
+                        "seq": sequence,
+                        "session_id": session.session_id,
+                        "schema_version": "2.0",
+                        "message": str((command.error or {}).get("message") or status),
+                        "code": str((command.error or {}).get("code") or status),
+                    },
+                    lease_id=command.lease.lease_id,
+                    fencing_token=command.lease.fencing_token,
+                    idempotency_key=f"{run.run_id}:event:{sequence}",
+                )
+            if terminal_event is not None:
+                if not any(item["sequence"] == terminal_event.sequence for item in stored_events):
+                    stored_events.append(_encode(terminal_event))
+            for ref in self._message_refs_sync(state, session.session_uid):
+                pending = self._read_message_sync(
+                    state,
+                    session,
+                    ref["agent_id"],
+                    ref["sequence"],
+                )
+                if pending.run_id == run.run_id and pending.state == "pending":
+                    self._write_message_sync(
+                        state,
+                        session,
+                        replace(pending, state="abandoned"),
+                        indexed=True,
+                    )
             state["leases"].pop(session.session_uid, None)
             return updated
 
@@ -1234,7 +1706,12 @@ class FileSessionStore:
 
         return await self._transaction(False, operation)
 
-    async def put_checkpoint(self, principal: SessionPrincipal, checkpoint: CheckpointWrite, expected_version: int | None) -> CheckpointRecord:
+    async def put_checkpoint(
+        self,
+        principal: SessionPrincipal,
+        checkpoint: CheckpointWrite,
+        expected_version: int | None,
+    ) -> CheckpointRecord:
         def operation(state: dict[str, Any]) -> CheckpointRecord:
             session = self._session_for(state, principal, checkpoint.session_id)
             records = state["checkpoints"].setdefault(session.session_uid, {})
@@ -1259,7 +1736,12 @@ class FileSessionStore:
                 if expected_version is None:
                     raise SessionConflictError("checkpoint already exists")
                 self._check_version(current.version, expected_version)
-                record = replace(current, payload=checkpoint.payload, version=current.version + 1, updated_at=utc_now())
+                record = replace(
+                    current,
+                    payload=checkpoint.payload,
+                    version=current.version + 1,
+                    updated_at=utc_now(),
+                )
             records[storage_key] = _encode(record)
             return record
 
@@ -1295,7 +1777,13 @@ class FileSessionStore:
             raise SessionNotFoundError(f"object {object_id!r} not found")
         return record
 
-    async def commit_object(self, principal: SessionPrincipal, object_id: str, blob_ref: BlobRef, expected_version: int) -> SessionObjectRecord:
+    async def commit_object(
+        self,
+        principal: SessionPrincipal,
+        object_id: str,
+        blob_ref: BlobRef,
+        expected_version: int,
+    ) -> SessionObjectRecord:
         def operation(state: dict[str, Any]) -> SessionObjectRecord:
             current = self._object_for(state, principal, object_id)
             if current.status == "committed" and current.blob_ref == blob_ref:
@@ -1303,7 +1791,13 @@ class FileSessionStore:
             self._check_version(current.version, expected_version)
             if blob_ref.owner != SessionScope.from_principal(principal):
                 raise SessionNotFoundError("blob not found")
-            updated = replace(current, status="committed", blob_ref=blob_ref, version=current.version + 1, updated_at=utc_now())
+            updated = replace(
+                current,
+                status="committed",
+                blob_ref=blob_ref,
+                version=current.version + 1,
+                updated_at=utc_now(),
+            )
             state["objects"][object_id] = _encode(updated)
             return updated
 
@@ -1321,16 +1815,30 @@ class FileSessionStore:
                 if item["session_uid"] == session.session_uid and (query.kind is None or item["kind"] == query.kind) and (query.status is None or item["status"] == query.status)
             ]
             records.sort(key=lambda item: (item.created_at, item.object_id))
-            scope_hash = cursor_scope_hash(principal.tenant_id, principal.user_id, {"session_id": session_id, "kind": query.kind, "status": query.status})
+            scope_hash = cursor_scope_hash(
+                principal.tenant_id,
+                principal.user_id,
+                {"session_id": session_id, "kind": query.kind, "status": query.status},
+            )
             if query.cursor:
                 payload = decode_cursor(query.cursor, self.cursor_secret, scope_hash)
-                marker = (datetime.fromisoformat(payload["sort"][0]), str(payload["sort"][1]))
+                marker = (
+                    datetime.fromisoformat(payload["sort"][0]),
+                    str(payload["sort"][1]),
+                )
                 records = [item for item in records if (item.created_at, item.object_id) > marker]
             page = records[: query.limit]
             next_cursor = None
             if len(records) > query.limit:
                 last = page[-1]
-                next_cursor = encode_cursor({"sort": [last.created_at.isoformat(), last.object_id], "direction": "next", "scope_hash": scope_hash}, self.cursor_secret)
+                next_cursor = encode_cursor(
+                    {
+                        "sort": [last.created_at.isoformat(), last.object_id],
+                        "direction": "next",
+                        "scope_hash": scope_hash,
+                    },
+                    self.cursor_secret,
+                )
             return SessionObjectPage(tuple(page), next_cursor)
 
         return await self._transaction(False, operation)
@@ -1341,7 +1849,12 @@ class FileSessionStore:
             if current.status == "deleted":
                 return current
             self._check_version(current.version, expected_version)
-            updated = replace(current, status="deleted", version=current.version + 1, updated_at=utc_now())
+            updated = replace(
+                current,
+                status="deleted",
+                version=current.version + 1,
+                updated_at=utc_now(),
+            )
             state["objects"][object_id] = _encode(updated)
             return updated
 
@@ -1356,7 +1869,11 @@ class FileSessionStore:
             if current is not None and current.expires_at > now:
                 if current.holder_id != request.holder_id:
                     raise SessionConflictError("session already has an active lease")
-                renewed = replace(current, expires_at=now + timedelta(seconds=request.lease_seconds), heartbeat_at=now)
+                renewed = replace(
+                    current,
+                    expires_at=now + timedelta(seconds=request.lease_seconds),
+                    heartbeat_at=now,
+                )
                 state["leases"][session.session_uid] = _encode(renewed)
                 return renewed
             token = int(state["lease_counters"].get(session.session_uid, 0)) + 1

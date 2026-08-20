@@ -10,6 +10,7 @@ from dojo.types.models import (
 )
 
 BODY = {
+    "generation_time": "2026-07-31T20:00:00Z",
     "items": [
         {
             "brief_uid": "brief-1",
@@ -32,7 +33,7 @@ BODY = {
                 }
             ],
         }
-    ]
+    ],
 }
 
 

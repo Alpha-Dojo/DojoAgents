@@ -19,10 +19,12 @@ from dojoagents.sessions.models import (
     ObjectQuery,
     RunRecord,
     RunHandle,
+    RunToolRecord,
     SessionCreateSpec,
     SessionEvent,
     SessionLease,
     SessionListQuery,
+    SessionMessageRecord,
     SessionObjectPage,
     SessionObjectRecord,
     SessionObjectSpec,
@@ -62,6 +64,11 @@ SESSION_STORE_METHODS = (
     "append_events",
     "append_usage",
     "append_context_usage",
+    "append_run_messages",
+    "load_run_messages",
+    "start_run_tool",
+    "finish_run_tool",
+    "load_run_tools",
     "commit_turn",
     "fail_run",
     "cancel_run",
@@ -176,6 +183,47 @@ class SessionStore(Protocol):
         lease: SessionLease,
         snapshots: Sequence[ContextUsageSnapshot],
     ) -> tuple[ContextUsageSnapshot, ...]: ...
+
+    async def append_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        messages: Sequence[SessionMessageRecord],
+    ) -> tuple[SessionMessageRecord, ...]: ...
+
+    async def load_run_messages(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[SessionMessageRecord, ...]: ...
+
+    async def start_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        tool_name: str,
+        arguments: dict,
+        mutation: bool,
+    ) -> RunToolRecord: ...
+
+    async def finish_run_tool(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        lease: SessionLease,
+        call_id: str,
+        result,
+        ok: bool,
+    ) -> RunToolRecord: ...
+
+    async def load_run_tools(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+    ) -> tuple[RunToolRecord, ...]: ...
 
     async def commit_turn(self, principal: SessionPrincipal, command: CommitTurnCommand) -> TurnRecord: ...
 

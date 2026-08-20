@@ -111,7 +111,11 @@ class SessionRecord:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.session_uid, "session_uid"), (self.session_id, "session_id"), (self.harness_id, "harness_id")):
+        for value, name in (
+            (self.session_uid, "session_uid"),
+            (self.session_id, "session_id"),
+            (self.harness_id, "harness_id"),
+        ):
             _non_blank(value, name)
         for value, name in (
             (self.harness_state_schema_version, "harness_state_schema_version"),
@@ -135,15 +139,32 @@ class SessionMessageRecord:
     content: JsonValue
     message_id: str | None = None
     raw_provider_payload: JsonValue = None
+    run_id: str | None = None
+    turn_id: str | None = None
+    state: Literal["pending", "committed", "abandoned"] = "committed"
+    boundary_kind: str | None = None
+    visibility: Literal["conversation", "internal"] = "conversation"
+    lease_id: str | None = None
+    fencing_token: int | None = None
     created_at: datetime = field(default_factory=utc_now)
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.session_uid, "session_uid"), (self.session_id, "session_id"), (self.agent_id, "agent_id")):
+        for value, name in (
+            (self.session_uid, "session_uid"),
+            (self.session_id, "session_id"),
+            (self.agent_id, "agent_id"),
+        ):
             _non_blank(value, name)
         _non_negative(self.sequence, "sequence")
         if self.role not in {"user", "assistant", "tool", "system"}:
             raise ValueError("role is invalid")
+        if self.state not in {"pending", "committed", "abandoned"}:
+            raise ValueError("message state is invalid")
+        if self.visibility not in {"conversation", "internal"}:
+            raise ValueError("message visibility is invalid")
+        if self.fencing_token is not None:
+            _non_negative(self.fencing_token, "fencing_token")
         _json_value(self.content, "content")
         _json_value(self.raw_provider_payload, "raw_provider_payload")
         _utc(self.created_at, "created_at")
@@ -162,23 +183,97 @@ class RunRecord:
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
     finished_at: datetime | None = None
+    recoverable: bool = False
+    request_schema_version: int | None = None
+    request: dict[str, JsonValue] | None = None
+    deadline_at: datetime | None = None
+    checkpoint_ordinal: int = 0
+    recovery_attempts: int = 0
+    next_recovery_at: datetime | None = None
+    recovery_blocked_at: datetime | None = None
+    recovery_error: dict[str, JsonValue] | None = None
+    last_recovered_at: datetime | None = None
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.run_id, "run_id"), (self.session_uid, "session_uid"), (self.model, "model"), (self.idempotency_key, "idempotency_key")):
+        for value, name in (
+            (self.run_id, "run_id"),
+            (self.session_uid, "session_uid"),
+            (self.model, "model"),
+            (self.idempotency_key, "idempotency_key"),
+        ):
             _non_blank(value, name)
         _non_negative(self.version, "version")
         _json_value(self.error, "error")
+        _json_value(self.request, "request")
+        _json_value(self.recovery_error, "recovery_error")
+        _non_negative(self.checkpoint_ordinal, "checkpoint_ordinal")
+        _non_negative(self.recovery_attempts, "recovery_attempts")
         _utc(self.created_at, "created_at")
         _utc(self.updated_at, "updated_at")
         if self.finished_at is not None:
             _utc(self.finished_at, "finished_at")
+        for value, name in (
+            (self.deadline_at, "deadline_at"),
+            (self.next_recovery_at, "next_recovery_at"),
+            (self.recovery_blocked_at, "recovery_blocked_at"),
+            (self.last_recovered_at, "last_recovered_at"),
+        ):
+            if value is not None:
+                _utc(value, name)
 
 
 @dataclass(frozen=True)
 class RunHandle:
     run: RunRecord
     lease: "SessionLease"
+
+
+@dataclass(frozen=True)
+class RunToolRecord:
+    run_id: str
+    session_id: str
+    call_id: str
+    tool_name: str
+    arguments: dict[str, JsonValue]
+    arguments_hash: str
+    mutation: bool
+    state: Literal["prepared", "running", "succeeded", "failed", "unknown"]
+    idempotency_key: str
+    lease_id: str
+    fencing_token: int
+    result: JsonValue = None
+    result_ref: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.run_id, "run_id"),
+            (self.session_id, "session_id"),
+            (self.call_id, "call_id"),
+            (self.tool_name, "tool_name"),
+            (self.arguments_hash, "arguments_hash"),
+            (self.idempotency_key, "idempotency_key"),
+            (self.lease_id, "lease_id"),
+        ):
+            _non_blank(value, name)
+        if self.state not in {"prepared", "running", "succeeded", "failed", "unknown"}:
+            raise ValueError("run tool state is invalid")
+        _json_value(self.arguments, "arguments")
+        _json_value(self.result, "result")
+        _non_negative(self.fencing_token, "fencing_token")
+        for value, name in (
+            (self.started_at, "started_at"),
+            (self.finished_at, "finished_at"),
+            (self.created_at, "created_at"),
+            (self.updated_at, "updated_at"),
+        ):
+            if value is not None:
+                _utc(value, name)
 
 
 @dataclass(frozen=True)
@@ -203,7 +298,12 @@ class TurnRecord:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.session_uid, "session_uid"), (self.session_id, "session_id"), (self.run_id, "run_id"), (self.turn_id, "turn_id")):
+        for value, name in (
+            (self.session_uid, "session_uid"),
+            (self.session_id, "session_id"),
+            (self.run_id, "run_id"),
+            (self.turn_id, "turn_id"),
+        ):
             _non_blank(value, name)
         _non_negative(self.sequence, "sequence")
         _json_value(self.input, "input")
@@ -270,7 +370,13 @@ class UsageRecord:
     completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        for value, name in ((self.usage_id, "usage_id"), (self.session_uid, "session_uid"), (self.run_id, "run_id"), (self.provider, "provider"), (self.model, "model")):
+        for value, name in (
+            (self.usage_id, "usage_id"),
+            (self.session_uid, "session_uid"),
+            (self.run_id, "run_id"),
+            (self.provider, "provider"),
+            (self.model, "model"),
+        ):
             _non_blank(value, name)
         for value, name in (
             (self.input_tokens, "input_tokens"),
@@ -487,7 +593,12 @@ class CheckpointRecord:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.session_uid, "session_uid"), (self.session_id, "session_id"), (self.namespace, "namespace"), (self.key, "key")):
+        for value, name in (
+            (self.session_uid, "session_uid"),
+            (self.session_id, "session_id"),
+            (self.namespace, "namespace"),
+            (self.key, "key"),
+        ):
             _non_blank(value, name)
         _non_negative(self.version, "version")
         _json_value(self.payload, "payload")
@@ -577,10 +688,18 @@ class SessionLease:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        for value, name in ((self.lease_id, "lease_id"), (self.session_uid, "session_uid"), (self.holder_id, "holder_id")):
+        for value, name in (
+            (self.lease_id, "lease_id"),
+            (self.session_uid, "session_uid"),
+            (self.holder_id, "holder_id"),
+        ):
             _non_blank(value, name)
         _non_negative(self.fencing_token, "fencing_token")
-        for value, name in ((self.acquired_at, "acquired_at"), (self.expires_at, "expires_at"), (self.heartbeat_at, "heartbeat_at")):
+        for value, name in (
+            (self.acquired_at, "acquired_at"),
+            (self.expires_at, "expires_at"),
+            (self.heartbeat_at, "heartbeat_at"),
+        ):
             _utc(value, name)
 
 
@@ -747,6 +866,11 @@ class BeginRunCommand:
     idempotency_key: str
     holder_id: str
     lease_seconds: int = 300
+    recoverable: bool = False
+    request: dict[str, JsonValue] | None = None
+    deadline_at: datetime | None = None
+    session_spec: SessionCreateSpec | None = None
+    initial_messages: tuple[SessionMessageRecord, ...] = ()
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -759,6 +883,12 @@ class BeginRunCommand:
             _non_blank(value, name)
         if self.lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
+        _json_value(self.request, "request")
+        if self.deadline_at is not None:
+            _utc(self.deadline_at, "deadline_at")
+        if self.session_spec is not None and self.session_spec.session_id != self.session_id:
+            raise ValueError("session_spec does not match run session")
+        object.__setattr__(self, "initial_messages", tuple(self.initial_messages))
 
 
 @dataclass(frozen=True)
@@ -768,6 +898,7 @@ class CommitTurnCommand:
     turn: TurnRecord
     messages: tuple[SessionMessageRecord, ...] = ()
     usage: tuple[UsageRecord, ...] = ()
+    terminal_event: SessionEvent | None = None
 
 
 @dataclass(frozen=True)
@@ -775,6 +906,7 @@ class FinishRunCommand:
     run_id: str
     lease: SessionLease
     error: dict[str, JsonValue] | None = None
+    terminal_event: SessionEvent | None = None
 
     def __post_init__(self) -> None:
         _non_blank(self.run_id, "run_id")
@@ -789,7 +921,11 @@ class CheckpointWrite:
     payload: JsonValue
 
     def __post_init__(self) -> None:
-        for value, name in ((self.session_id, "session_id"), (self.namespace, "namespace"), (self.key, "key")):
+        for value, name in (
+            (self.session_id, "session_id"),
+            (self.namespace, "namespace"),
+            (self.key, "key"),
+        ):
             _non_blank(value, name)
         _json_value(self.payload, "payload")
 
@@ -803,7 +939,12 @@ class SessionObjectSpec:
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for value, field_name in ((self.session_id, "session_id"), (self.kind, "kind"), (self.name, "name"), (self.content_type, "content_type")):
+        for value, field_name in (
+            (self.session_id, "session_id"),
+            (self.kind, "kind"),
+            (self.name, "name"),
+            (self.content_type, "content_type"),
+        ):
             _non_blank(value, field_name)
         _json_value(self.metadata, "metadata")
 
