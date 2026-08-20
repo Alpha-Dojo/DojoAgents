@@ -145,6 +145,23 @@ def _is_openrouter_config(provider_cfg: LLMProviderConfig) -> bool:
     return "openrouter.ai" in base_url.lower()
 
 
+def _is_orcarouter_config(provider_cfg: LLMProviderConfig) -> bool:
+    base_url = provider_cfg.base_url or ""
+    if not isinstance(base_url, str):
+        return False
+    return "orcarouter.ai" in base_url.lower()
+
+
+def _is_router_config(provider_cfg: LLMProviderConfig) -> bool:
+    return _is_openrouter_config(provider_cfg) or _is_orcarouter_config(provider_cfg)
+
+
+def _router_models_url(provider_cfg: LLMProviderConfig) -> str:
+    if _is_orcarouter_config(provider_cfg):
+        return "https://api.orcarouter.ai/v1/models"
+    return "https://openrouter.ai/api/v1/models"
+
+
 def _openrouter_lookup_parts(provider_cfg: LLMProviderConfig) -> tuple[str | None, str | None]:
     model_id = provider_cfg.model
     parsed = _split_openrouter_model_id(model_id)
@@ -159,7 +176,7 @@ def _should_lookup_openrouter_info(provider_cfg: LLMProviderConfig) -> bool:
     author, slug = _openrouter_lookup_parts(provider_cfg)
     if not slug:
         return False
-    return bool(author or _is_openrouter_config(provider_cfg))
+    return bool(author or _is_router_config(provider_cfg))
 
 
 class ModelContextRegistry:
@@ -315,7 +332,7 @@ class ModelContextRegistry:
         try:
             import httpx
 
-            url = "https://openrouter.ai/api/v1/models"
+            url = _router_models_url(provider_cfg)
             headers = dict(provider_cfg.extra_headers)
             if provider_cfg.api_key:
                 headers.setdefault("Authorization", f"Bearer {provider_cfg.api_key}")
@@ -332,7 +349,7 @@ class ModelContextRegistry:
             self._write_openrouter_models_cache(infos)
             return self._match_openrouter_info(infos, provider_cfg, provider_name)
         except Exception:
-            LOGGER.debug("OpenRouter model list lookup failed for %s", provider_cfg.model, exc_info=True)
+            LOGGER.debug("Router model list lookup failed for %s", provider_cfg.model, exc_info=True)
             return None
 
     async def resolve(

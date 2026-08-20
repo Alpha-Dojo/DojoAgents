@@ -322,6 +322,42 @@ llm_provider:
         assert provider.model == "glm-5.2"
         assert provider.author == "z-ai"
 
+    def test_parses_orcarouter_provider_author(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "default": "orcarouter",
+                    "providers": {
+                        "orcarouter": {
+                            "model": "gpt-5.5",
+                            "author": "openai",
+                            "base_url": "https://api.orcarouter.ai/v1",
+                        }
+                    },
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["orcarouter"]
+        assert provider.model == "gpt-5.5"
+        assert provider.author == "openai"
+
+    def test_normalizes_orcarouter_provider_model_id_into_author_and_slug(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "orcarouter": {
+                            "model": "openai/gpt-5.5",
+                            "base_url": "https://api.orcarouter.ai/v1",
+                        }
+                    }
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["orcarouter"]
+        assert provider.model == "gpt-5.5"
+        assert provider.author == "openai"
+
     def test_fills_default_provider_author_when_missing(self):
         cfg = _to_config(
             {

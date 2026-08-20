@@ -209,7 +209,11 @@ class OpenAICompatibleProvider:
         )
 
         actual_model = model
-        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower()
+        is_model_router = (
+            self.name == "model-router"
+            or "openrouter.ai" in str(self.base_url or "").lower()
+            or "orcarouter.ai" in str(self.base_url or "").lower()
+        )
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
