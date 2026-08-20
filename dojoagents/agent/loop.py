@@ -950,6 +950,7 @@ class AgentLoop:
             "session_id": request.session_id,
             "channel": request.channel,
         }
+        prepared_tool_call_ids: set[str] = set()
 
         def apply_turn_usage(metadata: dict[str, Any]) -> dict[str, Any]:
             collector = active_usage_collector()
@@ -1653,6 +1654,8 @@ class AgentLoop:
                 tool_name = event.tool_use.get("name")
                 args = event.tool_use.get("input") or {}
                 tool_use_id = event.tool_use.get("toolUseId") or event.tool_use.get("id") or tool_name or "tool"
+                if event.cancel_tool:
+                    return
                 if canonical_run is not None:
                     tool_record = await canonical_run.start_tool(
                         str(tool_use_id),
@@ -1662,6 +1665,8 @@ class AgentLoop:
                     if tool_record.state == "unknown":
                         event.cancel_tool = "The previous mutation may have succeeded before the " "worker stopped. Query current state before any write."
                         return
+                    if tool_record.state == "running":
+                        prepared_tool_call_ids.add(str(tool_use_id))
                 emit_tool_start(str(tool_name or "tool"), args, str(tool_use_id))
 
         # Define after tool call hook for guardrails
@@ -1751,12 +1756,14 @@ class AgentLoop:
                     )
                 tool_trace.append(trace_item)
                 harness_state.tool_trace = tool_trace
-                if canonical_run is not None:
+                durable_call_id = str(call_id or "")
+                if canonical_run is not None and durable_call_id in prepared_tool_call_ids:
                     await canonical_run.finish_tool(
-                        str(call_id),
+                        durable_call_id,
                         dict(event.result),
                         not is_failed,
                     )
+                    prepared_tool_call_ids.discard(durable_call_id)
 
         hooks.append(check_guardrails_before)
         hooks.append(check_guardrails_after)

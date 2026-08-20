@@ -297,6 +297,57 @@ async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
         "call-4",
         "call-5",
     }
+    tools = await service.load_run_tools(
+        principal,
+        (await service.list_runs(principal, "s-parallel"))[0].run_id,
+    )
+    assert len(tools) == 5
+    assert all(item.state == "succeeded" for item in tools)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_before_tool_call_skips_durable_tool_finish(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-blocked",
+                        name="execute_code",
+                        arguments={"code": "print('blocked')"},
+                    )
+                ],
+            ),
+            LLMResult(content="answered from image"),
+        ]
+    )
+    loop = _loop(provider, service)
+    sink = AgentEventSink(run_id="run-blocked", session_id="s-blocked")
+
+    response = await loop.run(
+        ChatRequest(
+            "read image",
+            session_id="s-blocked",
+            principal=principal,
+            runtime_content=[
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,aQ=="},
+                }
+            ],
+        ),
+        event_sink=sink,
+    )
+
+    assert response.content == "answered from image"
+    assert (await service.get_run(principal, "run-blocked")).status == "completed"
+    assert await service.load_run_tools(principal, "run-blocked") == ()
+    history = await service.history(principal, "s-blocked", HistoryQuery())
+    assert any(block.get("type") == "tool_result" for message in history.items for block in (message.content if isinstance(message.content, list) else ()))
     await service.shutdown()
 
 
