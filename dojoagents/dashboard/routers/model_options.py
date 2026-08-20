@@ -29,6 +29,7 @@ _PROVIDER_LABELS = {
     "kimi": "Kimi",
     "ollama": "Ollama",
     "minimax": "MiniMax",
+    "orcarouter": "OrcaRouter",
 }
 
 
