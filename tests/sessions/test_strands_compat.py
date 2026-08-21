@@ -65,8 +65,6 @@ def test_strands_canonical_conversion_preserves_supported_and_unknown_blocks():
     assert canonical.content[0] == {
         "type": "reasoning",
         "text": "inspect the portfolio first",
-        "format": "reasoning_content",
-        "status": "completed",
         "signature": "reasoning-signature",
     }
     assert canonical.raw_provider_payload == raw
@@ -114,8 +112,6 @@ def test_reasoning_redacted_content_round_trips_as_json_safe_base64():
         {
             "type": "reasoning",
             "text": "",
-            "format": "reasoning_content",
-            "status": "completed",
             "encrypted_content": "ZW5jcnlwdGVkLXJlYXNvbmluZw==",
             "encrypted_encoding": "base64",
         }

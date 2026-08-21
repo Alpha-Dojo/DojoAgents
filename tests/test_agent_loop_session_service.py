@@ -143,8 +143,6 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
         {
             "type": "reasoning",
             "text": "I should answer directly.",
-            "format": "reasoning_content",
-            "status": "completed",
         },
         {"type": "text", "text": "hello"},
     ]
@@ -208,8 +206,6 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
     assert history.items[1].content[0] == {
         "type": "reasoning",
         "text": "I should fetch the quote first.",
-        "format": "reasoning_content",
-        "status": "completed",
     }
     assert history.items[1].content[1] == {
         "type": "tool_use",

@@ -30,8 +30,6 @@ def _canonical_block(block: dict[str, Any]) -> dict[str, JsonValue]:
         canonical_reasoning: dict[str, JsonValue] = {
             "type": "reasoning",
             "text": str(reasoning_text.get("text") or ""),
-            "format": "reasoning_content",
-            "status": "completed",
         }
         if reasoning_text.get("signature") is not None:
             canonical_reasoning["signature"] = str(reasoning_text["signature"])
