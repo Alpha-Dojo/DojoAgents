@@ -360,6 +360,39 @@ test('rebuilds thinking and tool activity with the local activity step shape', (
   assert.equal(steps[2]?.kind === 'text' && steps[2].text, 'The market is higher.');
 });
 
+test('restores persisted canonical reasoning blocks as thinking activity', () => {
+  const messages: AgentServerSessionMessagesResponse['messages'] = [
+    { message_id: 0, role: 'user', content: [{ type: 'text', text: 'analyze' }], created_at: '', updated_at: '', raw: {} },
+    {
+      message_id: 1,
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'Inspect the portfolio first.' },
+        { type: 'text', text: 'Analysis complete.' },
+      ],
+      created_at: '',
+      updated_at: '',
+      raw: {},
+    },
+  ];
+
+  const projected = serverMessagesToAgentMessages({
+    session_id: 's1',
+    agent_id: 'dojo-agent',
+    messages,
+    next_offset: null,
+  });
+
+  assert.equal(projected[0]?.content, 'analyze');
+  assert.equal(projected[1]?.content, 'Analysis complete.');
+  assert.equal(projected[1]?.activitySteps?.[0]?.kind, 'think');
+  assert.equal(
+    projected[1]?.activitySteps?.[0]?.kind === 'think'
+      && projected[1].activitySteps[0].block.text,
+    'Inspect the portfolio first.',
+  );
+});
+
 test('restores viz blocks from turn tool_trace when events omit them', () => {
   const vizBlock = {
     id: 'trace-viz',

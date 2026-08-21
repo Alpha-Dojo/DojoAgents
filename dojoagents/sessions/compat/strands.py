@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from typing import Any
 
@@ -8,9 +9,39 @@ from dojoagents.config.models import SessionsConfig
 from dojoagents.sessions.models import JsonValue, SessionMessageRecord
 
 
+def _json_safe(value: Any) -> JsonValue:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, bytes):
+        return {"base64": base64.b64encode(value).decode("ascii")}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return str(value)
+
+
 def _canonical_block(block: dict[str, Any]) -> dict[str, JsonValue]:
     if "text" in block:
         return {"type": "text", "text": str(block.get("text") or "")}
+    if "reasoningContent" in block:
+        reasoning = block.get("reasoningContent") if isinstance(block.get("reasoningContent"), dict) else {}
+        reasoning_text = reasoning.get("reasoningText") if isinstance(reasoning.get("reasoningText"), dict) else {}
+        canonical_reasoning: dict[str, JsonValue] = {
+            "type": "reasoning",
+            "text": str(reasoning_text.get("text") or ""),
+            "format": "reasoning_content",
+            "status": "completed",
+        }
+        if reasoning_text.get("signature") is not None:
+            canonical_reasoning["signature"] = str(reasoning_text["signature"])
+        redacted = reasoning.get("redactedContent")
+        if isinstance(redacted, bytes):
+            canonical_reasoning["encrypted_content"] = base64.b64encode(redacted).decode("ascii")
+            canonical_reasoning["encrypted_encoding"] = "base64"
+        elif redacted is not None:
+            canonical_reasoning["encrypted_content"] = redacted
+        return canonical_reasoning
     if "image" in block:
         image = block.get("image") if isinstance(block.get("image"), dict) else {}
         return {
@@ -61,11 +92,14 @@ def strands_to_canonical(
     agent_id: str,
     sequence: int,
 ) -> SessionMessageRecord:
+    role = str(raw.get("role") or "user")
     content = raw.get("content")
     if isinstance(content, str):
         canonical: JsonValue = [{"type": "text", "text": content}]
     elif isinstance(content, list):
         canonical = [_canonical_block(block) for block in content if isinstance(block, dict)]
+        if role == "assistant":
+            canonical.sort(key=lambda block: block.get("type") != "reasoning")
     else:
         canonical = []
     return SessionMessageRecord(
@@ -73,8 +107,10 @@ def strands_to_canonical(
         session_id=session_id,
         agent_id=agent_id,
         sequence=sequence,
-        role=str(raw.get("role") or "user"),
+        role=role,
         content=canonical,
+        raw_provider_payload=_json_safe(raw) if role == "assistant" else None,
+        schema_version=2,
     )
 
 
@@ -82,6 +118,16 @@ def _strands_block(block: dict[str, Any]) -> dict[str, Any]:
     kind = block.get("type")
     if kind == "text":
         return {"text": str(block.get("text") or "")}
+    if kind == "reasoning":
+        encrypted = block.get("encrypted_content")
+        if encrypted is not None:
+            if block.get("encrypted_encoding") == "base64" and isinstance(encrypted, str):
+                encrypted = base64.b64decode(encrypted)
+            return {"reasoningContent": {"redactedContent": encrypted}}
+        reasoning_text = {"text": str(block.get("text") or "")}
+        if block.get("signature") is not None:
+            reasoning_text["signature"] = str(block["signature"])
+        return {"reasoningContent": {"reasoningText": reasoning_text}}
     if kind == "image_ref":
         return {"image": {key: block.get(key) for key in ("source", "format") if block.get(key) is not None}}
     if kind == "document_ref":

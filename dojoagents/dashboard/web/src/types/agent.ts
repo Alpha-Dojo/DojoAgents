@@ -252,7 +252,7 @@ export interface AgentServerSessionListResponse {
 export interface AgentServerSessionMessage {
   message_id: number;
   role: string;
-  content: string;
+  content: string | Array<Record<string, unknown>>;
   created_at: string;
   updated_at: string;
   raw: Record<string, unknown>;

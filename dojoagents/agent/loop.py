@@ -72,7 +72,7 @@ from strands.models.model import Model
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolSpec, ToolChoice
 from strands.types.content import Messages, SystemContentBlock
-from strands.hooks import BeforeToolCallEvent, AfterToolCallEvent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, MessageAddedEvent
 from strands.types.tools import AgentTool, ToolSpec as StrandsToolSpec, ToolUse
 from strands.types._events import ToolResultEvent
 
@@ -452,9 +452,22 @@ class DojoStrandsModelBridge(Model):
 
             yield {"contentBlockStop": {"contentBlockIndex": 0}}
 
+            reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
+            next_block_index = 1
+            if isinstance(reasoning_content, str) and reasoning_content:
+                yield {"contentBlockStart": {"contentBlockIndex": next_block_index, "start": {}}}
+                yield {
+                    "contentBlockDelta": {
+                        "contentBlockIndex": next_block_index,
+                        "delta": {"reasoningContent": {"text": reasoning_content}},
+                    }
+                }
+                yield {"contentBlockStop": {"contentBlockIndex": next_block_index}}
+                next_block_index += 1
+
             if llm_result.tool_calls:
                 for idx, tc in enumerate(llm_result.tool_calls):
-                    block_index = idx + 1
+                    block_index = idx + next_block_index
                     yield {
                         "contentBlockStart": {
                             "contentBlockIndex": block_index,
@@ -479,7 +492,6 @@ class DojoStrandsModelBridge(Model):
             if llm_result.tool_calls:
                 stop_reason = "tool_use"
 
-            reasoning_content = llm_result.metadata.get("reasoning_content") if llm_result.metadata else None
             event_sink = (invocation_state or {}).get("_dojo_event_sink")
             reasoning_streamed = bool((llm_result.metadata or {}).get("reasoning_streamed"))
             if event_sink is not None and not reasoning_streamed and isinstance(reasoning_content, str) and reasoning_content.strip():
@@ -1485,6 +1497,15 @@ class AgentLoop:
             plugins.append(plugin_bridge)
         else:
             plugins.append(plugin_bridge)
+
+        async def checkpoint_message(_event: MessageAddedEvent) -> None:
+            if canonical_run is not None:
+                await canonical_run.persist_transcript(
+                    [dict(message) for message in agent.messages[turn_message_start:]],
+                )
+
+        if canonical_run is not None:
+            hooks.append(checkpoint_message)
 
         # Define before tool call hook to check Dojo's guardrails
         async def check_guardrails_before(event: BeforeToolCallEvent) -> None:
