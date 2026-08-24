@@ -152,10 +152,7 @@ def get_viz_hint_for_payload(payload: dict[str, Any] | None) -> dict[str, Any] |
             "optional_fields": ["drawdown_pcts", "summary"],
             "reuse": True,
             "do_not_call_agent_viz_build_if_viz_blocks_present": True,
-            "note": (
-                "Auto viz_blocks are built from this VIZ_DATA when the shape is recognized. "
-                "Do not call agent_viz_build to re-embed dates/prices."
-            ),
+            "note": ("Auto viz_blocks are built from this VIZ_DATA when the shape is recognized. " "Do not call agent_viz_build to re-embed dates/prices."),
         }
     if payload.get("klines") or payload.get("bars"):
         return {
@@ -200,10 +197,7 @@ def format_auto_viz_status(block_count: int) -> str:
         "viz_blocks_attached": block_count,
         "reuse": True,
         "do_not_call_agent_viz_build": True,
-        "note": (
-            f"{block_count} viz_block(s) already attached. Interpret in markdown; "
-            "do not call agent_viz_build to rebuild the same chart."
-        ),
+        "note": (f"{block_count} viz_block(s) already attached. Interpret in markdown; " "do not call agent_viz_build to rebuild the same chart."),
     }
     return "\n\n--- viz_status ---\n" + json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -236,11 +230,13 @@ def build_financial_artifact_pointer(
     data: Any = None,
     content: str | None = None,
 ) -> str:
+    execute_code_example = f'res = dojo_tools.load_tool_result("{call_id}")\ndojo_tools.tool_print(res)'
     summary: dict[str, Any] = {
         "artifact": True,
         "tool": tool_name,
         "call_id": call_id,
         "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
+        "execute_code_example": execute_code_example,
         "rpc_hint": f"Re-fetch live data with dojo_tools.{tool_name}(...) inside execute_code when needed.",
     }
     if isinstance(data, dict):

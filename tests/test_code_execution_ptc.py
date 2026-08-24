@@ -180,6 +180,13 @@ def test_hermes_stub_maps_dotted_tool_names():
     assert "dojo_tools_runtime" in stub
 
 
+def test_execute_code_description_documents_prior_artifact_contract():
+    spec = get_code_execution_spec(ToolRegistry(), SandboxPolicy())
+
+    assert "last_tool_result() does not exist" in spec.description
+    assert "tool_json(res)['items'], newest first" in spec.description
+
+
 @pytest.mark.asyncio
 async def test_code_execution_bootstrap_provides_pandas_without_user_import():
     registry = ToolRegistry()
@@ -539,6 +546,7 @@ def test_build_artifact_pointer_message_includes_call_id():
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
     assert "dojo_tools.tool_" in payload["parse_hint"]
+    assert payload["execute_code_example"] == 'res = dojo_tools.load_tool_result("abc-123")\ndojo_tools.tool_print(res)'
 
 
 def test_build_artifact_pointer_message_includes_latest_kline_summary() -> None:
@@ -723,6 +731,32 @@ async def test_load_tool_result_includes_tool_name_and_schema_hint(tmp_path) -> 
     assert loaded["ok"] is True
     assert loaded["tool_name"] == "get_market_overview"
     assert loaded["schema_hint"]["shape"] == "nested"
+
+
+def test_list_tool_results_returns_rpc_envelope_with_newest_item_first(tmp_path) -> None:
+    from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+
+    store = ToolResultArtifactStore(tmp_path)
+    for call_id in ("older", "newer"):
+        store.save(
+            session_id="sess-1",
+            call_id=call_id,
+            tool_name="search_company_ticker",
+            arguments={},
+            content="{}",
+            data={},
+        )
+    server = AsyncCodeExecutionRPC(
+        "/tmp/test.sock",
+        tool_registry=type("R", (), {"get": lambda self, name: None})(),
+        artifact_store=store,
+        agent_session_id="sess-1",
+    )
+
+    result = server._list_tool_results()
+
+    assert result["ok"] is True
+    assert result["data"]["items"][0]["call_id"] == "newer"
 
 
 @pytest.mark.asyncio

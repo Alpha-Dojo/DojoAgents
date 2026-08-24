@@ -171,6 +171,26 @@ def test_format_execute_code_error_hint_explains_live_rpc_unwrap() -> None:
     assert "only when loading a persisted result" in enriched
 
 
+def test_format_execute_code_error_hint_rejects_last_tool_result_guess() -> None:
+    enriched = format_execute_code_error_hint(
+        "AttributeError: module 'dojo_tools' has no attribute 'last_tool_result'",
+        "res = dojo_tools.last_tool_result()",
+    )
+
+    assert "last_tool_result() does not exist" in enriched
+    assert "load_tool_result(call_id)" in enriched
+
+
+def test_format_execute_code_error_hint_explains_tool_result_catalog_envelope() -> None:
+    enriched = format_execute_code_error_hint(
+        "KeyError: -1",
+        "results = dojo_tools.list_tool_results()\nlast = results[-1]",
+    )
+
+    assert "tool_json(results)['items']" in enriched
+    assert "items[0]" in enriched
+
+
 def test_artifact_pointer_parse_hint_uses_tool_print() -> None:
     message = build_artifact_pointer_message(
         tool_name="get_market_overview",
