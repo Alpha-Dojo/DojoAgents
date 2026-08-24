@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from strands.types.exceptions import EventLoopException
 from unittest.mock import AsyncMock, patch
 
 from dojoagents.agent.loop import AgentLoop
@@ -100,7 +101,17 @@ def _loop(provider, service):
 async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
-    loop = _loop(StaticLLMProvider([LLMResult("hello")]), service)
+    loop = _loop(
+        StaticLLMProvider(
+            [
+                LLMResult(
+                    "hello",
+                    metadata={"reasoning_content": "I should answer directly."},
+                )
+            ]
+        ),
+        service,
+    )
 
     response = await loop.run(
         ChatRequest(
@@ -128,6 +139,13 @@ async def test_success_commits_one_canonical_turn_and_terminal_run(tmp_path):
     assert turns.items[0].output == {"content": "hello"}
     assert [message.role for message in history.items] == ["user", "assistant"]
     assert history.items[0].content == [{"type": "text", "text": "hi"}]
+    assert history.items[1].content == [
+        {
+            "type": "reasoning",
+            "text": "I should answer directly.",
+        },
+        {"type": "text", "text": "hello"},
+    ]
     assert "transient runtime content" not in repr(turns.items)
     assert "transient runtime content" not in repr(history.items)
     assert runs[0].status == "completed"
@@ -156,6 +174,7 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
             LLMResult(
                 content="",
                 tool_calls=[ToolCall(id="call-1", name="quote", arguments={"ticker": "AAPL"})],
+                metadata={"reasoning_content": "I should fetch the quote first."},
             ),
             LLMResult(content="AAPL is 123.4"),
             LLMResult(content="follow-up complete"),
@@ -185,11 +204,17 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
         "assistant",
     ]
     assert history.items[1].content[0] == {
+        "type": "reasoning",
+        "text": "I should fetch the quote first.",
+    }
+    assert history.items[1].content[1] == {
         "type": "tool_use",
         "id": "call-1",
         "name": "quote",
         "input": {"ticker": "AAPL"},
     }
+    assert history.items[1].schema_version == 2
+    assert history.items[1].raw_provider_payload["content"][0] == {"reasoningContent": {"reasoningText": {"text": "I should fetch the quote first."}}}
     assert history.items[2].content[0]["type"] == "tool_result"
     assert history.items[2].content[0]["tool_use_id"] == "call-1"
     assert history.items[2].content[0]["name"] == "quote"
@@ -219,7 +244,7 @@ async def test_canonical_history_persists_and_replays_complete_tool_transcript(
 
 
 @pytest.mark.asyncio
-async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
+async def test_parallel_tools_checkpoint_each_transcript_message_once(tmp_path):
     service = await _service(tmp_path)
     principal = SessionPrincipal("alice")
     provider = StaticLLMProvider(
@@ -281,7 +306,7 @@ async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
     history = await service.history(principal, "s-parallel", HistoryQuery())
 
     assert response.content == "batch complete"
-    assert append_messages.await_count == 1
+    assert append_messages.await_count == len(history.items)
     assert [message.role for message in history.items] == [
         "user",
         "assistant",
@@ -303,6 +328,63 @@ async def test_parallel_tools_commit_transcript_once_at_turn_end(tmp_path):
     )
     assert len(tools) == 5
     assert all(item.state == "succeeded" for item in tools)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tool_does_not_start_when_message_checkpoint_fails(tmp_path):
+    service = await _service(tmp_path)
+    principal = SessionPrincipal("alice")
+    provider = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[ToolCall(id="call-1", name="quote", arguments={"ticker": "AAPL"})],
+                metadata={"reasoning_content": "I should fetch the quote first."},
+            ),
+            LLMResult(content="done"),
+        ]
+    )
+    loop = _loop(provider, service)
+    executed = 0
+
+    async def quote(args):
+        nonlocal executed
+        executed += 1
+        return {"content": args["ticker"]}
+
+    loop.tool_executor.registry.register(
+        ToolSpec(
+            name="quote",
+            description="Return a quote.",
+            parameters={"type": "object"},
+            handler=quote,
+        )
+    )
+
+    original_append = service._store.append_run_messages
+    checkpoint_count = 0
+
+    async def fail_assistant_checkpoint(*args, **kwargs):
+        nonlocal checkpoint_count
+        checkpoint_count += 1
+        if checkpoint_count == 2:
+            raise RuntimeError("message checkpoint failed")
+        return await original_append(*args, **kwargs)
+
+    with patch.object(service._store, "append_run_messages", side_effect=fail_assistant_checkpoint):
+        with pytest.raises(EventLoopException, match="message checkpoint failed"):
+            await loop.run(ChatRequest("price?", session_id="s-checkpoint", principal=principal))
+
+    assert checkpoint_count == 2
+    assert executed == 0
+    assert (
+        await service.load_run_tools(
+            principal,
+            (await service.list_runs(principal, "s-checkpoint"))[0].run_id,
+        )
+        == ()
+    )
     await service.shutdown()
 
 

@@ -420,9 +420,19 @@ def tool_rows(res: dict[str, Any], key: str | None = None) -> list[dict[str, Any
 
 def format_execute_code_error_hint(output: str, code: str) -> str:
     """Append actionable hints when common execute_code patterns fail."""
-    if "KeyError" not in output and "NameError" not in output:
+    if "KeyError" not in output and "NameError" not in output and "AttributeError" not in output:
         return output
     hints: list[str] = []
+    if "AttributeError" in output and "last_tool_result" in output:
+        hints.append(
+            "HINT: dojo_tools.last_tool_result() does not exist. For a persisted prior result, " "copy its artifact load_hint and call dojo_tools.load_tool_result(call_id)."
+        )
+    if "KeyError" in output and "list_tool_results" in code:
+        hints.append(
+            "HINT: dojo_tools.list_tool_results() returns an RPC response, not a list. "
+            "Use items = dojo_tools.tool_json(results)['items']; items[0] is newest. "
+            "When a call_id is already available, load it directly with load_tool_result(call_id)."
+        )
     if "KeyError" in output and ("name_zh" in output or "symbol" in output or "columns" in output.lower()):
         hints.append(
             "HINT: use dojo_tools.tool_df(res[, table]) then dojo_tools.tool_pick(df, columns) "
@@ -443,7 +453,7 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
             "dojo_tools.tool_print(res, table='...'). Nested payloads may require "
             "tool_json(res) instead of tabular conversion."
         )
-    if "KeyError" in output and "tool_df" not in code and "tool_print" not in code and "tool_json" not in code:
+    if "KeyError" in output and "list_tool_results" not in code and "tool_df" not in code and "tool_print" not in code and "tool_json" not in code:
         hints.append(
             "HINT: unwrap a live dojo_tools RPC result with payload = dojo_tools.tool_json(res). "
             "Raw dojo.sdk.* list rows are payload['data']; or use dojo_tools.tool_df(res). "

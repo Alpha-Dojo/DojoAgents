@@ -99,13 +99,14 @@ function groupServerConversationTurns(
     return current;
   };
   for (const message of messages) {
+    const text = messageText(message);
     if (message.role === 'user') {
-      current = { userContent: message.content, assistantContent: null };
+      current = { userContent: text, assistantContent: null };
       turns.push(current);
-    } else if (message.role === 'assistant' && message.content.trim()) {
+    } else if (message.role === 'assistant' && text.trim()) {
       // Intermediate assistant messages are represented in activitySteps; the
       // latest assistant text is the final answer for this user turn.
-      ensureTurn().assistantContent = message.content;
+      ensureTurn().assistantContent = text;
     }
   }
   return turns;
@@ -173,6 +174,21 @@ function objectRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function messageText(message: AgentServerSessionMessage): string {
+  if (typeof message.content === 'string') return message.content;
+  return message.content.flatMap((block) =>
+    block.type === 'text' && typeof block.text === 'string' ? [block.text] : [])
+    .join('');
+}
+
+function messageReasoning(message: AgentServerSessionMessage): string[] {
+  if (!Array.isArray(message.content)) return [];
+  return message.content.flatMap((block) =>
+    block.type === 'reasoning' && typeof block.text === 'string' && block.text
+      ? [block.text]
+      : []);
 }
 
 function parseArguments(value: unknown): Record<string, unknown> {
@@ -243,8 +259,9 @@ function toolResultsFromMessage(message: AgentServerSessionMessage): ToolResultP
     if (result?.role !== 'tool') return [];
     const callId = typeof result.tool_call_id === 'string' ? result.tool_call_id : undefined;
     const projectedContent = typeof result.content === 'string' ? result.content : '';
-    const content = projected.length === 1 && message.content.length > projectedContent.length
-      ? message.content
+    const messageContent = messageText(message);
+    const content = projected.length === 1 && messageContent.length > projectedContent.length
+      ? messageContent
       : projectedContent;
     return [{
       callId,
@@ -274,8 +291,14 @@ export function fallbackActivityStepsFromMessages(
       continue;
     }
     ensureTurn();
-    if (message.role === 'assistant' && message.content) {
-      turns[current] = appendTextDelta(turns[current], message.content);
+    if (message.role === 'assistant') {
+      for (const reasoning of messageReasoning(message)) {
+        const started = appendThinkStart(turns[current], null);
+        turns[current] = appendThinkDelta(started.steps, started.currentThinkId, reasoning);
+        turns[current] = appendThinkEnd(turns[current], started.currentThinkId);
+      }
+      const text = messageText(message);
+      if (text) turns[current] = appendTextDelta(turns[current], text);
     }
     for (const call of toolCallsFromMessage(message)) {
       turns[current] = appendToolStart(

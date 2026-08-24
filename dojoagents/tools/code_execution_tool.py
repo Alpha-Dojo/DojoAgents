@@ -448,6 +448,8 @@ def get_code_execution_spec(
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
             "pd/np/dojo_tools are pre-imported. "
+            "For a prior artifact, copy its load_hint exactly; dojo_tools.last_tool_result() does not exist. "
+            "When call_id is known, do not call list_tool_results(); that helper returns an RPC response whose summaries are tool_json(res)['items'], newest first. "
             "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "
             "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
             "For raw dojo.sdk.* JSON use `payload = dojo_tools.tool_json(res); rows = payload['data']`. "
