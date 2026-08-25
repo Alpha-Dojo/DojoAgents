@@ -54,6 +54,7 @@ SESSION_STORE_METHODS = (
     "load_history",
     "list_turns",
     "read_events",
+    "read_offline_events",
     "get_usage",
     "get_context_usage",
     "begin_run",
@@ -133,6 +134,15 @@ class SessionStore(Protocol):
         self,
         principal: SessionPrincipal,
         run_id: str,
+        after_seq: int,
+        limit: int,
+    ) -> EventPage: ...
+
+    async def read_offline_events(
+        self,
+        principal: SessionPrincipal,
+        run_id: str,
+        *,
         after_seq: int,
         limit: int,
     ) -> EventPage: ...

@@ -743,6 +743,9 @@ class FileSessionStore:
 
         return await self._transaction(False, operation)
 
+    async def read_offline_events(self, principal: SessionPrincipal, run_id: str, *, after_seq: int, limit: int) -> EventPage:
+        return await self.read_events(principal, run_id, after_seq, limit)
+
     async def get_usage(self, principal: SessionPrincipal, session_id: str, query: UsageQuery) -> UsageSummary:
         def operation(state: dict[str, Any]) -> UsageSummary:
             session = self._session_for(state, principal, session_id)

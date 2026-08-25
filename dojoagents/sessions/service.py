@@ -412,6 +412,10 @@ class SessionService:
         self._enabled()
         return await self._store.read_events(principal, run_id, after_seq, limit)
 
+    async def read_offline_events(self, principal: SessionPrincipal, run_id: str, *, after_seq: int, limit: int):
+        self._enabled()
+        return await self._store.read_offline_events(principal, run_id, after_seq=after_seq, limit=limit)
+
     async def commit_turn(self, principal: SessionPrincipal, command: CommitTurnCommand):
         self._enabled()
         return await self._store.commit_turn(principal, command)

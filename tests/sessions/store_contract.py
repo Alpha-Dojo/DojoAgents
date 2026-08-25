@@ -113,6 +113,7 @@ async def assert_session_store_contract(store) -> None:
     )
     await store.append_events(alice, run.run_id, [event, event])
     assert [item.sequence for item in (await store.read_events(alice, run.run_id, 0, 10)).items] == [1]
+    assert [item.sequence for item in (await store.read_offline_events(alice, run.run_id, after_seq=0, limit=10)).items] == [1]
 
     now = datetime.now(UTC)
     turn = TurnRecord(
