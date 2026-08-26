@@ -2,8 +2,7 @@
 
 ## Non-Negotiable Local Rules
 
-- Destructive `git` commands are FORBIDDEN: `git commit`, `git add`, `git checkout`, `git reset`, `git rebase`, `git merge`, `git push`, `git pull`, `git stash`, `git clean`, `git branch -D`, and any other command that writes to history or modifies the working tree.
-- Read-only `git` commands are permitted: `status`, `diff`, `diff-files`, `diff-index`, `diff-tree`, `log`, `show`, `shortlog`, `whatchanged`, `ls-files`, `ls-tree`, `cat-file`, `rev-parse`, `rev-list`, `show-ref`, `for-each-ref`, `name-rev`, `describe`, `merge-base`, `blame`, `annotate`, `grep`, `count-objects`, `fsck`, `help`, `version`.
+- `git` commands are FORBIDDEN in this repository. Do NOT run `git status`, `git diff`, `git show`, `git checkout`, `git reset`, `git commit`, or any other `git` subcommand.
 - Temporary scripts MUST be placed under `.agents/scripts/`.
 - New third-party dependencies MUST NOT be introduced unless the primary lockfile is updated in the same change:
   - Python: `pyproject.toml` and `uv.lock`
@@ -207,7 +206,7 @@ async def execute_one(self, call: ToolCall, *, session_id: str = "") -> ToolResu
 
 ## 5. Architectural Guardrails & Anti-Patterns (Must NOT)
 
-- MUST NOT use destructive `git` commands (commit, add, checkout, reset, rebase, merge, push, pull, stash, clean, branch -D). Read-only inspection commands are allowed — see the full whitelist in the Non-Negotiable Local Rules section above.
+- MUST NOT use `git` commands.
 - MUST NOT place temporary scripts outside `.agents/scripts/`.
 - MUST NOT block the async runtime thread. Use async I/O, existing async clients, background tasks, or bounded executors for blocking work.
 - MUST NOT create new config parsing logic. Use `ConfigStore`.
