@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
 
@@ -51,14 +50,6 @@ class SectorConstituentItem(BaseModel):
     pe: Optional[float] = None
     pb: Optional[float] = None
     amount: Optional[float] = Field(None, description="Daily trading amount from quote")
-
-    @model_validator(mode="after")
-    def _sanitize_floats(self) -> "SectorConstituentItem":
-        for field in ("last_price", "change_percent", "window_change_percent", "turn_rate", "market_cap", "pe", "pb", "amount"):
-            v = getattr(self, field)
-            if v is not None and (math.isnan(v) or math.isinf(v)):
-                setattr(self, field, None)
-        return self
 
 
 class SectorConstituentsResponse(BaseModel):
