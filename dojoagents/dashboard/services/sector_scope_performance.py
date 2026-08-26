@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -145,19 +144,6 @@ def _clip_series_to_window(
     if not window_start or not window_end:
         return []
     return [SectorPerformanceMarketPoint(date=day, value=value) for day, value in series if window_start <= day <= window_end]
-
-
-def _sanitize_index_series(series: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-    sanitized: List[Tuple[str, float]] = []
-    for day, value in series:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            continue
-        if not math.isfinite(parsed):
-            continue
-        sanitized.append((day, parsed))
-    return sanitized
 
 
 def _precomputed_scope_level_ids(path: ResolvedSectorPath, scope: SectorLevel) -> tuple[str, str]:
