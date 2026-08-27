@@ -42,3 +42,12 @@ def test_window_change_percent_for_date_range() -> None:
         MarketAnalysisWindow(mode="date_range", start_date="2026-01-03", end_date="2026-01-06"),
     )
     assert change == pytest.approx(9.090909090909092)
+
+
+def test_window_change_percent_as_of_uses_prior_close() -> None:
+    bars = [_bar("2026-01-02", 100.0), _bar("2026-01-03", 110.0), _bar("2026-01-06", 121.0)]
+    change = _window_change_percent(
+        bars,
+        MarketAnalysisWindow(mode="as_of", days=2, as_of="2026-01-06"),
+    )
+    assert change == pytest.approx(21.0)

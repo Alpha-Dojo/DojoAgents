@@ -5,6 +5,7 @@ SECTOR_RESULT_KINDS = (
     "get_sector_overview",
     "get_sector_constituents",
     "filter_sector_constituents",
+    "get_sector_return_curve",
 )
 
 __all__ = ["FinancialResultPresenter", "SECTOR_RESULT_KINDS"]

@@ -132,10 +132,15 @@ def _bars_for_window(bars: list[StockKlineBar], window: MarketAnalysisWindow) ->
         end_date = window.end_date or ""
         filtered = [bar for bar in bars if start_date <= _bar_day(bar) <= end_date]
         return filtered
+    eligible = bars
+    if window.mode == "as_of" and window.as_of:
+        eligible = [bar for bar in bars if _bar_day(bar) <= window.as_of]
+        if not eligible:
+            return []
     if window.days <= 1:
-        return bars[-1:] if bars else []
-    take = min(max(window.days, 1), len(bars))
-    return bars[-take:]
+        return eligible[-1:] if eligible else []
+    take = min(max(window.days, 1), len(eligible))
+    return eligible[-take:]
 
 
 def _window_change_percent(bars: list[StockKlineBar], window: MarketAnalysisWindow) -> float:
@@ -144,15 +149,30 @@ def _window_change_percent(bars: list[StockKlineBar], window: MarketAnalysisWind
     scoped = _bars_for_window(bars, window)
     if not scoped:
         return 0.0
-    if window.mode == "days" and window.days <= 1 and len(bars) >= 2:
-        base = bars[-2].close
-        latest = bars[-1].close
-    elif len(scoped) >= 2 and _bar_day(scoped[0]) != _bar_day(scoped[-1]):
+    if window.mode == "date_range":
+        if len(scoped) >= 2 and _bar_day(scoped[0]) != _bar_day(scoped[-1]):
+            base = scoped[0].close
+            latest = scoped[-1].close
+        else:
+            latest = scoped[-1].close
+            base = bars[bars.index(scoped[-1]) - 1].close if scoped[-1] in bars and bars.index(scoped[-1]) > 0 else latest
+        if base <= 0:
+            return 0.0
+        return (latest / base - 1.0) * 100.0
+
+    first = scoped[0]
+    try:
+        first_index = bars.index(first)
+    except ValueError:
+        first_index = 0
+    latest = scoped[-1].close
+    if first_index > 0:
+        base = bars[first_index - 1].close
+    elif len(scoped) >= 2:
         base = scoped[0].close
         latest = scoped[-1].close
     else:
-        latest = scoped[-1].close
-        base = bars[bars.index(scoped[-1]) - 1].close if scoped[-1] in bars and bars.index(scoped[-1]) > 0 else latest
+        base = latest
     if base <= 0:
         return 0.0
     return (latest / base - 1.0) * 100.0

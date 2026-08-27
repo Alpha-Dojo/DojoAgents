@@ -81,6 +81,7 @@ def register_financial_response_models(registry: SchemaHintRegistry | None = Non
         SectorAttributionFactorsResponse,
         SectorConstituentsResponse,
         SectorMoversResponse,
+        SectorReturnCurveResponse,
         StockScreenResponse,
         TaxonomyL3CatalogResponse,
         TickerFinancialsBatchResponseV1,
@@ -98,6 +99,7 @@ def register_financial_response_models(registry: SchemaHintRegistry | None = Non
             "get_sector_movers": SectorMoversResponse,
             "screen_market_stocks": StockScreenResponse,
             "get_sector_attribution_factors": SectorAttributionFactorsResponse,
+            "get_sector_return_curve": SectorReturnCurveResponse,
             "filter_sector_constituents": SectorConstituentsResponse,
             "get_ticker_realtime_quote": TickerQuotesBatchResponseV1,
             "get_ticker_financials": TickerFinancialsBatchResponseV1,
@@ -152,8 +154,10 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     "get_market_overview": {
         "pandas_example": _TOOL_MULTI_TABLE_PANDAS,
         "usage_notes": (
-            "Window: pass days (latest N trade days, default 1, max 90) OR start_date+end_date "
-            "(YYYY-MM-DD, both required, max 126 calendar days); dates override days. "
+            "Window: pick ONE of days (latest N trade sessions), as_of+days (last N sessions ≤ as_of), "
+            "or start_date+end_date (YYYY-MM-DD, both required, max 126 calendar days). "
+            "as_of cannot combine with calendar dates. With as_of, days defaults to 1. "
+            "Session returns compound N daily returns. "
             "Scalars via dojo_tools.tool_meta(res): window_mode, window_start, window_end, as_of, days. "
             "Tables: markets=current cap/PE/count snapshot; benchmarks=window change_percent + clipped klines. "
             "Omit market arg for US+CN+HK in one call."
@@ -161,8 +165,8 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "get_sector_movers": {
         "usage_notes": (
-            "Window rules match get_market_overview (days OR start_date+end_date). "
-            "tool_meta(res): window_mode, window_start, window_end, days. "
+            "Window rules match get_market_overview (days, as_of+days, or start_date+end_date). "
+            "tool_meta(res): window_mode, window_start, window_end, as_of, days. "
             "Default table sectors: gainers/losers per market with side+rank columns. "
             "change_percent = sector total return over window. Rankings skip member_count<5 "
             "and default to 200亿 (2e10) total-sector cap floor (pass min_cap_*=0 to disable). "
@@ -171,10 +175,19 @@ MANUAL_TOOL_SCHEMA_OVERRIDES: dict[str, dict[str, Any]] = {
     },
     "filter_sector_constituents": {
         "usage_notes": (
-            "Default (omit dates): change_percent = live quote; window_change_percent from optional days "
-            "(1–90). Historical: pass start_date+end_date (YYYY-MM-DD, both required; single day: set equal; "
-            "max 126 calendar-day span) — dates override days and fill both change_percent and "
-            "window_change_percent with the window return."
+            "Default (omit dates/as_of): change_percent = live quote; window_change_percent from optional days "
+            "(1–90). Historical: as_of+days (last N sessions ≤ as_of) OR start_date+end_date "
+            "(YYYY-MM-DD, both required; single day: set equal; max 126 calendar-day span). "
+            "Historical modes fill both change_percent and window_change_percent with the window return."
+        ),
+    },
+    "get_sector_return_curve": {
+        "pandas_example": ("df = dojo_tools.tool_df(res); " "df['date'] = pd.to_datetime(df['date'])"),
+        "usage_notes": (
+            "Required: market + (as_of and optional days) OR (start_date+end_date, max 400 calendar days). "
+            "Both modes compound in-window daily_return_pct into cumulative_return_pct. "
+            "Default table points: date, nav (rebased to 1.0), daily_return_pct, total_market_cap, "
+            "weighted_pe, member_count. tool_meta: cumulative_return_pct, window_start, window_end, as_of, days."
         ),
     },
     "get_ticker_financials": {

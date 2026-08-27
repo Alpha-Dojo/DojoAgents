@@ -8,6 +8,7 @@ channels:
   - scheduler
 required_tools:
   - get_sector_movers
+  - get_sector_return_curve
   - filter_sector_constituents
   - get_market_overview
   - execute_code
@@ -26,8 +27,9 @@ triggers:
 constraints:
   forbid_full_json_in_chat: true
   tool_budget:
-    get_sector_movers: 8
-    filter_sector_constituents: 20
+    get_sector_movers: 4
+    get_sector_return_curve: 15
+    filter_sector_constituents: 8
     get_market_overview: 3
     web_search: 30
     web_extract: 15
