@@ -98,10 +98,10 @@ class BenchmarkSnapshot(BaseModel):
 
 class MarketOverviewResponse(BaseModel):
     days: int = Field(1, ge=0, le=90)
-    window_mode: Literal["days", "date_range"] = "days"
+    window_mode: Literal["days", "date_range", "as_of"] = "days"
     window_start: Optional[str] = None
     window_end: Optional[str] = None
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, description="Requested as_of if set, else latest trade date")
     markets: Dict[str, MarketStatsSnapshot] = Field(default_factory=dict)
     benchmarks: Dict[str, List[BenchmarkSnapshot]] = Field(default_factory=dict)
 
@@ -189,7 +189,8 @@ class SectorMoversMarket(BaseModel):
 
 class SectorMoversResponse(BaseModel):
     days: int = Field(1, ge=0, le=90)
-    window_mode: Literal["days", "date_range"] = "days"
+    as_of: Optional[str] = None
+    window_mode: Literal["days", "date_range", "as_of"] = "days"
     window_start: Optional[str] = None
     window_end: Optional[str] = None
     markets: Dict[str, MarketSectorMovers] = Field(default_factory=dict)
@@ -280,6 +281,32 @@ class SectorAttributionFactorsResponse(BaseModel):
     end_date: str
     total_num: int = 0
     items: List[SectorAttributionFactorItem] = Field(default_factory=list)
+
+
+class SectorReturnCurvePoint(BaseModel):
+    date: str
+    nav: float = Field(..., description="Window-rebased sector NAV (first point = 1.0)")
+    daily_return_pct: float = 0.0
+    total_market_cap: float = 0.0
+    weighted_pe: Optional[float] = None
+    member_count: int = 0
+
+
+class SectorReturnCurveResponse(BaseModel):
+    level1_id: str
+    level2_id: str
+    level3_id: str
+    scope: str = "L3"
+    market: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    as_of: Optional[str] = None
+    days: Optional[int] = None
+    window_mode: Literal["days", "date_range", "as_of"] = "date_range"
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    cumulative_return_pct: Optional[float] = None
+    points: List[SectorReturnCurvePoint] = Field(default_factory=list)
 
 
 class StockScreenItem(BaseModel):

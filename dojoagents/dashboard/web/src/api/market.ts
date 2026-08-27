@@ -89,6 +89,7 @@ async function fetchRawMarketOverview(): Promise<MarketOverviewResponse | null> 
 async function fetchSectorMovers(options: {
   sectorLimit: number;
   days?: number;
+  asOf?: string;
   startDate?: string;
   endDate?: string;
   minCapByMarket?: Partial<Record<MarketCode, number>>;
@@ -96,7 +97,10 @@ async function fetchSectorMovers(options: {
 }): Promise<SectorMoversResponse | null> {
   try {
     const params = new URLSearchParams({ limit: String(options.sectorLimit) });
-    if (options.startDate && options.endDate) {
+    if (options.asOf) {
+      params.set('as_of', options.asOf);
+      if (options.days != null) params.set('days', String(options.days));
+    } else if (options.startDate && options.endDate) {
       params.set('start_date', options.startDate);
       params.set('end_date', options.endDate);
     } else if (options.days != null) {
@@ -138,9 +142,8 @@ export async function fetchDailySectorDiscovery(options: {
   const asOfDate = options.asOfDate?.trim() || undefined;
   const sectors = await fetchSectorMovers({
     sectorLimit,
-    days: asOfDate ? undefined : (options.days ?? 1),
-    startDate: asOfDate,
-    endDate: asOfDate,
+    days: options.days ?? 1,
+    asOf: asOfDate,
     minCapByMarket: options.minCapByMarket,
     includeMembers: false,
   });

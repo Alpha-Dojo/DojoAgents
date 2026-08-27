@@ -119,11 +119,13 @@ class SectorMoversService:
         min_cap_by_market: Optional[dict[str, float]] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        as_of: Optional[str] = None,
         include_members: bool = True,
     ) -> SectorMoversResponse:
         window = self.sector_precomputed_store.resolve_window_bounds(
             resolve_market_analysis_window(
                 days=days,
+                as_of=as_of,
                 start_date=start_date,
                 end_date=end_date,
                 default_days=days,
@@ -174,6 +176,7 @@ class SectorMoversService:
 
         return SectorMoversResponse(
             days=window.days,
+            as_of=window.as_of,
             window_mode=window.mode,
             window_start=window.resolved_start,
             window_end=window.resolved_end,
@@ -187,10 +190,12 @@ class SectorMoversService:
         days: int = 1,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> DojoMeshSectorsResponse:
         window = self.sector_precomputed_store.resolve_window_bounds(
             resolve_market_analysis_window(
                 days=days,
+                as_of=as_of,
                 start_date=start_date,
                 end_date=end_date,
                 default_days=days,

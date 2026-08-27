@@ -101,10 +101,10 @@
 
 | 用途 | 规则 |
 | --- | --- |
-| 锁定当日异动 + 新闻时间 | `start_date=end_date=trading_date`（即 1d 窗口；新闻检索区间 `[T-3, T]`（自然日）） |
-| 主线多窗口 1/3/5 | 见 Phase C Step 1：**最新交易日强制 `days`**；历史日用 `date_range` 并按 `window_start`/`window_end` 校验交易日数 |
+| 锁定当日异动 + 新闻时间 | `get_sector_movers(as_of=trading_date, days=1)`（1d）；新闻检索区间 `[T-3, T]`（自然日） |
+| 主线多窗口 1/3/5 | **一律** `as_of=trading_date` + `days=1/3/5`（交易日计数，含 as_of）。禁止用自然日 `start_date`/`end_date` 去近似 3d/5d，禁止为凑交易日数重试 |
 | `event_time`（收盘 UTC） | CN → `07:00Z`（15:00 CST）；HK → `08:00Z`（16:00 HKT）；US → 夏令时 `20:00Z` / 冬令时 `21:00Z`（16:00 ET），无法确定夏令时取 `20:00Z` 并注明 |
-| 非交易日 | `trading_date` 为非交易日时，自动回退至其之前最近交易日取数；顶层 `trading_date` 保持用户给定值，在 `content` 或 `index_evidence` 注明实际交易日 |
+| 非交易日 | `as_of` 自动回退至之前最近交易日；`window_start`/`window_end` 只做回显。顶层 `trading_date` 保持用户给定值，在 `content` 或 `index_evidence` 注明实际交易日 |
 
 ---
 
@@ -128,13 +128,14 @@
 
 | 工具 | 预算 | 用途 |
 | --- | --- | --- |
-| `get_sector_movers` | 8 | Phase A 的 1d + Phase C 的 3d/5d + 窗口纠偏 |
-| `filter_sector_constituents` | 20 | 3d/5d 漏榜回退与 5d 纯度补算；不要对每个候选先打一遍 |
-| `get_market_overview` | 3 | Step 5 指数印证（优先） |
+| `get_sector_movers` | 4 | Phase A 的 1d + Phase C 的 3d/5d 截面与 5d 纯度；禁止为窗口纠偏重试 |
+| `get_sector_return_curve` | 15 | 漏榜板块的 1d/3d/5d（一次 `as_of`+`days=5` 切三窗）与可选日频 |
+| `filter_sector_constituents` | 8 | 仅 5d 纯度补算；不要对每个候选先打一遍，不要用来近似板块涨跌 |
+| `get_market_overview` | 3 | Step 5 指数印证（优先 `as_of=trading_date, days=1`） |
 | `dojo.sdk.benchmark.kline` | 6 | 指数印证回退 |
 | `web_search` | 30 | Phase B 采证 |
 | `web_extract` | 15 | 打开合格 URL |
-| `execute_code` | 10 | 市值加权近似等计算 |
+| `execute_code` | 10 | 从 return_curve 切 1d/3d/5d 等计算 |
 | `write_session_file` | — | 唯一交付 |
 
 ---
@@ -145,7 +146,7 @@
 
 **Phase A 候选只表示「值得调查」，不预设最终定级**；Phase C 可能将候选判为 `flat` / `noise` / `single_stock` 并降级。
 
-1. `get_sector_movers(start_date=trading_date, end_date=trading_date, market=market, limit=10)`（omit `days`）；工具默认 200 亿板块总市值门槛已过滤小板块，无需叠加额外市值条件。
+1. `get_sector_movers(as_of=trading_date, days=1, market=market, limit=10)`；工具默认 200 亿板块总市值门槛已过滤小板块，无需叠加额外市值条件。**禁止**用 `start_date=end_date=trading_date` 或无 `as_of` 的裸 `days` 替代 `as_of`+`days`。
 2. 返回项含 `change_percent`、`member_count`、taxonomy id，以及 **`total_market_cap`**、`leader_ticker`、`leader_weight_pct`、`leader_concentration_tier`、`top_members[]`。用返回值，不要假设字段不存在。
 3. 筛选候选（满足任一）：
    - `|change_percent| ≥ 3%`；
@@ -162,29 +163,26 @@
 
 #### Step 1 多窗口对齐（背景过滤，不做终裁）
 
-**取数（硬约束）**：对候选板块所在市场，必须用 `get_sector_movers` 取齐 **1d/3d/5d 三个窗口**。Phase A 的 1d 结果可复用，不必重拉 1d。3d/5d 将 `limit` 提到 **20**（工具上限），降低 1d 候选在长窗榜单中漏榜。
+**取数（硬约束）**：对候选板块所在市场，必须用 `get_sector_movers(as_of=trading_date, days=…)` 取齐 **1d/3d/5d 三个窗口**。Phase A 的 1d 结果可复用，不必重拉 1d。3d/5d 将 `limit` 提到 **20**（工具上限），降低 1d 候选在长窗榜单中漏榜。
 
-**模式选择（硬规则，禁止「任选」）**：
+**窗口合同（硬规则，禁止猜自然日）**：
 
-- `trading_date` 恰为该市场最新交易日 → **必须** `days=3` / `days=5`（按交易日精确计数）。**禁止**用自然日偏移的 `date_range` 去近似 3d/5d（固定偏移会在周五取到 4–6 个交易日，虚抬累计涨幅、误增 `persistent_up`）。
-- `trading_date` 早于最新交易日 → **必须** `date_range`，`end_date=trading_date`，禁止用 `days`（`days` 锚定最新交易日而非 `trading_date`）。
-
-**历史日 `date_range`（无固定偏移能同时在周一/周五取准）**：
-
-- 3d 首次：`start_date ≈ trading_date − 2` 自然日；5d 首次：`start_date ≈ trading_date − 6` 自然日。
-- **以返回的 `window_start` / `window_end` 为准**。目标：3d 覆盖 3 个交易日收盘点，5d 覆盖 5 个。
-- 若实际交易日明显多于目标 → 将 `start_date` 向右平移后重取；明显少于目标（跨周末/节假日）→ 向左平移后重取。
-- 纠偏优先消耗 `get_sector_movers` 余量（预算 8；1d+3d+5d 已用 3 次），不要为微调打满。
+- 三个窗口一律 `as_of=trading_date` + `days=1` / `days=3` / `days=5`。窗口内日收益连乘，含 as_of 当日。
+- **禁止**无 `as_of` 的裸 `days=3/5`（那会锚定数据集最新交易日，不是 `trading_date`）。
+- **禁止** `start_date`+`end_date` 自然日偏移，禁止看 `window_start`/`window_end` 再平移重取。`window_start`/`window_end` 只做回显。
+- 非交易日由服务端回退到 `as_of` 之前最近交易日；不要为节假日/周末再打一遍 movers。
 
 **漏榜回退**：若某候选未出现在该窗口 gainers/losers 中：
 
 1. 不得把缺失写成「不背离」、不得推算、不得留空充数；
-2. 用 `filter_sector_constituents(sector_path_id 或 level ids, start_date, end_date, market)` 取该窗成分股的 `window_change_percent` 与 `market_cap`，按市值加权近似板块回报，写入对应 `window_3d`/`window_5d`，并在 `reason` 注明「成分股权重近似，非 movers 指数」；
+2. 用 `get_sector_return_curve(sector ids, market, as_of=trading_date, days=5)` 一次取该板块最近 5 个交易日日频。`cumulative_return_pct` = 5d；1d = 最后一点 `daily_return_pct`；3d = 最后 3 点 `daily_return_pct` 连乘。写入对应 `window_1d`/`window_3d`/`window_5d`，并在 `reason` 注明「return_curve，非 movers 榜单」；
 3. 该工具也失败才允许该窗口字段为 `null`，并将 `window_label` 标 `unclassified`。
 
-`filter_sector_constituents` 预算 20：优先留给漏榜回退与 Step 2 补算，不要对每个候选、每个窗口都先打一遍。
+**禁止**用 `filter_sector_constituents` 市值加权近似板块窗口回报。该工具只留给 Step 2 的 5d 纯度补算。
 
-三窗数值全部写入 `sector_impacts[]`。**禁止因 3d 与 5d 方向一致而省略 3d 取数**；三窗必须来自工具返回（或上述加权近似），不得推算或留空。仅工具失败才允许 `null`。
+`filter_sector_constituents` 预算 8：优先留给 Step 2 补算，不要对每个候选、每个窗口都先打一遍。
+
+三窗数值全部写入 `sector_impacts[]`。**禁止因 3d 与 5d 方向一致而省略 3d 取数**；三窗必须来自 movers 或 return_curve，不得推算或留空。仅工具失败才允许 `null`。
 
 **定标（与取数分离）**——`window_label` 只由 3d/5d 定义，**1d 不参与**；每个板块按以下顺序判定，桶互斥：
 
@@ -197,7 +195,7 @@
 | ⑤ | `unclassified` | 3d 或 5d 数据缺失（工具失败） | 默认 `sub_event`；`driver_status=missing` 则 `noise`；不静默丢、不静默升主线 |
 
 - 主线候选池仅 `persistent_up` / `persistent_down`（`short_long_diverge` 为观察池，需 3d 转同向后才可进）；
-- `divergence_days` 为可选增强字段，默认 `null`；本任务白名单无板块日频工具时 **一律 `null`**，禁止用窗口符号瞎估；
+- `divergence_days` 为可选增强字段，默认 `null`；若已拉取该板块 `get_sector_return_curve(..., days=5)`，可填与 5d 方向连续背离的交易日数，**不是准入条件**；禁止用窗口符号瞎估；
 - 窗口标签**不能**判定单票（单票由 Step 2 纯度门禁处理）。
 
 #### Step 2 单票去噪（纯度过滤）
@@ -208,7 +206,7 @@
 - 1d 为 `extreme` 只写入 `reason`，**不单独否决主线**。
 - **仅当 5d 为 `extreme`**（或 5d 纯度缺失且 1d 为 `extreme`）才降级 `single_stock`。
 - 分级（工具已按此切分，照抄即可）：`healthy` <50% · `moderate` 50–80% · `extreme` >80%（或龙头市值占比 >80% 直接判 `extreme`）。
-- 仅当该板块未出现在 5d movers 时，才用 `filter_sector_constituents` 的 `market_cap` + 窗口涨跌幅补算：龙头贡献占比 = |龙头涨跌幅 × 龙头市值占比| ÷ |板块窗口涨跌幅|。成分股返回含 `market_cap`，禁止再调 `get_ticker_realtime_quote`。
+- 仅当该板块未出现在 5d movers 时，才用 `filter_sector_constituents(as_of=trading_date, days=5, …)` 的 `market_cap` + 窗口涨跌幅补算：龙头贡献占比 = |龙头涨跌幅 × 龙头市值占比| ÷ |板块窗口涨跌幅|。板块窗口涨跌优先用 return_curve 的 5d，不要再做成分股加权近似。成分股返回含 `market_cap`，禁止再调 `get_ticker_realtime_quote`。
 - 同一 leader 主导多个板块 → 合并为一条个股事件；
 - 单票降级行 `leader_name` / `leader_weight_pct` 必填。
 
@@ -222,7 +220,7 @@
 
 #### Step 5 指数印证
 
-优先 `get_market_overview(start_date=trading_date, end_date=trading_date, market=market)` 取当日主要指数涨跌，写入顶层 `index_evidence`；失败再回退 `dojo.sdk.benchmark.kline`。可用 5d 指数作背景参考。解释不了指数分化的叙事判为伪主线。
+优先 `get_market_overview(as_of=trading_date, days=1, market=market)` 取当日主要指数涨跌，写入顶层 `index_evidence`；失败再回退 `dojo.sdk.benchmark.kline`。可用 `as_of=trading_date, days=5` 指数作背景参考。解释不了指数分化的叙事判为伪主线。
 
 #### Step 6 定级输出
 
@@ -342,7 +340,7 @@
 | `direction` | `Positive` 上涨且合逻辑 · `Negative` 下跌且合逻辑 · **`Divergent` 仅用于成分股多空接近 1:1**。单票降级跟实际涨跌用 Positive/Negative，在 `reason` 说明纯度；`noise` 若三窗近平盘可用 Divergent，若有明确方向但无驱动则用实际方向 + `driver_status=missing` |
 | `window_1d/3d/5d` | 该板块三窗回报（取数阶段必须齐全）；仅工具失败（含回退失败）时可为 `null` |
 | `window_label` | 窗口签名桶（见 Step 1，只由 3d/5d 定义） |
-| `divergence_days` | 可选增强字段，默认 `null`；无日频数据源不得填写 |
+| `divergence_days` | 可选增强字段，默认 `null`；有 return_curve 日频时可填，不是准入条件 |
 | `leader_concentration_tier` | **5d 纯度**：`healthy`<50% · `moderate` 50–80% · `extreme`>80% |
 | `leader_name` / `leader_weight_pct` | 龙头与贡献占比；健康分散可为 `null`；单票降级必填 |
 | `reason` | 该板块一句因果+数字（<50 中文字），禁止「因为利好所以涨了」式空话 |
@@ -680,5 +678,5 @@
 3. `content`：四段式结构、≤5 句、单句 ≤45 字、数据点 ≤4、每个数字带定性判断、末句为启示；
 4. `source`：每条都可核验（媒体/公告 + 日期），无空话；
 5. Phase A 所有候选板块均有归属行（mainline / sub_event / single_stock / noise），无遗漏、无伪装；Phase A 入选 ≠ 最终定级；
-6. `mainline` 0–5 条；每条记录占一行，同一 `event_rank` 可多行；`window_label` 只来自 3d/5d 桶定义（1d 不参与），无 10d/20d 字段残留；最新交易日的 3d/5d 未误用自然日 `date_range`；
+6. `mainline` 0–5 条；每条记录占一行，同一 `event_rank` 可多行；`window_label` 只来自 3d/5d 桶定义（1d 不参与），无 10d/20d 字段残留；1d/3d/5d 一律 `as_of`+`days`，未用自然日 `date_range` 猜测交易日数；
 7. 每行 JSON 通过字段名与类型校验；`divergence_days` 无数据源时一律 `null`；`direction` 未把单票大涨/明确下跌误标为 `Divergent`；未调用白名单外工具。

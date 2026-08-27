@@ -30,6 +30,8 @@ from dojoagents.dashboard.schemas.domain_api import (
     SectorMoversResponse,
     SectorPerformancePoint,
     SectorPerformanceStats,
+    SectorReturnCurvePoint,
+    SectorReturnCurveResponse,
     SectorScopePerformance,
     StockScreenItem,
     StockScreenResponse,
@@ -60,6 +62,7 @@ from dojoagents.dashboard.services.domain_utils import (
     finite_optional_float,
     normalize_market_code,
     to_native_market_code,
+    validate_date_range,
 )
 from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_fin_indicators_for_market,
@@ -74,6 +77,7 @@ from dojoagents.dashboard.services.market_sector_lead import (
     concept_code_for,
 )
 from dojoagents.dashboard.services.market_window import (
+    compound_return_pct,
     resolve_market_analysis_window,
 )
 from dojoagents.dashboard.services.sector_movers_ranking import sector_eligible_for_movers_ranking
@@ -1207,9 +1211,11 @@ async def build_market_overview(
     market: Optional[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    as_of: Optional[str] = None,
 ) -> MarketOverviewResponse:
     window = resolve_market_analysis_window(
         days=days,
+        as_of=as_of,
         start_date=start_date,
         end_date=end_date,
         default_days=days,
@@ -1251,7 +1257,7 @@ async def build_market_overview(
         window_mode=window.mode,
         window_start=window.resolved_start or window_start,
         window_end=window.resolved_end or benchmarks.as_of or window_end,
-        as_of=benchmarks.as_of or window.resolved_end or window_end,
+        as_of=window.as_of or benchmarks.as_of or window.resolved_end or window_end,
         markets=markets,
         benchmarks=benchmark_map,
     )
@@ -1266,6 +1272,7 @@ async def build_sector_movers(
     min_cap_by_market: Optional[dict[str, float]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    as_of: Optional[str] = None,
     include_members: bool = True,
 ) -> SectorMoversResponse:
     service = getattr(registry, "sector_movers_service", None)
@@ -1278,6 +1285,7 @@ async def build_sector_movers(
             min_cap_by_market=min_cap_by_market,
             start_date=start_date,
             end_date=end_date,
+            as_of=as_of,
             include_members=include_members,
         )
     return await asyncio.to_thread(
@@ -1289,6 +1297,7 @@ async def build_sector_movers(
         min_cap_by_market,
         start_date,
         end_date,
+        as_of,
         include_members,
     )
 
@@ -1394,12 +1403,14 @@ def _build_sector_movers_fallback_sync(
     min_cap_by_market: Optional[dict[str, float]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    as_of: Optional[str] = None,
     include_members: bool = True,
 ) -> SectorMoversResponse:
     min_cap_by_market = min_cap_by_market or {}
     window = registry.sector_precomputed_store.resolve_window_bounds(
         resolve_market_analysis_window(
             days=days,
+            as_of=as_of,
             start_date=start_date,
             end_date=end_date,
             default_days=days,
@@ -1524,6 +1535,7 @@ def _build_sector_movers_fallback_sync(
         )
     return SectorMoversResponse(
         days=window.days,
+        as_of=window.as_of,
         window_mode=window.mode,
         window_start=window.resolved_start,
         window_end=window.resolved_end,
@@ -1641,6 +1653,138 @@ async def build_sector_analysis(
     )
 
 
+MAX_SECTOR_RETURN_CURVE_CALENDAR_DAYS = 400
+
+
+def _sector_return_curve_scope_ids(path: Any, scope: str) -> tuple[str, str]:
+    level2_id = path.level2_id if scope in ("L2", "L3") else ""
+    level3_id = path.level3_id if scope == "L3" else ""
+    return level2_id, level3_id
+
+
+async def build_sector_return_curve_v1(
+    registry,
+    *,
+    level1_id: str,
+    level2_id: str,
+    level3_id: str,
+    market: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    as_of: str | None = None,
+    days: int | None = None,
+    scope: str = "L3",
+) -> SectorReturnCurveResponse:
+    """Return a lean sector daily panel (rebased NAV + companion fields) for one market window."""
+    resolved_scope = scope if scope in ("L1", "L2", "L3") else "L3"
+    internal_market = normalize_market_code(market)
+    if not internal_market:
+        raise ValueError("market must be one of: us, cn, sh, hk")
+
+    window = resolve_market_analysis_window(
+        days=days,
+        as_of=as_of,
+        start_date=start_date,
+        end_date=end_date,
+        default_days=1 if as_of else 0,
+        max_calendar_days=MAX_SECTOR_RETURN_CURVE_CALENDAR_DAYS,
+    )
+    if window.mode == "days":
+        raise ValueError("start_date and end_date, or as_of (with optional days), are required")
+    if window.mode == "date_range":
+        start = str(window.start_date or "")
+        end = str(window.end_date or "")
+        if start < DATA_START_DATE:
+            raise ValueError(f"start_date must be on or after {DATA_START_DATE}")
+        span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+        if span > MAX_SECTOR_RETURN_CURVE_CALENDAR_DAYS:
+            raise ValueError(f"Date range spans {span} calendar days; maximum is {MAX_SECTOR_RETURN_CURVE_CALENDAR_DAYS}.")
+    else:
+        start = DATA_START_DATE
+        end = str(window.as_of or "")
+        if window.as_of and window.as_of < DATA_START_DATE:
+            raise ValueError(f"as_of must be on or after {DATA_START_DATE}")
+
+    path = resolve_sector_path(
+        registry,
+        level1_id=level1_id,
+        level2_id=level2_id,
+        level3_id=level3_id,
+        market=market,
+    )
+    store = getattr(registry, "sector_precomputed_store", None)
+    if store is None or not hasattr(store, "get_sector_daily"):
+        raise ValueError("sector precomputed store is unavailable")
+
+    scope_level2_id, scope_level3_id = _sector_return_curve_scope_ids(path, resolved_scope)
+    rows = store.get_sector_daily(
+        scope=resolved_scope,
+        level1_id=path.level1_id,
+        level2_id=scope_level2_id,
+        level3_id=scope_level3_id,
+        market=internal_market,
+    )
+    sorted_rows = sorted(rows, key=lambda item: str(item.get("trade_date") or ""))
+    if window.mode == "as_of":
+        eligible = [
+            row
+            for row in sorted_rows
+            if str(row.get("trade_date") or "")[:10] and str(row.get("trade_date") or "")[:10] <= end
+        ]
+        sessions = window.days if window.days > 1 else 1
+        clipped = eligible[-sessions:] if sessions else eligible[-1:]
+    else:
+        clipped = [
+            row
+            for row in sorted_rows
+            if start <= str(row.get("trade_date") or "")[:10] <= end
+        ]
+
+    points: list[SectorReturnCurvePoint] = []
+    base_level: float | None = None
+    for row in clipped:
+        index_level = finite_optional_float(row.get("index_level"))
+        if index_level is None or index_level <= 0:
+            continue
+        if base_level is None:
+            base_level = index_level
+        nav = round(index_level / base_level, 6)
+        points.append(
+            SectorReturnCurvePoint(
+                date=str(row.get("trade_date") or "")[:10],
+                nav=nav,
+                daily_return_pct=finite_float(row.get("daily_return_pct")),
+                total_market_cap=finite_float(row.get("total_market_cap")),
+                weighted_pe=finite_optional_float(row.get("weighted_pe")),
+                member_count=int(row.get("member_count") or 0),
+            )
+        )
+
+    cumulative_return_pct: float | None = None
+    if points:
+        # as_of and date_range both compound in-window daily returns (same contract as movers).
+        cumulative_return_pct = round(compound_return_pct(point.daily_return_pct for point in points), 4)
+
+    window_start = points[0].date if points else None
+    window_end = points[-1].date if points else None
+    return SectorReturnCurveResponse(
+        level1_id=path.level1_id,
+        level2_id=path.level2_id,
+        level3_id=path.level3_id,
+        scope=resolved_scope,
+        market=to_native_market_code(internal_market) or internal_market,
+        start_date=window_start if window.mode == "as_of" else start,
+        end_date=window_end if window.mode == "as_of" else end,
+        as_of=window.as_of,
+        days=window.days if window.mode == "as_of" else None,
+        window_mode=window.mode,
+        window_start=window_start,
+        window_end=window_end,
+        cumulative_return_pct=cumulative_return_pct,
+        points=points,
+    )
+
+
 async def build_sector_constituents_v1(
     registry,
     *,
@@ -1653,6 +1797,7 @@ async def build_sector_constituents_v1(
     sector_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    as_of: Optional[str] = None,
 ) -> SectorConstituentsResponseV1:
     path = resolve_sector_path(
         registry,
@@ -1672,6 +1817,7 @@ async def build_sector_constituents_v1(
         days=days,
         start_date=start_date,
         end_date=end_date,
+        as_of=as_of,
     )
     native_market = to_native_market_code(response.market) if response.market else None
     items = [item.model_dump(mode="json") | {"market": to_native_market_code(item.market) or item.market} for item in response.items]

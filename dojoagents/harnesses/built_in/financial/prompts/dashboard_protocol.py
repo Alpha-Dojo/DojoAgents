@@ -52,14 +52,15 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 
 | Mode | Args | Notes |
 |------|------|-------|
-| Latest N trade days | `days` (default 1, max 90) | e.g. `days=5` = last 5 trading sessions |
-| Fixed calendar range | `start_date` + `end_date` (YYYY-MM-DD) | Both required; max 126 calendar days; **overrides `days`** |
+| Latest N trade sessions | `days` (default 1, max 90) | e.g. `days=5` = last 5 trading sessions |
+| N sessions ending at a date | `as_of` + optional `days` | e.g. `as_of=2026-08-10, days=5`; non-trading as_of falls back; days defaults to 1 |
+| Fixed calendar range | `start_date` + `end_date` (YYYY-MM-DD) | Both required; max 126 calendar days; **cannot combine with as_of** |
 
 **Response fields (read via `tool_meta(res)` in execute_code):**
 
-- `window_mode`: `days` or `date_range`
-- `window_start` / `window_end`: actual first/last **trade dates** used (may differ from requested dates on holidays)
-- `as_of`: latest trade date (`get_market_overview` only)
+- `window_mode`: `days`, `as_of`, or `date_range`
+- `window_start` / `window_end`: actual first/last **trade dates** used (echo only; do not guess a calendar start)
+- `as_of`: requested right edge when using `as_of`+`days`; otherwise latest trade date (`get_market_overview`)
 
 **get_market_overview:**
 
@@ -80,7 +81,7 @@ Use these for **market-wide** or **sector-level** window returns — not for ind
 - 近一周大盘: `get_market_overview({"days": 5})`
 - 年初至今区间: `get_market_overview({"start_date": "2026-01-01", "end_date": "2026-07-07"})`
 - 本周领涨板块: `get_sector_movers({"days": 5, "limit": 10})`  # uses default 200亿 sector floor
-- 指定区间领跌: `get_sector_movers({"start_date": "2026-01-01", "end_date": "2026-03-31", "market": "us"})`
+- 指定截止日近 5 个交易日领涨: `get_sector_movers({"as_of": "2026-08-10", "days": 5, "market": "cn"})`
 - 关闭市值门槛: `get_sector_movers({"days": 1, "min_cap_us": 0, "min_cap_cn": 0, "min_cap_hk": 0})`
 
 **Do NOT** pass only one of `start_date` / `end_date`. **Do NOT** use `screen_market_stocks` when the user asked for sector/industry rankings.

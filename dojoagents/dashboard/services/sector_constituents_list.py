@@ -38,18 +38,24 @@ def _ticker_return_map(
     days: int | None,
     start_date: str | None,
     end_date: str | None,
+    as_of: str | None = None,
 ) -> dict[str, float]:
-    start = str(start_date or "").strip() or None
-    end = str(end_date or "").strip() or None
-    if start and end:
-        window = resolve_market_analysis_window(start_date=start, end_date=end)
-        rows = sector_precomputed_store.get_ticker_daily_for_window(window, tickers)
-        if not rows:
-            raise ValueError(f"No trading data available between {start} and {end}.")
+    window = resolve_market_analysis_window(
+        days=days,
+        as_of=as_of,
+        start_date=start_date,
+        end_date=end_date,
+        default_days=days if days and days > 0 else 365,
+    )
+    if window.mode == "days":
+        window_days = days if days and days > 0 else 365
+        rows = sector_precomputed_store.get_ticker_daily_by_window(window_days, tickers)
         return {str(row["ticker"]): finite_float(row.get("daily_return_pct")) for row in rows if row.get("ticker")}
-
-    window_days = days if days and days > 0 else 365
-    rows = sector_precomputed_store.get_ticker_daily_by_window(window_days, tickers)
+    rows = sector_precomputed_store.get_ticker_daily_for_window(window, tickers)
+    if not rows:
+        if window.mode == "date_range":
+            raise ValueError(f"No trading data available between {start_date} and {end_date}.")
+        raise ValueError(f"No trading data available on or before {as_of}.")
     return {str(row["ticker"]): finite_float(row.get("daily_return_pct")) for row in rows if row.get("ticker")}
 
 
@@ -63,6 +69,7 @@ async def list_sector_constituents(
     days: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    as_of: str | None = None,
 ) -> SectorConstituentsResponse:
     """Constituents for L1/L2/L3 scope of the selected sector path."""
     if scope not in ("L1", "L2", "L3"):
@@ -103,13 +110,16 @@ async def list_sector_constituents(
         )
 
     tickers = [c["ticker"] for c in constituents]
-    historical = bool(str(start_date or "").strip() and str(end_date or "").strip())
+    historical = bool(
+        str(start_date or "").strip() and str(end_date or "").strip()
+    ) or bool(str(as_of or "").strip())
     ticker_return_map = _ticker_return_map(
         sector_precomputed_store,
         tickers,
         days=days,
         start_date=start_date,
         end_date=end_date,
+        as_of=as_of,
     )
 
     items: list[SectorConstituentItem] = []
