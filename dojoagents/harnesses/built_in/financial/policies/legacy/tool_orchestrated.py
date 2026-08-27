@@ -46,8 +46,13 @@ class ToolOrchestratedHarness(TaskOutputHarnessMixin, TaskHarness):
 
         if call.name in _FORBIDDEN_DAYS_TOOLS:
             args = call.arguments or {}
-            if "days" in args and not args.get("start_date"):
-                return f"{call.name}: omit `days` in task mode; use start_date/end_date from task params."
+            # Bare `days` anchors to the dataset's latest session — forbidden in task mode.
+            # Allowed: as_of+days (session window) or start_date/end_date (calendar window).
+            if "days" in args and not args.get("as_of") and not args.get("start_date"):
+                return (
+                    f"{call.name}: omit bare `days` in task mode; "
+                    "use as_of+days or start_date/end_date from task params."
+                )
 
         tool_budget = ctx.tool_budget or active.constraints.get("tool_budget")
         if isinstance(tool_budget, dict) and call.name in tool_budget:

@@ -26,6 +26,39 @@ from dojoagents.dashboard.services.stock_quote_filter import filter_constituents
 from dojoagents.logging import LOGGER
 
 
+def _clip_daily_frame_for_window(
+    df: pd.DataFrame,
+    window: MarketAnalysisWindow,
+    as_of_by_market: dict[str, str],
+    *,
+    restrict_latest_one_session: bool = False,
+) -> pd.DataFrame:
+    """Clip a daily panel to the window's right edge before session compounding."""
+    if df.empty:
+        return df
+    if window.mode == "as_of" and window.as_of:
+        requested = str(window.as_of)
+        if as_of_by_market:
+            clipped = {market: min(str(latest), requested) for market, latest in as_of_by_market.items()}
+            df = clip_frame_to_market_as_of(df, clipped)
+        if "trade_date" in df.columns and not df.empty:
+            df = df.loc[df["trade_date"].astype(str) <= requested].copy()
+        return df
+    if not as_of_by_market:
+        return df
+    df = clip_frame_to_market_as_of(df, as_of_by_market)
+    if not restrict_latest_one_session:
+        return df
+    if window.mode != "date_range" and window.days <= 1:
+        return restrict_frame_to_market_as_of_exact(df, as_of_by_market)
+    if window.mode == "date_range" and window.start_date and window.end_date and str(window.start_date) == str(window.end_date):
+        return restrict_frame_to_market_as_of_exact(
+            df,
+            {market: str(window.end_date) for market in as_of_by_market},
+        )
+    return df
+
+
 def dedupe_constituent_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep one row per (market, ticker), matching sector index precompute."""
     if not rows:
@@ -223,10 +256,8 @@ class SectorPrecomputedStore:
         df = filter_usable_sector_daily_rows(self._load_sector_daily())
         if df.empty:
             return pd.DataFrame()
-        # Align sector prints to each market's complete as-of session.
         as_of_by_market = resolve_market_as_of_by_market(self._load_ticker_daily())
-        if as_of_by_market:
-            df = clip_frame_to_market_as_of(df, as_of_by_market)
+        df = _clip_daily_frame_for_window(df, window, as_of_by_market)
         if df.empty:
             return pd.DataFrame()
         cache_key = window.cache_key()
@@ -258,7 +289,7 @@ class SectorPrecomputedStore:
         df = filter_usable_sector_daily_rows(self._load_sector_daily())
         as_of_by_market = resolve_market_as_of_by_market(self._load_ticker_daily())
         if as_of_by_market and not df.empty:
-            df = clip_frame_to_market_as_of(df, as_of_by_market)
+            df = _clip_daily_frame_for_window(df, window, as_of_by_market)
         if df.empty or "trade_date" not in df.columns:
             return resolve_window_bounds_from_trade_dates(window, [])
         trade_dates = [str(item) for item in df["trade_date"].tolist()]
@@ -290,16 +321,12 @@ class SectorPrecomputedStore:
             return pd.DataFrame()
         as_of_by_market = resolve_market_as_of_by_market(df)
         if as_of_by_market:
-            # Drop trailing partial sessions, then for 1D use the exact as-of day only.
-            df = clip_frame_to_market_as_of(df, as_of_by_market)
-            if window.mode != "date_range" and window.days <= 1:
-                df = restrict_frame_to_market_as_of_exact(df, as_of_by_market)
-            elif window.mode == "date_range" and window.start_date and window.end_date:
-                if str(window.start_date) == str(window.end_date):
-                    df = restrict_frame_to_market_as_of_exact(
-                        df,
-                        {market: str(window.end_date) for market in as_of_by_market},
-                    )
+            df = _clip_daily_frame_for_window(
+                df,
+                window,
+                as_of_by_market,
+                restrict_latest_one_session=True,
+            )
         if df.empty:
             return pd.DataFrame()
         cache_key = window.cache_key()
@@ -441,10 +468,27 @@ class SectorPrecomputedStore:
         group_sizes = df_sorted.groupby(group_cols, sort=False)["trade_date"].transform("size")
         positions = df_sorted.groupby(group_cols, sort=False).cumcount()
         latest_mask = positions == (group_sizes - 1)
-        start_positions = (group_sizes - days).clip(lower=0)
-        start_mask = positions == start_positions
+        latest_rows = df_sorted[latest_mask].copy()
 
-        latest_rows = df_sorted[latest_mask]
+        if "daily_return_pct" in df_sorted.columns:
+            in_window = positions >= (group_sizes - days).clip(lower=0)
+            window_rows = df_sorted.loc[in_window].copy()
+            factors = 1.0 + pd.to_numeric(window_rows["daily_return_pct"], errors="coerce") / 100.0
+            window_rows = window_rows.assign(_session_factor=factors)
+            compounded = window_rows.groupby(group_cols, sort=False)["_session_factor"].prod().rename("_compound_factor")
+            merged = latest_rows.merge(compounded.reset_index(), on=group_cols, how="left")
+            factor = pd.to_numeric(merged["_compound_factor"], errors="coerce")
+            merged["daily_return_pct"] = (factor - 1.0) * 100.0
+            invalid = factor.isna() | (factor <= 0)
+            merged.loc[invalid, "daily_return_pct"] = 0.0
+            merged["daily_return_pct"] = merged["daily_return_pct"].fillna(0.0)
+            if "change_percent" in merged.columns:
+                merged = merged.drop(columns=["change_percent"])
+            return merged.drop(columns=["_compound_factor"], errors="ignore")
+
+        prior_positions = group_sizes - days - 1
+        start_positions = prior_positions.clip(lower=0)
+        start_mask = positions == start_positions
         start_rows = df_sorted[start_mask][group_cols + [value_col]].rename(columns={value_col: "_window_start_value"})
         merged = latest_rows.merge(start_rows, on=group_cols, how="left")
 
@@ -483,8 +527,25 @@ class SectorPrecomputedStore:
                 single_day["daily_return_pct"] = 0.0
             return single_day
 
-        first_rows = filtered.groupby(group_cols, sort=False, as_index=False).head(1)
         last_rows = filtered.groupby(group_cols, sort=False, as_index=False).tail(1)
+
+        # Same contract as as_of/days: compound every session daily return in the inclusive
+        # trade-date window. Using last/first index_level omits the first session's return.
+        if "daily_return_pct" in filtered.columns:
+            factors = 1.0 + pd.to_numeric(filtered["daily_return_pct"], errors="coerce") / 100.0
+            window_rows = filtered.assign(_session_factor=factors)
+            compounded = window_rows.groupby(group_cols, sort=False)["_session_factor"].prod().rename("_compound_factor")
+            merged = last_rows.merge(compounded.reset_index(), on=group_cols, how="left")
+            factor = pd.to_numeric(merged["_compound_factor"], errors="coerce")
+            merged["daily_return_pct"] = (factor - 1.0) * 100.0
+            invalid = factor.isna() | (factor <= 0)
+            merged.loc[invalid, "daily_return_pct"] = 0.0
+            merged["daily_return_pct"] = merged["daily_return_pct"].fillna(0.0)
+            if "change_percent" in merged.columns:
+                merged = merged.drop(columns=["change_percent"])
+            return merged.drop(columns=["_compound_factor"], errors="ignore")
+
+        first_rows = filtered.groupby(group_cols, sort=False, as_index=False).head(1)
         start_values = first_rows[group_cols + [value_col]].rename(columns={value_col: "_window_start_value"})
         merged = last_rows.merge(start_values, on=group_cols, how="left")
 

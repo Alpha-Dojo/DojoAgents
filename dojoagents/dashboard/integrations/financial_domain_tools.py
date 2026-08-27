@@ -18,6 +18,7 @@ from dojoagents.dashboard.services.domain_api import (
     build_market_overview,
     build_sector_constituents_v1,
     build_sector_movers,
+    build_sector_return_curve_v1,
     build_stock_screen,
     build_sector_taxonomy_search,
     build_taxonomy_l3_catalog_for_agent,
@@ -31,6 +32,7 @@ from dojoagents.dashboard.services.domain_api import (
     search_company_ticker,
 )
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
+from dojoagents.dashboard.services.market_window import WINDOW_MODE_HELP
 from dojoagents.dashboard.services.sector_movers_ranking import (
     DEFAULT_SECTOR_MOVERS_MIN_TOTAL_MARKET_CAP,
 )
@@ -282,6 +284,7 @@ def register_dashboard_domain_tools(
             market=_optional_str_arg(args, "market"),
             start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
             end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
+            as_of=_optional_str_arg(args, "as_of"),
         )
         return _json_content(result)
 
@@ -295,6 +298,7 @@ def register_dashboard_domain_tools(
             min_cap_by_market=_resolve_sector_movers_min_cap_by_market(args),
             start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
             end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
+            as_of=_optional_str_arg(args, "as_of"),
         )
         return _json_content(result)
 
@@ -331,7 +335,37 @@ def register_dashboard_domain_tools(
             days=_int_arg(args, "days", 1),
             start_date=_optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time"),
             end_date=_optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time"),
+            as_of=_optional_str_arg(args, "as_of"),
         )
+        return _json_content(result)
+
+    async def sector_return_curve(args: dict[str, Any]) -> dict[str, Any]:
+        _service_ready(registry)
+        market = _str_arg(args, "market")
+        if not market:
+            raise RuntimeError("market is required")
+        as_of = _optional_str_arg(args, "as_of")
+        days = _optional_int_arg(args, "days")
+        start_date = _optional_str_arg(args, "start_date") or _optional_str_arg(args, "start_time")
+        end_date = _optional_str_arg(args, "end_date") or _optional_str_arg(args, "end_time")
+        if not as_of and (not start_date or not end_date):
+            raise RuntimeError("as_of (with optional days) or start_date+end_date is required")
+        path = _resolve_sector_path_or_raise(registry, args)
+        try:
+            result = await build_sector_return_curve_v1(
+                registry,
+                level1_id=path.level1_id,
+                level2_id=path.level2_id,
+                level3_id=path.level3_id,
+                market=market,
+                start_date=start_date,
+                end_date=end_date,
+                as_of=as_of,
+                days=days,
+                scope=_str_arg(args, "scope", "L3") or "L3",
+            )
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
         return _json_content(result)
 
     async def sector_attribution_factors(args: dict[str, Any]) -> dict[str, Any]:
@@ -535,13 +569,10 @@ def register_dashboard_domain_tools(
                 "Cross-market snapshot: listed counts, total market cap, weighted PE (current snapshot), "
                 "and benchmark index cards with window-scoped change% plus clipped klines. "
                 "Omit `market` to fetch US, CN, and HK together in one call. "
-                "Window — pick ONE mode: "
-                "(A) `days` = latest N trading days (default 1, max 90); "
-                "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "
-                "when both dates are set, `days` is ignored. "
-                "Response includes `window_mode` (`days`|`date_range`), `window_start`/`window_end` "
-                "(actual first/last trade dates in range), and `as_of`. "
-                "Benchmark `change_percent` is total return over the window; klines are clipped to it. "
+                f"{WINDOW_MODE_HELP} "
+                "Response includes `window_mode` (`days`|`as_of`|`date_range`), `window_start`/`window_end` "
+                "(actual first/last trade dates used), and `as_of`. "
+                "Benchmark `change_percent` is the compound of session returns; klines are clipped to the window. "
                 "`markets.*` cap/PE/count fields are current snapshot — NOT window return."
             ),
             parameters={
@@ -551,11 +582,21 @@ def register_dashboard_domain_tools(
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 90,
-                        "description": ("Latest N trading days for benchmark window (default 1). " "Ignored when start_date and end_date are both set."),
+                        "description": (
+                            "Trading-session count (default 1). Alone = latest N sessions; "
+                            "with as_of = last N sessions ≤ as_of. Ignored for start_date+end_date."
+                        ),
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "description": (
+                            "Inclusive right-edge YYYY-MM-DD. Last `days` sessions on or before this date; "
+                            "non-trading as_of falls back."
+                        ),
                     },
                     "start_date": {
                         "type": "string",
-                        "description": ("Window start YYYY-MM-DD; must pair with end_date. " "Overrides days when both dates are provided."),
+                        "description": ("Window start YYYY-MM-DD; must pair with end_date. " "Cannot combine with as_of."),
                     },
                     "end_date": {
                         "type": "string",
@@ -578,13 +619,10 @@ def register_dashboard_domain_tools(
                 "filter_sector_constituents. "
                 "Ranking excludes sectors with member_count<5 (eligible constituents above ~10亿 "
                 "ticker floor; basket too small). "
-                "Window — pick ONE mode: "
-                "(A) `days` = latest N trading days (default 1, max 90); "
-                "(B) `start_date` + `end_date` (YYYY-MM-DD, both required, max 126 calendar days) — "
-                "dates override days. "
-                "Sector `change_percent` is total return from first to last trade date in the window "
+                f"{WINDOW_MODE_HELP} "
+                "Sector `change_percent` is the compound of session daily returns "
                 "(from precomputed daily sector returns). "
-                "Response: `window_mode`, `window_start`, `window_end`, and "
+                "Response: `window_mode`, `window_start`, `window_end`, `as_of`, and "
                 "`markets.{market}.gainers[]` / `losers[]` with change_percent, member_count, taxonomy ids. "
                 "Default per-market min total sector cap is 200亿 (2e10), matching the Market UI; "
                 "override with min_cap_us / min_cap_cn (maps to sh) / min_cap_hk, or pass 0 to disable."
@@ -596,11 +634,21 @@ def register_dashboard_domain_tools(
                         "type": "integer",
                         "minimum": 0,
                         "maximum": 90,
-                        "description": ("Latest N trading days (default 1). Ignored when start_date+end_date are set."),
+                        "description": (
+                            "Trading-session count (default 1). Alone = latest N sessions; "
+                            "with as_of = last N sessions ≤ as_of. Ignored for start_date+end_date."
+                        ),
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "description": (
+                            "Inclusive right-edge YYYY-MM-DD. Last `days` sessions on or before this date; "
+                            "non-trading as_of falls back."
+                        ),
                     },
                     "start_date": {
                         "type": "string",
-                        "description": "Window start YYYY-MM-DD; requires end_date; overrides days.",
+                        "description": "Window start YYYY-MM-DD; requires end_date; cannot combine with as_of.",
                     },
                     "end_date": {
                         "type": "string",
@@ -673,9 +721,9 @@ def register_dashboard_domain_tools(
                 "sector_path_id (three segments) or level1_id/level2_id/level3_id from best_match. "
                 "Required: market (us|cn|hk). scope=L1|L2|L3 controls breadth (L2 = all L3 children "
                 "under the same L2 branch) but ids must still be the full path from search. "
-                "Returns: omit dates for latest quote change_percent + optional days window_change_percent; "
-                "or pass start_date+end_date (YYYY-MM-DD) for historical window returns "
-                "(single day: set both equal; dates override days). "
+                "Returns: omit dates/as_of for latest quote change_percent + optional days window_change_percent; "
+                f"or {WINDOW_MODE_HELP} "
+                "Dates/as_of fill both change_percent and window_change_percent with the window return. "
                 "FORBIDDEN: two-segment paths like 1/2 or guessing ids."
             ),
             parameters={
@@ -684,10 +732,22 @@ def register_dashboard_domain_tools(
                     **_SECTOR_ID_PROPERTIES,
                     "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
                     "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
-                    "days": {"type": "integer", "minimum": 1, "maximum": 90},
+                    "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 90,
+                        "description": (
+                            "Trading-session count (default 1). Alone = latest N sessions; "
+                            "with as_of = last N sessions ≤ as_of. Ignored for start_date+end_date."
+                        ),
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "description": "Inclusive right-edge YYYY-MM-DD. Last `days` sessions on or before this date.",
+                    },
                     "start_date": {
                         "type": "string",
-                        "description": "Optional window start YYYY-MM-DD; requires end_date; overrides days.",
+                        "description": "Optional window start YYYY-MM-DD; requires end_date; cannot combine with as_of.",
                     },
                     "end_date": {
                         "type": "string",
@@ -696,6 +756,53 @@ def register_dashboard_domain_tools(
                 },
             },
             handler=sector_constituents,
+        ),
+        ToolSpec(
+            name="get_sector_return_curve",
+            description=(
+                "Get one sector's rebased NAV return curve and companion daily series "
+                "(daily_return_pct, total_market_cap, weighted_pe, member_count) for a date window. "
+                "Prerequisite: search_sector_taxonomy — copy sector_path_id or level1/2/3 ids. "
+                "Required: market (us|cn|hk) and ONE window mode — "
+                "`as_of` + optional `days` (last N trading sessions ≤ as_of, days default 1, max 90) "
+                "OR `start_date` + `end_date` (YYYY-MM-DD, max 400 calendar days). "
+                "as_of+days cumulative_return_pct compounds session daily returns; "
+                "date_range compounds every trade session in [start_date, end_date] the same way. "
+                "Optional scope=L1|L2|L3 (default L3). nav is rebased to 1.0 at the first point in-window. "
+                "window_start/window_end echo actual trade dates. One market per call. "
+                "Does NOT return constituents or multi-scope analysis."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    **_SECTOR_ID_PROPERTIES,
+                    "market": {"type": "string", "enum": ["cn", "sh", "hk", "us"]},
+                    "scope": {"type": "string", "enum": ["L1", "L2", "L3"]},
+                    "as_of": {
+                        "type": "string",
+                        "description": (
+                            "Inclusive right-edge YYYY-MM-DD. Last `days` sessions on or before this date; "
+                            "non-trading as_of falls back."
+                        ),
+                    },
+                    "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 90,
+                        "description": "Trading-session count ending at as_of (default 1). Cannot combine with start_date/end_date.",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Inclusive calendar window start YYYY-MM-DD; requires end_date.",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Inclusive calendar window end YYYY-MM-DD; max 400 calendar-day span.",
+                    },
+                },
+                "required": ["market"],
+            },
+            handler=sector_return_curve,
         ),
         ToolSpec(
             name="get_sector_attribution_factors",

@@ -413,7 +413,7 @@ def test_pipeline_runner_completes_single_step_event_trigger(
     assert not advance.validation_errors
 
 
-def test_tool_orchestrated_harness_blocks_days_usage() -> None:
+def test_tool_orchestrated_harness_blocks_bare_days_usage() -> None:
     harness = ToolOrchestratedHarness()
     request = ChatRequest(
         message="run",
@@ -434,7 +434,47 @@ def test_tool_orchestrated_harness_blocks_days_usage() -> None:
         state,
     )
     assert blocked is not None
-    assert "start_date" in blocked
+    assert "bare `days`" in blocked
+    assert "as_of+days" in blocked
+
+
+def test_tool_orchestrated_harness_allows_as_of_plus_days() -> None:
+    harness = ToolOrchestratedHarness()
+    request = ChatRequest(
+        message="run",
+        user_id="u1",
+        session_id="s1",
+        metadata={
+            "active_task": {
+                "task_id": "event-trigger",
+                "harness_profile": "artifact_synthesis",
+                "constraints": {},
+            }
+        },
+    )
+    state = HarnessLoopState(request=request)
+    assert (
+        harness.block_tool_call(
+            ToolCall(
+                id="1",
+                name="get_sector_movers",
+                arguments={"as_of": "2026-08-25", "days": 1, "market": "us", "limit": 10},
+            ),
+            state,
+        )
+        is None
+    )
+    assert (
+        harness.block_tool_call(
+            ToolCall(
+                id="2",
+                name="get_market_overview",
+                arguments={"as_of": "2026-08-25", "days": 1, "market": "us"},
+            ),
+            state,
+        )
+        is None
+    )
 
 
 def test_tool_orchestrated_progress_is_generic_not_sector_attribution() -> None:

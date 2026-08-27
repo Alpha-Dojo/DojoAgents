@@ -29,6 +29,10 @@ _TOOL_ROUTES: dict[str, tuple[str, str]] = {
         "GET",
         "/api/v1/sector/attribution-factors",
     ),
+    "get_sector_return_curve": (
+        "GET",
+        "/api/v1/sector/return-curve",
+    ),
     "filter_sector_constituents": (
         "GET",
         "/api/v1/sector/constituents",
