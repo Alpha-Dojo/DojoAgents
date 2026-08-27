@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from dojoagents.agent.temporal_context import build_temporal_context_block, resolve_timezone_iana
@@ -26,7 +26,15 @@ def test_build_temporal_context_block_uses_runtime_dates():
     )
     assert "2026-07-07T04:53:00+00:00" in block
     assert "2026-07-07T12:53:00+08:00 (Asia/Shanghai)" in block
-    assert "Today (user): 2026-07-07" in block
+    assert "\n".join(
+        [
+            "- Today (user): 2026-07-07 (Tuesday)",
+            "- Yesterday (user): 2026-07-06",
+            "- Tomorrow (user): 2026-07-08",
+            "- Date-only events are interpreted in the user's timezone.",
+            '- "Today" means the user-local calendar date, not server UTC or model knowledge.',
+        ]
+    ) in block
     assert "do NOT add a year" in block
 
 
@@ -39,3 +47,9 @@ def test_build_temporal_context_block_converts_user_timezone():
     local = fixed.astimezone(ZoneInfo("America/New_York"))
     assert local.replace(microsecond=0).isoformat() in block
     assert f"Today (user): {local.date().isoformat()}" in block
+    assert "\n".join(
+        [
+            f"- Yesterday (user): {(local.date() - timedelta(days=1)).isoformat()}",
+            f"- Tomorrow (user): {(local.date() + timedelta(days=1)).isoformat()}",
+        ]
+    ) in block
