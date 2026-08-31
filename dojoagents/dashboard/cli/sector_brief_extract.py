@@ -382,8 +382,7 @@ def _has_reusable_output(path: Path, as_of_date: str) -> bool:
     try:
         payload = _read_brief(path)
         _validate_output_context(path, payload, as_of_date)
-        _api_write_items([payload])
-        return True
+        return bool(_api_write_items([payload]))
     except ValueError as exc:
         LOGGER.warning("Existing brief is invalid and will be rerun: %s (%s)", path, exc)
         return False
@@ -397,6 +396,14 @@ def _brief_uid(payload: dict[str, Any]) -> str:
 def _api_write_items(payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     items_by_uid: dict[str, dict[str, Any]] = {}
     for payload in payloads:
+        if not payload.get("key_drivers"):
+            LOGGER.warning(
+                "SKIP sector brief without key_drivers: market=%s sector_id=%s as_of_date=%s",
+                payload.get("market"),
+                payload.get("sector_id"),
+                payload.get("as_of_date"),
+            )
+            continue
         item = dict(payload)
         brief_uid = str(item.get("brief_uid") or "").strip() or _brief_uid(item)
         item["brief_uid"] = brief_uid
@@ -528,7 +535,8 @@ async def run_sector_brief_extract(args: argparse.Namespace) -> int:
         try:
             payload = _read_brief(path)
             _validate_output_context(path, payload, as_of_date)
-            _api_write_items([payload])
+            if not _api_write_items([payload]):
+                continue
             payloads.append(payload)
         except ValueError as exc:
             LOGGER.error("SKIP invalid sector brief output %s: %s", path, exc)

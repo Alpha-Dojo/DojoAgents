@@ -239,6 +239,32 @@ def test_valid_existing_brief_is_reusable_and_gets_stable_uid(tmp_path) -> None:
     assert first[0]["brief_uid"].startswith("dojoagents:")
 
 
+def test_api_write_items_filters_briefs_without_key_drivers() -> None:
+    empty = _brief(sector_id="61/69/71")
+    empty["key_drivers"] = []
+
+    with patch("dojoagents.dashboard.cli.sector_brief_extract.LOGGER.warning") as warning:
+        items = _api_write_items([empty, _brief()])
+
+    assert len(items) == 1
+    assert items[0]["sector_id"] == "1/9/10"
+    warning.assert_called_once_with(
+        "SKIP sector brief without key_drivers: market=%s sector_id=%s as_of_date=%s",
+        "cn",
+        "61/69/71",
+        "2026-07-31",
+    )
+
+
+def test_existing_brief_without_key_drivers_is_not_reusable(tmp_path) -> None:
+    path = tmp_path / "sector_theme_brief_cn_61_69_71_2026-07-31.json"
+    payload = _brief(sector_id="61/69/71")
+    payload["key_drivers"] = []
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    assert _has_reusable_output(path, "2026-07-31") is False
+
+
 def test_existing_brief_must_also_pass_sdk_write_validation(tmp_path) -> None:
     path = tmp_path / "sector_theme_brief_cn_1_9_10_2026-07-31.json"
     payload = _brief()
