@@ -46,6 +46,8 @@ dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
 dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
 
+为兼容已有定时任务，未指定 `--trade-date` 时默认使用 `--start-date`。
+
 默认情况下，`precompute-sector-theme-state` 从
 `<data-root>/dojo_sector_precomputed` 读取并发布到同一目录。需要保留独立的
 Phase A 输入快照与统一输出时，可分别指定 `--input-dir` 和 `--output-dir`。

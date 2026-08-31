@@ -19,6 +19,12 @@ def test_precompute_sector_accepts_constituent_trade_date() -> None:
     assert args.trade_date == "2026-08-28"
 
 
+def test_precompute_sector_keeps_start_date_for_legacy_scheduled_uploads() -> None:
+    args = build_parser().parse_args(["precompute-sector", "--market", "hk", "--start-date", "2026-08-31", "--upload-api"])
+
+    assert (args.trade_date or args.start_date) == "2026-08-31"
+
+
 @pytest.mark.asyncio
 async def test_constituent_batches_forward_one_trade_date() -> None:
     create_constituents = AsyncMock()

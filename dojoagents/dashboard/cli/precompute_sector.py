@@ -39,7 +39,7 @@ def configure_parser(subcommands: argparse._SubParsersAction) -> None:
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--config", default="~/.dojo/agents.yaml")
     parser.add_argument("--start-date", default="2025-01-01")
-    parser.add_argument("--trade-date", default=None, help="Trade date assigned to all constituent rows written through qdata")
+    parser.add_argument("--trade-date", default=None, help="Trade date assigned to all constituent rows written through qdata (defaults to --start-date)")
     parser.add_argument("--market", choices=("us", "cn", "hk"), default=None)
     parser.add_argument("--kline-concurrency", type=int, default=None, help="Maximum parallel single-stock K-line requests (default: config value or 50)")
     parser.add_argument("--upload", action="store_true")
@@ -194,8 +194,6 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
         raise ValueError("--kline-concurrency must be at least 1")
     if args.upload_api and not args.market:
         raise ValueError("--market is required with --upload-api")
-    if args.upload_api and not args.trade_date:
-        raise ValueError("--trade-date is required with --upload-api")
 
     LOGGER.info(f"Precomputing sector data -> {data_root / 'dojo_sector_precomputed'}")
     LOGGER.info(f"Window start: {args.start_date}")
@@ -232,7 +230,7 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
             client,
             Path(manifest["published_dir"]),
             args.market,
-            trade_date=args.trade_date,
+            trade_date=args.trade_date or args.start_date,
             start_date=args.start_date,
         )
         manifest["uploaded_api"] = {"market": args.market, "rows": counts}

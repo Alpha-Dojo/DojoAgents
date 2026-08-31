@@ -50,6 +50,8 @@ dojoagents tasks run --pipeline daily-market-events --date 2026-07-22
 dojoagents tasks eval --task event-trigger --date 2026-07-22
 ```
 
+`--trade-date` defaults to `--start-date` for compatibility with existing scheduled jobs.
+
 By default, `precompute-sector-theme-state` reads from and publishes to
 `<data-root>/dojo_sector_precomputed`. Use `--input-dir` and `--output-dir` when
 the Phase A snapshot and the unified published bundle must be kept separate.
