@@ -19,7 +19,7 @@ CLI parser 定义在 `dojoagents/cli/main.py`。
 | `scheduler` | 无 | 加载计划任务 |
 | `model` | `--config` | 交互式模型配置 |
 | `mcp serve` | 无 | 启动 MCP server |
-| `precompute-sector` | `--data-root`, `--start-date`, `--market`, `--upload-api`, `--upload` | 预计算行业数据；可按市场通过 qdata API 写入云服务 |
+| `precompute-sector` | `--data-root`, `--start-date`, `--trade-date`, `--market`, `--upload-api`, `--upload` | 预计算行业数据；可按市场通过 qdata API 写入云服务 |
 | `precompute-sector-theme-state` | `--data-root`, `--input-dir`, `--output-dir`, `--start-date`, `--end-date`, `--upload`, `--skip-fundamentals`, `--skip-volume-enrich` | 读取 `precompute-sector` 快照，发布统一主题状态数据，并可上传到 `dojo_sector_precomputed` |
 | `attribution-factor-crawl` | `--date`, `--concurrency`, `--top-n`, `--min-cap`, `--force-rerun`, `--write-only`, `--skip-write` | 爬取单日板块归因，并通过 `create_attribution_factor` 批量写入 |
 | `sector-brief-extract` | `--date`, `--market`, `--lookback-days`, `--concurrency`, `--max-attempts`, `--model`, `--force-rerun`, `--write-only`, `--skip-write` | 从归因因子提取板块简报，并通过 `create_sector_brief_extract` 批量写入 |
@@ -34,7 +34,7 @@ dojoagents model --config ./agents.yaml
 dojoagents gateway setup telegram
 dojoagents sessions export --output-dir ~/Desktop/dojo-chat-export
 dojoagents sessions export --session-id session-123 --output-dir ~/Desktop/dojo-chat-export
-dojoagents precompute-sector --market cn --start-date 2026-08-12 --upload-api
+dojoagents precompute-sector --market cn --start-date 2026-08-12 --trade-date 2026-08-12 --upload-api
 dojoagents precompute-sector-theme-state --upload
 dojoagents attribution-factor-crawl --date 2026-07-31
 dojoagents attribution-factor-crawl --date 2026-07-31 --market cn
