@@ -14,7 +14,7 @@ requires-python = ">=3.11"
 dependencies = [
     "openai>=1.20.0,<2",
     "fastapi>=0.115.2,<0.116",
-    "uvicorn>=0.31.1,<0.33.0",
+    "uvicorn>=0.31.1,<0.36.0",
     "httpx>=0.27.0,<1",
     "pyyaml>=6.0.1,<7",
     "apscheduler>=3.10.0,<4",
@@ -25,7 +25,7 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.21",
+    "dojosdk>=0.1.23",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
