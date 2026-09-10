@@ -45,6 +45,37 @@ def _wrap_execute_code(code_content: str) -> str:
 # full tool args/responses as one JSON line and must support large write_session_file payloads.
 RPC_MAX_MESSAGE_BYTES = 32 * 1024 * 1024
 _NESTED_FAILURE_ERROR_CHARS = 2000
+_SAFE_SUBPROCESS_ENV = (
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+
+
+def _code_execution_env(temp_dir: str, pkg_root: str | None) -> dict[str, str]:
+    env = {name: os.environ[name] for name in _SAFE_SUBPROCESS_ENV if name in os.environ}
+    env.update(
+        {
+            "HOME": temp_dir,
+            "TMPDIR": temp_dir,
+            "TEMP": temp_dir,
+            "TMP": temp_dir,
+            "PYTHONPATH": os.pathsep.join(path for path in (temp_dir, pkg_root) if path),
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONNOUSERSITE": "1",
+            "OTEL_SDK_DISABLED": "true",
+        }
+    )
+    return env
 
 
 def _serialized_char_count(value: Any) -> int:
@@ -440,16 +471,15 @@ async def handle_code_execution(
     with open(script_file, "w", encoding="utf-8") as handle:
         handle.write(_wrap_execute_code(code_content))
 
-    env = os.environ.copy()
-    env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
+    pkg_root = None
     try:
         import dojoagents
 
         pkg_root = str(Path(dojoagents.__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = os.pathsep.join([temp_dir, pkg_root, env.get("PYTHONPATH", "")])
     except ImportError:
-        env["PYTHONPATH"] = temp_dir
-    env["PYTHONIOENCODING"] = "utf-8"
+        pass
+    env = _code_execution_env(temp_dir, pkg_root)
+    env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
     if agent_session_id:
         env["DOJO_SESSION_ID"] = agent_session_id
         if sessions_root:
