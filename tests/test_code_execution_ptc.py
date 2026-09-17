@@ -155,12 +155,7 @@ async def test_code_execution_persists_nested_failure_response_as_artifact(tmp_p
     assert artifact["data"] == large_data
 
     loaded = await handle_code_execution(
-        {
-            "code": (
-                f"res = dojo_tools.load_tool_result({failure['response_artifact_call_id']!r})\n"
-                "print(res['ok'], res['error'], len(res['data']['rows']))\n"
-            )
-        },
+        {"code": (f"res = dojo_tools.load_tool_result({failure['response_artifact_call_id']!r})\n" "print(res['ok'], res['error'], len(res['data']['rows']))\n")},
         registry,
         policy,
         artifact_store=store,
@@ -378,9 +373,48 @@ async def test_code_execution_bootstrap_provides_pandas_without_user_import():
     policy = SandboxPolicy()
     registry.register(get_code_execution_spec(registry, policy))
 
-    code = "print('HasPandas:', pd is not None)\n"
+    code = "print('HasPandas:', pd is not None)\nprint('HasJson:', json is not None)\n"
     result = await handle_code_execution({"code": code}, registry, policy)
     assert "HasPandas: True" in result["content"]
+    assert "HasJson: True" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_bootstrap_custom_preload_packages():
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy, preload_packages=["json"]))
+
+    code = "print('HasJson:', json is not None)\n" "try:\n" "    pd\n" "    print('HasPandas: True')\n" "except NameError:\n" "    print('HasPandas: False')\n"
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        preload_packages=["json"],
+    )
+    assert "HasJson: True" in result["content"]
+    assert "HasPandas: False" in result["content"]
+
+
+def test_execute_code_description_lists_preload_aliases():
+    spec = get_code_execution_spec(ToolRegistry(), SandboxPolicy())
+    assert "pd/np/json/dojo_tools are pre-imported" in spec.description
+
+    custom = get_code_execution_spec(
+        ToolRegistry(),
+        SandboxPolicy(),
+        preload_packages=["json"],
+    )
+    assert "json/dojo_tools are pre-imported" in custom.description
+
+
+def test_invalid_preload_package_name_rejected():
+    with pytest.raises(ValueError, match="Invalid execute_code preload package"):
+        get_code_execution_spec(
+            ToolRegistry(),
+            SandboxPolicy(),
+            preload_packages=["pandas; import os"],
+        )
 
 
 @pytest.mark.asyncio

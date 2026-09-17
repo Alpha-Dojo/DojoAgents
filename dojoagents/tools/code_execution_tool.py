@@ -1,8 +1,10 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,22 +25,45 @@ from dojoagents.tools.sandbox import SandboxPolicy
 
 LOGGER = get_logger(__name__)
 
-EXECUTE_CODE_BOOTSTRAP = """\
-import dojo_tools
-try:
-    import pandas as pd
-except ImportError:
-    pd = None  # noqa: F841
-try:
-    import numpy as np
-except ImportError:
-    np = None  # noqa: F841
-
-"""
+DEFAULT_PRELOAD_PACKAGES = ("pandas", "numpy", "json")
+_PRELOAD_ALIASES = {"pandas": "pd", "numpy": "np"}
+_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 
-def _wrap_execute_code(code_content: str) -> str:
-    return EXECUTE_CODE_BOOTSTRAP + (code_content or "")
+def _preload_alias(package: str) -> str:
+    return _PRELOAD_ALIASES.get(package, package.rsplit(".", 1)[-1])
+
+
+def _normalized_preload_packages(packages: Sequence[str] | None) -> tuple[str, ...]:
+    raw = DEFAULT_PRELOAD_PACKAGES if packages is None else packages
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for package in raw:
+        name = str(package).strip()
+        if not name:
+            continue
+        if not _MODULE_NAME_RE.fullmatch(name):
+            raise ValueError(f"Invalid execute_code preload package name: {package!r}")
+        if name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return tuple(normalized)
+
+
+def build_execute_code_bootstrap(packages: Sequence[str] | None = None) -> str:
+    lines = ["import dojo_tools"]
+    for package in _normalized_preload_packages(packages):
+        alias = _preload_alias(package)
+        lines.append(f"try:\n    import {package} as {alias}\nexcept ImportError:\n    {alias} = None  # noqa: F841")
+    return "\n".join(lines) + "\n\n"
+
+
+EXECUTE_CODE_BOOTSTRAP = build_execute_code_bootstrap()
+
+
+def _wrap_execute_code(code_content: str, preload_packages: Sequence[str] | None = None) -> str:
+    return build_execute_code_bootstrap(preload_packages) + (code_content or "")
 
 
 # asyncio StreamReader.readline() defaults to 64 KiB per line; execute_code RPC carries
@@ -444,6 +469,7 @@ async def handle_code_execution(
     artifact_adapter: ToolResultArtifactAdapter | None = None,
     agent_session_id: str = "",
     sessions_root: str | Path = "",
+    preload_packages: Sequence[str] | None = None,
 ) -> dict:
     code_content = args.get("code")
     rpc_session_id = os.urandom(6).hex()
@@ -469,7 +495,7 @@ async def handle_code_execution(
 
     script_file = os.path.join(temp_dir, "script.py")
     with open(script_file, "w", encoding="utf-8") as handle:
-        handle.write(_wrap_execute_code(code_content))
+        handle.write(_wrap_execute_code(code_content, preload_packages))
 
     pkg_root = None
     try:
@@ -550,7 +576,11 @@ def get_code_execution_spec(
     artifact_adapter: ToolResultArtifactAdapter | None = None,
     max_tool_calls: int = 20,
     sessions_root: str | Path = "",
+    preload_packages: Sequence[str] | None = None,
 ) -> ToolSpec:
+    packages = _normalized_preload_packages(preload_packages)
+    preload_names = "/".join([*(_preload_alias(package) for package in packages), "dojo_tools"])
+
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         session_id = active_session_id.get() or str(args.get("session_id") or "")
         return await handle_code_execution(
@@ -562,6 +592,7 @@ def get_code_execution_spec(
             artifact_adapter=artifact_adapter,
             agent_session_id=session_id,
             sessions_root=sessions_root,
+            preload_packages=packages,
         )
 
     exposed = [spec.name for spec in tool_registry.all() if spec.name not in {"execute_code", "code_execution"}]
@@ -573,7 +604,7 @@ def get_code_execution_spec(
         name="execute_code",
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
-            "pd/np/dojo_tools are pre-imported. "
+            f"{preload_names} are pre-imported. "
             "For a prior artifact, copy its load_hint exactly; dojo_tools.last_tool_result() does not exist. "
             "When call_id is known, do not call list_tool_results(); that helper returns an RPC response whose summaries are tool_json(res)['items'], newest first. "
             "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "

@@ -57,6 +57,11 @@ tools:
     # api_key_env: TAVILY_API_KEY
     max_extract_urls: 5
     max_content_bytes: 2000000
+  execute_code:
+    preload_packages:
+      - pandas
+      - numpy
+      - json
 
 skills:
   dir: ~/.dojo/skills

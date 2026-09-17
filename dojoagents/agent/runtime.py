@@ -472,6 +472,7 @@ class Runtime:
                 artifact_store=artifact_store,
                 artifact_adapter=artifact_adapter,
                 sessions_root=self.config.sessions.root,
+                preload_packages=self.config.tools.execute_code.preload_packages,
             )
         )
         register_core_tool(ToolsListTool(registry).get_tool_spec())
@@ -661,6 +662,7 @@ class Runtime:
                 artifact_store=artifact_store,
                 artifact_adapter=artifact_adapter,
                 sessions_root=config.sessions.root,
+                preload_packages=config.tools.execute_code.preload_packages,
             )
         )
 
