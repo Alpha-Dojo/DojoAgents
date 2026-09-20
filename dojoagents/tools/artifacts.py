@@ -20,7 +20,7 @@ ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
         "execute_code",
         "code_execution",
         # File reads exist to put artifact bytes into the model turn; pointerizing
-        # them requires execute_code artifact bindings, which many task allowlists omit.
+        # them requires execute_code + load_tool_result, which many task allowlists omit.
         "read_session_output",
     }
 )
@@ -137,30 +137,6 @@ class ToolResultArtifactStore:
         rows.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         return rows
 
-    def find(
-        self,
-        session_id: str,
-        *,
-        tool_name: str,
-        arguments: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Return session artifacts matching a tool and an argument subset."""
-        expected_arguments = dict(arguments or {})
-        matches: list[dict[str, Any]] = []
-        for summary in self.list_summaries(session_id):
-            call_id = str(summary.get("call_id") or "")
-            payload = self.load(session_id, call_id)
-            if not payload or str(payload.get("tool_name") or "") != tool_name:
-                continue
-            actual_arguments = payload.get("arguments")
-            if not isinstance(actual_arguments, dict):
-                actual_arguments = {}
-            if any(actual_arguments.get(key) != value for key, value in expected_arguments.items()):
-                continue
-            matches.append(payload)
-        matches.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("call_id") or "")))
-        return matches
-
 
 def build_artifact_pointer_message(
     *,
@@ -172,22 +148,20 @@ def build_artifact_pointer_message(
 ) -> str:
     """Build a compact, domain-neutral pointer to a persisted tool result."""
 
-    del call_id, content
+    del content
     summary: dict[str, Any] = {
         "artifact": True,
         "tool": tool_name,
+        "call_id": call_id,
+        "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
+        "artifact_ref": {
+            "call_id": call_id,
+            "copy_policy": "exact",
+        },
     }
     compact_arguments = {str(key): value for key, value in dict(arguments or {}).items() if isinstance(value, (str, int, float, bool)) and value not in ("", None)}
     if compact_arguments:
         summary["arguments"] = compact_arguments
-    summary["artifact_input_selector"] = {
-        "tool_name": tool_name,
-        "arguments": compact_arguments,
-        "mode": "one",
-    }
-    summary["artifact_input_hint"] = (
-        "Pass this selector as execute_code.artifact_inputs.<name>, then read it with " "dojo_tools.input_result(name). Do not copy call_id into Python code."
-    )
     if isinstance(data, dict):
         for key in ("items", "rows"):
             value = data.get(key)

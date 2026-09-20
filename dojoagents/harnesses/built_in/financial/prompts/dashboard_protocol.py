@@ -307,9 +307,9 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 - **Do NOT** re-call `portfolio_read_detail` just to re-read holdings already in the pointer.
 - For **order workflows** (买入/卖出/减仓/清仓), pass `include_performance=false` to avoid bloating
   the response with NAV series you do not need.
-- Only use `execute_code.artifact_inputs` + `dojo_tools.input_result(name)` when you need full
-  candidate rows or performance series for computation — not for pretty-printing JSON. Never
-  copy a `call_id` into Python code.
+- Only use `execute_code` + the artifact pointer's complete `load_hint` when you need full candidate
+  rows or performance series for computation — not for pretty-printing JSON. Treat `call_id` as an
+  opaque token: copy it exactly; never shorten, reconstruct, or edit it.
 
 ### Portfolio tools
 
@@ -330,7 +330,7 @@ Large portfolio responses are compressed to an artifact pointer. The pointer **a
 
 Use `execute_code` ONLY when you must batch-call dojo_tools or run pandas/numpy transforms on
 fetched tool data inside one script. pd/np/dojo_tools are pre-imported.
-After `input_result`, prefer `dojo_tools.tool_print(res)` or
+After `load_tool_result`, prefer `dojo_tools.tool_print(res)` or
 `dojo_tools.tool_print(res, table='benchmarks', columns=[...])` — safe, no KeyError.
 Metadata: `dojo_tools.tool_meta(res)`. Columns: `dojo_tools.tool_columns(res[, table])`.
 

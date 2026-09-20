@@ -23,7 +23,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "Rules:\n"
     "- allow_execution=false, block_reason=hardcoded_market_data when the script embeds OHLC rows, "
     "quote values, or financial statement rows as Python literals instead of fetching live data via "
-    "dojo_tools (get_ticker_price_trends, input_result, etc.).\n"
+    "dojo_tools (get_ticker_price_trends, load_tool_result, etc.).\n"
     "- allow_execution=false, block_reason=presentation_only when the script mainly prints formatted "
     "text, ASCII diagrams, knowledge-graph schema docs, taxonomy tables, or design proposals without "
     "dojo_tools batch orchestration or pandas/numpy computation on fetched data.\n"
@@ -37,8 +37,8 @@ _BLOCK_MESSAGES = {
         "Do NOT inline OHLC/price rows in Python. Fetch real data inside the script via "
         "`import dojo_tools` — e.g. "
         "`dojo_tools.get_ticker_price_trends({{'ticker': '0700', 'market': 'hk'}})` or "
-        "bind a prior result through `execute_code.artifact_inputs` and read it with "
-        "`dojo_tools.input_result(name)`, then parse with `dojo_tools.tool_json(res)`."
+        "copy the persisted result's complete `load_hint` and call "
+        "`dojo_tools.load_tool_result('<exact-call-id>')`, then parse with `dojo_tools.tool_json(res)`."
     ),
     "presentation_only": (
         "Blocked {tool_name}: {explanation} "
