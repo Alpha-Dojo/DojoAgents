@@ -231,7 +231,7 @@ def tool_table(res: dict[str, Any], table: str | None = None) -> list[dict[str, 
     data = tool_json(res)
     hint = _schema_hint(res)
     if not hint:
-        raise KeyError("schema_hint is required; call via dojo_tools.load_tool_result(call_id)")
+        raise KeyError("schema_hint is required; load a bound artifact via dojo_tools.input_result(name)")
     spec = _table_spec(hint, table)
     if spec is None:
         available = ", ".join(table_names(hint)) or "(none)"
@@ -424,14 +424,12 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
         return output
     hints: list[str] = []
     if "AttributeError" in output and "last_tool_result" in output:
-        hints.append(
-            "HINT: dojo_tools.last_tool_result() does not exist. For a persisted prior result, " "copy its artifact load_hint and call dojo_tools.load_tool_result(call_id)."
-        )
+        hints.append("HINT: dojo_tools.last_tool_result() does not exist. Bind the prior result through " "execute_code.artifact_inputs, then call dojo_tools.input_result(name).")
     if "KeyError" in output and "list_tool_results" in code:
         hints.append(
             "HINT: dojo_tools.list_tool_results() returns an RPC response, not a list. "
             "Use items = dojo_tools.tool_json(results)['items']; items[0] is newest. "
-            "When a call_id is already available, load it directly with load_tool_result(call_id)."
+            "Prefer execute_code.artifact_inputs + input_result(name) for prior results."
         )
     if "KeyError" in output and ("name_zh" in output or "symbol" in output or "columns" in output.lower()):
         hints.append(
@@ -457,7 +455,7 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
         hints.append(
             "HINT: unwrap a live dojo_tools RPC result with payload = dojo_tools.tool_json(res). "
             "Raw dojo.sdk.* list rows are payload['data']; or use dojo_tools.tool_df(res). "
-            "Use load_tool_result(call_id) only when loading a persisted result from an earlier tool call."
+            "Load persisted prior results through execute_code.artifact_inputs and input_result(name)."
         )
     if "NameError" in output and (" pd" in output or "pd." in output):
         hints.append("HINT: pd/np/dojo_tools are pre-imported in execute_code bootstrap.")

@@ -28,6 +28,7 @@ LOGGER = get_logger(__name__)
 DEFAULT_PRELOAD_PACKAGES = ("pandas", "numpy", "json")
 _PRELOAD_ALIASES = {"pandas": "pd", "numpy": "np"}
 _MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_ARTIFACT_INPUT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 
 def _preload_alias(package: str) -> str:
@@ -64,6 +65,66 @@ EXECUTE_CODE_BOOTSTRAP = build_execute_code_bootstrap()
 
 def _wrap_execute_code(code_content: str, preload_packages: Sequence[str] | None = None) -> str:
     return build_execute_code_bootstrap(preload_packages) + (code_content or "")
+
+
+def _resolve_artifact_inputs(
+    raw_inputs: Any,
+    *,
+    artifact_store: ToolResultArtifactStore | None,
+    artifact_adapter: ToolResultArtifactAdapter | None,
+    session_id: str,
+) -> dict[str, Any]:
+    if raw_inputs in (None, {}):
+        return {}
+    if not isinstance(raw_inputs, dict):
+        raise ValueError("artifact_inputs must be an object keyed by semantic input name")
+    if artifact_store is None or not session_id:
+        raise ValueError("artifact_inputs require an artifact store and active session")
+
+    resolved: dict[str, Any] = {}
+    for raw_name, raw_selector in raw_inputs.items():
+        name = str(raw_name or "").strip()
+        if not _ARTIFACT_INPUT_NAME_RE.fullmatch(name):
+            raise ValueError(f"invalid artifact input name: {raw_name!r}")
+        if not isinstance(raw_selector, dict):
+            raise ValueError(f"artifact input {name!r} must be a selector object")
+        unknown_keys = set(raw_selector) - {"tool_name", "arguments", "mode"}
+        if unknown_keys:
+            raise ValueError(f"artifact input {name!r} has unsupported selector keys: {sorted(unknown_keys)}")
+        tool_name = str(raw_selector.get("tool_name") or "").strip()
+        if not tool_name:
+            raise ValueError(f"artifact input {name!r} requires tool_name")
+        arguments = raw_selector.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise ValueError(f"artifact input {name!r} arguments must be an object")
+        mode = str(raw_selector.get("mode") or "one")
+        if mode not in {"one", "all"}:
+            raise ValueError(f"artifact input {name!r} mode must be 'one' or 'all'")
+
+        payloads = artifact_store.find(session_id, tool_name=tool_name, arguments=arguments)
+        if not payloads:
+            raise ValueError(f"artifact input {name!r} matched no persisted results")
+        if mode == "one" and len(payloads) != 1:
+            raise ValueError(f"artifact input {name!r} expected one persisted result, matched {len(payloads)}; " "use mode='all' or narrow arguments")
+
+        results: list[dict[str, Any]] = []
+        for payload in payloads if mode == "all" else payloads[:1]:
+            response = {
+                "ok": bool(payload.get("ok", True)),
+                "content": payload.get("content", ""),
+                "data": payload.get("data"),
+                "tool_name": str(payload.get("tool_name") or ""),
+                "error": str(payload.get("error") or ""),
+                "truncated": bool(payload.get("truncated")),
+            }
+            if artifact_adapter is not None:
+                response = artifact_adapter.enrich_loaded_payload(response)
+            results.append(response)
+        resolved[name] = {
+            "selector": {"tool_name": tool_name, "arguments": dict(arguments), "mode": mode},
+            "results": results,
+        }
+    return resolved
 
 
 # asyncio StreamReader.readline() defaults to 64 KiB per line; execute_code RPC carries
@@ -472,6 +533,12 @@ async def handle_code_execution(
     preload_packages: Sequence[str] | None = None,
 ) -> dict:
     code_content = args.get("code")
+    artifact_inputs = _resolve_artifact_inputs(
+        args.get("artifact_inputs"),
+        artifact_store=artifact_store,
+        artifact_adapter=artifact_adapter,
+        session_id=agent_session_id,
+    )
     rpc_session_id = os.urandom(6).hex()
     socket_path = os.path.join(tempfile.gettempdir(), f"dojo-rpc-{rpc_session_id}.sock")
 
@@ -487,6 +554,9 @@ async def handle_code_execution(
 
     temp_dir = tempfile.mkdtemp()
     session_output_manifest = os.path.join(temp_dir, ".session_outputs.jsonl")
+    artifact_inputs_manifest = os.path.join(temp_dir, ".artifact_inputs.json")
+    with open(artifact_inputs_manifest, "w", encoding="utf-8") as handle:
+        json.dump({"inputs": artifact_inputs}, handle, ensure_ascii=False)
     stub_file = os.path.join(temp_dir, "dojo_tools.py")
     tool_names = [spec.name for spec in tool_registry.all()]
     stub_code = build_dojo_tools_stub_code(socket_path=socket_path, tool_names=tool_names)
@@ -506,6 +576,7 @@ async def handle_code_execution(
         pass
     env = _code_execution_env(temp_dir, pkg_root)
     env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
+    env["DOJO_ARTIFACT_INPUTS_MANIFEST"] = artifact_inputs_manifest
     if agent_session_id:
         env["DOJO_SESSION_ID"] = agent_session_id
         if sessions_root:
@@ -543,7 +614,7 @@ async def handle_code_execution(
             *rpc_server.session_output_files,
         ],
     )
-    for filename in ["dojo_tools.py", "script.py", ".session_outputs.jsonl"]:
+    for filename in ["dojo_tools.py", "script.py", ".session_outputs.jsonl", ".artifact_inputs.json"]:
         try:
             os.unlink(os.path.join(temp_dir, filename))
         except OSError:
@@ -605,9 +676,11 @@ def get_code_execution_spec(
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
             f"{preload_names} are pre-imported. "
-            "For a prior artifact, copy its load_hint exactly; dojo_tools.last_tool_result() does not exist. "
-            "When call_id is known, do not call list_tool_results(); that helper returns an RPC response whose summaries are tool_json(res)['items'], newest first. "
-            "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "
+            "For prior persisted results, bind semantic artifact_inputs selectors and read them with "
+            "dojo_tools.input_result(name) or dojo_tools.input_results(name); never copy call_id values into code. "
+            "Selectors match tool_name plus an optional exact argument subset. mode='one' requires exactly one match; "
+            "mode='all' binds every match in creation order. "
+            "Canonical pattern after dojo_tools.input_result(name), input_results(name), or a live dojo_tools helper: "
             "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
             "For raw dojo.sdk.* JSON use `payload = dojo_tools.tool_json(res); rows = payload['data']`. "
             "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
@@ -622,7 +695,23 @@ def get_code_execution_spec(
         ),
         parameters={
             "type": "object",
-            "properties": {"code": {"type": "string", "description": "Python code to execute"}},
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute"},
+                "artifact_inputs": {
+                    "type": "object",
+                    "description": "Semantic names bound by the host to persisted results before Python starts. Do not put call_id values in code.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "tool_name": {"type": "string"},
+                            "arguments": {"type": "object"},
+                            "mode": {"type": "string", "enum": ["one", "all"], "default": "one"},
+                        },
+                        "required": ["tool_name"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
             "required": ["code"],
         },
         handler=_handler,

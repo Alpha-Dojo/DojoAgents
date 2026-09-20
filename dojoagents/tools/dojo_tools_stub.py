@@ -86,6 +86,7 @@ from dojoagents.tools.dojo_tools_runtime import (
 )
 
 _SOCKET_PATH = {socket_path!r}
+_ARTIFACT_INPUTS = None
 
 
 def _read_response(sock):
@@ -120,6 +121,40 @@ def _record_session_output(payload):
         return
     with open(manifest, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=False) + "\\n")
+
+
+def _artifact_inputs():
+    global _ARTIFACT_INPUTS
+    if _ARTIFACT_INPUTS is not None:
+        return _ARTIFACT_INPUTS
+    manifest = os.environ.get("DOJO_ARTIFACT_INPUTS_MANIFEST")
+    if not manifest:
+        _ARTIFACT_INPUTS = {{}}
+        return _ARTIFACT_INPUTS
+    with open(manifest, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    inputs = payload.get("inputs") if isinstance(payload, dict) else None
+    _ARTIFACT_INPUTS = inputs if isinstance(inputs, dict) else {{}}
+    return _ARTIFACT_INPUTS
+
+
+def input_results(name):
+    """Return all host-resolved artifact results bound to a semantic input name."""
+    entry = _artifact_inputs().get(str(name))
+    if not isinstance(entry, dict):
+        raise KeyError(f"artifact input not found: {{name}}")
+    results = entry.get("results")
+    if not isinstance(results, list):
+        raise RuntimeError(f"artifact input is malformed: {{name}}")
+    return results
+
+
+def input_result(name):
+    """Return one host-resolved artifact result, rejecting missing or ambiguous inputs."""
+    results = input_results(name)
+    if len(results) != 1:
+        raise RuntimeError(f"artifact input {{name!r}} expected one result, found {{len(results)}}")
+    return results[0]
 
 
 def _rpc_call(tool_name, args):

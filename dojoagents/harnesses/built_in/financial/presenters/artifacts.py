@@ -230,13 +230,16 @@ def build_financial_artifact_pointer(
     data: Any = None,
     content: str | None = None,
 ) -> str:
-    execute_code_example = f'res = dojo_tools.load_tool_result("{call_id}")\ndojo_tools.tool_print(res)'
+    del call_id
+    selector_arguments = dict(arguments or {})
     summary: dict[str, Any] = {
         "artifact": True,
         "tool": tool_name,
-        "call_id": call_id,
-        "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
-        "execute_code_example": execute_code_example,
+        "artifact_input_selector": {"tool_name": tool_name, "arguments": selector_arguments, "mode": "one"},
+        "artifact_input_hint": (
+            "Pass this selector as execute_code.artifact_inputs.<name>, then read it with " "dojo_tools.input_result(name). Do not copy call_id into Python code."
+        ),
+        "execute_code_example": "res = dojo_tools.input_result('<name>')\ndojo_tools.tool_print(res)",
         "rpc_hint": f"Re-fetch live data with dojo_tools.{tool_name}(...) inside execute_code when needed.",
     }
     if isinstance(data, dict):
@@ -249,13 +252,13 @@ def build_financial_artifact_pointer(
             summary["row_count"] = len(rows)
         if tool_name == "get_ticker_price_trends":
             summary.update(summarize_kline_artifact_data(data))
-            summary["reuse_hint"] = "Do NOT call get_ticker_price_trends again for the latest bar; " "use latest_kline/as_of above or dojo_tools.load_tool_result(call_id)."
+            summary["reuse_hint"] = "Do NOT call get_ticker_price_trends again for the latest bar; use latest_kline/as_of above or bind artifact_input_selector."
         if tool_name == "portfolio_read_detail":
             summary.update(summarize_portfolio_detail_artifact_data(data))
             summary["reuse_hint"] = (
                 "Use positions[] above with portfolio_write_create_order(s) for portfolio "
                 "mutations; do not use terminal or re-call portfolio_read_detail. Load the full "
-                "result by call_id inside execute_code when more fields are required."
+                "artifact_input_selector inside execute_code when more fields are required."
             )
     for key in ("ticker", "tickers", "market", "portfolio_id"):
         if arguments and arguments.get(key):
@@ -265,7 +268,7 @@ def build_financial_artifact_pointer(
         summary["schema_hint"] = schema_hint
         if isinstance(schema_hint.get("usage_notes"), str):
             summary["usage_notes"] = schema_hint["usage_notes"].strip()
-        summary["parse_hint"] = schema_hint.get("pandas_example") or ("res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)")
+        summary["parse_hint"] = schema_hint.get("pandas_example") or ("res = dojo_tools.input_result('<name>'); dojo_tools.tool_print(res)")
     viz_payload = data if isinstance(data, dict) else extract_viz_payload_from_content(content or "")
     viz_hint = get_viz_hint_for_payload(viz_payload)
     if viz_hint:

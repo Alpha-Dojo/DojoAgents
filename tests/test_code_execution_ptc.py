@@ -356,6 +356,8 @@ def test_hermes_stub_maps_dotted_tool_names():
     assert "def get_ticker_price_trends(" in stub
     assert "def dojo_sdk_stock_kline(" in stub
     assert "def load_tool_result(" in stub
+    assert "def input_result(" in stub
+    assert "def input_results(" in stub
     assert "tool_print" in stub
     assert "dojo_tools_runtime" in stub
 
@@ -363,8 +365,95 @@ def test_hermes_stub_maps_dotted_tool_names():
 def test_execute_code_description_documents_prior_artifact_contract():
     spec = get_code_execution_spec(ToolRegistry(), SandboxPolicy())
 
-    assert "last_tool_result() does not exist" in spec.description
-    assert "tool_json(res)['items'], newest first" in spec.description
+    assert "artifact_inputs" in spec.description
+    assert "input_result(name)" in spec.description
+    assert "never copy call_id values into code" in spec.description
+    assert "artifact_inputs" in spec.parameters["properties"]
+
+
+@pytest.mark.asyncio
+async def test_execute_code_resolves_semantic_artifact_inputs_before_sandbox(tmp_path) -> None:
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    store = ToolResultArtifactStore(tmp_path)
+    for call_id, symbol in (("call-cn-1", "AAA"), ("call-cn-2", "BBB")):
+        store.save(
+            session_id="session-1",
+            call_id=call_id,
+            tool_name="get_ticker_realtime_quote",
+            arguments={"market": "cn", "tickers": symbol},
+            content=json.dumps({"data": [{"symbol": symbol}]}),
+            data={"data": [{"symbol": symbol}]},
+        )
+
+    result = await handle_code_execution(
+        {
+            "artifact_inputs": {
+                "cn_quotes": {
+                    "tool_name": "get_ticker_realtime_quote",
+                    "arguments": {"market": "cn"},
+                    "mode": "all",
+                }
+            },
+            "code": (
+                "rows = []\n"
+                "for res in dojo_tools.input_results('cn_quotes'):\n"
+                "    rows.extend(dojo_tools.tool_json(res)['data'])\n"
+                "print([row['symbol'] for row in rows])\n"
+            ),
+        },
+        registry,
+        policy,
+        artifact_store=store,
+        agent_session_id="session-1",
+    )
+
+    assert result["metadata"]["exit_code"] == 0
+    assert "['AAA', 'BBB']" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_execute_code_semantic_artifact_input_fails_closed_on_ambiguity(tmp_path) -> None:
+    store = ToolResultArtifactStore(tmp_path)
+    for call_id in ("call-cn-1", "call-cn-2"):
+        store.save(
+            session_id="session-1",
+            call_id=call_id,
+            tool_name="quotes",
+            arguments={"market": "cn"},
+            content="{}",
+            data={},
+        )
+
+    with pytest.raises(ValueError, match="expected one persisted result, matched 2"):
+        await handle_code_execution(
+            {
+                "artifact_inputs": {"quotes": {"tool_name": "quotes", "arguments": {"market": "cn"}}},
+                "code": "print('must not run')",
+            },
+            ToolRegistry(),
+            SandboxPolicy(),
+            artifact_store=store,
+            agent_session_id="session-1",
+        )
+
+
+def test_artifact_store_find_matches_argument_subset_in_stable_order(tmp_path) -> None:
+    store = ToolResultArtifactStore(tmp_path)
+    for call_id, ticker in (("call-b", "BBB"), ("call-a", "AAA")):
+        store.save(
+            session_id="session-1",
+            call_id=call_id,
+            tool_name="quotes",
+            arguments={"market": "cn", "ticker": ticker},
+            content="{}",
+            data={"ticker": ticker},
+        )
+
+    matches = store.find("session-1", tool_name="quotes", arguments={"market": "cn"})
+
+    assert [item["data"]["ticker"] for item in matches] == ["BBB", "AAA"]
+    assert store.find("session-1", tool_name="quotes", arguments={"market": "us"}) == []
 
 
 @pytest.mark.asyncio
@@ -751,7 +840,7 @@ async def test_executor_keeps_read_session_output_when_large(tmp_path):
     assert loaded is not None
 
 
-def test_build_artifact_pointer_message_includes_call_id():
+def test_build_artifact_pointer_message_uses_semantic_input_selector():
     message = build_artifact_pointer_message(
         tool_name="get_ticker_price_trends",
         call_id="abc-123",
@@ -760,12 +849,17 @@ def test_build_artifact_pointer_message_includes_call_id():
     )
     payload = json.loads(message)
     assert payload["artifact"] is True
-    assert payload["call_id"] == "abc-123"
-    assert "load_tool_result" in payload["load_hint"]
+    assert "call_id" not in payload
+    assert "load_hint" not in payload
+    assert payload["artifact_input_selector"] == {
+        "tool_name": "get_ticker_price_trends",
+        "arguments": {"ticker": "0700", "market": "hk"},
+        "mode": "one",
+    }
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
     assert "dojo_tools.tool_" in payload["parse_hint"]
-    assert payload["execute_code_example"] == 'res = dojo_tools.load_tool_result("abc-123")\ndojo_tools.tool_print(res)'
+    assert payload["execute_code_example"] == "res = dojo_tools.input_result('<name>')\ndojo_tools.tool_print(res)"
 
 
 def test_build_artifact_pointer_message_includes_latest_kline_summary() -> None:
