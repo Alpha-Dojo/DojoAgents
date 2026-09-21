@@ -37,7 +37,8 @@ _BLOCK_MESSAGES = {
         "Do NOT inline OHLC/price rows in Python. Fetch real data inside the script via "
         "`import dojo_tools` — e.g. "
         "`dojo_tools.get_ticker_price_trends({{'ticker': '0700', 'market': 'hk'}})` or "
-        "`dojo_tools.load_tool_result('<call_id>')`, then parse with `dojo_tools.tool_json(res)`."
+        "copy the persisted result's complete `load_hint` and call "
+        "`dojo_tools.load_tool_result('<exact-call-id>')`, then parse with `dojo_tools.tool_json(res)`."
     ),
     "presentation_only": (
         "Blocked {tool_name}: {explanation} "

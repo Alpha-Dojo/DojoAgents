@@ -120,14 +120,15 @@ When Python computation is required:
 1. NEVER hardcode OHLC prices, financial statement rows, or quote values in `execute_code`.
 2. Fetch live data inside the script via `import dojo_tools` — e.g.
    `dojo_tools.get_ticker_price_trends({"ticker": "0700", "market": "hk", "start_date": "2025-01-01"})`.
-3. For large prior tool outputs, use `dojo_tools.load_tool_result(call_id)` instead of
-   copying JSON from memory. The artifact pointer includes `schema_hint` and `parse_hint`.
+3. For large prior tool outputs, copy the artifact pointer's complete `load_hint` verbatim.
+   Treat `call_id` as an opaque token: never shorten, reconstruct, or edit it. The pointer
+   includes `artifact_ref`, `schema_hint`, and `parse_hint`.
 4. Parse tool payloads with `dojo_tools.tool_json(res)`; metadata scalars via
    `dojo_tools.tool_meta(res)` (as_of, match_count, … — NOT on the RPC wrapper `res`).
    Prefer `dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='benchmarks')`
    for tabular output; use `dojo_tools.tool_pick(df, columns)` to avoid KeyError.
    Example:
-   `res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res, table='items')`
+   `res = dojo_tools.load_tool_result('<exact-call-id>'); dojo_tools.tool_print(res, table='items')`
    Kline rows use field `datetime` for the trade date (fields: datetime, open, high, low, close, volume).
 
 ### execute_code misuse (FORBIDDEN)

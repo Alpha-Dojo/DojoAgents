@@ -1,8 +1,11 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import tempfile
+from collections.abc import Sequence
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -23,28 +26,84 @@ from dojoagents.tools.sandbox import SandboxPolicy
 
 LOGGER = get_logger(__name__)
 
-EXECUTE_CODE_BOOTSTRAP = """\
-import dojo_tools
-try:
-    import pandas as pd
-except ImportError:
-    pd = None  # noqa: F841
-try:
-    import numpy as np
-except ImportError:
-    np = None  # noqa: F841
-
-"""
+DEFAULT_PRELOAD_PACKAGES = ("pandas", "numpy", "json")
+_PRELOAD_ALIASES = {"pandas": "pd", "numpy": "np"}
+_MODULE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_RECOVERY_PREFIX_CHARS = 12
+_RECOVERY_SIMILARITY = 0.6
 
 
-def _wrap_execute_code(code_content: str) -> str:
-    return EXECUTE_CODE_BOOTSTRAP + (code_content or "")
+def _preload_alias(package: str) -> str:
+    return _PRELOAD_ALIASES.get(package, package.rsplit(".", 1)[-1])
+
+
+def _normalized_preload_packages(packages: Sequence[str] | None) -> tuple[str, ...]:
+    raw = DEFAULT_PRELOAD_PACKAGES if packages is None else packages
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for package in raw:
+        name = str(package).strip()
+        if not name:
+            continue
+        if not _MODULE_NAME_RE.fullmatch(name):
+            raise ValueError(f"Invalid execute_code preload package name: {package!r}")
+        if name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return tuple(normalized)
+
+
+def build_execute_code_bootstrap(packages: Sequence[str] | None = None) -> str:
+    lines = ["import dojo_tools"]
+    for package in _normalized_preload_packages(packages):
+        alias = _preload_alias(package)
+        lines.append(f"try:\n    import {package} as {alias}\nexcept ImportError:\n    {alias} = None  # noqa: F841")
+    return "\n".join(lines) + "\n\n"
+
+
+EXECUTE_CODE_BOOTSTRAP = build_execute_code_bootstrap()
+
+
+def _wrap_execute_code(code_content: str, preload_packages: Sequence[str] | None = None) -> str:
+    return build_execute_code_bootstrap(preload_packages) + (code_content or "")
 
 
 # asyncio StreamReader.readline() defaults to 64 KiB per line; execute_code RPC carries
 # full tool args/responses as one JSON line and must support large write_session_file payloads.
 RPC_MAX_MESSAGE_BYTES = 32 * 1024 * 1024
 _NESTED_FAILURE_ERROR_CHARS = 2000
+_SAFE_SUBPROCESS_ENV = (
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+
+
+def _code_execution_env(temp_dir: str, pkg_root: str | None) -> dict[str, str]:
+    env = {name: os.environ[name] for name in _SAFE_SUBPROCESS_ENV if name in os.environ}
+    env.update(
+        {
+            "HOME": temp_dir,
+            "TMPDIR": temp_dir,
+            "TEMP": temp_dir,
+            "TMP": temp_dir,
+            "PYTHONPATH": os.pathsep.join(path for path in (temp_dir, pkg_root) if path),
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONNOUSERSITE": "1",
+            "OTEL_SDK_DISABLED": "true",
+        }
+    )
+    return env
 
 
 def _serialized_char_count(value: Any) -> int:
@@ -270,12 +329,45 @@ class AsyncCodeExecutionRPC:
             return {"ok": False, "content": "", "data": None, "error": "call_id is required"}
         payload = self.artifact_store.load(self.agent_session_id, call_id)
         if payload is None:
-            return {
-                "ok": False,
-                "content": "",
-                "data": None,
-                "error": f"Tool result artifact not found for call_id={call_id}",
-            }
+            catalog = self.artifact_store.list_summaries(self.agent_session_id)
+            candidates = []
+            for item in catalog:
+                candidate_id = str(item.get("call_id") or "")
+                common_prefix = len(os.path.commonprefix((call_id, candidate_id)))
+                similarity = SequenceMatcher(None, call_id, candidate_id).ratio()
+                if common_prefix >= _RECOVERY_PREFIX_CHARS and similarity >= _RECOVERY_SIMILARITY:
+                    candidates.append((common_prefix, similarity, candidate_id, item))
+            candidates.sort(key=lambda item: (item[0], item[1], str(item[3].get("created_at") or "")), reverse=True)
+            if len(candidates) == 1:
+                recovered_call_id = candidates[0][2]
+                LOGGER.warning(
+                    "Recovered tool result artifact from current session catalog: requested_call_id=%s resolved_call_id=%s",
+                    call_id,
+                    recovered_call_id,
+                )
+                payload = self.artifact_store.load(self.agent_session_id, recovered_call_id)
+            else:
+                candidate_rows = [
+                    {
+                        "call_id": item[2],
+                        "tool_name": item[3].get("tool_name"),
+                        "created_at": item[3].get("created_at"),
+                    }
+                    for item in candidates
+                ]
+                return {
+                    "ok": False,
+                    "content": "",
+                    "data": None,
+                    "error": f"Tool result artifact not found for call_id={call_id}",
+                    "artifact_lookup": {
+                        "requested_call_id": call_id,
+                        "candidates": candidate_rows,
+                        "hint": "Copy one exact call_id from the artifact pointer; do not reconstruct or abbreviate it.",
+                    },
+                }
+            if payload is None:
+                return {"ok": False, "content": "", "data": None, "error": f"Tool result artifact not found for call_id={call_id}"}
         response = {
             "ok": bool(payload.get("ok", True)),
             "content": payload.get("content", ""),
@@ -286,6 +378,12 @@ class AsyncCodeExecutionRPC:
         }
         if self.artifact_adapter is not None:
             response = self.artifact_adapter.enrich_loaded_payload(response)
+        if call_id != str(payload.get("call_id") or call_id):
+            response["artifact_lookup"] = {
+                "requested_call_id": call_id,
+                "resolved_call_id": payload.get("call_id"),
+                "recovered": True,
+            }
         return response
 
     def _list_tool_results(self) -> dict[str, Any]:
@@ -413,6 +511,7 @@ async def handle_code_execution(
     artifact_adapter: ToolResultArtifactAdapter | None = None,
     agent_session_id: str = "",
     sessions_root: str | Path = "",
+    preload_packages: Sequence[str] | None = None,
 ) -> dict:
     code_content = args.get("code")
     rpc_session_id = os.urandom(6).hex()
@@ -438,18 +537,17 @@ async def handle_code_execution(
 
     script_file = os.path.join(temp_dir, "script.py")
     with open(script_file, "w", encoding="utf-8") as handle:
-        handle.write(_wrap_execute_code(code_content))
+        handle.write(_wrap_execute_code(code_content, preload_packages))
 
-    env = os.environ.copy()
-    env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
+    pkg_root = None
     try:
         import dojoagents
 
         pkg_root = str(Path(dojoagents.__file__).resolve().parent.parent)
-        env["PYTHONPATH"] = os.pathsep.join([temp_dir, pkg_root, env.get("PYTHONPATH", "")])
     except ImportError:
-        env["PYTHONPATH"] = temp_dir
-    env["PYTHONIOENCODING"] = "utf-8"
+        pass
+    env = _code_execution_env(temp_dir, pkg_root)
+    env["DOJO_SESSION_OUTPUT_MANIFEST"] = session_output_manifest
     if agent_session_id:
         env["DOJO_SESSION_ID"] = agent_session_id
         if sessions_root:
@@ -520,7 +618,11 @@ def get_code_execution_spec(
     artifact_adapter: ToolResultArtifactAdapter | None = None,
     max_tool_calls: int = 20,
     sessions_root: str | Path = "",
+    preload_packages: Sequence[str] | None = None,
 ) -> ToolSpec:
+    packages = _normalized_preload_packages(preload_packages)
+    preload_names = "/".join([*(_preload_alias(package) for package in packages), "dojo_tools"])
+
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         session_id = active_session_id.get() or str(args.get("session_id") or "")
         return await handle_code_execution(
@@ -532,6 +634,7 @@ def get_code_execution_spec(
             artifact_adapter=artifact_adapter,
             agent_session_id=session_id,
             sessions_root=sessions_root,
+            preload_packages=packages,
         )
 
     exposed = [spec.name for spec in tool_registry.all() if spec.name not in {"execute_code", "code_execution"}]
@@ -543,10 +646,9 @@ def get_code_execution_spec(
         name="execute_code",
         description=(
             "Execute Python for dojo_tools batch orchestration or pandas/numpy on fetched data. "
-            "pd/np/dojo_tools are pre-imported. "
-            "For a prior artifact, copy its load_hint exactly; dojo_tools.last_tool_result() does not exist. "
-            "When call_id is known, do not call list_tool_results(); that helper returns an RPC response whose summaries are tool_json(res)['items'], newest first. "
-            "Canonical pattern after a live dojo_tools helper or load_tool_result(call_id): "
+            f"{preload_names} are pre-imported. "
+            "For a persisted prior result, copy its complete load_hint verbatim; call_id is an opaque token and must not be shortened or reconstructed. "
+            "Canonical pattern after dojo_tools.load_tool_result(call_id) or a live dojo_tools helper: "
             "`dojo_tools.tool_print(res)` or `dojo_tools.tool_print(res, table='items', columns=[...])`. "
             "For raw dojo.sdk.* JSON use `payload = dojo_tools.tool_json(res); rows = payload['data']`. "
             "Safe column pick: `dojo_tools.tool_pick(dojo_tools.tool_df(res, table), columns)`. "
@@ -561,7 +663,9 @@ def get_code_execution_spec(
         ),
         parameters={
             "type": "object",
-            "properties": {"code": {"type": "string", "description": "Python code to execute"}},
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute"},
+            },
             "required": ["code"],
         },
         handler=_handler,

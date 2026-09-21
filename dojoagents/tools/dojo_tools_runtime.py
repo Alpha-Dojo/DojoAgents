@@ -425,13 +425,14 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
     hints: list[str] = []
     if "AttributeError" in output and "last_tool_result" in output:
         hints.append(
-            "HINT: dojo_tools.last_tool_result() does not exist. For a persisted prior result, " "copy its artifact load_hint and call dojo_tools.load_tool_result(call_id)."
+            "HINT: dojo_tools.last_tool_result() does not exist. Copy the complete load_hint from the artifact pointer "
+            "and call dojo_tools.load_tool_result(call_id); call_id is opaque and must be copied exactly."
         )
     if "KeyError" in output and "list_tool_results" in code:
         hints.append(
             "HINT: dojo_tools.list_tool_results() returns an RPC response, not a list. "
             "Use items = dojo_tools.tool_json(results)['items']; items[0] is newest. "
-            "When a call_id is already available, load it directly with load_tool_result(call_id)."
+            "When a call_id is already available, copy it exactly and call load_tool_result(call_id)."
         )
     if "KeyError" in output and ("name_zh" in output or "symbol" in output or "columns" in output.lower()):
         hints.append(
@@ -457,7 +458,7 @@ def format_execute_code_error_hint(output: str, code: str) -> str:
         hints.append(
             "HINT: unwrap a live dojo_tools RPC result with payload = dojo_tools.tool_json(res). "
             "Raw dojo.sdk.* list rows are payload['data']; or use dojo_tools.tool_df(res). "
-            "Use load_tool_result(call_id) only when loading a persisted result from an earlier tool call."
+            "Use load_tool_result(call_id) only for a persisted result, copying its complete load_hint verbatim."
         )
     if "NameError" in output and (" pd" in output or "pd." in output):
         hints.append("HINT: pd/np/dojo_tools are pre-imported in execute_code bootstrap.")

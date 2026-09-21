@@ -155,12 +155,7 @@ async def test_code_execution_persists_nested_failure_response_as_artifact(tmp_p
     assert artifact["data"] == large_data
 
     loaded = await handle_code_execution(
-        {
-            "code": (
-                f"res = dojo_tools.load_tool_result({failure['response_artifact_call_id']!r})\n"
-                "print(res['ok'], res['error'], len(res['data']['rows']))\n"
-            )
-        },
+        {"code": (f"res = dojo_tools.load_tool_result({failure['response_artifact_call_id']!r})\n" "print(res['ok'], res['error'], len(res['data']['rows']))\n")},
         registry,
         policy,
         artifact_store=store,
@@ -368,8 +363,9 @@ def test_hermes_stub_maps_dotted_tool_names():
 def test_execute_code_description_documents_prior_artifact_contract():
     spec = get_code_execution_spec(ToolRegistry(), SandboxPolicy())
 
-    assert "last_tool_result() does not exist" in spec.description
-    assert "tool_json(res)['items'], newest first" in spec.description
+    assert "complete load_hint verbatim" in spec.description
+    assert "call_id is an opaque token" in spec.description
+    assert set(spec.parameters["properties"]) == {"code"}
 
 
 @pytest.mark.asyncio
@@ -378,9 +374,48 @@ async def test_code_execution_bootstrap_provides_pandas_without_user_import():
     policy = SandboxPolicy()
     registry.register(get_code_execution_spec(registry, policy))
 
-    code = "print('HasPandas:', pd is not None)\n"
+    code = "print('HasPandas:', pd is not None)\nprint('HasJson:', json is not None)\n"
     result = await handle_code_execution({"code": code}, registry, policy)
     assert "HasPandas: True" in result["content"]
+    assert "HasJson: True" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_code_execution_bootstrap_custom_preload_packages():
+    registry = ToolRegistry()
+    policy = SandboxPolicy()
+    registry.register(get_code_execution_spec(registry, policy, preload_packages=["json"]))
+
+    code = "print('HasJson:', json is not None)\n" "try:\n" "    pd\n" "    print('HasPandas: True')\n" "except NameError:\n" "    print('HasPandas: False')\n"
+    result = await handle_code_execution(
+        {"code": code},
+        registry,
+        policy,
+        preload_packages=["json"],
+    )
+    assert "HasJson: True" in result["content"]
+    assert "HasPandas: False" in result["content"]
+
+
+def test_execute_code_description_lists_preload_aliases():
+    spec = get_code_execution_spec(ToolRegistry(), SandboxPolicy())
+    assert "pd/np/json/dojo_tools are pre-imported" in spec.description
+
+    custom = get_code_execution_spec(
+        ToolRegistry(),
+        SandboxPolicy(),
+        preload_packages=["json"],
+    )
+    assert "json/dojo_tools are pre-imported" in custom.description
+
+
+def test_invalid_preload_package_name_rejected():
+    with pytest.raises(ValueError, match="Invalid execute_code preload package"):
+        get_code_execution_spec(
+            ToolRegistry(),
+            SandboxPolicy(),
+            preload_packages=["pandas; import os"],
+        )
 
 
 @pytest.mark.asyncio
@@ -717,7 +752,7 @@ async def test_executor_keeps_read_session_output_when_large(tmp_path):
     assert loaded is not None
 
 
-def test_build_artifact_pointer_message_includes_call_id():
+def test_build_artifact_pointer_message_includes_structured_exact_call_id_hint():
     message = build_artifact_pointer_message(
         tool_name="get_ticker_price_trends",
         call_id="abc-123",
@@ -727,7 +762,8 @@ def test_build_artifact_pointer_message_includes_call_id():
     payload = json.loads(message)
     assert payload["artifact"] is True
     assert payload["call_id"] == "abc-123"
-    assert "load_tool_result" in payload["load_hint"]
+    assert payload["load_hint"] == 'dojo_tools.load_tool_result("abc-123")'
+    assert payload["artifact_ref"] == {"call_id": "abc-123", "copy_policy": "exact"}
     assert payload["schema_hint"]["rows_key"] == "klines"
     assert "datetime" in payload["schema_hint"]["row_fields"]
     assert "dojo_tools.tool_" in payload["parse_hint"]
@@ -942,6 +978,65 @@ def test_list_tool_results_returns_rpc_envelope_with_newest_item_first(tmp_path)
 
     assert result["ok"] is True
     assert result["data"]["items"][0]["call_id"] == "newer"
+
+
+def test_load_tool_result_recovers_one_close_call_id_from_current_session(tmp_path) -> None:
+    from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+
+    store = ToolResultArtifactStore(tmp_path)
+    actual_call_id = "call_8f1913f4a64f4589b052b078"
+    store.save(
+        session_id="sess-1",
+        call_id=actual_call_id,
+        tool_name="get_ticker_price_trends",
+        arguments={},
+        content='{"ok": true}',
+        data={"ok": True},
+    )
+    server = AsyncCodeExecutionRPC(
+        "/tmp/test.sock",
+        tool_registry=type("R", (), {"get": lambda self, name: None})(),
+        artifact_store=store,
+        agent_session_id="sess-1",
+    )
+
+    loaded = server._load_tool_result({"call_id": "call_8f1913f4a6479x"})
+
+    assert loaded["ok"] is True
+    assert loaded["artifact_lookup"] == {
+        "requested_call_id": "call_8f1913f4a6479x",
+        "resolved_call_id": actual_call_id,
+        "recovered": True,
+    }
+
+
+def test_load_tool_result_does_not_guess_when_close_call_id_is_ambiguous(tmp_path) -> None:
+    from dojoagents.tools.code_execution_tool import AsyncCodeExecutionRPC
+
+    store = ToolResultArtifactStore(tmp_path)
+    candidate_ids = ("call_abcdefghij1111", "call_abcdefghij2222")
+    for candidate_id in candidate_ids:
+        store.save(
+            session_id="sess-1",
+            call_id=candidate_id,
+            tool_name="quotes",
+            arguments={},
+            content="{}",
+            data={},
+        )
+    server = AsyncCodeExecutionRPC(
+        "/tmp/test.sock",
+        tool_registry=type("R", (), {"get": lambda self, name: None})(),
+        artifact_store=store,
+        agent_session_id="sess-1",
+    )
+
+    loaded = server._load_tool_result({"call_id": "call_abcdefghijxxxx"})
+
+    assert loaded["ok"] is False
+    assert {item["call_id"] for item in loaded["artifact_lookup"]["candidates"]} == set(candidate_ids)
+    assert {item["tool_name"] for item in loaded["artifact_lookup"]["candidates"]} == {"quotes"}
+    assert "Copy one exact call_id" in loaded["artifact_lookup"]["hint"]
 
 
 @pytest.mark.asyncio

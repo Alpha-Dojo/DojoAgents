@@ -168,7 +168,8 @@ def test_format_execute_code_error_hint_explains_live_rpc_unwrap() -> None:
 
     assert "tool_json(res)" in enriched
     assert "payload['data']" in enriched
-    assert "only when loading a persisted result" in enriched
+    assert "load_tool_result(call_id)" in enriched
+    assert "complete load_hint verbatim" in enriched
 
 
 def test_format_execute_code_error_hint_rejects_last_tool_result_guess() -> None:
@@ -179,6 +180,7 @@ def test_format_execute_code_error_hint_rejects_last_tool_result_guess() -> None
 
     assert "last_tool_result() does not exist" in enriched
     assert "load_tool_result(call_id)" in enriched
+    assert "copied exactly" in enriched
 
 
 def test_format_execute_code_error_hint_explains_tool_result_catalog_envelope() -> None:

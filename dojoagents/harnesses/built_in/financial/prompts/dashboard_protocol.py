@@ -302,13 +302,14 @@ print(dojo_tools.tool_json(res)["path"])
 Large portfolio responses are compressed to an artifact pointer. The pointer **always includes**
 `eval_summary` and `positions[]` (ticker, name, shares, weight) — read those for 卖出/减仓/清仓.
 
-- **Do NOT** use `terminal` or shell `python3 -c` to call `dojo_tools.load_tool_result` — that bridge
+- **Do NOT** use `terminal` or shell `python3 -c` to access persisted tool results — that bridge
   exists only inside `execute_code`.
 - **Do NOT** re-call `portfolio_read_detail` just to re-read holdings already in the pointer.
 - For **order workflows** (买入/卖出/减仓/清仓), pass `include_performance=false` to avoid bloating
   the response with NAV series you do not need.
-- Only use `execute_code` + `load_tool_result(call_id)` when you need full candidate rows or
-  performance series for computation — not for pretty-printing JSON.
+- Only use `execute_code` + the artifact pointer's complete `load_hint` when you need full candidate
+  rows or performance series for computation — not for pretty-printing JSON. Treat `call_id` as an
+  opaque token: copy it exactly; never shorten, reconstruct, or edit it.
 
 ### Portfolio tools
 

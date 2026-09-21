@@ -31,6 +31,7 @@ from dojoagents.config.models import (
     SandboxConfig,
     SchedulerConfig,
     ToolsConfig,
+    ExecuteCodeToolsConfig,
     WebToolsConfig,
     DojoSDKConfig,
     ProfilerConfig,
@@ -284,6 +285,7 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     )
     sandbox_raw = raw.get("tools", {}).get("sandbox", {})
     web_raw = raw.get("tools", {}).get("web", {})
+    execute_code_raw = raw.get("tools", {}).get("execute_code", {})
     tools = ToolsConfig(
         sandbox=SandboxConfig(
             allowed_roots=list(sandbox_raw.get("allowed_roots", ["${PWD}", "/tmp"])),
@@ -304,6 +306,9 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             summary_threshold_chars=int(web_raw.get("summary_threshold_chars", 6000)),
             max_summary_chars=int(web_raw.get("max_summary_chars", 2500)),
             debug=bool(web_raw.get("debug", False)),
+        ),
+        execute_code=ExecuteCodeToolsConfig(
+            preload_packages=list(execute_code_raw.get("preload_packages", ["pandas", "numpy", "json"])),
         ),
     )
     memory_raw = raw.get("memory", {})

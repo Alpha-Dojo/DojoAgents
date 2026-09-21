@@ -101,7 +101,8 @@ class ToolCallGuardrailController:
                     action="block",
                     code="terminal_dojo_tools_blocked",
                     message=(
-                        "Blocked terminal: dojo_tools.load_tool_result only works inside execute_code. " "Use execute_code with dojo_tools.load_tool_result(call_id) instead."
+                        "Blocked terminal: dojo_tools.load_tool_result only works inside execute_code. "
+                        "Use execute_code with the artifact pointer's complete load_hint; copy call_id exactly."
                     ),
                     tool_name=tool_name,
                     signature=signature,

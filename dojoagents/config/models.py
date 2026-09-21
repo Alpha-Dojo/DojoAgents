@@ -69,9 +69,15 @@ class WebToolsConfig:
 
 
 @dataclass(frozen=True)
+class ExecuteCodeToolsConfig:
+    preload_packages: list[str] = field(default_factory=lambda: ["pandas", "numpy", "json"])
+
+
+@dataclass(frozen=True)
 class ToolsConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     web: WebToolsConfig = field(default_factory=WebToolsConfig)
+    execute_code: ExecuteCodeToolsConfig = field(default_factory=ExecuteCodeToolsConfig)
 
 
 @dataclass(frozen=True)

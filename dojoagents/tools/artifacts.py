@@ -154,6 +154,10 @@ def build_artifact_pointer_message(
         "tool": tool_name,
         "call_id": call_id,
         "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
+        "artifact_ref": {
+            "call_id": call_id,
+            "copy_policy": "exact",
+        },
     }
     compact_arguments = {str(key): value for key, value in dict(arguments or {}).items() if isinstance(value, (str, int, float, bool)) and value not in ("", None)}
     if compact_arguments:

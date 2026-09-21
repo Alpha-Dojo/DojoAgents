@@ -236,6 +236,7 @@ def build_financial_artifact_pointer(
         "tool": tool_name,
         "call_id": call_id,
         "load_hint": f'dojo_tools.load_tool_result("{call_id}")',
+        "artifact_ref": {"call_id": call_id, "copy_policy": "exact"},
         "execute_code_example": execute_code_example,
         "rpc_hint": f"Re-fetch live data with dojo_tools.{tool_name}(...) inside execute_code when needed.",
     }
@@ -249,13 +250,13 @@ def build_financial_artifact_pointer(
             summary["row_count"] = len(rows)
         if tool_name == "get_ticker_price_trends":
             summary.update(summarize_kline_artifact_data(data))
-            summary["reuse_hint"] = "Do NOT call get_ticker_price_trends again for the latest bar; " "use latest_kline/as_of above or dojo_tools.load_tool_result(call_id)."
+            summary["reuse_hint"] = "Do NOT call get_ticker_price_trends again for the latest bar; " "use latest_kline/as_of above or the exact load_hint."
         if tool_name == "portfolio_read_detail":
             summary.update(summarize_portfolio_detail_artifact_data(data))
             summary["reuse_hint"] = (
                 "Use positions[] above with portfolio_write_create_order(s) for portfolio "
                 "mutations; do not use terminal or re-call portfolio_read_detail. Load the full "
-                "result by call_id inside execute_code when more fields are required."
+                "result with the exact load_hint inside execute_code when more fields are required."
             )
     for key in ("ticker", "tickers", "market", "portfolio_id"):
         if arguments and arguments.get(key):

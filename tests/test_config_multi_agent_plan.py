@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 
 from dojoagents.config.models import (
     AgentsConfig,
+    ExecuteCodeToolsConfig,
     MultiAgentConfig,
     PlanConfig,
     WebToolsConfig,
@@ -60,6 +61,11 @@ class TestAgentsConfigNewFields:
         cfg = AgentsConfig()
         assert hasattr(cfg.tools, "web")
         assert isinstance(cfg.tools.web, WebToolsConfig)
+
+    def test_has_execute_code_tools(self):
+        cfg = AgentsConfig()
+        assert isinstance(cfg.tools.execute_code, ExecuteCodeToolsConfig)
+        assert cfg.tools.execute_code.preload_packages == ["pandas", "numpy", "json"]
 
 
 class TestConfigLoader:
@@ -426,6 +432,18 @@ llm_provider:
         assert cfg.tools.web.api_key == "tvly-test-key"
         assert cfg.tools.web.api_key_env == "TAVILY_API_KEY"
         assert cfg.tools.web.summary_threshold_chars == 1200
+
+    def test_parses_execute_code_preload_packages(self):
+        cfg = _to_config(
+            {
+                "tools": {
+                    "execute_code": {
+                        "preload_packages": ["json", "math"],
+                    }
+                }
+            }
+        )
+        assert cfg.tools.execute_code.preload_packages == ["json", "math"]
 
     def test_resolves_web_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("TAVILY_API_KEY", "tvly-from-env")
