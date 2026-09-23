@@ -62,6 +62,28 @@ tools:
       - pandas
       - numpy
       - json
+  artifacts:
+    pointer_tools:
+      - search_company_ticker
+      - search_sector_taxonomy
+      - get_taxonomy_tree
+      - get_market_overview
+      - get_sector_movers
+      - screen_market_stocks
+      - filter_sector_constituents
+      - get_sector_return_curve
+      - get_sector_attribution_factors
+      - get_ticker_realtime_quote
+      - get_ticker_financials
+      - get_ticker_news_and_events
+      - get_ticker_price_trends
+      - portfolio_read_list
+      - portfolio_read_search
+      - portfolio_read_detail
+
+# Pointer replacement applies only to the listed tools when their result content
+# reaches 5000 characters. The list is frozen when an Agent starts; omitted means
+# no tool result is replaced. A pointer includes a bounded data_preview and call_id.
 
 skills:
   dir: ~/.dojo/skills

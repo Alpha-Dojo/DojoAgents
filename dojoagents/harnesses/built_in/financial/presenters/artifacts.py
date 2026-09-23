@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from .schema_hints import get_tool_schema_hint
+from dojoagents.tools.artifacts import build_artifact_data_preview, compact_artifact_schema_hint, serialize_artifact_pointer, structured_artifact_data
 
 _VIZ_DATA_MARKER = re.compile(r"===\s*VIZ_DATA\s*===", re.IGNORECASE)
 
@@ -230,8 +231,21 @@ def build_financial_artifact_pointer(
     data: Any = None,
     content: str | None = None,
 ) -> str:
+    source = structured_artifact_data(data, content)
+    if source is None:
+        raise ValueError("structured artifact data is required for a pointer")
+    projected = build_artifact_data_preview(source)
+    if projected is None:
+        raise ValueError("structured artifact preview exceeds the size limit")
+    preview, preview_meta = projected
+    data = source
     execute_code_example = f'res = dojo_tools.load_tool_result("{call_id}")\ndojo_tools.tool_print(res)'
     summary: dict[str, Any] = {
+        "delivery": "artifact",
+        "tool_name": tool_name,
+        "data_preview": preview,
+        "preview_meta": preview_meta,
+        "description": "Structured preview of the saved result; load omitted rows only when the preview is insufficient.",
         "artifact": True,
         "tool": tool_name,
         "call_id": call_id,
@@ -262,8 +276,8 @@ def build_financial_artifact_pointer(
         if arguments and arguments.get(key):
             summary[key] = arguments[key]
     schema_hint = get_tool_artifact_schema_hint(tool_name)
+    summary["schema_hint"] = compact_artifact_schema_hint(schema_hint, source)
     if schema_hint:
-        summary["schema_hint"] = schema_hint
         if isinstance(schema_hint.get("usage_notes"), str):
             summary["usage_notes"] = schema_hint["usage_notes"].strip()
         summary["parse_hint"] = schema_hint.get("pandas_example") or ("res = dojo_tools.load_tool_result(call_id); dojo_tools.tool_print(res)")
@@ -277,7 +291,7 @@ def build_financial_artifact_pointer(
             "Call agent_viz_build only if viz_blocks are missing or the wrong kind; "
             "never re-pass the full loaded series to rebuild an existing chart."
         )
-    return json.dumps(summary, ensure_ascii=False, indent=2)
+    return serialize_artifact_pointer(summary, source)
 
 
 class FinancialArtifactAdapter:

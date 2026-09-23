@@ -13,6 +13,7 @@ import yaml
 from dojoagents.config.models import (
     AgentConfig,
     AgentsConfig,
+    ArtifactToolsConfig,
     ChatCacheConfig,
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
@@ -286,6 +287,14 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     sandbox_raw = raw.get("tools", {}).get("sandbox", {})
     web_raw = raw.get("tools", {}).get("web", {})
     execute_code_raw = raw.get("tools", {}).get("execute_code", {})
+    artifacts_raw = raw.get("tools", {}).get("artifacts", {})
+    if not isinstance(artifacts_raw, dict):
+        raise ValueError("tools.artifacts must be a mapping")
+    _reject_unknown_keys(artifacts_raw, {"pointer_tools"}, "tools.artifacts")
+    pointer_tools_raw = artifacts_raw.get("pointer_tools", [])
+    if not isinstance(pointer_tools_raw, (list, tuple)) or any(not isinstance(name, str) or not name.strip() for name in pointer_tools_raw):
+        raise ValueError("tools.artifacts.pointer_tools must be a list of non-empty tool names")
+    pointer_tools = tuple(dict.fromkeys(name.strip() for name in pointer_tools_raw))
     tools = ToolsConfig(
         sandbox=SandboxConfig(
             allowed_roots=list(sandbox_raw.get("allowed_roots", ["${PWD}", "/tmp"])),
@@ -310,6 +319,7 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         execute_code=ExecuteCodeToolsConfig(
             preload_packages=list(execute_code_raw.get("preload_packages", ["pandas", "numpy", "json"])),
         ),
+        artifacts=ArtifactToolsConfig(pointer_tools=pointer_tools),
     )
     memory_raw = raw.get("memory", {})
     skills_raw = raw.get("skills", {})

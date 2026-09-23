@@ -74,10 +74,16 @@ class ExecuteCodeToolsConfig:
 
 
 @dataclass(frozen=True)
+class ArtifactToolsConfig:
+    pointer_tools: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ToolsConfig:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     web: WebToolsConfig = field(default_factory=WebToolsConfig)
     execute_code: ExecuteCodeToolsConfig = field(default_factory=ExecuteCodeToolsConfig)
+    artifacts: ArtifactToolsConfig = field(default_factory=ArtifactToolsConfig)
 
 
 @dataclass(frozen=True)

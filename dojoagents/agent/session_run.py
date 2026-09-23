@@ -278,7 +278,7 @@ class CanonicalAgentRun:
         pending_messages: tuple[SessionMessageRecord, ...] = ()
         if recovering:
             run_id = _durable_run_id(event_sink=event_sink, metadata=request.metadata)
-            pending_messages = await service.load_run_messages(principal, run_id)
+            pending_messages = tuple(message for message in await service.load_run_messages(principal, run_id) if message.agent_id == agent_id)
         replay_from_start = recovering and len(pending_messages) <= 1
         metadata = dict(request.metadata)
         metadata["defer_run_done"] = True
@@ -386,6 +386,14 @@ class CanonicalAgentRun:
             if not raw_messages or raw_messages[-1].get("role") != "assistant" or (response.content and not final_has_text):
                 raw_messages.append({"role": "assistant", "content": [{"text": response.content}]})
 
+        from dojoagents.multi_agent.team import is_agent_team_tool
+
+        private_tool_ids = {
+            str(block["toolUse"].get("toolUseId") or "")
+            for message in raw_messages
+            for block in (message.get("content") if isinstance(message.get("content"), list) else ())
+            if isinstance(block, dict) and isinstance(block.get("toolUse"), dict) and is_agent_team_tool(str(block["toolUse"].get("name") or ""))
+        }
         records: list[SessionMessageRecord] = []
         for offset, raw in enumerate(raw_messages):
             record = strands_to_canonical(
@@ -399,7 +407,22 @@ class CanonicalAgentRun:
             blocks = content if isinstance(content, list) else ()
             has_tool_use = any(isinstance(block, dict) and "toolUse" in block for block in blocks)
             has_tool_result = any(isinstance(block, dict) and "toolResult" in block for block in blocks)
-            if continuation and offset == 0 and raw.get("role") == "user":
+            private_tool = (
+                any(
+                    isinstance(block, dict)
+                    and isinstance(block.get("toolUse") or block.get("toolResult"), dict)
+                    and (
+                        is_agent_team_tool(str((block.get("toolUse") or block.get("toolResult")).get("name") or ""))
+                        or str((block.get("toolUse") or block.get("toolResult")).get("toolUseId") or "") in private_tool_ids
+                    )
+                    for block in blocks
+                )
+                or str(raw.get("tool_call_id") or "") in private_tool_ids
+            )
+            if raw.get("_agent_internal") or private_tool:
+                boundary_kind = "agent_internal_message"
+                visibility = "internal"
+            elif continuation and offset == 0 and raw.get("role") == "user":
                 boundary_kind = "recovery_control"
                 visibility = "internal"
             elif has_tool_use:

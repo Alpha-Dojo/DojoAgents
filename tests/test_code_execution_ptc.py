@@ -664,13 +664,15 @@ async def test_executor_persists_large_tool_result_and_replaces_llm_content(tmp_
         policy,
         artifact_store=store,
         artifact_adapter=FinancialArtifactAdapter(),
+        pointer_tools=("get_ticker_price_trends",),
     )
     result = await executor.execute_one(
         ToolCall(id="call-big", name="get_ticker_price_trends", arguments={"ticker": "0700"}),
         session_id="session-abc",
     )
     assert result.ok
-    assert '"artifact": true' in result.content
+    assert json.loads(result.content)["data_preview"]["klines"][0]["close"] == 299.0
+    assert json.loads(result.content)["preview_meta"]["total_rows"]["klines"] == 300
     assert result.data is not None
     assert isinstance(result.data, dict)
     assert len(result.data.get("klines") or []) == 300

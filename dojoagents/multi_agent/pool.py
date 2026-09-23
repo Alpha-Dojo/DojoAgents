@@ -40,6 +40,11 @@ class AgentPool:
 
         # Clone tool registry and apply filters
         tool_registry: ToolRegistry = src.tool_executor.registry.clone()
+        if spec.allowed_tools:
+            allowed = frozenset(spec.allowed_tools)
+            for tool in tuple(tool_registry.all()):
+                if tool.name not in allowed:
+                    tool_registry.remove(tool.name)
         if spec.disallowed_tools:
             for tool_name in spec.disallowed_tools:
                 tool_registry.remove(tool_name)
@@ -51,7 +56,13 @@ class AgentPool:
 
         return AgentLoop(
             llm_provider=src.llm_provider,
-            tool_executor=ToolExecutor(tool_registry, src.tool_executor.sandbox),
+            tool_executor=ToolExecutor(
+                tool_registry,
+                src.tool_executor.sandbox,
+                artifact_store=src.tool_executor.artifact_store,
+                artifact_adapter=src.tool_executor.artifact_adapter,
+                pointer_tools=src.tool_executor.pointer_tools,
+            ),
             skill_manager=src.skill_manager,
             memory_manager=src.memory_manager,
             extension_registry=src.extension_registry,
