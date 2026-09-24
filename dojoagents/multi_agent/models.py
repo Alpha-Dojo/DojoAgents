@@ -60,3 +60,8 @@ class AgentMessage:
     content: str
     message_type: str = "task_result"
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# The legacy AgentMessage above is an in-memory value object. Durable run-scoped
+# envelopes have separate identities and delivery state.
+from dojoagents.multi_agent.mailbox import AgentAddress, AgentEnvelope, AgentInstance  # noqa: E402,F401

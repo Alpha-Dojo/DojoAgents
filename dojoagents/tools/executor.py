@@ -8,6 +8,8 @@ from dojoagents.tools.escalation import AgentEscalationError, escalation_metadat
 from dojoagents.tools.artifacts import (
     ARTIFACT_PERSIST_THRESHOLD_CHARS,
     ARTIFACT_KEEP_FULL_CONTENT_TOOLS,
+    ARTIFACT_MAX_CONTENT_CHARS,
+    structured_artifact_data,
     ToolResultArtifactAdapter,
     ToolResultArtifactStore,
     build_artifact_pointer_message,
@@ -29,12 +31,14 @@ class ToolExecutor:
         artifact_store: ToolResultArtifactStore | None = None,
         artifact_adapter: ToolResultArtifactAdapter | None = None,
         presenter_registry: Any = None,
+        pointer_tools: tuple[str, ...] | frozenset[str] = (),
     ) -> None:
         self.registry = registry
         self.sandbox = sandbox
         self.presenters = presenter_registry
         self.artifact_store = artifact_store
         self.artifact_adapter = artifact_adapter
+        self.pointer_tools = frozenset(pointer_tools)
 
     async def execute_many(self, tool_calls: list[ToolCall], *, session_id: str = "") -> ToolResultList:
         results = ToolResultList()
@@ -122,7 +126,9 @@ class ToolExecutor:
         if self.presenters is not None:
             normalized = self.presenters.normalize(call.name, normalized)
 
-        content = str(normalized.get("content", ""))
+        original_content = str(normalized.get("content", ""))
+        source_truncated = bool(normalized.get("truncated", False))
+        content = original_content
         if len(content) > _MAX_TOOL_RESULT_CHARS:
             content = truncate_output(content, _MAX_TOOL_RESULT_CHARS)
             normalized["truncated"] = True
@@ -147,45 +153,43 @@ class ToolExecutor:
                 if not error:
                     error = content.strip() or f"Process exited with code {exit_code_int}"
 
-        artifact_path = None
-        persist_artifact = self.artifact_store is not None and session_id and len(content) >= ARTIFACT_PERSIST_THRESHOLD_CHARS
+        persist_artifact = self.artifact_store is not None and bool(session_id) and ARTIFACT_PERSIST_THRESHOLD_CHARS <= len(original_content) <= ARTIFACT_MAX_CONTENT_CHARS
         if persist_artifact:
             try:
                 artifact_data = normalized.get("data")
                 if self.artifact_adapter is not None:
-                    artifact_data = self.artifact_adapter.extract_data(
-                        call.name,
-                        content,
-                        artifact_data,
-                    )
+                    artifact_data = self.artifact_adapter.extract_data(call.name, original_content, artifact_data)
                 artifact_path = self.artifact_store.save(
                     session_id=session_id,
                     call_id=call.id,
                     tool_name=call.name,
                     arguments=dict(call.arguments),
-                    content=content,
+                    content=original_content,
                     data=artifact_data,
                     ok=ok,
-                    truncated=bool(normalized.get("truncated", False)),
+                    truncated=source_truncated,
+                    error=error,
                 )
+            except Exception:
+                LOGGER.exception("Failed to persist tool result artifact: session_id=%s call_id=%s tool=%s", session_id, call.id, call.name)
+            else:
                 metadata["artifact_path"] = str(artifact_path)
                 metadata["artifact_call_id"] = call.id
-                if call.name not in ARTIFACT_KEEP_FULL_CONTENT_TOOLS:
-                    pointer_builder = self.artifact_adapter.build_pointer if self.artifact_adapter is not None else build_artifact_pointer_message
-                    content = pointer_builder(
-                        tool_name=call.name,
-                        call_id=call.id,
-                        arguments=dict(call.arguments),
-                        data=normalized.get("data"),
-                        content=content,
-                    )
-            except Exception:
-                LOGGER.exception(
-                    "Failed to persist tool result artifact: session_id=%s call_id=%s tool=%s",
-                    session_id,
-                    call.id,
-                    call.name,
-                )
+                if ok and call.name in self.pointer_tools and call.name not in ARTIFACT_KEEP_FULL_CONTENT_TOOLS:
+                    source = structured_artifact_data(artifact_data, original_content)
+                    if source is not None:
+                        try:
+                            pointer_builder = self.artifact_adapter.build_pointer if self.artifact_adapter is not None else build_artifact_pointer_message
+                            content = pointer_builder(
+                                tool_name=call.name,
+                                call_id=call.id,
+                                arguments=dict(call.arguments),
+                                data=source,
+                                content=original_content,
+                            )
+                            normalized["truncated"] = source_truncated
+                        except Exception:
+                            LOGGER.exception("Failed to build tool result artifact preview: call_id=%s tool=%s", call.id, call.name)
         return ToolResult(
             call_id=call.id,
             name=call.name,

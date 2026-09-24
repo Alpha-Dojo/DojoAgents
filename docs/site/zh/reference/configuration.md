@@ -62,6 +62,27 @@ tools:
       - pandas
       - numpy
       - json
+  artifacts:
+    pointer_tools:
+      - search_company_ticker
+      - search_sector_taxonomy
+      - get_taxonomy_tree
+      - get_market_overview
+      - get_sector_movers
+      - screen_market_stocks
+      - filter_sector_constituents
+      - get_sector_return_curve
+      - get_sector_attribution_factors
+      - get_ticker_realtime_quote
+      - get_ticker_financials
+      - get_ticker_news_and_events
+      - get_ticker_price_trends
+      - portfolio_read_list
+      - portfolio_read_search
+      - portfolio_read_detail
+
+# 仅名单内工具的结果正文达到 5000 字符时才替换为 pointer；Agent 启动时锁定名单。
+# 不配置即不替换。pointer 包含有界 data_preview 与完整 call_id。
 
 skills:
   dir: ~/.dojo/skills
