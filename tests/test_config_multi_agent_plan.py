@@ -364,6 +364,23 @@ llm_provider:
         assert provider.model == "gpt-5.5"
         assert provider.author == "openai"
 
+    def test_normalizes_requesty_provider_model_id_into_author_and_slug(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "requesty": {
+                            "model": "openai/gpt-4o-mini",
+                            "base_url": "https://router.requesty.ai/v1",
+                        }
+                    }
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["requesty"]
+        assert provider.model == "gpt-4o-mini"
+        assert provider.author == "openai"
+
     def test_fills_default_provider_author_when_missing(self):
         cfg = _to_config(
             {
