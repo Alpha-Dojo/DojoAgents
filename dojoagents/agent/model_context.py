@@ -152,13 +152,22 @@ def _is_orcarouter_config(provider_cfg: LLMProviderConfig) -> bool:
     return "orcarouter.ai" in base_url.lower()
 
 
+def _is_requesty_config(provider_cfg: LLMProviderConfig) -> bool:
+    base_url = provider_cfg.base_url or ""
+    if not isinstance(base_url, str):
+        return False
+    return "requesty.ai" in base_url.lower()
+
+
 def _is_router_config(provider_cfg: LLMProviderConfig) -> bool:
-    return _is_openrouter_config(provider_cfg) or _is_orcarouter_config(provider_cfg)
+    return _is_openrouter_config(provider_cfg) or _is_orcarouter_config(provider_cfg) or _is_requesty_config(provider_cfg)
 
 
 def _router_models_url(provider_cfg: LLMProviderConfig) -> str:
     if _is_orcarouter_config(provider_cfg):
         return "https://api.orcarouter.ai/v1/models"
+    if _is_requesty_config(provider_cfg):
+        return "https://router.requesty.ai/v1/models"
     return "https://openrouter.ai/api/v1/models"
 
 
