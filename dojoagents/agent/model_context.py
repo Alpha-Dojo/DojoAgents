@@ -179,6 +179,26 @@ def _should_lookup_openrouter_info(provider_cfg: LLMProviderConfig) -> bool:
     return bool(author or _is_router_config(provider_cfg))
 
 
+def _litellm_info(provider_name: str, provider_cfg: LLMProviderConfig) -> ModelContextInfo | None:
+    if provider_name != "litellm" or not provider_cfg.model:
+        return None
+    from dojoagents.agent.litellm_provider import litellm_context_info
+
+    model_id = provider_cfg.model
+    if provider_cfg.author and not model_id.startswith(f"{provider_cfg.author}/"):
+        model_id = f"{provider_cfg.author}/{model_id}"
+    found = litellm_context_info(model_id)
+    if found is None:
+        return None
+    context_window, modalities = found
+    return ModelContextInfo(
+        context_window=context_window,
+        input_modalities=modalities,
+        output_modalities=("text",),
+        provider_model_id=model_id,
+    )
+
+
 class ModelContextRegistry:
     def __init__(
         self,
@@ -366,7 +386,12 @@ class ModelContextRegistry:
         provider_cfg: LLMProviderConfig,
     ) -> ModelContextInfo:
         model_id = provider_cfg.model
-        openrouter_info = await self._retrieve_openrouter_info(provider_cfg, provider_name)
+        # LiteLLM carries its own model map; asking OpenRouter about a
+        # "bedrock/..." model would only guess.
+        litellm_info = _litellm_info(provider_name, provider_cfg)
+        openrouter_info = None if provider_name == "litellm" else await self._retrieve_openrouter_info(provider_cfg, provider_name)
+        if litellm_info is not None:
+            openrouter_info = litellm_info
         if provider_cfg.context_window and provider_cfg.context_window > 0:
             override = int(provider_cfg.context_window)
             if not model_id:

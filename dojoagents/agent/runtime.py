@@ -12,6 +12,7 @@ from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
+from dojoagents.agent.litellm_provider import LiteLLMProvider
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import AgentsConfig
 from dojoagents.cron.jobs import JobStore
@@ -481,6 +482,9 @@ class Runtime:
         if provider_cfg is None:
             llm_provider: Any = UnconfiguredLLMProvider()
             model = self.config.agent.model or "unconfigured"
+        elif provider_name == "litellm":
+            llm_provider = LiteLLMProvider.from_config(provider_cfg)
+            model = self.config.agent.model or provider_cfg.model
         elif provider_name == "gemini":
             llm_provider = GeminiNativeProvider(
                 api_key=provider_cfg.api_key,
@@ -756,6 +760,16 @@ class Runtime:
         if provider_cfg is None:
             provider = UnconfiguredLLMProvider()
             LOGGER.info("Runtime started without LLM provider configuration")
+        elif provider_name == "litellm":
+            provider = LiteLLMProvider.from_config(provider_cfg)
+            LOGGER.info(
+                "Runtime selected LLM provider: provider=%s implementation=%s model=%s base_url=%s api_key_present=%s",
+                provider_name,
+                type(provider).__name__,
+                provider_cfg.model,
+                getattr(provider_cfg, "base_url", None),
+                bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
+            )
         elif provider_name == "gemini":
             provider = GeminiNativeProvider(
                 api_key=provider_cfg.api_key,

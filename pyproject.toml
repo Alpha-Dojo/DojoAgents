@@ -12,7 +12,7 @@ description = "AI Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.20.0,<2",
+    "openai>=1.20.0,<3",
     "fastapi>=0.115.2,<0.116",
     "uvicorn>=0.31.1,<0.36.0",
     "httpx>=0.27.0,<1",
@@ -68,4 +68,7 @@ dev = [
 docs = [
     "mkdocs-material>=9,<10",
     "mkdocs-static-i18n>=1,<2",
+]
+litellm = [
+    "litellm>=1.92.0,<1.101.1",
 ]

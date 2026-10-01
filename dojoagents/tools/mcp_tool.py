@@ -143,10 +143,15 @@ class SamplingHandler:
         cfg_store = ConfigStore()
         config = cfg_store.snapshot()
 
-        _, provider_cfg = resolve_provider_config(config.llm_provider)
+        provider_name, provider_cfg = resolve_provider_config(config.llm_provider)
         if provider_cfg is None:
             provider = UnconfiguredLLMProvider()
             model = ""
+        elif provider_name == "litellm":
+            from dojoagents.agent.litellm_provider import LiteLLMProvider
+
+            provider = LiteLLMProvider.from_config(provider_cfg)
+            model = provider_cfg.model or ""
         else:
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,

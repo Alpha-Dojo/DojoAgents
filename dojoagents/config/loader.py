@@ -58,6 +58,8 @@ _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "minimax": "minimax",
     "openrouter": "",
     "orcarouter": "",
+    # LiteLLM routes come from the model name itself ("bedrock/...").
+    "litellm": "",
 }
 
 

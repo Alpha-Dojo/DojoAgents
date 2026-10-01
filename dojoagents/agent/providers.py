@@ -159,6 +159,34 @@ class OpenAICompatibleProvider:
         self.author = author
         self.extra_headers = dict(extra_headers or {})
 
+    def _missing_credentials_result(self) -> LLMResult | None:
+        if self.api_key:
+            return None
+        return LLMResult(
+            content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
+            metadata={"provider": self.name, "live": False},
+        )
+
+    def _resolve_model(self, model: str) -> str:
+        is_model_router = (
+            self.name == "model-router"
+            or "openrouter.ai" in str(self.base_url or "").lower()
+            or "orcarouter.ai" in str(self.base_url or "").lower()
+        )
+        if is_model_router and self.author and not model.startswith(f"{self.author}/"):
+            return f"{self.author}/{model}"
+        return model
+
+    async def _create_completion(self, create_kwargs: dict[str, Any]) -> Any:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            default_headers=self.extra_headers or None,
+        )
+        return await client.chat.completions.create(**create_kwargs)
+
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
         if usage is None:
@@ -195,27 +223,11 @@ class OpenAICompatibleProvider:
         metadata: dict | None = None,
         stream_callback: Callable[[str], None] | None = None,
     ) -> LLMResult:
-        if not self.api_key:
-            return LLMResult(
-                content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
-                metadata={"provider": self.name, "live": False},
-            )
-        from openai import AsyncOpenAI
+        missing_credentials = self._missing_credentials_result()
+        if missing_credentials is not None:
+            return missing_credentials
 
-        client = AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            default_headers=self.extra_headers or None,
-        )
-
-        actual_model = model
-        is_model_router = (
-            self.name == "model-router"
-            or "openrouter.ai" in str(self.base_url or "").lower()
-            or "orcarouter.ai" in str(self.base_url or "").lower()
-        )
-        if is_model_router and self.author and not model.startswith(f"{self.author}/"):
-            actual_model = f"{self.author}/{model}"
+        actual_model = self._resolve_model(model)
 
         try:
             create_kwargs: dict[str, Any] = {
@@ -226,7 +238,7 @@ class OpenAICompatibleProvider:
             }
             if stream:
                 create_kwargs["stream_options"] = {"include_usage": True}
-            response = await client.chat.completions.create(**create_kwargs)
+            response = await self._create_completion(create_kwargs)
         except Exception as e:
             err_msg = str(e)
             max_context, requested = parse_context_length_error(err_msg)

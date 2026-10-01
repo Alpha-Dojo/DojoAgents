@@ -149,7 +149,11 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
         fallback = provider_name or getattr(config.llm_provider, "default", None)
         return (fallback or "default").strip()
 
-    if selected_provider == "gemini":
+    if selected_provider == "litellm":
+        from dojoagents.agent.litellm_provider import LiteLLMProvider
+
+        llm_provider = LiteLLMProvider.from_config(provider_cfg)
+    elif selected_provider == "gemini":
         llm_provider = GeminiNativeProvider(
             api_key=provider_cfg.api_key,
             api_key_env=provider_cfg.api_key_env,

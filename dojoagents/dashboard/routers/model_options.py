@@ -30,6 +30,7 @@ _PROVIDER_LABELS = {
     "ollama": "Ollama",
     "minimax": "MiniMax",
     "orcarouter": "OrcaRouter",
+    "litellm": "LiteLLM",
 }
 
 
@@ -63,7 +64,9 @@ async def list_model_options(
             )
             if is_default:
                 default_id = selection_id
-            available = bool(provider.api_key) or provider_name == "ollama"
+            # LiteLLM resolves provider credentials itself (ANTHROPIC_API_KEY,
+            # AWS_*, ...), so a missing api_key is not a missing credential.
+            available = bool(provider.api_key) or provider_name in ("ollama", "litellm")
             options.append(
                 ModelOption(
                     id=selection_id,
