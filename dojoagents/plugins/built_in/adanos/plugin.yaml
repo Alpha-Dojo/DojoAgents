@@ -1,0 +1,5 @@
+name: adanos
+version: 0.1.0
+description: Optional commercial Adanos market sentiment research data
+provides_tools:
+  - adanos_sentiment
