@@ -99,10 +99,11 @@ class _DurableEventWriter:
             return
         from dojoagents.sessions.errors import SessionLeaseLostError
 
+        # Buffer once; retry only persistence so transient failures cannot duplicate deltas.
+        await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events), flush=False)
         last_exc: Exception | None = None
         for attempt in range(1, 5):
             try:
-                await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events))
                 # RunCoordinator's size threshold reduces store calls for bursts, while
                 # this explicit flush guarantees that an idle SSE reader sees the burst
                 # before the Agent turn finishes.

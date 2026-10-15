@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
+from inspect import isawaitable
 
 
 def _utc_timestamp() -> str:
@@ -360,3 +361,26 @@ class AgentEventSink:
             compression_count=compression_count,
             estimated_prompt_tokens=estimated_prompt_tokens,
         )
+
+
+class StreamDeltaCallback:
+    """Awaitable delivery with the legacy synchronous callback boundary retained."""
+
+    def __init__(self, send_nowait: Callable[[str], None], send: Callable[[str], Awaitable[None]]) -> None:
+        self._send_nowait = send_nowait
+        self._send = send
+
+    def __call__(self, text: str) -> None:
+        self._send_nowait(text)
+
+    async def send(self, text: str) -> None:
+        await self._send(text)
+
+
+async def emit_stream_delta(callback: Callable[[str], None], text: str) -> None:
+    if isinstance(callback, StreamDeltaCallback):
+        await callback.send(text)
+    else:
+        result = callback(text)
+        if isawaitable(result):
+            await result

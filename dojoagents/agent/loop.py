@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from dojoagents.plugins import get_plugin_registry
 
-from dojoagents.agent.events import AgentEventSink
+from dojoagents.agent.events import AgentEventSink, StreamDeltaCallback
 from dojoagents.harnesses.components.task_flows import HarnessLoopState
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
@@ -325,11 +325,13 @@ class DojoStrandsModelBridge(Model):
 
         send_stream, receive_stream = anyio.create_memory_object_stream[Any](max_buffer_size=64)
 
-        def callback(delta: str) -> None:
+        def sync_callback(delta: str) -> None:
             try:
                 send_stream.send_nowait(delta)
             except anyio.WouldBlock as exc:
                 raise RuntimeError("provider delta stream buffer is full (capacity=64)") from exc
+
+        callback = StreamDeltaCallback(sync_callback, send_stream.send)
 
         async def run_chat():
             nonlocal dojo_msgs

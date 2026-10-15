@@ -8,6 +8,7 @@ import httpx
 
 from dojoagents.agent.multimodal import openai_content_to_gemini_parts
 from dojoagents.agent.models import LLMResult, ToolCall
+from dojoagents.agent.events import emit_stream_delta
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
@@ -409,7 +410,7 @@ async def _emit_stream_deltas(
             event_sink.thinking_delta(delta)
             continue
         if stream_callback is not None:
-            stream_callback(delta)
+            await emit_stream_delta(stream_callback, delta)
     return reasoning_started
 
 

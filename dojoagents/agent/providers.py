@@ -1,6 +1,7 @@
 import json
 import math
 import re
+import time
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -8,6 +9,7 @@ from typing import Any, Protocol, Callable
 from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
+from dojoagents.agent.events import emit_stream_delta
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
 _IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
@@ -144,7 +146,7 @@ class UnconfiguredLLMProvider:
     ) -> LLMResult:
         message = "No LLM provider configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."
         if stream and stream_callback:
-            stream_callback(message)
+            await emit_stream_delta(stream_callback, message)
         return LLMResult(content=message, metadata={"provider": self.name, "live": False, "error": "no_provider"})
 
 
@@ -182,7 +184,7 @@ class StaticLLMProvider:
         if stream and stream_callback and res.content:
             chunk_size = 5
             for i in range(0, len(res.content), chunk_size):
-                stream_callback(res.content[i : i + chunk_size])
+                await emit_stream_delta(stream_callback, res.content[i : i + chunk_size])
         return res
 
 
@@ -398,6 +400,29 @@ class OpenAICompatibleProvider:
             reasoning_started = False
             reasoning_ended = False
             content_started = False
+            coalesce = getattr((metadata or {}).get("_dojo_request"), "channel", None) == "job"
+            pending_reasoning: list[str] = []
+            pending_text: list[str] = []
+            reasoning_chars = text_chars = 0
+            last_reasoning_flush = last_text_flush = time.monotonic()
+
+            async def flush_reasoning() -> None:
+                nonlocal reasoning_chars, last_reasoning_flush
+                if pending_reasoning:
+                    await event_sink.wait_for_capacity()
+                    event_sink.thinking_delta("".join(pending_reasoning))
+                    pending_reasoning.clear()
+                    reasoning_chars = 0
+                    last_reasoning_flush = time.monotonic()
+
+            async def flush_text() -> None:
+                nonlocal text_chars, last_text_flush
+                if pending_text:
+                    await emit_stream_delta(stream_callback, "".join(pending_text))
+                    pending_text.clear()
+                    text_chars = 0
+                    last_text_flush = time.monotonic()
+
             async for chunk in response:
                 chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
                 if chunk_usage is not None:
@@ -417,15 +442,28 @@ class OpenAICompatibleProvider:
                         if not reasoning_started:
                             event_sink.thinking_start()
                             reasoning_started = True
-                        event_sink.thinking_delta(reasoning_delta)
+                        if coalesce:
+                            pending_reasoning.append(reasoning_delta)
+                            reasoning_chars += len(reasoning_delta)
+                            if reasoning_chars >= 1024 or time.monotonic() - last_reasoning_flush >= 0.05:
+                                await flush_reasoning()
+                        else:
+                            event_sink.thinking_delta(reasoning_delta)
                 content_delta = delta.content or ""
                 if content_delta:
                     if event_sink is not None and reasoning_started and not reasoning_ended:
+                        await flush_reasoning()
                         event_sink.thinking_end()
                         reasoning_ended = True
                     content_started = True
                     full_content.append(content_delta)
-                    stream_callback(content_delta)
+                    if coalesce:
+                        pending_text.append(content_delta)
+                        text_chars += len(content_delta)
+                        if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
+                            await flush_text()
+                    else:
+                        await emit_stream_delta(stream_callback, content_delta)
                 if delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
@@ -439,6 +477,8 @@ class OpenAICompatibleProvider:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
                         tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
+            await flush_reasoning()
+            await flush_text()
             if event_sink is not None and reasoning_started and not reasoning_ended:
                 await event_sink.wait_for_capacity()
                 event_sink.thinking_end()
