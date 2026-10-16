@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from dojoagents.agent.models import ChatRequest
-from dojoagents.agent.guardrails import ToolGuardrailDecision
+from dojoagents.agent.guardrails import ToolGuardrailAction, ToolGuardrailDecision
 from dojoagents.agent.temporal_context import build_temporal_context_block
 
 from .context import FinancialRequestContextCodec
@@ -143,7 +143,7 @@ class FinancialLegacyBehavior:
         if not blocked:
             return None
         return ToolGuardrailDecision(
-            action="block",
+            action=ToolGuardrailAction.BLOCK,
             code=code,
             message=message,
             tool_name=tool_name,

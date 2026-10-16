@@ -3,9 +3,30 @@ from __future__ import annotations
 import json
 from dojoagents.agent.guardrails import (
     ToolCallGuardrailController,
+    ToolGuardrailAction,
+    ToolGuardrailDecision,
     append_toolguard_guidance,
     toolguard_synthetic_result,
 )
+
+
+def test_guardrail_action_state_matrix() -> None:
+    expected = {
+        ToolGuardrailAction.ALLOW: (True, False),
+        ToolGuardrailAction.WARN: (True, False),
+        ToolGuardrailAction.BLOCK: (False, False),
+        ToolGuardrailAction.HALT: (False, True),
+    }
+
+    for action, (allows_execution, should_halt) in expected.items():
+        decision = ToolGuardrailDecision(action=action)
+        assert decision.allows_execution is allows_execution
+        assert decision.should_halt is should_halt
+        payload = json.loads(json.dumps(toolguard_synthetic_result(decision)))
+        assert payload["metadata"]["stopped"] == action.value
+        assert json.loads(payload["content"])["guardrail"]["action"] == action.value
+
+    assert ToolGuardrailDecision().action is ToolGuardrailAction.ALLOW
 
 
 def test_guardrails_failures():
@@ -117,7 +138,8 @@ def test_terminal_blocks_dojo_tools_load_tool_result() -> None:
     )
     assert decision.action == "block"
     assert decision.code == "terminal_dojo_tools_blocked"
-    assert decision.should_halt
+    assert not decision.allows_execution
+    assert not decision.should_halt
 
 
 def test_remove_holding_guardrail_blocks_second_single_remove() -> None:

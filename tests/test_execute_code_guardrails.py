@@ -9,7 +9,7 @@ from dojoagents.harnesses.built_in.financial.policies.execute_code_guardrails im
     classify_execute_code,
     execute_code_guardrail_from_classification,
 )
-from dojoagents.agent.guardrails import ToolCallGuardrailController, ToolGuardrailDecision, toolguard_synthetic_result
+from dojoagents.agent.guardrails import ToolCallGuardrailController, ToolGuardrailAction, ToolGuardrailDecision, toolguard_synthetic_result
 from dojoagents.agent.models import LLMResult
 from dojoagents.agent.providers import StaticLLMProvider
 
@@ -165,7 +165,7 @@ def test_loop_style_guardrail_decision_for_inline_data() -> None:
     assert code_name == "execute_code_inline_market_data"
 
     decision = ToolGuardrailDecision(
-        action="block",
+        action=ToolGuardrailAction.BLOCK,
         code=code_name,
         message=message,
         tool_name="execute_code",

@@ -32,6 +32,7 @@ from dojoagents.logging import LOGGER
 
 from dojoagents.agent.think_scrubber import StreamingThinkScrubber
 from dojoagents.agent.guardrails import (
+    ToolGuardrailAction,
     ToolCallGuardrailController,
 )
 from dojoagents.agent.context_length import ContextLengthExceededError
@@ -1635,7 +1636,7 @@ class AgentLoop:
                     )
 
                     decision = ToolGuardrailDecision(
-                        action="block",
+                        action=ToolGuardrailAction.BLOCK,
                         code="image_turn_tool_block",
                         message=(f"Blocked {tool_name}: the user attached image(s) in this turn. " "Answer from the image directly instead of using shell or code tools."),
                         tool_name=tool_name,
@@ -1684,7 +1685,7 @@ class AgentLoop:
                             )
 
                             decision = ToolGuardrailDecision(
-                                action="block",
+                                action=ToolGuardrailAction.BLOCK,
                                 code="execute_code_task_file_write_forbidden",
                                 message=("Blocked execute_code in task mode: use write_session_file directly " "for required task outputs. Do not write JSON files via Python."),
                                 tool_name=tool_name,
@@ -1733,7 +1734,7 @@ class AgentLoop:
                             )
 
                             decision = ToolGuardrailDecision(
-                                action="block",
+                                action=ToolGuardrailAction.BLOCK,
                                 code=guardrail_code,
                                 message=block_message,
                                 tool_name=tool_name,
@@ -1867,7 +1868,9 @@ class AgentLoop:
 
             if self.config.enable_guardrails:
                 decision = self.guardrails.after_call(tool_name, args, raw_result, failed=is_failed)
-                if decision.action == "warn":
+                if decision.should_halt:
+                    raise GuardrailHaltException(decision.message, "guardrail_halt")
+                if decision.action == ToolGuardrailAction.WARN:
                     from dojoagents.agent.guardrails import append_toolguard_guidance
 
                     warned_content = append_toolguard_guidance(raw_result, decision)
