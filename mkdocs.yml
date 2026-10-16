@@ -56,6 +56,7 @@ plugins:
             Session 设计与集成: Session Design and Integration
             外部 SessionStore / BlobStore 适配器: External SessionStore / BlobStore Adapters
             异步运行时: Async Runtime
+            Provider 请求边界: Provider Request Boundary
             配置: Configuration
             开发: Development
             仓库地图: Repository Map
@@ -116,6 +117,7 @@ nav:
       - Session 设计与集成: design/session-history.md
       - 外部 SessionStore / BlobStore 适配器: design/session-store-adapter.md
       - 异步运行时: design/async-runtime.md
+      - Provider 请求边界: design/provider-request-boundary.md
   - Reference:
       - reference/index.md
       - 配置: reference/configuration.md

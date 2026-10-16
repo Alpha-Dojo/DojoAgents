@@ -196,6 +196,54 @@ class TestConfigLoader:
             "X-Trace-Source": "dojoagents",
         }
 
+    def test_provider_parses_bounded_transport_settings(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "providers": {
+                        "openai": {
+                            "model": "gpt-4.1",
+                            "timeout": 45,
+                            "max_retries": 0,
+                            "max_response_bytes": 1_048_576,
+                        }
+                    }
+                }
+            }
+        )
+
+        provider = cfg.llm_provider.providers["openai"]
+        assert provider.timeout == 45.0
+        assert provider.max_retries == 0
+        assert provider.max_response_bytes == 1_048_576
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("timeout", 0),
+            ("timeout", True),
+            ("timeout", float("inf")),
+            ("max_retries", -1),
+            ("max_retries", 1.5),
+            ("max_response_bytes", 0),
+            ("max_response_bytes", "large"),
+        ],
+    )
+    def test_provider_rejects_invalid_transport_settings(self, field, value):
+        with pytest.raises(ValueError, match=field):
+            _to_config(
+                {
+                    "llm_provider": {
+                        "providers": {
+                            "openai": {
+                                "model": "gpt-4.1",
+                                field: value,
+                            }
+                        }
+                    }
+                }
+            )
+
     @pytest.mark.parametrize("extra_headers", [["X-Test"], {"X-Test": 1}, {"": "value"}])
     def test_provider_rejects_invalid_extra_headers(self, extra_headers):
         with pytest.raises(ValueError, match="extra_headers"):

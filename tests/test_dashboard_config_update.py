@@ -504,6 +504,9 @@ def test_runtime_selects_candidate_model_and_keeps_provider_credentials(tmp_path
                         "models": ["gpt-4.1", "gpt-4o"],
                         "base_url": "https://api.openai.test/v1",
                         "api_key": "secret",
+                        "timeout": 45,
+                        "max_retries": 0,
+                        "max_response_bytes": 1_048_576,
                         "extra_headers": {"X-Tenant-ID": "tenant-42"},
                     }
                 },
@@ -519,6 +522,9 @@ def test_runtime_selects_candidate_model_and_keeps_provider_credentials(tmp_path
     assert runtime.agent.provider_config.api_key == "secret"
     assert runtime.agent.provider_config.extra_headers == {"X-Tenant-ID": "tenant-42"}
     assert runtime.agent.llm_provider.extra_headers == {"X-Tenant-ID": "tenant-42"}
+    assert runtime.agent.llm_provider.timeout == 45.0
+    assert runtime.agent.llm_provider.max_retries == 0
+    assert runtime.agent.llm_provider.max_response_bytes == 1_048_576
 
 
 def test_chat_rejects_unknown_explicit_provider_model(tmp_path):

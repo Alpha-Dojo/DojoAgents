@@ -6,6 +6,9 @@ from typing import Any
 
 DEFAULT_LOG_FORMAT = "%(asctime)s %(process)d %(thread)d %(levelname)s %(name)s " "%(filename)s:%(lineno)d - %(message)s"
 DEFAULT_LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+DEFAULT_LLM_TIMEOUT_SECONDS = 120.0
+DEFAULT_LLM_MAX_RETRIES = 2
+DEFAULT_LLM_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -18,6 +21,11 @@ class LLMProviderConfig:
     api_key: str | None = None
     extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
+    compatibility_profile: str | None = None
+    model_id_policy: str | None = None
+    timeout: float = DEFAULT_LLM_TIMEOUT_SECONDS
+    max_retries: int = DEFAULT_LLM_MAX_RETRIES
+    max_response_bytes: int = DEFAULT_LLM_MAX_RESPONSE_BYTES
 
 
 @dataclass(frozen=True)

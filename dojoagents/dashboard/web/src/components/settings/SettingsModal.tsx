@@ -10,6 +10,9 @@ const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const CUSTOM_MODEL_VALUE = '__custom_model__';
 const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel', 'serply'];
 const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel'];
+const DEFAULT_LLM_TIMEOUT_SECONDS = 120;
+const DEFAULT_LLM_MAX_RETRIES = 2;
+const DEFAULT_LLM_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 interface ModelPreset {
   value: string;
@@ -21,6 +24,8 @@ interface ProviderPreset {
   baseUrl: string;
   apiKeyEnv: string;
   author: string;
+  compatibilityProfile?: string;
+  modelIdPolicy?: string;
   models: ModelPreset[];
 }
 
@@ -30,6 +35,8 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     baseUrl: 'https://api.openai.com/v1',
     apiKeyEnv: 'OPENAI_API_KEY',
     author: 'openai',
+    compatibilityProfile: 'openai_native',
+    modelIdPolicy: 'as_is',
     models: [
       { value: 'gpt-5.5', label: 'GPT-5.5' },
       { value: 'gpt-5.4', label: 'GPT-5.4' },
@@ -168,6 +175,8 @@ const LLM_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     baseUrl: '',
     apiKeyEnv: '',
     author: '',
+    compatibilityProfile: 'openai_compatible',
+    modelIdPolicy: 'author_prefix',
     models: [],
   },
 };
@@ -204,7 +213,15 @@ function providerHeaders(value: unknown): ProviderHeaderForm[] {
   }));
 }
 
-function emptyProviderForm(): ProviderForm {
+function providerDefaultCompatibilityProfile(name: string): string {
+  return LLM_PROVIDER_PRESETS[name]?.compatibilityProfile ?? 'openai_compatible';
+}
+
+function providerDefaultModelIdPolicy(name: string): string {
+  return LLM_PROVIDER_PRESETS[name]?.modelIdPolicy ?? (name === 'orcarouter' ? 'author_prefix' : 'as_is');
+}
+
+function emptyProviderForm(name = ''): ProviderForm {
   return {
     persisted: false,
     model: '',
@@ -212,6 +229,11 @@ function emptyProviderForm(): ProviderForm {
     base_url: '',
     api_key_env: '',
     api_key: '',
+    compatibility_profile: providerDefaultCompatibilityProfile(name),
+    model_id_policy: providerDefaultModelIdPolicy(name),
+    timeout: DEFAULT_LLM_TIMEOUT_SECONDS,
+    max_retries: DEFAULT_LLM_MAX_RETRIES,
+    max_response_bytes: DEFAULT_LLM_MAX_RESPONSE_BYTES,
     extra_headers: [],
   };
 }
@@ -283,7 +305,7 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   const providers: Record<string, ProviderForm> = {};
 
   for (const name of KNOWN_PROVIDERS) {
-    providers[name] = emptyProviderForm();
+    providers[name] = emptyProviderForm(name);
   }
 
   for (const [name, value] of Object.entries(asRecord(llm.providers))) {
@@ -295,13 +317,23 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
       base_url: asString(provider.base_url),
       api_key_env: asString(provider.api_key_env),
       api_key: provider.api_key === '***' ? '' : asString(provider.api_key),
+      compatibility_profile:
+        asString(provider.compatibility_profile) || providerDefaultCompatibilityProfile(name),
+      model_id_policy:
+        asString(provider.model_id_policy) || providerDefaultModelIdPolicy(name),
+      timeout: asNumber(provider.timeout, DEFAULT_LLM_TIMEOUT_SECONDS),
+      max_retries: asNumber(provider.max_retries, DEFAULT_LLM_MAX_RETRIES),
+      max_response_bytes: asNumber(
+        provider.max_response_bytes,
+        DEFAULT_LLM_MAX_RESPONSE_BYTES,
+      ),
       extra_headers: providerHeaders(provider.extra_headers),
     });
   }
 
   const defaultProvider = asString(llm.default, 'openai');
   if (!providers[defaultProvider]) {
-    providers[defaultProvider] = emptyProviderForm();
+    providers[defaultProvider] = emptyProviderForm(defaultProvider);
   }
 
   const agent = asRecord(cfg.agent);
@@ -438,6 +470,11 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
     if (provider.base_url) next.base_url = provider.base_url;
     if (provider.api_key_env) next.api_key_env = provider.api_key_env;
     if (provider.api_key) next.api_key = provider.api_key;
+    next.compatibility_profile = provider.compatibility_profile;
+    next.model_id_policy = provider.model_id_policy;
+    next.timeout = provider.timeout;
+    next.max_retries = provider.max_retries;
+    next.max_response_bytes = provider.max_response_bytes;
     next.extra_headers = Object.fromEntries(
       provider.extra_headers.map((header) => [
         header.name.trim(),
@@ -778,6 +815,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                               nextProvider.base_url = preset.baseUrl;
                               nextProvider.api_key_env = preset.apiKeyEnv;
                               nextProvider.author = preset.author;
+                              nextProvider.compatibility_profile = providerDefaultCompatibilityProfile(name);
+                              nextProvider.model_id_policy = providerDefaultModelIdPolicy(name);
                               const normalized = normalizeProviderForm(name, nextProvider);
                               draft.llm_provider.providers[name] = normalized;
                             });
@@ -834,6 +873,51 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                             nextProvider.base_url = value;
                             draft.llm_provider.providers[name] = normalizeProviderForm(name, nextProvider);
                           }), preset?.baseUrl ?? 'https://api.openai.com/v1')}
+                      </Field>
+                      <Field label="Compatibility Profile">
+                        <DojoSelect
+                          size="sm"
+                          value={provider.compatibility_profile}
+                          onChange={(event) => updateField((draft) => {
+                            draft.llm_provider.providers[name].compatibility_profile = event.target.value;
+                          })}
+                          options={[
+                            { value: 'openai_compatible', label: 'OpenAI compatible' },
+                            { value: 'openai_native', label: 'OpenAI native' },
+                            { value: 'minimal_openai_compatible', label: 'Minimal compatible' },
+                          ]}
+                        />
+                      </Field>
+                      <Field label="Model ID Policy">
+                        <DojoSelect
+                          size="sm"
+                          value={provider.model_id_policy}
+                          onChange={(event) => updateField((draft) => {
+                            draft.llm_provider.providers[name].model_id_policy = event.target.value;
+                          })}
+                          options={[
+                            { value: 'as_is', label: 'As configured' },
+                            { value: 'author_prefix', label: 'Prefix author' },
+                          ]}
+                        />
+                      </Field>
+                      <Field label="Request Timeout (seconds)">
+                        {numberInput(provider.timeout, (value) =>
+                          updateField((draft) => {
+                            draft.llm_provider.providers[name].timeout = value;
+                          }), 1)}
+                      </Field>
+                      <Field label="Max Retries">
+                        {numberInput(provider.max_retries, (value) =>
+                          updateField((draft) => {
+                            draft.llm_provider.providers[name].max_retries = value;
+                          }), 0)}
+                      </Field>
+                      <Field label="Max Response Bytes">
+                        {numberInput(provider.max_response_bytes, (value) =>
+                          updateField((draft) => {
+                            draft.llm_provider.providers[name].max_response_bytes = value;
+                          }), 1)}
                       </Field>
                       <Field label="Author">
                         {textInput(provider.author, () => {}, providerDefaultAuthor(name), 'text', true)}

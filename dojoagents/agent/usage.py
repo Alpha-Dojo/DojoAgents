@@ -97,12 +97,18 @@ def _normalize_usage(
     content: str,
     estimate_missing: bool,
 ) -> tuple[dict[str, int], str]:
-    raw = (metadata or {}).get("usage")
+    metadata_map = metadata or {}
+    raw = metadata_map.get("usage")
     if isinstance(raw, dict):
         input_tokens = _integer(raw.get("prompt_tokens", raw.get("input_tokens")))
         output_tokens = _integer(raw.get("completion_tokens", raw.get("output_tokens")))
         total_tokens = _integer(raw.get("total_tokens")) or input_tokens + output_tokens
-        available = raw.get("usage_available")
+        # Provider adapters expose availability at metadata level.  Retain the
+        # nested fallback for legacy invocation-state usage dictionaries.
+        available = raw.get(
+            "usage_available",
+            metadata_map.get("usage_available"),
+        )
         quality = "estimated" if available is False else "actual"
         return (
             {

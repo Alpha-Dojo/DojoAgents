@@ -12,6 +12,11 @@ export interface ProviderForm {
   base_url: string;
   api_key_env: string;
   api_key: string;
+  compatibility_profile: string;
+  model_id_policy: string;
+  timeout: number;
+  max_retries: number;
+  max_response_bytes: number;
   extra_headers: ProviderHeaderForm[];
 }
 

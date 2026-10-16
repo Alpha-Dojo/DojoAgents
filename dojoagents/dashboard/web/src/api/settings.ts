@@ -15,6 +15,9 @@ let mockConfig: SettingsConfig = {
         api_key_env: 'OPENAI_API_KEY',
         api_key: '***',
         api_key_configured: true,
+        timeout: 120,
+        max_retries: 2,
+        max_response_bytes: 8388608,
       },
       gemini: {
         model: 'gemini-2.5-pro',

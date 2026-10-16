@@ -105,3 +105,39 @@ async def test_metered_provider_marks_locally_counted_usage_as_estimated():
 
     assert collector.records[0].quality == "estimated"
     assert collector.records[0].effective_total_tokens > 0
+
+
+class UnreliableUsageProvider:
+    name = "unreliable-usage"
+
+    async def chat(self, messages, tools, *, model, **kwargs):
+        return LLMResult(
+            content="answer",
+            metadata={
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 4,
+                    "total_tokens": 16,
+                },
+                "usage_available": False,
+            },
+        )
+
+
+@pytest.mark.anyio
+async def test_metered_provider_reads_top_level_usage_availability() -> None:
+    collector = UsageCollector(
+        session_uid="session-uid",
+        run_id="run-1",
+        turn_id="turn-1",
+    )
+
+    with bind_usage_collector(collector):
+        await MeteredLLMProvider(UnreliableUsageProvider()).chat(
+            [{"role": "user", "content": "hello"}],
+            [],
+            model="model-a",
+        )
+
+    assert collector.records[0].quality == "estimated"
+    assert collector.records[0].total_tokens == 16

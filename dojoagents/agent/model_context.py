@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dojoagents.config.models import LLMProviderConfig
+from dojoagents.agent.provider_profiles import ModelCatalog, resolve_provider_profile
 from dojoagents.logging import LOGGER
 
 _CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -138,26 +139,8 @@ def _fallback_for_model(model_id: str, default: int) -> int:
     return default
 
 
-def _is_openrouter_config(provider_cfg: LLMProviderConfig) -> bool:
-    base_url = provider_cfg.base_url or ""
-    if not isinstance(base_url, str):
-        return False
-    return "openrouter.ai" in base_url.lower()
-
-
-def _is_orcarouter_config(provider_cfg: LLMProviderConfig) -> bool:
-    base_url = provider_cfg.base_url or ""
-    if not isinstance(base_url, str):
-        return False
-    return "orcarouter.ai" in base_url.lower()
-
-
-def _is_router_config(provider_cfg: LLMProviderConfig) -> bool:
-    return _is_openrouter_config(provider_cfg) or _is_orcarouter_config(provider_cfg)
-
-
-def _router_models_url(provider_cfg: LLMProviderConfig) -> str:
-    if _is_orcarouter_config(provider_cfg):
+def _router_models_url(model_catalog: str) -> str:
+    if model_catalog == ModelCatalog.ORCAROUTER.value:
         return "https://api.orcarouter.ai/v1/models"
     return "https://openrouter.ai/api/v1/models"
 
@@ -172,11 +155,16 @@ def _openrouter_lookup_parts(provider_cfg: LLMProviderConfig) -> tuple[str | Non
     return author, slug
 
 
-def _should_lookup_openrouter_info(provider_cfg: LLMProviderConfig) -> bool:
-    author, slug = _openrouter_lookup_parts(provider_cfg)
-    if not slug:
-        return False
-    return bool(author or _is_router_config(provider_cfg))
+def _should_lookup_openrouter_info(
+    provider_cfg: LLMProviderConfig,
+    model_catalog: str,
+) -> bool:
+    _, slug = _openrouter_lookup_parts(provider_cfg)
+    return bool(
+        slug
+        and model_catalog
+        in {ModelCatalog.OPENROUTER.value, ModelCatalog.ORCAROUTER.value}
+    )
 
 
 class ModelContextRegistry:
@@ -315,10 +303,11 @@ class ModelContextRegistry:
         return None
 
     async def _retrieve_openrouter_info(self, provider_cfg: LLMProviderConfig, provider_name: str) -> ModelContextInfo | None:
-        if provider_name == "model-router":
-            should_lookup = True
-        else:
-            should_lookup = _should_lookup_openrouter_info(provider_cfg)
+        resolved_profile = resolve_provider_profile(provider_name, provider_cfg)
+        should_lookup = _should_lookup_openrouter_info(
+            provider_cfg,
+            resolved_profile.model_catalog,
+        )
 
         if not provider_cfg.model or not should_lookup:
             return None
@@ -332,7 +321,7 @@ class ModelContextRegistry:
         try:
             import httpx
 
-            url = _router_models_url(provider_cfg)
+            url = _router_models_url(resolved_profile.model_catalog)
             headers = dict(provider_cfg.extra_headers)
             if provider_cfg.api_key:
                 headers.setdefault("Authorization", f"Bearer {provider_cfg.api_key}")

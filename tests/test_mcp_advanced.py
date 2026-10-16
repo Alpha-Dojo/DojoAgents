@@ -96,6 +96,7 @@ async def test_sse_oauth_and_sampling():
     from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
     from unittest.mock import AsyncMock, MagicMock, patch
     from dojoagents.agent.models import LLMResult
+    from dojoagents.config.models import LLMProviderConfig
     
     # 1. Test MCPServerTask connect with sse/oauth
     config = {
@@ -131,10 +132,13 @@ async def test_sse_oauth_and_sampling():
     # Mock ConfigStore and LLM Provider
     mock_config = MagicMock()
     mock_config.llm_provider.default = "openai"
-    mock_provider_cfg = MagicMock()
-    mock_provider_cfg.api_key = "test_key"
-    mock_provider_cfg.base_url = "https://api.openai.com/v1"
-    mock_provider_cfg.model = "gpt-4"
+    mock_provider_cfg = LLMProviderConfig(
+        api_key="test_key",
+        base_url="https://api.openai.com/v1",
+        model="gpt-4",
+        compatibility_profile="openai_native",
+        model_id_policy="as_is",
+    )
     mock_config.llm_provider.providers = {"openai": mock_provider_cfg}
     
     mock_result = LLMResult(content="Hello from Dojo LLM")

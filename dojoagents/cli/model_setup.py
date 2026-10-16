@@ -6,7 +6,17 @@ from pathlib import Path
 
 import httpx
 
+from dojoagents.agent.provider_profiles import (
+    CompatibilityProfile,
+    ModelIdPolicy,
+    provider_profile_preset,
+)
 from dojoagents.config.loader import ConfigStore
+from dojoagents.config.models import (
+    DEFAULT_LLM_MAX_RESPONSE_BYTES,
+    DEFAULT_LLM_MAX_RETRIES,
+    DEFAULT_LLM_TIMEOUT_SECONDS,
+)
 
 # Supported Preset Providers
 PRESET_PROVIDERS = {
@@ -146,6 +156,35 @@ def configure_model_connection(config_path: str | Path = "~/.dojo/agents.yaml") 
         ),
         "base_url": base_url,
     }
+    preset_profile = provider_profile_preset(provider_id)
+    prov_cfg["compatibility_profile"] = str(
+        current_prov_cfg.get("compatibility_profile")
+        or (
+            preset_profile.compatibility_profile.value
+            if preset_profile is not None
+            else CompatibilityProfile.OPENAI_COMPATIBLE.value
+        )
+    )
+    prov_cfg["model_id_policy"] = str(
+        current_prov_cfg.get("model_id_policy")
+        or (
+            preset_profile.model_id_policy.value
+            if preset_profile is not None
+            else ModelIdPolicy.AS_IS.value
+        )
+    )
+    prov_cfg["timeout"] = float(
+        current_prov_cfg.get("timeout", DEFAULT_LLM_TIMEOUT_SECONDS)
+    )
+    prov_cfg["max_retries"] = int(
+        current_prov_cfg.get("max_retries", DEFAULT_LLM_MAX_RETRIES)
+    )
+    prov_cfg["max_response_bytes"] = int(
+        current_prov_cfg.get(
+            "max_response_bytes",
+            DEFAULT_LLM_MAX_RESPONSE_BYTES,
+        )
+    )
     if effective_key:
         prov_cfg["api_key"] = effective_key
     else:

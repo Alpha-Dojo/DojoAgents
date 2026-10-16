@@ -8,5 +8,7 @@ This section records current technical designs and integration contracts that ex
 - [Async Runtime](async-runtime.md): AnyIO boundaries, TaskGroup ownership, timeouts and cancellation,
   thread and buffer limits, SSE cross-thread bridging, subprocess reclamation, and the asyncio
   compatibility allowlist.
+- [Provider Request Boundary](provider-request-boundary.md): internal messages, OpenAI-compatible
+  wire policies, and outbound adapter ownership.
 
 System-wide component relationships belong under **Architecture**. Unfinished proposals, migration sequences, and historical decisions belong under **Plans**.

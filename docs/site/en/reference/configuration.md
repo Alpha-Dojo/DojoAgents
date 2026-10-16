@@ -24,10 +24,19 @@ llm_provider:
         - gpt-4o
       base_url: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
+      compatibility_profile: openai_native
+      model_id_policy: as_is
+      timeout: 120
+      max_retries: 2
+      max_response_bytes: 8388608
       extra_headers:
         X-Tenant-ID: ${OPENAI_TENANT_ID}
         X-Request-Source: dojoagents
       context_window: 128000
+
+# Unknown OpenAI-compatible gateways default to openai_compatible.
+# Profiles: openai_compatible / openai_native / minimal_openai_compatible
+# Model-ID policies: as_is / author_prefix
 
 agent:
   max_iterations: 100
@@ -159,6 +168,12 @@ string values. DojoAgents attaches these headers to that provider's chat and
 provider metadata requests. Environment placeholders are supported in header
 values. All `extra_headers` values are masked in Dashboard/API config responses,
 so secrets such as proxy authorization tokens are not exposed.
+
+OpenAI-compatible providers also expose bounded transport controls. `timeout`
+defaults to 120 seconds, `max_retries` to 2, and `max_response_bytes` to 8 MiB.
+The response limit applies to the complete HTTP response, including streamed
+responses, and prevents an unexpectedly large gateway response from growing
+process memory without a bound.
 
 Each provider may define multiple candidate models with `models`. `model`
 remains the provider default for backward compatibility. If `model` is

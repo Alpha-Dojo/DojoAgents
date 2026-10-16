@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import os
 import re
 from dataclasses import asdict, replace
@@ -15,6 +16,9 @@ from dojoagents.config.models import (
     AgentsConfig,
     ArtifactToolsConfig,
     ChatCacheConfig,
+    DEFAULT_LLM_MAX_RESPONSE_BYTES,
+    DEFAULT_LLM_MAX_RETRIES,
+    DEFAULT_LLM_TIMEOUT_SECONDS,
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
     DEFAULT_DOJOSDK_STARTUP_PATHS,
@@ -42,6 +46,11 @@ from dojoagents.config.models import (
     SessionsConfig,
     StoreProviderConfig,
     TasksConfig,
+)
+from dojoagents.agent.provider_profiles import (
+    CompatibilityProfile,
+    ModelIdPolicy,
+    preset_compatibility_profile,
 )
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -155,6 +164,60 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         if not isinstance(raw_header_value, str):
             raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
         extra_headers[header_name] = raw_header_value
+    preset_compatibility = preset_compatibility_profile(name, raw.get("base_url"))
+    compatibility_profile = raw.get(
+        "compatibility_profile",
+        (
+            preset_compatibility.value
+            if preset_compatibility is not None
+            else CompatibilityProfile.OPENAI_COMPATIBLE.value
+        ),
+    )
+    try:
+        compatibility_profile = CompatibilityProfile(
+            str(compatibility_profile).strip().lower()
+        ).value
+    except ValueError as exc:
+        raise ValueError(
+            f"llm_provider.providers.{name}.compatibility_profile is invalid"
+        ) from exc
+    model_id_policy = raw.get("model_id_policy")
+    if model_id_policy is not None:
+        try:
+            model_id_policy = ModelIdPolicy(str(model_id_policy).strip().lower()).value
+        except ValueError as exc:
+            raise ValueError(
+                f"llm_provider.providers.{name}.model_id_policy is invalid"
+            ) from exc
+    raw_timeout = raw.get("timeout", DEFAULT_LLM_TIMEOUT_SECONDS)
+    if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, (int, float)):
+        raise ValueError(
+            f"llm_provider.providers.{name}.timeout must be a positive number"
+        )
+    timeout = float(raw_timeout)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(
+            f"llm_provider.providers.{name}.timeout must be a positive number"
+        )
+
+    max_retries = raw.get("max_retries", DEFAULT_LLM_MAX_RETRIES)
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+        raise ValueError(
+            f"llm_provider.providers.{name}.max_retries must be a nonnegative integer"
+        )
+
+    max_response_bytes = raw.get(
+        "max_response_bytes",
+        DEFAULT_LLM_MAX_RESPONSE_BYTES,
+    )
+    if (
+        isinstance(max_response_bytes, bool)
+        or not isinstance(max_response_bytes, int)
+        or max_response_bytes <= 0
+    ):
+        raise ValueError(
+            f"llm_provider.providers.{name}.max_response_bytes must be a positive integer"
+        )
     return LLMProviderConfig(
         model=parsed_model,
         models=tuple(models),
@@ -164,6 +227,11 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         api_key=api_key,
         extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
+        compatibility_profile=compatibility_profile,
+        model_id_policy=model_id_policy,
+        timeout=timeout,
+        max_retries=max_retries,
+        max_response_bytes=max_response_bytes,
     )
 
 

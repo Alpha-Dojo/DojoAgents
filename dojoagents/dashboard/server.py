@@ -55,6 +55,7 @@ from dojoagents.dashboard.auth import get_session_principal
 from dojoagents.sessions.models import SessionPrincipal
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.providers import OpenAICompatibleProvider
+from dojoagents.agent.provider_profiles import resolve_provider_profile
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.agent.model_context import ModelContextRegistry
 from dojoagents.agent.token_ledger import SessionTokenLedger
@@ -163,11 +164,17 @@ def _sync_runtime_agent_from_config(runtime: Any, provider_name: str | None) -> 
             extra_headers=provider_cfg.extra_headers,
         )
     else:
+        resolved_profile = resolve_provider_profile(selected_provider or "openai", provider_cfg)
         llm_provider = OpenAICompatibleProvider(
             api_key=provider_cfg.api_key,
             base_url=provider_cfg.base_url,
             author=provider_cfg.author,
             extra_headers=provider_cfg.extra_headers,
+            timeout=provider_cfg.timeout,
+            max_retries=provider_cfg.max_retries,
+            max_response_bytes=provider_cfg.max_response_bytes,
+            request_policy=resolved_profile.wire_policy,
+            model_id_policy=resolved_profile.model_id_policy,
         )
         llm_provider.name = selected_provider
     LOGGER.info(

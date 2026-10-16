@@ -10,6 +10,7 @@ from dojoagents.agent.loop import AgentLoop
 from dojoagents.agent.session_manager import DojoAgentSessionManager
 from dojoagents.agent.provider_state import ProviderConversationState
 from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
+from dojoagents.agent.provider_profiles import resolve_provider_profile
 from dojoagents.config.loader import resolve_provider_config
 from dojoagents.agent.gemini_provider import GeminiNativeProvider
 from dojoagents.config.loader import ConfigStore
@@ -494,11 +495,17 @@ class Runtime:
             )
             model = self.config.agent.model or provider_cfg.model
         else:
+            resolved_profile = resolve_provider_profile(provider_name or "openai", provider_cfg)
             llm_provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 extra_headers=provider_cfg.extra_headers,
+                timeout=provider_cfg.timeout,
+                max_retries=provider_cfg.max_retries,
+                max_response_bytes=provider_cfg.max_response_bytes,
+                request_policy=resolved_profile.wire_policy,
+                model_id_policy=resolved_profile.model_id_policy,
             )
             llm_provider.name = provider_name or "openai"
             model = self.config.agent.model or provider_cfg.model
@@ -776,11 +783,17 @@ class Runtime:
                 bool(getattr(provider_cfg, "api_key", None) or getattr(provider_cfg, "api_key_env", None)),
             )
         else:
+            resolved_profile = resolve_provider_profile(provider_name or "openai", provider_cfg)
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 extra_headers=provider_cfg.extra_headers,
+                timeout=provider_cfg.timeout,
+                max_retries=provider_cfg.max_retries,
+                max_response_bytes=provider_cfg.max_response_bytes,
+                request_policy=resolved_profile.wire_policy,
+                model_id_policy=resolved_profile.model_id_policy,
             )
             provider.name = provider_name or "openai"
             LOGGER.info(

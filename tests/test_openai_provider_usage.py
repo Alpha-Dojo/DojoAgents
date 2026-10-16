@@ -8,6 +8,14 @@ from dojoagents.agent.providers import (
     OpenAICompatibleProvider,
     _redact_provider_metadata,
 )
+from dojoagents.agent.provider_contracts import OpenAIRequestPolicy
+from dojoagents.agent.provider_profiles import resolve_provider_profile
+from dojoagents.agent.usage import (
+    MeteredLLMProvider,
+    UsageCollector,
+    bind_usage_collector,
+)
+from dojoagents.config.models import LLMProviderConfig
 
 
 @pytest.mark.asyncio
@@ -203,6 +211,162 @@ async def test_openai_provider_stream_usage():
     assert client_cls.return_value.chat.completions.create.await_args.kwargs["stream_options"] == {"include_usage": True}
 
 
+@pytest.mark.anyio
+async def test_openai_provider_wire_request_uses_compatible_message_and_tools_shape(monkeypatch):
+    requests: list[dict] = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-1",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "gpt-4.1",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 1,
+                    "total_tokens": 3,
+                },
+            },
+        )
+
+    actual_client = httpx.AsyncClient
+
+    class MockClient(actual_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="https://example/v1",
+        max_retries=0,
+        max_response_bytes=4096,
+    )
+    internal_message = {
+        "role": "assistant",
+        "name": "research-agent",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "quote", "arguments": "{}"},
+            }
+        ],
+    }
+
+    result = await provider.chat([internal_message], [], model="gpt-4.1")
+
+    assert result.content == "ok"
+    assert len(requests) == 1
+    body = requests[0]
+    assert "name" not in body["messages"][0]
+    assert body["messages"][0]["tool_calls"][0]["function"]["name"] == "quote"
+    assert "tools" not in body
+    assert internal_message["name"] == "research-agent"
+
+    await provider.chat(
+        [{"role": "user", "content": "price"}],
+        [{"name": "quote", "description": "Get a quote", "parameters": {}}],
+        model="gpt-4.1",
+    )
+    assert requests[1]["tools"][0]["function"]["name"] == "quote"
+
+
+@pytest.mark.anyio
+async def test_openai_provider_stream_wire_request_includes_usage(monkeypatch):
+    requests: list[dict] = []
+    stream_body = (
+        'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,'
+        '"model":"gpt-4.1","choices":[{"index":0,"delta":{"content":"ok"},'
+        '"finish_reason":null}]}\n\n'
+        'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,'
+        '"model":"gpt-4.1","choices":[],"usage":{"prompt_tokens":2,'
+        '"completion_tokens":1,"total_tokens":3}}\n\n'
+        "data: [DONE]\n\n"
+    ).encode()
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=stream_body,
+        )
+
+    actual_client = httpx.AsyncClient
+
+    class MockClient(actual_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="https://example/v1",
+        max_retries=0,
+        max_response_bytes=4096,
+    )
+    deltas: list[str] = []
+
+    result = await provider.chat(
+        [{"role": "user", "name": "analyst", "content": "hello"}],
+        [],
+        model="gpt-4.1",
+        stream=True,
+        stream_callback=deltas.append,
+    )
+
+    assert requests[0]["stream_options"] == {"include_usage": True}
+    assert "name" not in requests[0]["messages"][0]
+    assert "tools" not in requests[0]
+    assert deltas == ["ok"]
+    assert result.metadata["usage"]["total_tokens"] == 3
+
+
+@pytest.mark.anyio
+async def test_unsupported_stream_usage_policy_degrades_metered_usage_to_estimated():
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="http://example",
+        request_policy=OpenAIRequestPolicy(stream_usage_policy="unsupported"),
+    )
+
+    async def _stream():
+        delta = MagicMock(content="answer", tool_calls=None, reasoning_content=None, model_extra=None)
+        yield MagicMock(choices=[MagicMock(delta=delta)], usage=None)
+
+    collector = UsageCollector(
+        session_uid="session-uid",
+        run_id="run-1",
+        turn_id="turn-1",
+    )
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=_stream())
+        with bind_usage_collector(collector):
+            result = await MeteredLLMProvider(provider).chat(
+                [{"role": "user", "content": "hello"}],
+                [],
+                model="gpt-4.1",
+                stream=True,
+                stream_callback=lambda _delta: None,
+            )
+
+    assert "stream_options" not in client_cls.return_value.chat.completions.create.await_args.kwargs
+    assert result.metadata["usage_available"] is False
+    assert collector.records[0].quality == "estimated"
+
+
 @pytest.mark.asyncio
 async def test_openai_provider_streams_reasoning_before_content():
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
@@ -310,12 +474,19 @@ async def test_openai_provider_preserves_tool_call_metadata_non_stream() -> None
 
 @pytest.mark.asyncio
 async def test_openrouter_provider_restores_selected_model_author_prefix():
-    from dojoagents.agent.providers import OpenAICompatibleProvider
+    config = LLMProviderConfig(
+        model="glm-5.2",
+        author="z-ai",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    resolved = resolve_provider_profile("openrouter", config)
 
     provider = OpenAICompatibleProvider(
         api_key="test-key",
-        base_url="https://openrouter.ai/api/v1",
-        author="z-ai",
+        base_url=config.base_url,
+        author=config.author,
+        request_policy=resolved.wire_policy,
+        model_id_policy=resolved.model_id_policy,
     )
     provider.name = "openrouter"
     response = MagicMock()
@@ -331,12 +502,19 @@ async def test_openrouter_provider_restores_selected_model_author_prefix():
 
 @pytest.mark.asyncio
 async def test_orcarouter_provider_restores_selected_model_author_prefix():
-    from dojoagents.agent.providers import OpenAICompatibleProvider
+    config = LLMProviderConfig(
+        model="gpt-5.5",
+        author="openai",
+        base_url="https://api.orcarouter.ai/v1",
+    )
+    resolved = resolve_provider_profile("orcarouter", config)
 
     provider = OpenAICompatibleProvider(
         api_key="test-key",
-        base_url="https://api.orcarouter.ai/v1",
-        author="openai",
+        base_url=config.base_url,
+        author=config.author,
+        request_policy=resolved.wire_policy,
+        model_id_policy=resolved.model_id_policy,
     )
     provider.name = "orcarouter"
     response = MagicMock()

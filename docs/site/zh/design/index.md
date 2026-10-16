@@ -7,5 +7,6 @@
 - [外部 SessionStore / BlobStore 适配器](session-store-adapter.md)：持久化适配器契约与一致性验收。
 - [异步运行时](async-runtime.md)：AnyIO 边界、TaskGroup 所有权、超时与取消、线程与内存限界、
   SSE 跨线程桥接、子进程回收与 asyncio 兼容白名单。
+- [Provider 请求边界](provider-request-boundary.md)：内部消息、OpenAI-compatible wire 策略与出站适配器职责。
 
 跨组件的整体关系放在 **架构**；尚未完成的提案、迁移步骤和历史决策放在 **计划**。

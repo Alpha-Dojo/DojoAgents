@@ -2394,23 +2394,6 @@ class AgentLoop:
     def _collect_tool_specs(self) -> list[dict]:
         return self.tool_executor.registry.schema_list()
 
-    @staticmethod
-    def _openai_client_for_context(provider_cfg: LLMProviderConfig) -> Any | None:
-        api_key = getattr(provider_cfg, "api_key", None)
-        base_url_value = getattr(provider_cfg, "base_url", None)
-        if not isinstance(api_key, str) or not api_key:
-            return None
-        base_url = base_url_value if isinstance(base_url_value, str) else ""
-        if "generativelanguage.googleapis.com" in base_url:
-            return None
-        from openai import AsyncOpenAI
-
-        return AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url or None,
-            default_headers=provider_cfg.extra_headers or None,
-        )
-
     def _sanitize_tool_specs(
         self,
         tool_specs: list[dict],
@@ -2434,37 +2417,6 @@ class AgentLoop:
             safe_spec["name"] = safe_name
             safe_specs.append(safe_spec)
         return safe_specs, safe_to_original
-
-    def _restore_tool_call_names(
-        self,
-        tool_calls: list[ToolCall],
-        tool_name_map: dict[str, str],
-    ) -> list[ToolCall]:
-        return [
-            ToolCall(
-                id=call.id,
-                name=tool_name_map.get(call.name, call.name),
-                arguments=call.arguments,
-                metadata=dict(call.metadata),
-            )
-            for call in tool_calls
-        ]
-
-    def _tool_result_messages_for_llm(
-        self,
-        messages: list[dict],
-        tool_name_map: dict[str, str],
-    ) -> list[dict]:
-        original_to_safe = {original_name: safe_name for safe_name, original_name in tool_name_map.items()}
-        safe_messages: list[dict] = []
-        for message in messages:
-            safe_message = dict(message)
-            name = safe_message.get("name")
-            if name in original_to_safe:
-                safe_message["name"] = original_to_safe[name]
-            safe_messages.append(safe_message)
-        return safe_messages
-
 
 def _safe_tool_name(name: str) -> str:
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", name)

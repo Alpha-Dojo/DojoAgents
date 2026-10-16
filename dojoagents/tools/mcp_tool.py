@@ -193,21 +193,29 @@ class SamplingHandler:
     async def __call__(self, context, params):
         from dojoagents.config.loader import ConfigStore, resolve_provider_config
         from dojoagents.agent.providers import OpenAICompatibleProvider, UnconfiguredLLMProvider
+        from dojoagents.agent.provider_profiles import resolve_provider_profile
 
         cfg_store = ConfigStore()
         config = cfg_store.snapshot()
 
-        _, provider_cfg = resolve_provider_config(config.llm_provider)
+        provider_name, provider_cfg = resolve_provider_config(config.llm_provider)
         if provider_cfg is None:
             provider = UnconfiguredLLMProvider()
             model = ""
         else:
+            resolved_profile = resolve_provider_profile(provider_name or "openai", provider_cfg)
             provider = OpenAICompatibleProvider(
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 extra_headers=provider_cfg.extra_headers,
+                timeout=provider_cfg.timeout,
+                max_retries=provider_cfg.max_retries,
+                max_response_bytes=provider_cfg.max_response_bytes,
+                request_policy=resolved_profile.wire_policy,
+                model_id_policy=resolved_profile.model_id_policy,
             )
+            provider.name = provider_name or "openai"
             model = provider_cfg.model or ""
         from dojoagents.agent.usage import ensure_metered_provider
 
