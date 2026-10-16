@@ -18,7 +18,7 @@ class Coordinator:
         self.delay = delay
         self.events = []
 
-    async def append_events(self, events):
+    async def append_events(self, events, *, flush=True):
         await anyio.sleep(self.delay)
         self.events.extend(events)
 
@@ -58,10 +58,10 @@ async def test_wait_is_cancellable_and_close_drains_after_store_resumes():
     entered = anyio.Event()
     original = coordinator.append_events
 
-    async def stalled(events):
+    async def stalled(events, *, flush=True):
         entered.set()
         await release.wait()
-        await original(events)
+        await original(events, flush=flush)
 
     coordinator.append_events = stalled
     with anyio.fail_after(5):
@@ -137,7 +137,7 @@ async def test_gemini_many_reasoning_parts_apply_backpressure():
 async def test_store_failure_is_propagated_instead_of_hanging():
     sink = AgentEventSink(run_id="burst", session_id="s")
     coordinator = Coordinator()
-    coordinator.append_events = AsyncMock(side_effect=RuntimeError("store unavailable"))
+    coordinator.flush = AsyncMock(side_effect=RuntimeError("store unavailable"))
     with anyio.fail_after(5):
         with pytest.raises(BaseExceptionGroup) as error:
             async with anyio.create_task_group() as group:
@@ -148,5 +148,5 @@ async def test_store_failure_is_propagated_instead_of_hanging():
                     await sink.wait_for_capacity()
                     sink.delta("pending")
     assert "store unavailable" in str(error.value.exceptions[0])
-    assert coordinator.append_events.await_count == 4
+    assert coordinator.flush.await_count == 4
     assert isinstance(writer._error, RuntimeError)
