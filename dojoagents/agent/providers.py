@@ -275,6 +275,17 @@ class OpenAICompatibleProvider:
             result["reasoning_tokens"] = reasoning_tokens
         return result
 
+    @staticmethod
+    def _request_messages(messages: list[dict]) -> list[dict]:
+        """Build a strict OpenAI-compatible message payload.
+
+        Some compatible gateways reject the optional top-level ``name`` field
+        that Strands attaches to messages. Copy each message before removing
+        that field so provider normalization never mutates conversation state.
+        Nested names, such as function names inside tool calls, remain intact.
+        """
+        return [{key: value for key, value in message.items() if key != "name"} for message in messages]
+
     async def chat(
         self,
         messages: list[dict],
@@ -351,13 +362,16 @@ class OpenAICompatibleProvider:
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
+        request_messages = self._request_messages(messages)
+        request_tools = [{"type": "function", "function": tool} for tool in tools]
         try:
             create_kwargs: dict[str, Any] = {
                 "model": actual_model,
-                "messages": messages,
-                "tools": [{"type": "function", "function": tool} for tool in tools] or None,
+                "messages": request_messages,
                 "stream": stream,
             }
+            if request_tools:
+                create_kwargs["tools"] = request_tools
             if stream:
                 create_kwargs["stream_options"] = {"include_usage": True}
             create_kwargs.update(options)
@@ -385,8 +399,8 @@ class OpenAICompatibleProvider:
             LOGGER.exception(
                 "Error calling OpenAI API: %s, messages: %s, tools: %s, model: %s",
                 redact_provider_response(str(e), self.api_key or ""),
-                _redact_provider_metadata(messages),
-                _redact_provider_metadata(tools),
+                _redact_provider_metadata(request_messages),
+                _redact_provider_metadata(request_tools),
                 model,
             )
             raise e

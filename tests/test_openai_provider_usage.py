@@ -183,6 +183,59 @@ async def test_openai_provider_adds_configured_extra_headers():
     assert client_cls.call_args.kwargs["default_headers"] == {"X-Tenant-ID": "tenant-42"}
 
 
+@pytest.mark.anyio
+async def test_openai_provider_strips_only_top_level_message_name_and_omits_empty_tools():
+    provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
+    messages = [
+        {
+            "role": "assistant",
+            "name": "research-agent",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "lookup_quote", "arguments": "{}"},
+                }
+            ],
+        }
+    ]
+    response_message = MagicMock(content="ok", tool_calls=None, reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=response_message)], usage=None)
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat(messages, [], model="gpt-4.1")
+
+    request = client_cls.return_value.chat.completions.create.await_args.kwargs
+    assert "tools" not in request
+    assert "name" not in request["messages"][0]
+    assert request["messages"][0]["tool_calls"][0]["function"]["name"] == "lookup_quote"
+    assert messages[0]["name"] == "research-agent"
+
+
+@pytest.mark.anyio
+async def test_openai_provider_includes_nonempty_tools():
+    provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
+    response_message = MagicMock(content="ok", tool_calls=None, reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=response_message)], usage=None)
+    tools = [
+        {
+            "name": "lookup_quote",
+            "description": "Look up a quote",
+            "parameters": {"type": "object", "properties": {}},
+        }
+    ]
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], tools, model="gpt-4.1")
+
+    assert client_cls.return_value.chat.completions.create.await_args.kwargs["tools"] == [
+        {"type": "function", "function": tools[0]}
+    ]
+
+
 @pytest.mark.asyncio
 async def test_openai_provider_stream_usage():
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
