@@ -364,6 +364,24 @@ llm_provider:
         assert provider.model == "gpt-5.5"
         assert provider.author == "openai"
 
+    def test_parses_cheaperinference_provider_bare_model_id(self):
+        cfg = _to_config(
+            {
+                "llm_provider": {
+                    "default": "cheaperinference",
+                    "providers": {
+                        "cheaperinference": {
+                            "model": "gpt-5.4-mini",
+                            "base_url": "https://api.cheaperinference.com/v1",
+                        }
+                    },
+                }
+            }
+        )
+        provider = cfg.llm_provider.providers["cheaperinference"]
+        assert provider.model == "gpt-5.4-mini"
+        assert provider.author is None
+
     def test_fills_default_provider_author_when_missing(self):
         cfg = _to_config(
             {

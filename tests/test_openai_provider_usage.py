@@ -348,3 +348,23 @@ async def test_orcarouter_provider_restores_selected_model_author_prefix():
         await provider.chat([], [], model="gpt-5.5")
 
     assert client_cls.return_value.chat.completions.create.await_args.kwargs["model"] == "openai/gpt-5.5"
+
+
+@pytest.mark.asyncio
+async def test_cheaperinference_provider_keeps_bare_model_id():
+    from dojoagents.agent.providers import OpenAICompatibleProvider
+
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="https://api.cheaperinference.com/v1",
+    )
+    provider.name = "cheaperinference"
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content="ok", tool_calls=[]))]
+    response.usage = None
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], [], model="gpt-5.4-mini")
+
+    assert client_cls.return_value.chat.completions.create.await_args.kwargs["model"] == "gpt-5.4-mini"

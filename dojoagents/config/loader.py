@@ -60,6 +60,7 @@ _DEFAULT_PROVIDER_AUTHORS: dict[str, str] = {
     "minimax": "minimax",
     "openrouter": "",
     "orcarouter": "",
+    "cheaperinference": "",
 }
 
 
