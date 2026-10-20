@@ -16,6 +16,10 @@ class LLMProviderConfig:
     base_url: str | None = None
     api_key_env: str | None = None
     api_key: str | None = None
+    # Per-model API keys: ``{model_name: api_key}``. When a requested model is
+    # present here, its key replaces the provider-wide ``api_key`` for that call
+    # (see ``_provider_for_model``). Empty = one key for the whole provider.
+    model_keys: dict[str, str] = field(default_factory=dict)
     extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
 
