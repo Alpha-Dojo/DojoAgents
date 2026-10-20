@@ -1,4 +1,4 @@
-# DojoAgents 文档站维护说明1
+# DojoAgents 文档站维护说明
 
 本目录包含 DojoAgents 的 MkDocs 在线文档源码。除本维护说明外，所有可发布文档和文档资源都必须放在 `docs/site/` 中，禁止再在 `docs/` 根目录新增独立设计文档。
 
