@@ -155,6 +155,19 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         if not isinstance(raw_header_value, str):
             raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
         extra_headers[header_name] = raw_header_value
+    raw_model_keys = raw.get("model_keys", {})
+    if raw_model_keys is None:
+        raw_model_keys = {}
+    if not isinstance(raw_model_keys, dict):
+        raise ValueError(f"llm_provider.providers.{name}.model_keys must be a mapping")
+    model_keys: dict[str, str] = {}
+    for raw_model_name, raw_key in raw_model_keys.items():
+        key_name = _as_non_empty_string(raw_model_name)
+        if key_name is None:
+            raise ValueError(f"llm_provider.providers.{name}.model_keys keys must be non-empty strings")
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise ValueError(f"llm_provider.providers.{name}.model_keys.{key_name} must be a non-empty string")
+        model_keys[key_name] = raw_key
     return LLMProviderConfig(
         model=parsed_model,
         models=tuple(models),
@@ -162,6 +175,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        model_keys=model_keys,
         extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
     )
@@ -189,10 +203,16 @@ def _provider_for_model(
     model: str,
 ) -> LLMProviderConfig:
     author, slug = _split_author_and_model(model)
+    api_key = provider.api_key
+    if provider.model_keys and slug:
+        # Model-specific credential (credential center per-model binding) wins
+        # over the provider-wide key for exactly this model's calls.
+        api_key = provider.model_keys.get(slug) or provider.model_keys.get(model) or api_key
     return replace(
         provider,
         model=slug,
         author=author or provider.author,
+        api_key=api_key,
     )
 
 
@@ -635,6 +655,8 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+            if provider.get("model_keys"):
+                provider["model_keys"] = {key: "***" for key in provider["model_keys"]}
             if provider.get("extra_headers"):
                 provider["extra_headers"] = {key: "***" for key in provider["extra_headers"]}
         sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")

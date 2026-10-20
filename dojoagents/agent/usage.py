@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from dojoagents.agent.compressor import _estimate_tokens_rough
+from dojoagents.agent.telemetry import LLMCallEvent, emit
 from dojoagents.agent.context_usage import (
     PromptContextSource,
     build_context_snapshot,
@@ -404,6 +405,7 @@ class MeteredLLMProvider:
                 **kwargs,
             )
         except BaseException as exc:
+            cancelled = isinstance(exc, anyio.get_cancelled_exc_class())
             if collector is not None:
                 # Cancellation metadata is part of the durable usage ledger.
                 # Shield only this bounded write so the provider operation
@@ -416,11 +418,26 @@ class MeteredLLMProvider:
                             metadata=None,
                             messages=messages,
                             content="",
-                            status=("cancelled" if isinstance(exc, anyio.get_cancelled_exc_class()) else "failed"),
+                            status=("cancelled" if cancelled else "failed"),
                             started_at=started_at,
                             estimate_missing=False,
                             pending=pending,
                         )
+                # Failed calls never reach the provider's success emit, so
+                # publish the neutral event here. Sync, never raises, and kept
+                # outside the shielded scope so a timed-out usage write cannot
+                # skip it.
+                emit(
+                    LLMCallEvent(
+                        run_id=collector.run_id,
+                        model=model,
+                        provider=provider_name,
+                        started_at=started_at.timestamp(),
+                        request_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                        status=("cancelled" if cancelled else "failed"),
+                        error_code=type(exc).__name__,
+                    )
+                )
             raise
         if collector is not None:
             await collector.record(

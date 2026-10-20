@@ -28,6 +28,7 @@ from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.skills.manager import SkillManager
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tools.executor import ToolExecutor
+from dojoagents.agent.telemetry import bind_run_id
 from dojoagents.logging import LOGGER
 
 from dojoagents.agent.think_scrubber import StreamingThinkScrubber
@@ -906,7 +907,10 @@ class AgentLoop:
             coordinator=(canonical_run.coordinator if canonical_run is not None else active_request.metadata.get("_agent_usage_coordinator")),
             start_index=int(active_request.metadata.get("_agent_usage_start_index") or recovery_start_index),
         )
-        with bind_usage_collector(collector):
+        # Telemetry context: run_id resolved just above; events emitted anywhere
+        # in the tree (LLM provider, tool executor) inherit it. Scoped to the run
+        # like the usage collector, so no metadata side channel is needed.
+        with bind_usage_collector(collector), bind_run_id(run_id):
             try:
                 turn_result = await self._run_core(
                     active_request,
