@@ -158,17 +158,10 @@ async def test_integrated_loop_guardrail_block_skips_tool_and_continues(block_af
     assert response.metadata.get("stopped") != "guardrail_halt"
     assert tool_calls == block_after
     assert len(llm.calls) == block_after + 2
-    warning_result = next(
-        message for message in llm.calls[2]["messages"]
-        if message.get("role") == "tool" and message.get("tool_call_id") == "c2"
-    )
+    warning_result = next(message for message in llm.calls[2]["messages"] if message.get("role") == "tool" and message.get("tool_call_id") == "c2")
     assert "Error: compilation failed" in warning_result["content"]
     assert "Tool loop warning" in warning_result["content"]
-    blocked_result = next(
-        message for message in llm.calls[-1]["messages"]
-        if message.get("role") == "tool"
-        and message.get("tool_call_id") == f"c{block_after + 1}"
-    )
+    blocked_result = next(message for message in llm.calls[-1]["messages"] if message.get("role") == "tool" and message.get("tool_call_id") == f"c{block_after + 1}")
     assert "repeated_exact_failure_block" in blocked_result["content"]
     assert '"action": "block"' in blocked_result["content"]
     assert "Blocked fail_tool" in blocked_result["content"]
@@ -492,3 +485,63 @@ async def test_history_tool_calls_enriched_from_provider_state() -> None:
     sent_messages = llm.calls[0]["messages"]
     assistant_msg = next(message for message in sent_messages if message["role"] == "assistant")
     assert assistant_msg["tool_calls"][0]["metadata"]["native_model_content"]["parts"][0]["functionCall"]["thoughtSignature"] == "sig-prev"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("guardrails", [False, True])
+async def test_tool_exception_continues_through_real_compaction_without_replaying_tools(monkeypatch, guardrails):
+    from dojoagents.agent.token_policy import TokenCompressionPolicy
+
+    class PairCheckingProvider(StaticLLMProvider):
+        summary_calls = 0
+
+        async def chat(self, messages, tools, **kwargs):
+            if len(messages) == 1 and "You are a context compression assistant" in str(messages[0].get("content")):
+                self.summary_calls += 1
+                return LLMResult(content="History summary including the initial tool failure")
+            pending = set()
+            for message in messages:
+                if message["role"] == "tool":
+                    assert message["tool_call_id"] in pending
+                    pending.remove(message["tool_call_id"])
+                else:
+                    assert not pending
+                    pending.update(call["id"] for call in message.get("tool_calls", []))
+            assert not pending
+            return await super().chat(messages, tools, **kwargs)
+
+    executed = []
+
+    async def tool(arguments):
+        executed.append(arguments["step"])
+        if arguments["step"] == 0:
+            raise ValueError("calculation input invalid; correct and continue")
+        return {"content": "calculation succeeded"}
+
+    registry = ToolRegistry()
+    registry.register(ToolSpec(name="calculate", description="Calculate", parameters={"type": "object", "properties": {"step": {"type": "integer"}}}, handler=tool))
+    llm = PairCheckingProvider(
+        [
+            *[LLMResult(content="", tool_calls=[ToolCall(id=f"call-{step}", name="calculate", arguments={"step": step})]) for step in range(8)],
+            LLMResult(content="Research completed after correcting the tool error"),
+        ]
+    )
+    loop = AgentLoop(
+        llm_provider=llm,
+        tool_executor=ToolExecutor(registry, SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(model="test-model", enable_guardrails=guardrails, enable_context_compression=True, max_iterations=16),
+    )
+    loop.model_context_registry.resolve = AsyncMock(return_value=32768)
+    loop.compressor.protect_first_n = 2
+    loop.compressor.protect_last_n = 2
+    monkeypatch.setattr(TokenCompressionPolicy, "should_compress", lambda *args, **kwargs: True)
+    response = await loop.run(ChatRequest(user_id="local", session_id="failed-tool-compaction", message="Research and correct recoverable tool errors"))
+    assert response.content == "Research completed after correcting the tool error"
+    assert executed == list(range(8))
+    assert llm.summary_calls > 0 and len(llm.calls) == 9
+    first_error = next(message for message in llm.calls[1]["messages"] if message.get("tool_call_id") == "call-0")
+    assert "calculation input invalid" in first_error["content"]
+    assert response.metadata.get("stopped") != "guardrail_halt"
