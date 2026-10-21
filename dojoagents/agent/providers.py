@@ -10,6 +10,7 @@ from dojoagents.agent.context_length import ContextLengthExceededError, parse_co
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.events import emit_stream_delta
+from dojoagents.agent.telemetry import LLMCallEvent, current_run_id, emit
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
 _IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
@@ -407,6 +408,11 @@ class OpenAICompatibleProvider:
             pending_text: list[str] = []
             reasoning_chars = text_chars = 0
             last_reasoning_flush = last_text_flush = time.monotonic()
+            # Stream timing markers must exist before the loop: they are read on
+            # every chunk, so a missing initializer raises UnboundLocalError.
+            first_chunk_at: float | None = None
+            first_content_at: float | None = None
+            last_chunk_at: float | None = None
 
             async def flush_reasoning() -> None:
                 nonlocal reasoning_chars, last_reasoning_flush
