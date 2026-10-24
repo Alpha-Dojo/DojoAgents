@@ -364,6 +364,179 @@ async def test_web_search_serply_without_api_key_returns_error():
 
 
 @pytest.mark.asyncio
+async def test_web_search_keenable_adapter_parses_results_without_key(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.keenable.ai/v1/search/public"
+        assert request.headers.get("x-keenable-title") == "DojoAgents"
+        assert "x-api-key" not in request.headers
+        assert request.headers.get("user-agent", "").startswith("DojoAgents/")
+        payload = json.loads(request.read().decode("utf-8"))
+        assert payload == {"query": "dojo", "max_results": 1}
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "Keenable Dojo",
+                        "url": "https://example.com/keenable",
+                        "description": "",
+                        "snippet": "Keenable snippet",
+                    },
+                    {
+                        "title": "Second",
+                        "url": "https://example.com/second",
+                        "description": "",
+                        "snippet": "Second snippet",
+                    },
+                ]
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "keenable"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 1})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "keenable"
+    assert len(result.data["web"]) == 1
+    assert result.data["web"][0]["title"] == "Keenable Dojo"
+    assert result.data["web"][0]["url"] == "https://example.com/keenable"
+    assert result.data["web"][0]["description"] == "Keenable snippet"
+
+
+@pytest.mark.asyncio
+async def test_web_search_keenable_with_api_key_uses_keyed_endpoint(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        assert str(request.url) == "https://api.keenable.ai/v1/search"
+        assert request.headers.get("x-api-key") == "kn-test"
+        assert request.headers.get("x-keenable-title") == "DojoAgents"
+        assert json.loads(request.read().decode("utf-8"))["max_results"] == 50
+        return httpx.Response(200, json={"results": []})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "keenable", "api_key": "kn-test"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 80})
+    )
+
+    assert result.ok is True
+    assert result.data["web"] == []
+
+
+@pytest.mark.asyncio
+async def test_web_search_keenable_rate_limited_returns_error(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"detail": "Rate limit exceeded"})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "keenable"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"})
+    )
+
+    assert result.ok is False
+    assert "429" in result.error
+
+
+@pytest.mark.asyncio
+async def test_web_extract_keenable_adapter_parses_results_without_key(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.host == "api.keenable.ai"
+        assert request.url.path == "/v1/fetch/public"
+        assert request.url.params["url"] == "https://example.com/page"
+        assert request.headers.get("x-keenable-title") == "DojoAgents"
+        assert "x-api-key" not in request.headers
+        return httpx.Response(
+            200,
+            json={
+                "url": "https://example.com/page",
+                "title": "Extracted",
+                "content": "# Heading\n\nFull page content",
+                "description": "",
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"extract_backend": "keenable"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_extract", arguments={"url": "https://example.com/page"})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "keenable"
+    assert result.data["results"][0]["title"] == "Extracted"
+    assert result.data["results"][0]["content"] == "# Heading\n\nFull page content"
+    assert result.data["results"][0]["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_web_extract_keenable_with_api_key_reports_per_url_errors(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/fetch"
+        assert request.headers.get("x-api-key") == "kn-test"
+        if request.url.params["url"] == "https://example.com/broken":
+            return httpx.Response(502, json={"detail": "Upstream fetch failed"})
+        return httpx.Response(200, json={"title": "Good", "content": "Good content"})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"extract_backend": "keenable", "api_key": "kn-test"}}})
+    result = await executor.execute_one(
+        ToolCall(
+            id="call-1",
+            name="web_extract",
+            arguments={"urls": ["https://example.com/good", "https://example.com/broken"]},
+        )
+    )
+
+    assert result.ok is True
+    assert [row["url"] for row in result.data["results"]] == [
+        "https://example.com/good",
+        "https://example.com/broken",
+    ]
+    assert result.data["results"][0]["content"] == "Good content"
+    assert result.data["results"][0]["error"] is None
+    assert "502" in result.data["results"][1]["error"]
+
+
+@pytest.mark.asyncio
 async def test_web_extract_tavily_adapter_parses_results(monkeypatch):
     from dojoagents.tools import web_searcher
 

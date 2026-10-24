@@ -55,6 +55,7 @@ tools:
     extract_backend: fetch
     # Paid backends such as tavily / serply / exa / firecrawl need api_key or api_key_env
     # api_key_env: TAVILY_API_KEY
+    # keenable (search and extract) works without a key; api_key_env: KEENABLE_API_KEY lifts its rate limits
     max_extract_urls: 5
     max_content_bytes: 2000000
   execute_code:
