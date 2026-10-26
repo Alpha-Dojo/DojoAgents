@@ -18,7 +18,7 @@ async def test_optional_request_settings_preserve_legacy_defaults_and_metadata_e
     with patch("openai.AsyncOpenAI") as client_cls:
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         await provider.chat([], [], model="qwen", metadata={"_dojo_extra_body": {"enable_thinking": False}})
-        assert "max_retries" not in client_cls.call_args.kwargs
+        assert client_cls.call_args.kwargs["max_retries"] == 5
         assert "timeout" not in client_cls.call_args.kwargs
         assert client_cls.return_value.chat.completions.create.await_args.kwargs["extra_body"] == {"enable_thinking": False}
         with pytest.raises(ValueError):

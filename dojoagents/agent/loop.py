@@ -2418,6 +2418,7 @@ class AgentLoop:
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
+            max_retries=provider_cfg.max_retries,
         )
 
     def _sanitize_tool_specs(

@@ -8,6 +8,8 @@
 
 运行时通过 `ConfigStore.snapshot()` 读取 typed config；Dashboard 配置 API 通过 `ConfigStore.raw()`、deep merge 和 `ConfigStore.save_raw()` 更新用户配置；对外展示必须使用 `ConfigStore.redacted()`。
 
+OpenAI 兼容供应商（含 Qwen）的 `max_retries` 必须是非负整数，默认 `5`：首次请求失败后最多重试 5 次，共 6 次请求；设为 `0` 关闭重试。Chat 与上下文压缩共用此值。重试沿用 SDK 的退避与可重试错误规则，流式响应开始后断流不会自动重发。此配置不会重放整个 Agent 或创建新的定时 Run。原生 Gemini 使用独立的 HTTP 实现。
+
 ## 示例
 
 ```yaml
@@ -28,6 +30,7 @@ llm_provider:
         X-Tenant-ID: ${OPENAI_TENANT_ID}
         X-Request-Source: dojoagents
       context_window: 128000
+      max_retries: 5
 
 agent:
   max_iterations: 100

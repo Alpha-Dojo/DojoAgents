@@ -8,6 +8,8 @@ Configuration is based on `dojoagents/config/loader.py::ConfigStore` and `dojoag
 
 Runtime code reads typed config through `ConfigStore.snapshot()`. The dashboard config API updates user config through `ConfigStore.raw()`, deep merge, and `ConfigStore.save_raw()`. External exposure must use `ConfigStore.redacted()`.
 
+For OpenAI-compatible providers (including Qwen), `max_retries` is a nonnegative integer and defaults to `5`: up to five retries after the initial request, or six attempts total. Set it to `0` to disable retries. Chat and context compression use this value. Retries follow the SDK backoff and retryable-error policy; a broken stream is not restarted after streaming begins. This setting does not replay the whole Agent or create another scheduled Run. Native Gemini uses a separate HTTP implementation.
+
 ## Example
 
 ```yaml
@@ -28,6 +30,7 @@ llm_provider:
         X-Tenant-ID: ${OPENAI_TENANT_ID}
         X-Request-Source: dojoagents
       context_window: 128000
+      max_retries: 5
 
 agent:
   max_iterations: 100
