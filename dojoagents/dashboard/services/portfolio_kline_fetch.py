@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from dojoagents.dashboard.services.kline_bar_utils import DATA_START_DATE
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_OHLC_FIELDS, KlineStore
 
 _KLINE_RECENT_LOOKBACK_DAYS = 60
 _US_KLINE_SYMBOL_FALLBACKS: dict[str, list[str]] = {
@@ -39,6 +39,7 @@ async def fetch_kline_bars_for_symbol(
             market=market,
             start_time=order_time,
             end_time=order_time,
+            fields=KLINE_OHLC_FIELDS,
         )
         return list(response.bars) if response is not None else []
 
@@ -48,6 +49,7 @@ async def fetch_kline_bars_for_symbol(
             market=market,
             start_time=DATA_START_DATE,
             end_time=today,
+            fields=KLINE_OHLC_FIELDS,
         )
         return list(response.bars) if response is not None else []
 
@@ -57,6 +59,7 @@ async def fetch_kline_bars_for_symbol(
             market=market,
             start_time=after_date,
             end_time=today,
+            fields=KLINE_OHLC_FIELDS,
         )
         return list(response.bars) if response is not None else []
 
@@ -66,6 +69,7 @@ async def fetch_kline_bars_for_symbol(
         market=market,
         start_time=recent_start,
         end_time=today,
+        fields=KLINE_OHLC_FIELDS,
     )
     return list(response.bars) if response is not None else []
 

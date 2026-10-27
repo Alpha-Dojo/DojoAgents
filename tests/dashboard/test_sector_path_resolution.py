@@ -4,7 +4,7 @@ import pytest
 
 from dojoagents.agent.models import ToolCall
 from dojoagents.dashboard.services import domain_api
-from dojoagents.dashboard.services.sector_store import SectorStore
+from dojoagents.dashboard.services.sector_store import SectorStore, parse_sector_tree
 from dojoagents.dashboard.integrations import financial_domain_tools as domain_tools
 from dojoagents.tools.executor import ToolExecutor
 from dojoagents.tools.registry import ToolRegistry
@@ -315,3 +315,54 @@ async def test_sector_tools_resolve_by_name(monkeypatch, sector_registry) -> Non
     )
     assert constituents.ok is True
     assert constituents.data["level3_id"] == "3"
+
+
+def test_parse_sector_tree_drops_upstream_pytest_residue_nodes() -> None:
+    """Upstream dojo_sector_info has carried test-residue nodes (pytest-*).
+
+    They must be dropped at parse time so they never reach the taxonomy tree,
+    search listings, or sector-path resolution.
+    """
+    raw_tree = [
+        {
+            "id": 1,
+            "name": "Technology",
+            "name_alias": "科技",
+            "level": 1,
+            "children": [
+                {
+                    "id": 2,
+                    "name": "Semiconductors",
+                    "name_alias": "半导体",
+                    "level": 2,
+                    "children": [
+                        {"id": 3, "name": "Chip Design", "name_alias": "芯片设计", "level": 3},
+                    ],
+                },
+            ],
+        },
+        {
+            # upstream integration-test residue: EN name carries the prefix
+            "id": 1042,
+            "name": "pytest-http-l1-d6d7baa64de2420287ca096acdc12e78",
+            "level": 1,
+            "children": [
+                {"id": 935426829274, "name": "pytest-sector-l3-935426829274", "level": 3},
+            ],
+        },
+        {
+            # residue detected via the zh alias as well
+            "id": 233919254505,
+            "name": "sector-l1-233919254505",
+            "name_alias": "pytest-sector-l1-233919254505",
+            "level": 1,
+            "children": [],
+        },
+    ]
+
+    nodes, paths = parse_sector_tree(raw_tree)
+
+    assert [node.sector_id for node in nodes] == ["1", "2", "3"]
+    assert len(paths) == 1
+    assert paths[0].sector_level_3.sector_id == "3"
+    assert paths[0].sector_level_1.name.en == "Technology"

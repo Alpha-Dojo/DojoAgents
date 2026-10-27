@@ -21,7 +21,7 @@ async def test_model_context_registry_prefers_config_override(tmp_path):
 async def test_model_context_registry_uses_fallback_table(tmp_path):
     registry = ModelContextRegistry(tmp_path / "limits.json", default_context_window=32768)
     value = await registry.resolve("deepseek", LLMProviderConfig(model="deepseek-chat"))
-    assert value == 65536
+    assert value == 512000
 
 
 @pytest.mark.asyncio
@@ -276,7 +276,8 @@ async def test_model_context_registry_reads_structured_cache_and_preserves_modal
 async def test_model_context_registry_config_override_preserves_openrouter_modalities(tmp_path, monkeypatch):
     calls = []
 
-    async def fake_retrieve(provider_cfg):
+    async def fake_retrieve(provider_cfg, provider_name):
+        assert provider_name == "openai"
         calls.append((provider_cfg.author, provider_cfg.model))
         return ModelContextInfo(
             context_window=1048576,

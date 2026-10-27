@@ -1,12 +1,58 @@
 import json
+import math
 import re
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+import httpx
 from typing import Any, Protocol, Callable
 from dojoagents.agent.context_length import ContextLengthExceededError, parse_context_length_error
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
+from dojoagents.agent.events import emit_stream_delta
+from dojoagents.agent.telemetry import LLMCallEvent, current_run_id, emit
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
 _IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
+
+
+def redact_provider_response(value: Any, secret: str = "") -> Any:
+    """Sanitize provider receipts before persistence or logging."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return "<non_finite>"
+    if isinstance(value, dict):
+        return {key: ("<remote URL omitted>" if key in {"file_url", "transcription_url", "video_url"} else redact_provider_response(item, secret)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_provider_response(item, secret) for item in value]
+    if isinstance(value, str):
+        value = value.replace(secret, "<credential omitted>") if secret else value
+        return re.sub(
+            r'https?://[^\s"<>]+',
+            lambda match: (
+                urlunsplit(urlsplit(match[0])._replace(query="", fragment=""))
+                if any(marker in match[0].lower() for marker in ("x-amz-", "signature=", "access_token="))
+                else match[0]
+            ),
+            value,
+        )
+    return value
+
+
+class _BoundedResponseStream(httpx.AsyncByteStream):
+    def __init__(self, stream: httpx.AsyncByteStream, limit: int):
+        self.stream = stream
+        self.limit = limit
+
+    async def __aiter__(self):
+        size = 0
+        async for part in self.stream:
+            size += len(part)
+            if size > self.limit:
+                raise ValueError("Provider response exceeds its read budget")
+            yield part
+
+    async def aclose(self):
+        await self.stream.aclose()
 
 
 def _redact_provider_metadata(value: Any) -> Any:
@@ -14,7 +60,7 @@ def _redact_provider_metadata(value: Any) -> Any:
         match = _IMAGE_DATA_URL_RE.match(value)
         if match:
             return f"[image-data mime={match.group(1).lower()} encoded_chars={len(match.group(2))}]"
-        return value
+        return redact_provider_response(value)
     if isinstance(value, dict):
         redacted: dict[str, Any] = {}
         for key, item in value.items():
@@ -101,7 +147,7 @@ class UnconfiguredLLMProvider:
     ) -> LLMResult:
         message = "No LLM provider configured. Set llm_provider in ~/.dojo/agents.yaml " "or configure a model in the dashboard settings."
         if stream and stream_callback:
-            stream_callback(message)
+            await emit_stream_delta(stream_callback, message)
         return LLMResult(content=message, metadata={"provider": self.name, "live": False, "error": "no_provider"})
 
 
@@ -139,7 +185,7 @@ class StaticLLMProvider:
         if stream and stream_callback and res.content:
             chunk_size = 5
             for i in range(0, len(res.content), chunk_size):
-                stream_callback(res.content[i : i + chunk_size])
+                await emit_stream_delta(stream_callback, res.content[i : i + chunk_size])
         return res
 
 
@@ -153,11 +199,56 @@ class OpenAICompatibleProvider:
         base_url: str | None = None,
         author: str | None = None,
         extra_headers: dict[str, str] | None = None,
+        max_retries: int | None = None,
+        timeout: float | None = None,
+        max_response_bytes: int | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.author = author
         self.extra_headers = dict(extra_headers or {})
+        if max_retries is not None and (type(max_retries) is not int or max_retries < 0):
+            raise ValueError("max_retries must be a nonnegative integer")
+        if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError("timeout must be finite and positive")
+        if max_response_bytes is not None and (type(max_response_bytes) is not int or max_response_bytes <= 0):
+            raise ValueError("max_response_bytes must be a positive integer")
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.max_response_bytes = max_response_bytes
+
+    async def _raw_completion(self, client, create_kwargs) -> LLMResult:
+        from openai import APIStatusError
+
+        try:
+            raw = await client.chat.completions.with_raw_response.create(**create_kwargs)
+            response = raw.http_response
+        except APIStatusError as exc:
+            response = exc.response
+        text = response.content.decode("utf-8", errors="backslashreplace")
+        try:
+            body = json.loads(
+                text,
+                parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+            )
+        except (ValueError, RecursionError):
+            body = {"_unparsed_response": text}
+        body = redact_provider_response(body, self.api_key or "")
+        choices = body.get("choices") if isinstance(body, dict) else None
+        first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        message = first.get("message") or {}
+        content = message.get("content") if isinstance(message, dict) else None
+        metadata = {
+            "provider": self.name,
+            "raw_response": {"http_status": response.status_code, "response": body},
+            "finish_reason": first.get("finish_reason"),
+        }
+        if isinstance(body, dict) and isinstance(body.get("usage"), dict):
+            metadata["usage"] = body["usage"]
+        return LLMResult(
+            content=content if isinstance(content, str) else "",
+            metadata=metadata,
+        )
 
     @staticmethod
     def _usage_dict(usage: Any) -> dict[str, int] | None:
@@ -194,7 +285,34 @@ class OpenAICompatibleProvider:
         stream: bool = False,
         metadata: dict | None = None,
         stream_callback: Callable[[str], None] | None = None,
+        request_options: dict[str, Any] | None = None,
+        include_raw_response: bool = False,
     ) -> LLMResult:
+        if include_raw_response and stream:
+            raise ValueError("Raw receipts require a non-streaming call")
+        options = dict(request_options or {})
+        allowed = {
+            "temperature",
+            "max_completion_tokens",
+            "max_tokens",
+            "response_format",
+            "extra_body",
+        }
+        if set(options) - allowed:
+            raise ValueError("Unsupported chat request options")
+        extra_body = {
+            **((metadata or {}).get("_dojo_extra_body") or {}),
+            **(options.get("extra_body") or {}),
+        }
+        if set(extra_body) & {"model", "messages", "tools", "stream"}:
+            raise ValueError("extra_body cannot override the chat request identity")
+        if extra_body:
+            options["extra_body"] = extra_body
+        if "max_completion_tokens" in options:
+            options["extra_body"] = {
+                **extra_body,
+                "max_completion_tokens": options.pop("max_completion_tokens"),
+            }
         if not self.api_key:
             return LLMResult(
                 content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
@@ -202,21 +320,40 @@ class OpenAICompatibleProvider:
             )
         from openai import AsyncOpenAI
 
+        client_options: dict[str, Any] = {}
+        if self.max_retries is not None:
+            client_options["max_retries"] = self.max_retries
+        if self.timeout is not None:
+            client_options["timeout"] = self.timeout
+        if self.max_response_bytes is not None:
+
+            async def bound_response(response):
+                if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                    raise ValueError("Bounded provider responses must use identity encoding")
+                if response.is_stream_consumed and len(response.content) > self.max_response_bytes:
+                    raise ValueError("Provider response exceeds its read budget")
+                response.stream = _BoundedResponseStream(response.stream, self.max_response_bytes)
+
+            client_options["http_client"] = httpx.AsyncClient(
+                event_hooks={"response": [bound_response]},
+                headers={"Accept-Encoding": "identity"},
+                follow_redirects=False,
+                trust_env=False,
+            )
         client = AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             default_headers=self.extra_headers or None,
+            **client_options,
         )
 
         actual_model = model
-        is_model_router = (
-            self.name == "model-router"
-            or "openrouter.ai" in str(self.base_url or "").lower()
-            or "orcarouter.ai" in str(self.base_url or "").lower() or "atlascloud.ai" in str(self.base_url or "").lower()
-        )
+        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower() or "orcarouter.ai" in str(self.base_url or "").lower() or "atlascloud.ai" in str(self.base_url or "").lower()
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
+        request_started = time.perf_counter()
+        request_started_wall = time.time()
         try:
             create_kwargs: dict[str, Any] = {
                 "model": actual_model,
@@ -226,6 +363,12 @@ class OpenAICompatibleProvider:
             }
             if stream:
                 create_kwargs["stream_options"] = {"include_usage": True}
+            create_kwargs.update(options)
+            if include_raw_response:
+                try:
+                    return await self._raw_completion(client, create_kwargs)
+                finally:
+                    await client.close()
             response = await client.chat.completions.create(**create_kwargs)
         except Exception as e:
             err_msg = str(e)
@@ -244,7 +387,7 @@ class OpenAICompatibleProvider:
                 ) from e
             LOGGER.exception(
                 "Error calling OpenAI API: %s, messages: %s, tools: %s, model: %s",
-                e,
+                redact_provider_response(str(e), self.api_key or ""),
                 _redact_provider_metadata(messages),
                 _redact_provider_metadata(tools),
                 model,
@@ -260,14 +403,49 @@ class OpenAICompatibleProvider:
             reasoning_started = False
             reasoning_ended = False
             content_started = False
+            coalesce = getattr((metadata or {}).get("_dojo_request"), "channel", None) == "job"
+            pending_reasoning: list[str] = []
+            pending_text: list[str] = []
+            reasoning_chars = text_chars = 0
+            last_reasoning_flush = last_text_flush = time.monotonic()
+            # Stream timing markers must exist before the loop: they are read on
+            # every chunk, so a missing initializer raises UnboundLocalError.
+            first_chunk_at: float | None = None
+            first_content_at: float | None = None
+            last_chunk_at: float | None = None
+
+            async def flush_reasoning() -> None:
+                nonlocal reasoning_chars, last_reasoning_flush
+                if pending_reasoning:
+                    await event_sink.wait_for_capacity()
+                    event_sink.thinking_delta("".join(pending_reasoning))
+                    pending_reasoning.clear()
+                    reasoning_chars = 0
+                    last_reasoning_flush = time.monotonic()
+
+            async def flush_text() -> None:
+                nonlocal text_chars, last_text_flush
+                if pending_text:
+                    await emit_stream_delta(stream_callback, "".join(pending_text))
+                    pending_text.clear()
+                    text_chars = 0
+                    last_text_flush = time.monotonic()
+
             async for chunk in response:
                 chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
                 if chunk_usage is not None:
                     stream_usage = chunk_usage
                 if not chunk.choices:
                     continue
+                last_chunk_at = time.perf_counter()
+                if first_chunk_at is None:
+                    # Reasoning chunks count as the first token: users still wait
+                    # for them, and providers bill them.
+                    first_chunk_at = last_chunk_at
                 choice = chunk.choices[0]
                 delta = choice.delta
+                if event_sink is not None:
+                    await event_sink.wait_for_capacity()
                 reasoning_delta = getattr(delta, "reasoning_content", None) or (
                     delta.model_extra.get("reasoning_content") if hasattr(delta, "model_extra") and delta.model_extra else None
                 )
@@ -277,15 +455,30 @@ class OpenAICompatibleProvider:
                         if not reasoning_started:
                             event_sink.thinking_start()
                             reasoning_started = True
-                        event_sink.thinking_delta(reasoning_delta)
+                        if coalesce:
+                            pending_reasoning.append(reasoning_delta)
+                            reasoning_chars += len(reasoning_delta)
+                            if reasoning_chars >= 1024 or time.monotonic() - last_reasoning_flush >= 0.05:
+                                await flush_reasoning()
+                        else:
+                            event_sink.thinking_delta(reasoning_delta)
                 content_delta = delta.content or ""
                 if content_delta:
+                    if first_content_at is None:
+                        first_content_at = time.perf_counter()
                     if event_sink is not None and reasoning_started and not reasoning_ended:
+                        await flush_reasoning()
                         event_sink.thinking_end()
                         reasoning_ended = True
                     content_started = True
                     full_content.append(content_delta)
-                    stream_callback(content_delta)
+                    if coalesce:
+                        pending_text.append(content_delta)
+                        text_chars += len(content_delta)
+                        if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
+                            await flush_text()
+                    else:
+                        await emit_stream_delta(stream_callback, content_delta)
                 if delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
@@ -299,7 +492,10 @@ class OpenAICompatibleProvider:
                             tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
                         tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
+            await flush_reasoning()
+            await flush_text()
             if event_sink is not None and reasoning_started and not reasoning_ended:
+                await event_sink.wait_for_capacity()
                 event_sink.thinking_end()
                 reasoning_ended = True
             final_tool_calls = []
@@ -322,6 +518,32 @@ class OpenAICompatibleProvider:
                 metadata["usage"] = stream_usage
             else:
                 metadata["usage_available"] = False
+            # Timing no longer rides a private metadata channel; the framework
+            # emits a neutral LLMCallEvent instead and the host persists it.
+            stream_ended = time.perf_counter()
+            timing: dict[str, int] = {"request_ms": int((stream_ended - request_started) * 1000)}
+            if first_chunk_at is not None:
+                timing["ttft_ms"] = int((first_chunk_at - request_started) * 1000)
+            if first_content_at is not None:
+                timing["ttfc_ms"] = int((first_content_at - request_started) * 1000)
+            if first_chunk_at is not None and last_chunk_at is not None:
+                timing["decode_ms"] = int((last_chunk_at - first_chunk_at) * 1000)
+            # Framework-neutral telemetry event; the host decides how to persist
+            # it. run_id comes from the run-scoped context (see telemetry.py).
+            emit(
+                LLMCallEvent(
+                    run_id=current_run_id(),
+                    model=actual_model,
+                    provider=self.name,
+                    started_at=request_started_wall,
+                    request_ms=timing.get("request_ms", 0),
+                    ttft_ms=timing.get("ttft_ms"),
+                    ttfc_ms=timing.get("ttfc_ms"),
+                    decode_ms=timing.get("decode_ms"),
+                    usage=stream_usage,
+                    status="succeeded",
+                )
+            )
             return LLMResult(
                 content="".join(full_content),
                 tool_calls=final_tool_calls,
@@ -351,6 +573,17 @@ class OpenAICompatibleProvider:
                 result_metadata["usage"] = usage_dict
             else:
                 result_metadata["usage_available"] = False
+            emit(
+                LLMCallEvent(
+                    run_id=current_run_id(),
+                    model=actual_model,
+                    provider=self.name,
+                    started_at=request_started_wall,
+                    request_ms=max(0, int((time.perf_counter() - request_started) * 1000)),
+                    usage=usage_dict,
+                    status="succeeded",
+                )
+            )
             return LLMResult(
                 content=message.content or "",
                 tool_calls=final_tool_calls,

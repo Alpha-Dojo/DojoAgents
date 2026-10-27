@@ -17,6 +17,6 @@
 | `dojoagents/planning/` | Plan store, engine, triggers |
 | `dojoagents/quant/` | Quant context, risk, workflow |
 | `tests/` | Pytest suite |
-| `docs/` | MkDocs site and `docs/plans/` design notes |
+| `docs/` | MkDocs source, categorized under `docs/site/{locale}/`, plus shared site assets |
 
 Reuse `ConfigStore`, `dojoagents.logging`, `ToolRegistry`, `ToolExecutor`, and dashboard dependency accessors. Prefer `dojo.sdk.*` for agent finance reads ([DojoSDK](../reference/dojo-sdk.md)).

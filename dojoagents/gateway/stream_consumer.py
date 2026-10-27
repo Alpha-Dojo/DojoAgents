@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 import re
+import threading
 import time
 from typing import Any
+
+from dojoagents.logging import LOGGER
 
 
 class GatewayStreamConsumer:
@@ -23,53 +26,103 @@ class GatewayStreamConsumer:
         self.thread_id = thread_id
         self.edit_interval = edit_interval
         
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
+        self._send_stream: anyio.abc.ObjectSendStream[str] | None = None
+        self._receive_stream: anyio.abc.ObjectReceiveStream[str] | None = None
         self.accumulated = ""
         self.message_id: str | None = None
         
-        self._stop_event = asyncio.Event()
-        self._task: asyncio.Task | None = None
-        self.loop = asyncio.get_running_loop()
+        self._stop_event = anyio.Event()
+        self._done_event = anyio.Event()
+        self._error: Exception | None = None
+        self._portal: anyio.from_thread.BlockingPortal | None = None
+        self._owner_thread_id: int | None = None
+        self._closed = True
+        self._state_lock = threading.Lock()
 
     def on_delta(self, token: str) -> None:
-        """Callback to receive token deltas. Thread-safe wrapper via loop scheduling or direct put."""
+        """Publish a token with bounded same-loop or cross-thread backpressure."""
+        with self._state_lock:
+            if self._closed:
+                return
+            send_stream = self._send_stream
+            portal = self._portal
+            owner_thread_id = self._owner_thread_id
+        if send_stream is None:
+            return
         try:
-            current_loop = asyncio.get_running_loop()
-            if current_loop is self.loop:
-                self.queue.put_nowait(token)
+            if owner_thread_id == threading.get_ident():
+                send_stream.send_nowait(token)
+            elif portal is not None:
+                portal.call(send_stream.send, token)
             else:
-                self.loop.call_soon_threadsafe(self.queue.put_nowait, token)
-        except RuntimeError:
-            self.loop.call_soon_threadsafe(self.queue.put_nowait, token)
+                raise RuntimeError("gateway stream consumer is not active")
+        except anyio.WouldBlock as exc:
+            raise RuntimeError("gateway delta stream buffer is full (capacity=64)") from exc
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError, RuntimeError):
+            with self._state_lock:
+                if self._closed or self._portal is None:
+                    return
+            raise
 
-    async def start(self) -> None:
+    async def start(self, task_group: anyio.abc.TaskGroup) -> None:
         """Start the background consumer task."""
-        self._task = asyncio.create_task(self._run())
+        self._stop_event = anyio.Event()
+        self._done_event = anyio.Event()
+        self._error = None
+        self._send_stream, self._receive_stream = anyio.create_memory_object_stream[str](
+            max_buffer_size=64
+        )
+        self._portal = anyio.from_thread.BlockingPortal()
+        await self._portal.__aenter__()
+        self._owner_thread_id = threading.get_ident()
+        with self._state_lock:
+            self._closed = False
+        task_group.start_soon(self._run_owned)
 
     async def stop(self) -> None:
         """Signal the consumer to stop and wait for it to process remaining queue items."""
+        with self._state_lock:
+            already_closed = self._closed
+            self._closed = True
+            send_stream = self._send_stream
+        if already_closed:
+            await self._done_event.wait()
+            return
         self._stop_event.set()
-        # Put sentinel token to wake up queue get
-        self.on_delta("")
-        if self._task:
-            await self._task
+        if send_stream is not None:
+            await send_stream.aclose()
+        await self._done_event.wait()
+        if self._error is not None:
+            LOGGER.error("Gateway stream consumer stopped after an error: %s", self._error)
+        portal = self._portal
+        self._portal = None
+        self._owner_thread_id = None
+        if portal is not None:
+            await portal.__aexit__(None, None, None)
+
+    async def _run_owned(self) -> None:
+        try:
+            await self._run()
+        except anyio.get_cancelled_exc_class():
+            raise
+        except Exception as exc:
+            self._error = exc
+        finally:
+            self._done_event.set()
 
     async def _run(self) -> None:
+        receive_stream = self._receive_stream
+        if receive_stream is None:
+            raise RuntimeError("gateway stream consumer was not started")
         last_edit_time = 0.0
-        while not self._stop_event.is_set() or not self.queue.empty():
-            try:
-                # Wait for token with timeout to ensure we flush periodically
-                token = await asyncio.wait_for(self.queue.get(), timeout=self.edit_interval)
+        async with receive_stream:
+            async for token in receive_stream:
                 if token:
                     self.accumulated += token
-            except asyncio.TimeoutError:
-                pass
-
-            now = time.time()
-            elapsed = now - last_edit_time
-            if elapsed >= self.edit_interval or (self._stop_event.is_set() and self.queue.empty()):
-                await self._flush()
-                last_edit_time = now
+                now = time.time()
+                if now - last_edit_time >= self.edit_interval:
+                    await self._flush()
+                    last_edit_time = now
 
         # Final flush to ensure all tokens are delivered
         await self._flush()

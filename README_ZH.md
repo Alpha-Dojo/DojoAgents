@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://discord.gg/CCRvSvdvr"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="docs/WECHAT.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="docs/site/zh/community/wechat.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
   <a href="https://huggingface.co/AlphaDojo"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
@@ -32,7 +32,7 @@ DojoAgents 是一款专为个人投资打造的全市场 AI 智能体框架。�
 <div align="center">
   <img
     alt="DojoAgents 系统架构图"
-    src="docs/imgs/structure.png"
+    src="docs/site/assets/images/structure.png"
     width="720"
   />
   <p><em>七层架构 — 从 CLI、Web Dashboard、聊天网关，到 Agent Loop、工具执行、数据层与基础设施。</em></p>
@@ -68,7 +68,7 @@ DojoAgents 收到问题后进入数据收集阶段，调用全球市场、行业
 <div align="center">
   <img
     alt="DojoAgents 每日市场全景演示"
-    src="docs/gifs/market_overview.gif"
+    src="docs/site/assets/gifs/market_overview.gif"
     width="720"
   />
 </div>
@@ -82,7 +82,7 @@ DojoAgents 收到问题后进入数据收集阶段，调用全球市场、行业
 <div align="center">
   <img
     alt="DojoAgents 突发新闻影响分析演示"
-    src="docs/gifs/news_impact.gif"
+    src="docs/site/assets/gifs/news_impact.gif"
     width="720"
   />
 </div>
@@ -96,7 +96,7 @@ DojoAgents 支持多模态模型能力，用户只需上传持仓截图，就能
 <div align="center">
   <img
     alt="DojoAgents 上传持仓截图组合诊断演示"
-    src="docs/gifs/upload_screenshot.gif"
+    src="docs/site/assets/gifs/upload_screenshot.gif"
     width="720"
   />
 </div>
@@ -108,7 +108,7 @@ DojoAgents 支持多模态模型能力，用户只需上传持仓截图，就能
 <div align="center">
   <img
     alt="DojoAgents 模拟组合生成演示"
-    src="docs/gifs/simulated_portfolio.gif"
+    src="docs/site/assets/gifs/simulated_portfolio.gif"
     width="720"
   />
 </div>

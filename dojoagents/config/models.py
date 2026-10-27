@@ -16,6 +16,10 @@ class LLMProviderConfig:
     base_url: str | None = None
     api_key_env: str | None = None
     api_key: str | None = None
+    # Per-model API keys: ``{model_name: api_key}``. When a requested model is
+    # present here, its key replaces the provider-wide ``api_key`` for that call
+    # (see ``_provider_for_model``). Empty = one key for the whole provider.
+    model_keys: dict[str, str] = field(default_factory=dict)
     extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
 
@@ -123,7 +127,6 @@ class ProfilerConfig:
 @dataclass(frozen=True)
 class FinancialDashboardConfig:
     enabled: bool = True
-    sdk_cache_dir: str = "~/.cache/dojo"
     dashboard_data_root: str = "~/.dojo/dashboard-data"
     stock_quote_refresh_seconds: int = 15
     constituent_kline_post_close_poll_seconds: int = 300
@@ -133,10 +136,10 @@ class FinancialDashboardConfig:
     ticker_market_cap_min_hk: float = 1_000_000_000.0
     derived_cache_schema_version: int = 1
     market_calendar_provider: str = "exchange_calendars"
-
-    @property
-    def sdk_cache_path(self) -> Path:
-        return Path(self.sdk_cache_dir).expanduser()
+    startup_preload_stores: tuple[str, ...] = (
+        "sector_store",
+        "benchmark_store",
+    )
 
     @property
     def dashboard_data_path(self) -> Path:
@@ -163,12 +166,48 @@ class LoggingConfig:
     date_format: str = DEFAULT_LOG_DATE_FORMAT
 
 
+DEFAULT_DOJOSDK_STARTUP_PATHS: tuple[str, ...] = (
+    "/api/qdata/v1/benchmark/kline",
+    "/api/qdata/v1/benchmark/catalog",
+    "/api/qdata/v1/sector/info",
+    "/api/qdata/v1/stock/ystock_info",
+    "/api/qdata/v1/stocks/current_quote",
+    "/api/qdata/v1/stock/kline",
+    "/api/qdata/v1/stock/fin_indicators",
+    "/api/qdata/v1/stock/event_remind",
+    "/api/qdata/v1/stock/main_income",
+    "/api/qdata/v1/forex/kline",
+    "/api/qdata/v1/sector/symbol_relations",
+    "/api/qdata/v1/stocks/news",
+    "/api/qdata/v1/sector/precomputed/constituents",
+    "/api/qdata/v1/sector/precomputed/sector_daily",
+    "/api/qdata/v1/sector/precomputed/ticker_daily",
+    "/api/qdata/v1/analysis/market_dynamics",
+    "/api/qdata/v1/analysis/attribution_factor",
+)
+
+
+@dataclass(frozen=True)
+class DojoSDKOfflineConfig:
+    enabled: bool = True
+    cache_dir: str = "~/.cache/huggingface/hub"
+    backend: str = "auto"
+    local_files_only: bool = False
+    startup_paths: tuple[str, ...] = DEFAULT_DOJOSDK_STARTUP_PATHS
+    startup_repos: tuple[str, ...] = ()
+
+    @property
+    def cache_path(self) -> Path:
+        return Path(self.cache_dir).expanduser()
+
+
 @dataclass(frozen=True)
 class DojoSDKConfig:
     api_key: str | None = None
     base_url: str | None = None
     timeout: float = 60.0
     max_retries: int = 1
+    offline: DojoSDKOfflineConfig = field(default_factory=DojoSDKOfflineConfig)
 
 
 @dataclass(frozen=True)

@@ -728,3 +728,98 @@ async def test_canonical_heartbeat_converts_cancel_request_to_terminal_cancel(tm
     assert events.items[-1].event_type == "error"
     assert events.items[-1].payload["code"] == "cancelled"
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("store_delay", [0, 0.002])
+@pytest.mark.parametrize("channel", ["cli", "job"])
+@pytest.mark.parametrize("fail_once", [False, True])
+async def test_openai_burst_through_bridge_and_durable_store(tmp_path, monkeypatch, store_delay, channel, fail_once):
+    from types import SimpleNamespace
+    import anyio
+    from dojoagents.agent.providers import OpenAICompatibleProvider
+
+    service = await _service(tmp_path)
+    original_append = service._store.append_events
+    failures = 0
+
+    async def slow_append(*args, **kwargs):
+        nonlocal failures
+        if fail_once and failures == 0 and any(event.event_type == "think_delta" for event in args[2]):
+            failures += 1
+            raise RuntimeError("transient store error")
+        await anyio.sleep(store_delay)
+        return await original_append(*args, **kwargs)
+
+    monkeypatch.setattr(service._store, "append_events", slow_append)
+    provider = OpenAICompatibleProvider(api_key="test", base_url="https://example.test")
+    loop = _loop(provider, service)
+    loop.config = replace(loop.config, enable_think_scrubbing=False)
+    sink = AgentEventSink(run_id="burst-chain", session_id="burst-session")
+
+    async def chunks():
+        # No checkpoints in the source: one socket read can contain many chunks.
+        for i in range(2000):
+            reasoning = "r" if i < 1000 else None
+            delta = SimpleNamespace(reasoning_content=reasoning, content="x" if i >= 1000 else "", tool_calls=None, model_extra=None)
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
+
+    try:
+        with patch("openai.AsyncOpenAI") as client:
+            client.return_value.chat.completions.create = AsyncMock(return_value=chunks())
+            client.return_value.close = AsyncMock()
+            with anyio.fail_after(20):
+                result = await loop.run(ChatRequest("run", session_id="burst-session", channel=channel, principal=SessionPrincipal("alice")), event_sink=sink)
+        assert failures == int(fail_once)
+        assert result.content == "x" * 1000
+        page = await service.read_events(SessionPrincipal("alice"), "burst-chain", after_seq=0, limit=10000)
+        payloads = [event.payload for event in page.items]
+        assert "".join(event.get("text", "") for event in payloads if event["type"] == "think_delta") == "r" * 1000
+        assert "".join(event.get("text", "") for event in payloads if event["type"] == "delta") == "x" * 1000
+        if channel == "job":
+            assert sum(event["type"] == "think_delta" for event in payloads) < 50
+            assert sum(event["type"] == "delta" for event in payloads) < 50
+        assert (await service.get_run(SessionPrincipal("alice"), "burst-chain")).status == "completed"
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_unblocks_full_provider_and_writer_queues(tmp_path, monkeypatch):
+    import anyio
+
+    service = await _service(tmp_path)
+    entered, release = anyio.Event(), anyio.Event()
+    original_append = service._store.append_events
+
+    async def stalled(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original_append(*args, **kwargs)
+
+    monkeypatch.setattr(service._store, "append_events", stalled)
+    loop = _loop(StaticLLMProvider([LLMResult("x" * 20000)]), service)
+    finished = anyio.Event()
+
+    async def run():
+        with anyio.CancelScope() as scope:
+
+            async def cancel():
+                await entered.wait()
+                await anyio.sleep(0.03)
+                scope.cancel()
+                release.set()
+
+            async with anyio.create_task_group() as group:
+                group.start_soon(cancel)
+                try:
+                    await loop.run(ChatRequest("run", session_id="cancel-burst", principal=SessionPrincipal("alice")))
+                finally:
+                    finished.set()
+
+    try:
+        with anyio.fail_after(5):
+            await run()
+        assert finished.is_set()
+    finally:
+        await service.shutdown()

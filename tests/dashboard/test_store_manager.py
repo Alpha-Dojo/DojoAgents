@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,6 +41,7 @@ class ClosableFakeDojo(FakeDojo):
 class RecordingRegistry:
     def __init__(self) -> None:
         self.calls: list[tuple[object, Path, bool]] = []
+        self.startup_preload_calls: list[tuple[str, ...]] = []
         self.reset_count = 0
 
     client = None
@@ -55,6 +57,9 @@ class RecordingRegistry:
     ) -> None:
         self.client = client
         self.calls.append((client, data_root, preload))
+
+    async def preload_startup(self, store_names) -> None:
+        self.startup_preload_calls.append(tuple(store_names))
 
     def reset(self) -> None:
         self.reset_count += 1
@@ -76,7 +81,7 @@ def test_create_app_defers_sdk_and_store_initialization_to_lifespan(tmp_path) ->
             base_url=None,
             timeout=60,
             max_retries=1,
-            sdk_cache_dir=tmp_path / "cache",
+            offline_cache_dir=tmp_path / "cache",
             data_root=tmp_path,
             portfolio_data_root=tmp_path / "portfolios",
             refresh_enabled=False,
@@ -94,7 +99,10 @@ def test_create_app_defers_sdk_and_store_initialization_to_lifespan(tmp_path) ->
     with TestClient(app) as client:
         assert client.get("/api/health").status_code == 200
         assert len(clients) == 1
-        assert registry.calls == [(clients[0], tmp_path, True)]
+        assert registry.calls == [(clients[0], tmp_path, False)]
+        assert registry.startup_preload_calls == [
+            ("sector_store", "benchmark_store")
+        ]
 
     assert clients[0].closed is True
     assert registry.reset_count == 1
@@ -117,6 +125,52 @@ async def test_global_stores_share_one_gateway_and_explicit_data_root(tmp_path) 
     assert IsolatedStores.forex_store.gateway is IsolatedStores.gateway
     assert IsolatedStores.portfolio_store.root == tmp_path / "portfolio"
     assert IsolatedStores.kline_store.gateway is IsolatedStores.gateway
+
+
+@pytest.mark.asyncio
+async def test_dashboard_builds_separate_live_client_for_realtime_data(tmp_path) -> None:
+    created: list[tuple[ClosableFakeDojo, bool]] = []
+
+    def factory(**kwargs):
+        client = ClosableFakeDojo()
+        client._online = bool(kwargs["online"])
+        created.append((client, client._online))
+        return client
+
+    class HybridRegistry(RecordingRegistry):
+        live_client = None
+
+        async def init_and_load_all(self, client, *, live_client=None, **kwargs):
+            self.client = client
+            self.live_client = live_client
+            self.calls.append((client, kwargs["data_root"], kwargs["preload"]))
+
+    registry = HybridRegistry()
+    services = DashboardAppServices(
+        DashboardAppServicesConfig(
+            api_key="test-key",
+            base_url=None,
+            timeout=60,
+            max_retries=1,
+            offline_cache_dir=tmp_path / "cache",
+            data_root=tmp_path,
+            portfolio_data_root=tmp_path / "portfolios",
+            startup_paths=(),
+            startup_preload_stores=(),
+            refresh_enabled=False,
+        ),
+        client_factory=factory,
+        registry_factory=lambda: registry,
+    )
+
+    await services.startup()
+
+    assert [online for _client, online in created] == [False, True]
+    assert registry.client is created[0][0]
+    assert registry.live_client is created[1][0]
+
+    await services.shutdown()
+    assert all(client.closed for client, _online in created)
 
 
 @pytest.mark.asyncio
@@ -152,14 +206,10 @@ async def test_cancel_startup_interrupts_preload_and_restores_resources(tmp_path
 
     class BlockingClient:
         closed = False
-        cancel_requested = False
 
-        async def preload_offline_data(self) -> None:
+        async def ensure_offline_snapshots(self, **_kwargs) -> None:
             preload_started.set()
             await asyncio.Event().wait()
-
-        def cancel_preload_offline_data(self) -> None:
-            self.cancel_requested = True
 
         async def aclose(self) -> None:
             self.closed = True
@@ -171,7 +221,7 @@ async def test_cancel_startup_interrupts_preload_and_restores_resources(tmp_path
             base_url=None,
             timeout=60,
             max_retries=1,
-            sdk_cache_dir=tmp_path / "cache",
+            offline_cache_dir=tmp_path / "cache",
             data_root=tmp_path,
             portfolio_data_root=tmp_path / "portfolios",
             refresh_enabled=False,
@@ -179,8 +229,6 @@ async def test_cancel_startup_interrupts_preload_and_restores_resources(tmp_path
         client_factory=lambda **_kwargs: client,
         registry_factory=RecordingRegistry,
     )
-    original_cache_dir = os.environ.get("DOJO_CACHE_DIR")
-    original_online = os.environ.get("DOJO_ONLINE")
     startup_task = asyncio.create_task(services.startup())
     await asyncio.wait_for(preload_started.wait(), timeout=1)
 
@@ -189,8 +237,106 @@ async def test_cancel_startup_interrupts_preload_and_restores_resources(tmp_path
         await asyncio.wait_for(startup_task, timeout=1)
 
     assert client.closed is True
-    assert client.cancel_requested is True
     assert services.client is None
     assert services.registry is None
-    assert os.environ.get("DOJO_CACHE_DIR") == original_cache_dir
-    assert os.environ.get("DOJO_ONLINE") == original_online
+
+
+@pytest.mark.asyncio
+async def test_startup_ensures_and_checks_remote_for_explicit_snapshot_scope_without_marking_daily_sync(tmp_path) -> None:
+    class Client(ClosableFakeDojo):
+        ensure_offline_snapshots = AsyncMock(return_value=[])
+        sync_offline_snapshots = AsyncMock(
+            return_value=SimpleNamespace(changed=False, updated_repos=(), failures=())
+        )
+
+    client = Client()
+    services = DashboardAppServices(
+        DashboardAppServicesConfig(
+            api_key=None,
+            base_url=None,
+            timeout=60,
+            max_retries=1,
+            offline_cache_dir=tmp_path / "cache",
+            data_root=tmp_path,
+            portfolio_data_root=tmp_path / "portfolios",
+            startup_paths=(
+                "/api/qdata/v1/stock/kline",
+                "/api/qdata/v1/sector/info",
+            ),
+            startup_preload_stores=(),
+            refresh_enabled=False,
+        ),
+        client_factory=lambda **_kwargs: client,
+        registry_factory=RecordingRegistry,
+    )
+
+    await services.startup()
+
+    client.ensure_offline_snapshots.assert_awaited_once_with(
+        paths=[
+            "/api/qdata/v1/stock/kline",
+            "/api/qdata/v1/sector/info",
+        ],
+        repos=None,
+    )
+    client.sync_offline_snapshots.assert_awaited_once_with(
+        paths=[
+            "/api/qdata/v1/stock/kline",
+            "/api/qdata/v1/sector/info",
+        ],
+        repos=None,
+        check_remote=True,
+        force=False,
+    )
+    assert await services.refresh_store.get_last_refresh_date_async("offline_snapshots") is None
+    await services.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_manual_refresh_invalidates_only_committed_updated_repos(tmp_path) -> None:
+    class Client(ClosableFakeDojo):
+        ensure_offline_snapshots = AsyncMock(return_value=[])
+        sync_offline_snapshots = AsyncMock(
+            return_value=SimpleNamespace(
+                changed=True,
+                updated_repos=("AlphaDojo/dojo_stock_kline",),
+                failures=(),
+            )
+        )
+
+    class Registry(RecordingRegistry):
+        refresh_after_offline_data_update = AsyncMock()
+
+    client = Client()
+    registry = Registry()
+    services = DashboardAppServices(
+        DashboardAppServicesConfig(
+            api_key=None,
+            base_url=None,
+            timeout=60,
+            max_retries=1,
+            offline_cache_dir=tmp_path / "cache",
+            data_root=tmp_path,
+            portfolio_data_root=tmp_path / "portfolios",
+            startup_paths=("/api/qdata/v1/stock/kline",),
+            startup_preload_stores=(),
+            refresh_enabled=False,
+        ),
+        client_factory=lambda **_kwargs: client,
+        registry_factory=lambda: registry,
+    )
+    await services.startup()
+
+    await services.refresh()
+
+    assert client.sync_offline_snapshots.await_count == 2
+    assert client.sync_offline_snapshots.await_args_list[-1].kwargs == {
+        "paths": ["/api/qdata/v1/stock/kline"],
+        "repos": None,
+        "check_remote": True,
+        "force": False,
+    }
+    registry.refresh_after_offline_data_update.assert_awaited_once_with(
+        updated_repos=("AlphaDojo/dojo_stock_kline",),
+    )
+    await services.shutdown()

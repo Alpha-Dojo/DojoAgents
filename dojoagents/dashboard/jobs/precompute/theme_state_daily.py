@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import math
@@ -14,6 +13,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from dojoagents.utils.async_runtime import gather_ordered
+
+from dojoagents.dashboard.services.kline_store import KLINE_VOLUME_FIELDS
 
 from dojoagents.dashboard.services.benchmark_store import DEFAULT_BENCHMARKS
 from dojoagents.dashboard.services.market_sector_lead import concept_code_for, link_key_from_concept_code, slugify
@@ -87,6 +89,7 @@ from dojoagents.dashboard.services.theme_state_metrics import (
     window_return_pct,
 )
 from dojoagents.logging import LOGGER
+from dojoagents.utils.async_runtime import SyncWorkload, run_sync_bounded
 
 ProgressCallback = Callable[[str, int, int], None]
 
@@ -843,6 +846,7 @@ async def _enrich_ticker_volumes_from_kline(
                 market=str(market),
                 kline_t="1D",
                 limit=0,
+                fields=KLINE_VOLUME_FIELDS,
             )
         except Exception as exc:  # noqa: BLE001 — boundary: skip ticker
             LOGGER.warning("theme-state volume enrich failed for %s:%s: %s", market, ticker, exc)
@@ -902,25 +906,26 @@ async def _build_fundamentals_by_theme(
 
     universe = constituents.sort_values(["market", "ticker", "role"]).drop_duplicates(subset=["market", "ticker"], keep="first")
     pairs = [(str(r.market), str(r.ticker)) for r in universe.itertuples(index=False)]
-    sem = asyncio.Semaphore(concurrency)
     ticker_quarters: dict[tuple[str, str], dict[str, dict[str, float]]] = {}
 
     async def _one(market: str, ticker: str) -> None:
-        async with sem:
-            try:
-                response = await fin_store.get_for_ticker(ticker, market=market, limit=24)
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning("fin indicators failed for %s:%s: %s", market, ticker, exc)
-                return
-            items = list(response.items or [])
-            if not items:
-                return
-            ticker_quarters[(market, ticker)] = extract_quarter_metrics(items, market)
+        try:
+            response = await fin_store.get_for_ticker(ticker, market=market, limit=24)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("fin indicators failed for %s:%s: %s", market, ticker, exc)
+            return
+        items = list(response.items or [])
+        if not items:
+            return
+        ticker_quarters[(market, ticker)] = extract_quarter_metrics(items, market)
 
     total = len(pairs)
     for idx in range(0, total, concurrency):
         chunk = pairs[idx : idx + concurrency]
-        await asyncio.gather(*[_one(m, t) for m, t in chunk])
+        await gather_ordered(
+            [lambda market=market, ticker=ticker: _one(market, ticker) for market, ticker in chunk],
+            max_concurrency=concurrency,
+        )
         if on_progress is not None:
             on_progress("fundamentals", min(idx + len(chunk), total), total)
 
@@ -1235,7 +1240,7 @@ async def build_theme_state_precomputed(
         # Reuse previously published fundamentals_period (avoid wiping on skip).
         existing_fin = out_dir / FUNDAMENTALS_PERIOD_FILE
         if existing_fin.exists():
-            existing_fin_df = await asyncio.to_thread(pd.read_parquet, existing_fin)
+            existing_fin_df = await run_sync_bounded(pd.read_parquet, existing_fin)
             for row in existing_fin_df.to_dict(orient="records"):
                 key = (
                     str(row.get("market") or ""),
@@ -1252,7 +1257,7 @@ async def build_theme_state_precomputed(
 
     if on_progress is not None:
         on_progress("compute", 0, 5)
-    theme_df, benchmark_df, fundamentals_df = await asyncio.to_thread(
+    theme_df, benchmark_df, fundamentals_df = await run_sync_bounded(
         compute_theme_state_frames,
         constituents=constituents,
         ticker_daily=ticker_daily,
@@ -1262,6 +1267,7 @@ async def build_theme_state_precomputed(
         fundamentals_by_theme=fundamentals_by_theme,
         start_date=start_date,
         end_date=end_date,
+        workload=SyncWorkload.CPU,
     )
     if on_progress is not None:
         on_progress("compute", 1, 5)
@@ -1271,47 +1277,51 @@ async def build_theme_state_precomputed(
         horizon_source = horizon_source[horizon_source["trade_date"].astype(str) >= start_date]
     if end_date:
         horizon_source = horizon_source[horizon_source["trade_date"].astype(str) <= end_date]
-    horizon_df = await asyncio.to_thread(
+    horizon_df = await run_sync_bounded(
         compute_sector_horizon_metrics_frame,
         sector_daily=horizon_source,
         benchmark_daily=benchmark_df,
         fundamentals_period=fundamentals_df,
         link_key_by_level3=link_key_by_level3,
+        workload=SyncWorkload.CPU,
     )
     if on_progress is not None:
         on_progress("compute", 2, 5)
 
-    radar_df, advice_df = await asyncio.to_thread(
+    radar_df, advice_df = await run_sync_bounded(
         compute_sector_radar_advice_frames,
         theme_state_daily=theme_df,
         sector_horizon_metrics=horizon_df,
+        workload=SyncWorkload.CPU,
     )
     if on_progress is not None:
         on_progress("compute", 3, 5)
 
-    alpha_df = await asyncio.to_thread(
+    alpha_df = await run_sync_bounded(
         compute_sector_alpha_factors_frame,
         theme_state_daily=theme_df,
         sector_horizon_metrics=horizon_df,
         constituents=constituents,
         ticker_daily=ticker_daily,
         sector_daily=sector_daily,
+        workload=SyncWorkload.CPU,
     )
     if on_progress is not None:
         on_progress("compute", 4, 5)
 
-    ticker_alpha_df = await asyncio.to_thread(
+    ticker_alpha_df = await run_sync_bounded(
         compute_ticker_alpha_factors_frame,
         ticker_daily=ticker_daily,
         constituents=constituents,
         benchmark_daily=benchmark_df,
         sector_daily=sector_daily,
+        workload=SyncWorkload.CPU,
     )
     if on_progress is not None:
         on_progress("compute", 5, 5)
         on_progress("publish", 0, 1)
 
-    manifest, staging_dir = await asyncio.to_thread(
+    manifest, staging_dir = await run_sync_bounded(
         compute_and_stage_theme_state,
         theme_df=theme_df,
         benchmark_df=benchmark_df,
@@ -1326,8 +1336,9 @@ async def build_theme_state_precomputed(
         phase_a_manifest=phase_a_manifest,
         start_date=start_date,
         end_date=end_date,
+        workload=SyncWorkload.CPU,
     )
-    published_dir = await asyncio.to_thread(publish_staged_theme_state, staging_dir, out_dir)
+    published_dir = await run_sync_bounded(publish_staged_theme_state, staging_dir, out_dir)
     if on_progress is not None:
         on_progress("publish", 1, 1)
     manifest["source_dir"] = str(phase_a_source_dir)

@@ -4,7 +4,10 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from dojoagents.dashboard.deps import get_financial_registry
+from dojoagents.dashboard.deps import (
+    ensure_registry_stores_loaded,
+    get_financial_registry,
+)
 from dojoagents.dashboard.schemas.domain_api import (
     SectorAnalysisResponse,
     SectorAttributionFactorsResponse,
@@ -37,6 +40,11 @@ async def sector_analysis(
     scope: Literal["L1", "L2", "L3"] = Query("L3"),
     registry=Depends(get_financial_registry),
 ) -> SectorAnalysisResponse:
+    await ensure_registry_stores_loaded(
+        registry,
+        "sector_precomputed_store",
+        "stock_store",
+    )
     path = resolve_sector_analysis_path(
         registry,
         level1_id=level1_id,
@@ -77,6 +85,7 @@ async def sector_return_curve(
     scope: Literal["L1", "L2", "L3"] = Query("L3"),
     registry=Depends(get_financial_registry),
 ) -> SectorReturnCurveResponse:
+    await ensure_registry_stores_loaded(registry, "sector_precomputed_store")
     path = resolve_sector_analysis_path(
         registry,
         level1_id=level1_id,
@@ -127,6 +136,11 @@ async def sector_constituents(
     registry=Depends(get_financial_registry),
 ) -> SectorConstituentsResponseV1:
     try:
+        await ensure_registry_stores_loaded(
+            registry,
+            "sector_precomputed_store",
+            "stock_store",
+        )
         return await build_sector_constituents_v1(
             registry,
             level1_id=level1_id,

@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
+from dojoagents.tools.artifacts import ARTIFACT_MAX_BYTES
+
 HERMES_INTERNAL_LOAD_TOOL = "__dojo_load_tool_result__"
 HERMES_INTERNAL_LIST_TOOLS = "__dojo_list_tool_results__"
 
@@ -89,21 +91,18 @@ _SOCKET_PATH = {socket_path!r}
 
 
 def _read_response(sock):
-    chunks = []
-    total = 0
-    max_size = 32 * 1024 * 1024
+    buffer = bytearray()
+    max_size = {ARTIFACT_MAX_BYTES}
     while True:
         chunk = sock.recv(65536)
         if not chunk:
             break
-        chunks.append(chunk)
-        total += len(chunk)
-        if total > max_size:
-            raise ValueError("execute_code RPC response exceeds 32 MiB")
-        joined = b"".join(chunks)
-        if b"\\n" in joined:
+        buffer.extend(chunk)
+        if len(buffer) > max_size:
+            raise ValueError("execute_code RPC response exceeds {ARTIFACT_MAX_BYTES} bytes")
+        if b"\\n" in chunk:
             break
-    return joined.split(b"\\n", 1)[0].decode("utf-8")
+    return buffer.split(b"\\n", 1)[0].decode("utf-8")
 
 
 def _record_session_output(payload):

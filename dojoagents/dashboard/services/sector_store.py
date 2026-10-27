@@ -88,12 +88,30 @@ def _sort_nodes(nodes: List[SectorNode]) -> List[SectorNode]:
     return sorted(nodes, key=lambda node: ((node.name.en or node.name.zh).lower(), node.sector_id))
 
 
+_TEST_NODE_PREFIX = "pytest-"
+
+
+def _is_test_node(raw: dict) -> bool:
+    """Detect upstream test-residue nodes (e.g. 'pytest-http-l1-<uuid>').
+
+    The remote sector taxonomy dataset has been observed to carry nodes created
+    by upstream integration tests. They have no constituents and only pollute
+    the taxonomy tree / search listings, so they are dropped at parse time.
+    """
+    return str(raw.get("name") or "").startswith(_TEST_NODE_PREFIX) or str(
+        raw.get("name_alias") or ""
+    ).startswith(_TEST_NODE_PREFIX)
+
+
 def parse_sector_tree(raw_tree: List[dict]) -> Tuple[List[SectorNode], List[SectorPath]]:
     """Flatten API sector tree into all nodes and L1/L2/L3 paths."""
+
     nodes: List[SectorNode] = []
     paths: List[SectorPath] = []
 
     def walk(raw: dict, l1: Optional[SectorNode], l2: Optional[SectorNode]) -> None:
+        if _is_test_node(raw):
+            return
         node = _parse_node(raw)
         nodes.append(node)
 

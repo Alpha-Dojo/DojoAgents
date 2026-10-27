@@ -97,6 +97,7 @@ async def test_get_or_fetch_kline_filters_single_day_with_iso_bar_time() -> None
         {
             "start_time": "2026-06-18",
             "end_time": "2026-06-18",
+            "market": "us",
         }
     ]
 
@@ -223,7 +224,7 @@ async def test_single_day_omits_sdk_limit_so_late_bar_is_not_truncated() -> None
     assert len(result.bars) == 1
     assert result.bars[0].bar_time == target
     assert result.bars[0].close == pytest.approx(431.2)
-    assert gateway.calls == [{"start_time": target, "end_time": target}]
+    assert gateway.calls == [{"start_time": target, "end_time": target, "market": "hk"}]
 
 
 @pytest.mark.asyncio
@@ -244,7 +245,7 @@ async def test_get_or_fetch_kline_uses_min_bar_time_without_sdk_start_time() -> 
 
     assert result is not None
     assert [bar.bar_time for bar in result.bars] == ["2025-01-02", "2026-06-18"]
-    assert gateway.calls == [{"limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE)}]
+    assert gateway.calls == [{"limit": resolve_kline_limit_for_elapsed_days(DATA_START_DATE), "market": "us"}]
 
 
 @pytest.mark.asyncio
@@ -274,6 +275,7 @@ async def test_get_or_fetch_kline_keeps_full_window_from_data_start() -> None:
         {
             "start_time": DATA_START_DATE,
             "end_time": "2026-06-30",
+            "market": "hk",
         }
     ]
 

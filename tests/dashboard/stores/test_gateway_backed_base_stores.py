@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from dojoagents.dashboard.services.benchmark_store import BenchmarkStore
 from dojoagents.dashboard.services.dojo_data_gateway import GatewayResult
+from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.services.sector_store import SectorStore
 from dojoagents.dashboard.services.stock_sector_store import StockSectorStore
 from dojoagents.dashboard.services.stock_store import StockStore
@@ -129,6 +131,25 @@ class BaseGateway:
             "sdk_snapshot",
             False,
         )
+
+
+@pytest.mark.asyncio
+async def test_sector_relations_failure_propagates_and_is_not_marked_loaded() -> None:
+    gateway = BaseGateway()
+    error = RuntimeError("sector relations unavailable")
+    gateway.sector_relations = AsyncMock(side_effect=error)
+    registry = FinancialDomainRegistry()
+    registry.stock_sector_store = StockSectorStore(gateway)
+    registry.stock_store = SimpleNamespace(load=AsyncMock())
+
+    with pytest.raises(RuntimeError, match="sector relations unavailable") as raised:
+        await registry.ensure_stores_loaded("stock_sector_store", "stock_store")
+
+    assert raised.value is error
+    assert "stock_sector_store" not in registry._loaded_store_names
+    registry.stock_store.load.assert_not_awaited()
+    assert await registry.preload(["stock_sector_store"]) == [error]
+    assert "stock_sector_store" not in registry._loaded_store_names
 
 
 @pytest.mark.asyncio

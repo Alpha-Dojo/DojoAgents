@@ -9,6 +9,7 @@ from dojoagents.dashboard.services.dojo_data_gateway import (
     GatewayBadResponseError,
     GatewayTimeoutError,
     GatewayUnavailableError,
+    KLINE_QUERY_FIELDS,
 )
 from tests.dashboard.fakes.fake_dojo import FakeDojo
 
@@ -39,183 +40,168 @@ async def test_stock_catalog_profile_and_quote_use_sdk_contracts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stock_all_klines_accepts_symbols_filter() -> None:
-    import pandas as pd
+async def test_realtime_quote_prefers_live_client_and_keeps_kline_client_offline() -> None:
+    snapshot = FakeDojo(stocks={"post_quote": {"quotes": [{"ticker": "AAPL", "last_price": 100.0}]}})
+    snapshot._online = False
+    live = FakeDojo(stocks={"post_quote": {"quotes": [{"ticker": "AAPL", "last_price": 201.0}]}})
+    live._online = True
 
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ]
-            )
-        }
-    )
-    gateway = DojoDataGateway(client)
+    result = await DojoDataGateway(snapshot, live_client=live).stock_quotes("us", ["AAPL"])
 
-    result = await gateway.stock_all_klines(symbols=[" aapl ", "MSFT"])
-
-    assert list(result.data["symbol"]) == ["AAPL", "MSFT"]
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert result.data[0]["last_price"] == 201.0
+    assert result.source == "sdk_online"
+    assert snapshot.stocks.calls == []
+    assert live.stocks.calls == [("post_quote", {"body": {"symbols": "AAPL"}})]
 
 
 @pytest.mark.asyncio
-async def test_stock_all_klines_uses_sdk_contract() -> None:
-    import pandas as pd
+async def test_realtime_quote_falls_back_to_snapshot_and_marks_stale() -> None:
+    snapshot = FakeDojo(stocks={"post_quote": {"quotes": [{"ticker": "AAPL", "last_price": 100.0}]}})
+    snapshot._online = False
+    live = FakeDojo(stocks={"post_quote": ConnectionError("offline")})
+    live._online = True
 
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ]
-            )
-        }
-    )
-    gateway = DojoDataGateway(client)
+    result = await DojoDataGateway(snapshot, live_client=live).stock_quotes("us", ["AAPL"])
 
-    result = await gateway.stock_all_klines()
-
-    assert list(result.data["symbol"]) == ["AAPL", "MSFT"]
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert result.data[0]["last_price"] == 100.0
+    assert result.source == "sdk_snapshot"
+    assert result.stale is True
 
 
 @pytest.mark.asyncio
-async def test_stock_klines_reuses_symbol_index_without_reloading_bulk() -> None:
-    import pandas as pd
+async def test_pure_offline_quotes_are_labelled_snapshot_not_online() -> None:
+    """A snapshot-only deployment must never report its quotes as live.
 
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ]
-            )
-        }
-    )
+    The offline quote payload has no ``source`` field, so the alias default
+    used to label it ``sdk_online``. Downstream consumers trust that label to
+    decide whether quotes may override the independently published sector
+    precompute, so a lagging quote snapshot would win over newer sector data.
+    """
+    client = FakeDojo(stocks={"post_quote": {"quotes": [{"ticker": "AAPL", "last_price": 100.0}]}})
     client._online = False
-    gateway = DojoDataGateway(client)
 
-    first = await gateway.stock_klines(["AAPL"])
-    second = await gateway.stock_klines(["MSFT"])
+    result = await DojoDataGateway(client).stock_quotes("us", ["AAPL"])
 
-    assert list(first.data["symbol"]) == ["AAPL"]
-    assert list(second.data["symbol"]) == ["MSFT"]
-    assert gateway.kline_index_ready is True
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert result.source == "sdk_snapshot"
+    assert result.stale is False
 
 
 @pytest.mark.asyncio
-async def test_warm_kline_index_builds_lookup_table() -> None:
+async def test_offline_quote_overlay_does_not_override_newer_sector_precompute() -> None:
+    """End-to-end guard: offline quotes must not shift the sector-movers as-of.
+
+    Reproduces the production wiring where the committed quote snapshot lags
+    the sector precompute by one session for the ``us`` market.
+    """
+    from types import SimpleNamespace
+
     import pandas as pd
 
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAPL", "bar_time": "2026-06-19", "close": 9.0},
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "MSFT", "bar_time": "2026-06-20", "close": 20.0},
-                ]
-            )
-        }
-    )
-    client._online = False
-    gateway = DojoDataGateway(client)
+    from dojoagents.dashboard.services.market_window import MarketAnalysisWindow
+    from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 
-    result = await gateway.stock_klines(["AAPL"], limit=1)
-    assert len(result.data) == 1
-    assert float(result.data.iloc[-1]["close"]) == 10.0
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    sector_rows = pd.DataFrame(
+        [
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "3",
+                "daily_return_pct": 7.5,
+                "total_market_cap": 500.0,
+                "member_count": 5,
+            }
+        ]
+    )
+
+    class Precomputed:
+        load_generation = 1
+
+        def resolve_window_bounds(self, window):
+            return window.with_resolved_bounds(start="2026-10-08", end="2026-10-08")
+
+        def get_sector_movers_window_frame_for_window(self, _window):
+            return sector_rows
+
+    service = SectorMoversService(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="科技", level3_en="Technology")
+        ),
+        stock_store=SimpleNamespace(
+            quote_source="sdk_snapshot",
+            quote_as_of="2026-10-07T16:00:00Z",
+        ),
+        sector_precomputed_store=Precomputed(),
+    )
+
+    response = service.build_market_movers_response(days=1, limit=5, market="us", include_members=False)
+
+    assert response.as_of == "2026-10-08"
+    assert response.markets["us"].gainers[0].change_percent == pytest.approx(7.5)
+
+
+SNAPSHOT = {
+    "backend": "huggingface",
+    "repo_id": "AlphaDojo/dojo_stock_kline",
+    "resolved_revision": "revision-1",
+    "snapshot_token": "snapshot-1",
+}
 
 
 @pytest.mark.asyncio
-async def test_stock_kline_fetches_each_symbol_and_normalizes_rows() -> None:
-    import pandas as pd
-
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "600000", "bar_time": "2026-06-20", "close": 10.0},
-                    {"symbol": "000001", "bar_time": "2026-06-20", "close": 10.0},
-                ]
-            )
+async def test_offline_stock_klines_uses_bounded_batch_and_retains_snapshot() -> None:
+    def response(**kwargs):
+        return {
+            "rows": [
+                {"symbol": symbol, "kline_t": "1D", "bar_time": "2026-06-20", "close": 10.0}
+                for symbol in kwargs["symbols"]
+            ],
+            "snapshot": SNAPSHOT,
         }
-    )
-    client._online = False
-    gateway = DojoDataGateway(client)
 
-    result = await gateway.stock_klines(["600000", "000001"])
-
-    assert list(result.data["symbol"]) == ["600000", "000001"]
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
-
-
-@pytest.mark.asyncio
-async def test_stock_klines_falls_back_to_per_symbol_when_missing_from_bulk() -> None:
-    import pandas as pd
-
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAPL", "bar_time": "2026-06-20", "close": 10.0},
-                ]
-            ),
-            "get_kline": {
-                "klines": [
-                    {"symbol": "2513.HK", "bar_time": "2026-06-20", "close": 12.0},
-                ]
-            },
-        }
-    )
-    client._online = False
-    gateway = DojoDataGateway(client)
-
-    result = await gateway.stock_klines(["AAPL", "2513.HK"], limit=100)
-
-    assert set(result.data["symbol"]) == {"AAPL", "2513.HK"}
-    assert client.stocks.calls == [
-        ("get_all_klines_with_df", {}),
-        ("get_kline", {"symbol": "2513.HK", "limit": 100}),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_stock_klines_uses_per_symbol_fetch_for_date_window() -> None:
-    import pandas as pd
-
-    client = FakeDojo(
-        stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "0700.HK", "bar_time": "2025-06-20", "close": 10.0},
-                ]
-            ),
-            "get_kline": {
-                "klines": [
-                    {"symbol": "0700.HK", "bar_time": "2025-01-02", "close": 8.0},
-                    {"symbol": "0700.HK", "bar_time": "2026-06-30", "close": 12.0},
-                ]
-            },
-        }
-    )
+    client = FakeDojo(stocks={"get_klines": response})
     client._online = False
     gateway = DojoDataGateway(client)
 
     result = await gateway.stock_klines(
-        ["0700.HK"],
-        start_time="2025-01-01",
+        [" aapl ", "MSFT"],
+        start_time="2026-01-01",
         end_time="2026-06-30",
-        limit=500,
+        limit=252,
+        price_adj_type="pre",
     )
 
-    assert list(result.data["bar_time"]) == ["2025-06-20"]
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert list(result.data["symbol"]) == ["AAPL", "MSFT"]
+    assert result.snapshot == SNAPSHOT
+    assert gateway.latest_kline_snapshot == SNAPSHOT
+    assert client.stocks.calls == [
+        (
+            "get_klines",
+            {
+                "symbols": ["AAPL", "MSFT"],
+                "start": "2026-01-01",
+                "end": "2026-06-30",
+                "fields": KLINE_QUERY_FIELDS,
+                "limit_per_symbol": 252,
+                "adjust": "pre",
+                "kline_t": None,
+                "adjustment_reference_date": None,
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_offline_limit_zero_maps_to_no_per_symbol_limit() -> None:
+    client = FakeDojo(stocks={"get_klines": {"rows": [], "snapshot": SNAPSHOT}})
+    client._online = False
+
+    result = await DojoDataGateway(client).stock_klines(["AAPL"], limit=0)
+
+    assert result.data.empty
+    assert client.stocks.calls[0][1]["limit_per_symbol"] is None
+    assert client.stocks.calls[0][1]["adjust"] == "pre"
 
 
 @pytest.mark.asyncio
@@ -252,18 +238,16 @@ async def test_online_stock_klines_uses_adjusted_single_stock_endpoint() -> None
 
 
 @pytest.mark.asyncio
-async def test_offline_stock_klines_filters_window_and_applies_same_pre_adjustment() -> None:
-    import pandas as pd
-
+async def test_offline_stock_klines_keeps_sdk_adjusted_prices_without_second_adjustment() -> None:
     client = FakeDojo(
         stocks={
-            "get_all_klines_with_df": pd.DataFrame(
-                [
-                    {"symbol": "AAA", "bar_time": "2025-12-31", "close": 90.0, "adj_factor_cum": 1.0},
-                    {"symbol": "AAA", "bar_time": "2026-01-02", "close": 100.0, "adj_factor_cum": 1.0},
-                    {"symbol": "AAA", "bar_time": "2026-01-03", "close": 60.0, "adj_factor_cum": 2.0},
-                ]
-            )
+            "get_klines": {
+                "rows": [
+                    {"symbol": "AAA", "bar_time": "2026-01-02", "close": 50.0},
+                    {"symbol": "AAA", "bar_time": "2026-01-03", "close": 60.0},
+                ],
+                "snapshot": SNAPSHOT,
+            }
         }
     )
     client._online = False
@@ -278,7 +262,8 @@ async def test_offline_stock_klines_filters_window_and_applies_same_pre_adjustme
 
     assert list(result.data["bar_time"]) == ["2026-01-02", "2026-01-03"]
     assert list(result.data["close"]) == [50.0, 60.0]
-    assert client.stocks.calls == [("get_all_klines_with_df", {})]
+    assert client.stocks.calls[0][0] == "get_klines"
+    assert client.stocks.calls[0][1]["adjust"] == "pre"
 
 
 @pytest.mark.asyncio

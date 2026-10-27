@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import asyncio
+import anyio
 from typing import Any, Dict, Optional
+from weakref import WeakValueDictionary
 
 from dojo.client.async_client import AsyncDojo
 
@@ -191,7 +192,7 @@ class BenchmarkStore:
         self._catalog_loaded = False
         self._response_cache: dict[tuple[str, ...], DojoMeshBenchmarksResponse] = {}
         self._kline_cache: Dict[str, StockKlineResponse] = {}
-        self._inflight: Dict[str, asyncio.Task[Optional[StockKlineResponse]]] = {}
+        self._fetch_locks: WeakValueDictionary[str, anyio.Lock] = WeakValueDictionary()
         self._selected_defaults: dict[str, str | None] = {market: None for market in MARKETS}
 
     async def load(self) -> None:
@@ -248,18 +249,15 @@ class BenchmarkStore:
         cached = self._kline_cache.get(cache_key)
         if cached is not None:
             return cached
-        inflight = self._inflight.get(cache_key)
-        if inflight is not None:
-            return await inflight
-        task = asyncio.create_task(self._fetch_kline(symbol, limit))
-        self._inflight[cache_key] = task
-        try:
-            result = await task
+        lock = self._fetch_locks.setdefault(cache_key, anyio.Lock())
+        async with lock:
+            cached = self._kline_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            result = await self._fetch_kline(symbol, limit)
             if result is not None:
                 self._kline_cache[cache_key] = result
             return result
-        finally:
-            self._inflight.pop(cache_key, None)
 
     async def _fetch_kline(self, symbol: str, limit: int) -> Optional[StockKlineResponse]:
         try:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from dojoagents.agent.guardrails import ToolGuardrailDecision, toolguard_synthetic_result
+from dojoagents.agent.guardrails import ToolGuardrailAction, ToolGuardrailDecision, toolguard_synthetic_result
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.providers import StaticLLMProvider
 from dojoagents.tools.write_authorization import (
@@ -223,7 +223,7 @@ def test_loop_style_guardrail_decision_payload() -> None:
     )
     assert blocked is True
     decision = ToolGuardrailDecision(
-        action="block",
+        action=ToolGuardrailAction.BLOCK,
         code=code,
         message=message,
         tool_name="write_session_file",

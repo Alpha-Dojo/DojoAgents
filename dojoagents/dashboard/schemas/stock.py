@@ -24,6 +24,7 @@ class StockQuote(BaseModel):
     pe: float = Field(..., description="Stock P/E Ratio")
     pb: float = Field(..., description="Stock P/B Ratio")
     dividend_yield: float = Field(0.0, description="Stock dividend yield")
+    quote_time: Optional[str] = Field(None, description="Upstream quote timestamp")
 
 
 class Stock(BaseModel):

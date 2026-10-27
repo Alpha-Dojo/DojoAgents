@@ -9,6 +9,7 @@ DojoAgents is a quantitative finance agent runtime. It combines an LLM-driven ag
 - API integration: read [Chat API](reference/chat-api.md) and [dojo.v2 Protocol](reference/dojo-v2-protocol.md).
 - Development: read [Repository Map](development/repository-map.md), [Adding Tools](development/adding-tools.md), and [Testing](development/testing.md).
 - Architecture: read [Overview](architecture/overview.md).
+- Detailed contracts: read [Design](design/index.md).
 
 ## Core Areas
 
@@ -25,7 +26,7 @@ DojoAgents is a quantitative finance agent runtime. It combines an LLM-driven ag
 
 ## Documentation Status
 
-This MkDocs site contains only the current formal documentation. Guides, architecture, reference pages, and development pages should track the current repository implementation; historical plans and migration notes stay in `docs/plans/` and are not part of the formal reader flow.
+All project documentation lives in this MkDocs source tree. Guides, architecture, design, reference, and development pages track the current implementation. Proposed work and migration records live under [Plans](plans/index.md), clearly separated from authoritative behavior.
 
 ## Quick Commands
 

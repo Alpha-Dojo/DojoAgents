@@ -354,7 +354,7 @@ def test_background_run_preprocesses_pipeline_command():
     active_task = captured.get("active_task")
     pipeline = captured.get("pipeline")
     assert isinstance(active_task, dict)
-    assert active_task["task_id"] == "sector-attribution"
+    assert active_task["task_id"] == "event-trigger"
     assert active_task["params"]["trading_date"] == "2026-07-03"
     assert isinstance(pipeline, dict)
     assert pipeline["id"] == "daily-market-events"
@@ -407,3 +407,26 @@ def test_create_background_run_rejects_unsupported_image_input():
 
     assert response.status_code == 422
     assert "does not support input modalities: image" in response.json()["error"]
+
+
+def test_run_request_during_shutdown_returns_an_explainable_503():
+    """S7 acceptance: a late request during teardown gets an explainable error."""
+
+    app = _make_app()
+    with TestClient(app) as client:
+        manager = app.state.agent_run_manager
+        # ``_closed`` is flipped at the very start of ``shutdown`` — before the
+        # portal is touched — so late callers never race a closing loop.
+        manager._closed = True
+
+        response = client.post(
+            "/api/chat/runs",
+            json={
+                "model": "gpt-4.1",
+                "messages": [{"role": "user", "content": "too late"}],
+                "metadata": {"session_id": "sess-late"},
+            },
+        )
+
+        assert response.status_code == 503
+        assert "no longer accepts new runs" in response.json()["error"]

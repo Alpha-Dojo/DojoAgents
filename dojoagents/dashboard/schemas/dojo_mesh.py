@@ -4,10 +4,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-
-class BilingualText(BaseModel):
-    zh: str = ""
-    en: str = ""
+from dojoagents.utils.financial_models import BilingualText
 
 
 class SectorMemberItem(BaseModel):

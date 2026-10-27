@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +7,7 @@ from pathlib import Path
 from dojoagents.sessions.atomic import _atomic_write_bytes, _atomic_write_text
 from dojoagents.sessions.models import SessionPrincipal
 from dojoagents.sessions.service import SessionService
+from dojoagents.utils.async_runtime import run_sync_bounded
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class SessionExportBundle:
                     raise ValueError("export contains an invalid blob id")
                 _atomic_write_bytes(blob_root / f"{blob_id}.blob", content)
 
-        await asyncio.to_thread(write)
+        await run_sync_bounded(write)
         return root
 
 

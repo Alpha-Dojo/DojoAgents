@@ -2,18 +2,31 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-from importlib import import_module
-from types import SimpleNamespace
 
-import httpx
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
+from dojo.client.async_client import AsyncDojo
 from dojo.datasource.config import HFConfig
 from dojo.datasource.huggingface import HuggingFaceDataSource, HuggingFaceKlineDataSource
-from dojo.client.async_client import AsyncDojo
 from dojo.datasource.registry import HF_REGISTRY
+from dojo.types.snapshot import SnapshotFile, SnapshotRef
+
+
+pytestmark = pytest.mark.offline_integration
+
+
+def _config(tmp_path, *, retries: int = 2) -> HFConfig:
+    return HFConfig(
+        backend="huggingface",
+        cache_dir=str(tmp_path),
+        local_only=True,
+        download_timeout_seconds=7,
+        etag_timeout_seconds=3,
+        max_download_retries=retries,
+    )
 
 
 def test_offline_stock_kline_registry_filters_and_orders_by_bar_time() -> None:
@@ -22,131 +35,73 @@ def test_offline_stock_kline_registry_filters_and_orders_by_bar_time() -> None:
     assert spec.order_desc is True
 
 
-def test_offline_kline_filters_datetime_window_and_returns_recent_limit(tmp_path, monkeypatch) -> None:
-    import pandas as pd
-
-    frame = pd.DataFrame(
-        [
-            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-01"), "close": 1.0},
-            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-02"), "close": 2.0},
-            {"symbol": "AAA", "bar_time": pd.Timestamp("2026-01-03"), "close": 3.0},
-        ]
-    ).set_index(pd.Index(["AAA", "AAA", "AAA"], name="index_symbol"))
+def test_offline_kline_filters_datetime_window_and_returns_recent_limit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    parquet_path = tmp_path / "data.parquet"
+    pq.write_table(
+        pa.Table.from_pandas(
+            pd.DataFrame(
+                [
+                    {"symbol": "AAA", "kline_t": "1D", "bar_time": pd.Timestamp("2026-01-01"), "close": 1.0},
+                    {"symbol": "AAA", "kline_t": "1D", "bar_time": pd.Timestamp("2026-01-02"), "close": 2.0},
+                    {"symbol": "AAA", "kline_t": "1D", "bar_time": pd.Timestamp("2026-01-03"), "close": 3.0},
+                ]
+            ),
+            preserve_index=False,
+        ),
+        parquet_path,
+    )
+    snapshot = SnapshotRef(
+        backend="huggingface",
+        repo_id="AlphaDojo/dojo_stock_kline",
+        resolved_revision="test",
+        snapshot_token="test-token",
+        files=(
+            SnapshotFile(
+                relative_path="data.parquet",
+                local_path=parquet_path,
+                size=parquet_path.stat().st_size,
+            ),
+        ),
+    )
     source = HuggingFaceKlineDataSource(_config(tmp_path))
-    monkeypatch.setattr(source, "fetch_df", lambda **_kwargs: frame)
+    monkeypatch.setattr(
+        source._snapshot_resolver,
+        "ensure_offline_snapshots",
+        lambda **_kwargs: [snapshot],
+    )
 
     result = source.fetch(
         method="GET",
         path="/api/qdata/v1/stock/kline",
-        params={"symbol": "AAA", "start_time": "2026-01-01", "end_time": "2026-01-03", "limit": 2},
+        params={
+            "symbol": "AAA",
+            "start_time": "2026-01-01",
+            "end_time": "2026-01-03",
+            "limit": 2,
+        },
     )
 
-    assert [row["close"] for row in result["data"]["data"]] == [3.0, 2.0]
+    # The per-symbol limit selects the latest two rows, then the public result
+    # is normalized back to chronological order.
+    assert [row["close"] for row in result["data"]["data"]] == [2.0, 3.0]
 
 
-def _config(tmp_path, *, retries: int = 2) -> HFConfig:
-    return HFConfig(
-        backend="huggingface",
-        cache_dir=str(tmp_path),
-        download_timeout_seconds=7,
-        etag_timeout_seconds=3,
-        max_download_retries=retries,
-    )
-
-
-def _download(source: HuggingFaceDataSource) -> str:
-    return source._download_and_cleanup(
-        repo_id="test/repo",
-        filename="data.parquet",
-        repo_type="dataset",
-        revision="main",
-        cache_dir=source._cfg.cache_dir,
-        local_files_only=False,
-    )
-
-
-def _force_download(source: HuggingFaceDataSource) -> str:
-    return source._download_and_cleanup(
-        repo_id="test/repo",
-        filename="data.parquet",
-        repo_type="dataset",
-        revision="main",
-        cache_dir=source._cfg.cache_dir,
-        local_files_only=False,
-        force_download=True,
-    )
-
-
-def test_huggingface_datasource_does_not_start_download_watchdog(tmp_path):
+def test_huggingface_datasource_does_not_start_download_watchdog(tmp_path) -> None:
     before = {thread.ident for thread in threading.enumerate()}
-
     HuggingFaceDataSource(_config(tmp_path))
-
-    started = [thread.name for thread in threading.enumerate() if thread.ident not in before and thread.name == "DojoSDK-DownloadWatchdog"]
+    started = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.ident not in before and thread.name == "DojoSDK-DownloadWatchdog"
+    ]
     assert started == []
 
 
-def test_huggingface_preload_can_cancel_while_worker_is_blocked(tmp_path, monkeypatch):
-    source = HuggingFaceDataSource(_config(tmp_path))
-    entered = threading.Event()
-    release = threading.Event()
-    result: list[bool] = []
-    spec = SimpleNamespace(path_template="blocked.parquet")
-
-    monkeypatch.setattr("dojo.datasource.registry.resolve", lambda _path: spec)
-
-    def blocked_load(*_args, **_kwargs):
-        entered.set()
-        release.wait()
-
-    monkeypatch.setattr(source, "_load_dataset", blocked_load)
-    preload_thread = threading.Thread(
-        target=lambda: result.append(source.preload(["/blocked"])),
-        daemon=True,
-    )
-    preload_thread.start()
-    assert entered.wait(timeout=1)
-
-    started = time.monotonic()
-    source.cancel_preload()
-    preload_thread.join(timeout=1)
-
-    assert not preload_thread.is_alive()
-    assert result == [False]
-    assert time.monotonic() - started < 0.5
-    release.set()
-
-
-def test_kline_preload_can_cancel_while_final_warmup_is_blocked(tmp_path, monkeypatch):
-    source = HuggingFaceKlineDataSource(_config(tmp_path))
-    entered = threading.Event()
-    release = threading.Event()
-    result: list[bool] = []
-
-    monkeypatch.setattr(HuggingFaceDataSource, "preload", lambda _self, _paths: True)
-
-    def blocked_fetch_df(*_args, **_kwargs):
-        entered.set()
-        release.wait()
-
-    monkeypatch.setattr(source, "fetch_df", blocked_fetch_df)
-    preload_thread = threading.Thread(
-        target=lambda: result.append(source.preload(["/blocked"])),
-        daemon=True,
-    )
-    preload_thread.start()
-    assert entered.wait(timeout=1)
-
-    source.cancel_preload()
-    preload_thread.join(timeout=1)
-
-    assert not preload_thread.is_alive()
-    assert result == [False]
-    release.set()
-
-
 @pytest.mark.asyncio
-async def test_async_dojo_cancellation_reaches_offline_preload_worker():
+async def test_async_dojo_cancellation_reaches_offline_preload_worker() -> None:
     entered = threading.Event()
     cancelled = threading.Event()
 
@@ -166,102 +121,11 @@ async def test_async_dojo_cancellation_reaches_offline_preload_worker():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-
     assert cancelled.is_set()
 
 
-def test_huggingface_download_retries_transient_errors_with_a_finite_limit(
-    tmp_path,
-    monkeypatch,
-):
-    attempts = 0
-
-    def fail_download(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        raise httpx.ReadTimeout("slow dataset")
-
-    monkeypatch.setattr("huggingface_hub.hf_hub_download", fail_download)
-    monkeypatch.setattr("dojo.datasource.network.resolve_backend", lambda _config: "huggingface")
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    source = HuggingFaceDataSource(_config(tmp_path, retries=2))
-
-    with pytest.raises(httpx.ReadTimeout):
-        _download(source)
-
-    assert attempts == 3
-
-
-def test_modelscope_download_retries_transient_errors_with_a_finite_limit(
-    tmp_path,
-    monkeypatch,
-):
-    attempts = 0
-
-    def fail_download(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        raise httpx.ReadTimeout("slow dataset")
-
-    file_download = import_module("modelscope.hub.file_download")
-    monkeypatch.setattr(file_download, "dataset_file_download", fail_download)
-    monkeypatch.setattr(
-        "dojo.datasource.network.resolve_backend",
-        lambda _config: "modelscope",
-    )
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    source = HuggingFaceDataSource(_config(tmp_path, retries=2))
-
-    with pytest.raises(httpx.ReadTimeout):
-        source._download_and_cleanup(
-            repo_id="test/repo",
-            ms_repo_id="test/modelscope-repo",
-            filename="data.parquet",
-            repo_type="dataset",
-            revision="main",
-            cache_dir=source._cfg.cache_dir,
-            local_files_only=True,
-        )
-
-    assert attempts == 3
-
-
-def test_huggingface_download_single_flight_reuses_completed_path(
-    tmp_path,
-    monkeypatch,
-):
-    downloaded = tmp_path / "data.parquet"
-    downloaded.write_bytes(b"parquet")
-    entered = threading.Event()
-    release = threading.Event()
-    attempts = 0
-
-    def download_once(**_kwargs):
-        nonlocal attempts
-        attempts += 1
-        entered.set()
-        assert release.wait(timeout=2)
-        return str(downloaded)
-
-    monkeypatch.setattr("huggingface_hub.hf_hub_download", download_once)
-    monkeypatch.setattr("dojo.datasource.network.resolve_backend", lambda _config: "huggingface")
-    source = HuggingFaceDataSource(_config(tmp_path))
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(_download, source)
-        assert entered.wait(timeout=1)
-        second = executor.submit(_download, source)
-        release.set()
-        assert first.result(timeout=2) == str(downloaded)
-        assert second.result(timeout=2) == str(downloaded)
-
-    assert attempts == 1
-
-
 @pytest.mark.asyncio
-async def test_async_dojo_applies_client_limits_to_offline_downloads(
-    monkeypatch,
-):
+async def test_async_dojo_applies_client_limits_to_offline_downloads(monkeypatch) -> None:
     monkeypatch.setenv("DOJO_ONLINE", "0")
     monkeypatch.delenv("DOJO_HF_DOWNLOAD_TIMEOUT", raising=False)
     monkeypatch.delenv("DOJO_HF_MAX_RETRIES", raising=False)
@@ -272,28 +136,3 @@ async def test_async_dojo_applies_client_limits_to_offline_downloads(
         assert client._data_source._cfg.max_download_retries == 4
     finally:
         await client._client.aclose()
-
-
-def test_force_download_replaces_the_single_flight_path_cache(
-    tmp_path,
-    monkeypatch,
-):
-    first_path = tmp_path / "first.parquet"
-    second_path = tmp_path / "second.parquet"
-    first_path.write_bytes(b"first")
-    second_path.write_bytes(b"second")
-    paths = iter((str(first_path), str(second_path)))
-
-    monkeypatch.setattr(
-        "huggingface_hub.hf_hub_download",
-        lambda **_kwargs: next(paths),
-    )
-    monkeypatch.setattr(
-        "dojo.datasource.network.resolve_backend",
-        lambda _config: "huggingface",
-    )
-    source = HuggingFaceDataSource(_config(tmp_path))
-
-    assert _download(source) == str(first_path)
-    assert _force_download(source) == str(second_path)
-    assert _download(source) == str(second_path)

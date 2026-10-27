@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+import anyio
 
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
@@ -46,16 +47,20 @@ async def test_canonical_run_allows_pipeline_step_two_after_commit(tmp_path) -> 
         channel="dashboard",
         metadata={"pipeline": {"id": "daily-market-events", "step": 1}},
     )
-    run1 = await CanonicalAgentRun.begin(
-        service,
-        step1,
-        descriptor,
-        model="test",
-        agent_id="dojo-agent",
-        event_sink=sink,
-    )
-    assert run1.coordinator.run_id == "run-shared"
-    await run1.commit(AgentResponse(content="done-1", session_id="sess-pipe"))
+    with anyio.CancelScope() as cancel_scope:
+        async with anyio.create_task_group() as task_group:
+            run1 = await CanonicalAgentRun.begin(
+                service,
+                step1,
+                descriptor,
+                model="test",
+                agent_id="dojo-agent",
+                event_sink=sink,
+                task_group=task_group,
+                owner_cancel_scope=cancel_scope,
+            )
+            assert run1.coordinator.run_id == "run-shared"
+            await run1.commit(AgentResponse(content="done-1", session_id="sess-pipe"))
     assert (await service.get_run(principal, "run-shared")).status == "completed"
 
     step2 = ChatRequest(
@@ -65,16 +70,20 @@ async def test_canonical_run_allows_pipeline_step_two_after_commit(tmp_path) -> 
         channel="dashboard",
         metadata={"pipeline": {"id": "daily-market-events", "step": 2}},
     )
-    run2 = await CanonicalAgentRun.begin(
-        service,
-        step2,
-        descriptor,
-        model="test",
-        agent_id="dojo-agent",
-        event_sink=sink,
-    )
-    assert run2.coordinator.run_id == "run-shared:step:2"
-    await run2.commit(AgentResponse(content="done-2", session_id="sess-pipe"))
+    with anyio.CancelScope() as cancel_scope:
+        async with anyio.create_task_group() as task_group:
+            run2 = await CanonicalAgentRun.begin(
+                service,
+                step2,
+                descriptor,
+                model="test",
+                agent_id="dojo-agent",
+                event_sink=sink,
+                task_group=task_group,
+                owner_cancel_scope=cancel_scope,
+            )
+            assert run2.coordinator.run_id == "run-shared:step:2"
+            await run2.commit(AgentResponse(content="done-2", session_id="sess-pipe"))
     assert (await service.get_run(principal, "run-shared:step:2")).status == "completed"
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
-import asyncio
 from types import SimpleNamespace
 from typing import Any, Mapping, Optional
 from datetime import date
+from dojoagents.utils.async_runtime import gather_ordered
 from dojoagents.dashboard.schemas.benchmark import DojoMeshBenchmarksResponse
 from dojoagents.dashboard.schemas.dojo_core import CoreTickerPeBandResponse
 from dojoagents.dashboard.schemas.dojo_mesh import BilingualText
@@ -48,11 +48,13 @@ from dojoagents.dashboard.schemas.domain_api import (
     MAX_TICKER_QUOTES_BATCH,
     MAX_TICKER_FINANCIALS_BATCH,
 )
+from dojoagents.utils.async_runtime import SyncWorkload, run_sync_bounded
 from dojoagents.dashboard.schemas.portfolio import (
     PortfolioCapitalConfig,
     UpdatePortfolioRequest,
 )
 from dojoagents.dashboard.services.dojo_core_pe import resolve_core_ticker_pe_band
+from dojoagents.dashboard.services.kline_store import KLINE_OHLCV_FIELDS
 from dojoagents.dashboard.services.dojo_core_quote import resolve_core_ticker_quote
 from dojoagents.dashboard.services.dojo_core_search import search_core_tickers
 from dojoagents.dashboard.services.dojo_core_sector import resolve_core_ticker_sector
@@ -1257,7 +1259,11 @@ async def build_market_overview(
         window_mode=window.mode,
         window_start=window.resolved_start or window_start,
         window_end=window.resolved_end or benchmarks.as_of or window_end,
-        as_of=window.as_of or benchmarks.as_of or window.resolved_end or window_end,
+        # The precomputed market window may be newer than the benchmark
+        # companion snapshot.  Report the actual analysis right edge first so
+        # agents do not incorrectly label all market data stale merely because
+        # one benchmark series trails it.
+        as_of=window.as_of or window.resolved_end or benchmarks.as_of or window_end,
         markets=markets,
         benchmarks=benchmark_map,
     )
@@ -1277,7 +1283,7 @@ async def build_sector_movers(
 ) -> SectorMoversResponse:
     service = getattr(registry, "sector_movers_service", None)
     if service is not None:
-        return await asyncio.to_thread(
+        return await run_sync_bounded(
             service.build_market_movers_response,
             days=days,
             limit=limit,
@@ -1287,8 +1293,9 @@ async def build_sector_movers(
             end_date=end_date,
             as_of=as_of,
             include_members=include_members,
+            workload=SyncWorkload.CPU,
         )
-    return await asyncio.to_thread(
+    return await run_sync_bounded(
         _build_sector_movers_fallback_sync,
         registry,
         days,
@@ -1299,6 +1306,7 @@ async def build_sector_movers(
         end_date,
         as_of,
         include_members,
+        workload=SyncWorkload.CPU,
     )
 
 
@@ -1592,8 +1600,8 @@ async def build_sector_analysis(
         )
         return current_scope, cached_performance
 
-    for current_scope, cached_performance in await asyncio.gather(
-        *(load_scope_performance(scope_key) for scope_key in ("L1", "L2", "L3")),
+    for current_scope, cached_performance in await gather_ordered(
+        [lambda scope_key=scope_key: load_scope_performance(scope_key) for scope_key in ("L1", "L2", "L3")],
     ):
         performance = cached_performance.get("payload", cached_performance)
         scopes[current_scope] = SectorAnalysisScope(
@@ -1834,6 +1842,10 @@ async def build_sector_constituents_v1(
 
 async def build_ticker_quote_v1(registry, *, ticker: str, market: Optional[str]) -> Optional[TickerQuoteResponseV1]:
     internal_market = normalize_market_code(market)
+    if internal_market is not None:
+        refresh_symbols = getattr(registry.stock_store, "refresh_symbols", None)
+        if callable(refresh_symbols):
+            await refresh_symbols(internal_market, [ticker])
     quote = resolve_core_ticker_quote(ticker, market=internal_market, stock_store=registry.stock_store)
     if quote is None:
         return None
@@ -1869,7 +1881,9 @@ async def build_tickers_quotes_v1(
         normalized.append(ticker)
     normalized = normalized[:MAX_TICKER_QUOTES_BATCH]
 
-    results = await asyncio.gather(*(build_ticker_quote_v1(registry, ticker=ticker, market=market) for ticker in normalized))
+    results = await gather_ordered(
+        [lambda ticker=ticker: build_ticker_quote_v1(registry, ticker=ticker, market=market) for ticker in normalized]
+    )
     items = [item for item in results if item is not None]
     found = {item.ticker.upper() for item in items}
     not_found = [ticker for ticker in normalized if ticker not in found]
@@ -1942,17 +1956,15 @@ async def build_ticker_financials_v1(
     report_type: Optional[str],
 ) -> Optional[TickerFinancialsResponseV1]:
     internal_market = normalize_market_code(market) or "us"
-    response, income = await asyncio.gather(
-        registry.stock_fin_indicators_store.get_for_ticker(
-            ticker,
-            market=internal_market,
-            limit=limit or 20,
-        ),
-        registry.stock_income_store.get_for_ticker(
-            ticker,
-            market=internal_market,
-            page_size=100,
-        ),
+    response, income = await gather_ordered(
+        [
+            lambda: registry.stock_fin_indicators_store.get_for_ticker(
+                ticker, market=internal_market, limit=limit or 20
+            ),
+            lambda: registry.stock_income_store.get_for_ticker(
+                ticker, market=internal_market, page_size=100
+            ),
+        ]
     )
     raw_fin_items = list(response.items)
     forex_store = getattr(registry, "forex_store", None)
@@ -2026,9 +2038,9 @@ async def build_tickers_financials_v1(
         normalized.append(ticker)
     normalized = normalized[:MAX_TICKER_FINANCIALS_BATCH]
 
-    results = await asyncio.gather(
-        *(
-            build_ticker_financials_v1(
+    results = await gather_ordered(
+        [
+            lambda ticker=ticker: build_ticker_financials_v1(
                 registry,
                 ticker=ticker,
                 market=market,
@@ -2036,9 +2048,8 @@ async def build_tickers_financials_v1(
                 end_date=end_date,
                 limit=limit,
                 report_type=report_type,
-            )
-            for ticker in normalized
-        )
+            ) for ticker in normalized
+        ]
     )
     items = [item for item in results if item is not None]
     found = {item.ticker.upper() for item in items}
@@ -2061,17 +2072,15 @@ async def build_ticker_news_events_v1(
     page_size: Optional[int],
 ) -> Optional[TickerNewsEventsResponseV1]:
     internal_market = normalize_market_code(market) or "us"
-    news, events = await asyncio.gather(
-        registry.stock_news_store.get_for_ticker(
-            ticker,
-            market=internal_market,
-            page_size=page_size or 20,
-        ),
-        registry.stock_event_store.get_for_ticker(
-            ticker,
-            market=internal_market,
-            page_size=page_size or 20,
-        ),
+    news, events = await gather_ordered(
+        [
+            lambda: registry.stock_news_store.get_for_ticker(
+                ticker, market=internal_market, page_size=page_size or 20
+            ),
+            lambda: registry.stock_event_store.get_for_ticker(
+                ticker, market=internal_market, page_size=page_size or 20
+            ),
+        ]
     )
     news_items = filter_date_rows(
         news.items,
@@ -2159,6 +2168,7 @@ async def _fetch_kline_for_price_trends(
         market=market,
         kline_t=kline_t,
         min_bar_time=DATA_START_DATE,
+        fields=KLINE_OHLCV_FIELDS,
     )
     if wide is None:
         return None

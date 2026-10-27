@@ -58,3 +58,30 @@ async def test_build_market_overview_passes_days_to_benchmark_store() -> None:
     assert response.benchmarks["us"][0].symbol == "^SPX"
     assert response.window_start == "2026-06-19"
     assert response.window_end == "2026-06-20"
+
+
+@pytest.mark.asyncio
+async def test_market_overview_prefers_precomputed_window_over_stale_benchmark_as_of() -> None:
+    class BenchmarkStoreStub:
+        async def get_benchmarks(self, *, days: int = 1, window=None):
+            return DojoMeshBenchmarksResponse(as_of="2026-06-20", markets={})
+
+    registry = SimpleNamespace(
+        benchmark_store=BenchmarkStoreStub(),
+        stock_store=SimpleNamespace(list_market=lambda _market: []),
+        sector_precomputed_store=SimpleNamespace(
+            resolve_window_bounds=lambda window: window.with_resolved_bounds(
+                start="2026-06-21",
+                end="2026-06-21",
+            )
+        ),
+    )
+
+    response = await domain_api.build_market_overview(
+        registry,
+        days=1,
+        market="us",
+    )
+
+    assert response.as_of == "2026-06-21"
+    assert response.window_end == "2026-06-21"

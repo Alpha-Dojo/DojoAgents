@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 import inspect
 import json
 import os
@@ -26,7 +26,11 @@ from dojoagents.dashboard.routers import (
     utility,
 )
 from dojoagents.dashboard.frontend_builder import setup_frontend_static_files
-from dojoagents.dashboard.agent_runs import AgentRunManager, validate_request_modalities
+from dojoagents.dashboard.agent_runs import (
+    AgentRunManager,
+    PortalShutdownError,
+    validate_request_modalities,
+)
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -41,7 +45,9 @@ from dojoagents.agent.models import (
 )
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.dashboard.sse import (
+    SSEEventStream,
     make_event_queue_sink,
+    start_owned_sse_producer,
     stream_completion_chunks,
     stream_persisted_run_events,
 )
@@ -375,31 +381,54 @@ def create_app(  # noqa: C901
         app.state.principal_provider = LegacyLocalPrincipalProvider()
         services = app_services
         owns_services = app_services_owned or (services is None and store is not None)
-        if owns_services:
-            if services is None:
-                services = DashboardAppServices(DashboardAppServicesConfig.from_agents_config(store.snapshot()))
-            await services.startup()
-        if services is not None:
-            app.state.app_services = services
-            app.state.financial_registry = services.registry
-            app.state.market_data_revision = dict(services.market_data_revision)
-        owns_runtime = runtime is None and agent_enabled and store is not None
-        if owns_runtime:
-            if services is None:
-                raise RuntimeError("embedded Dashboard Runtime requires Dashboard app services")
-            runtime = await create_embedded_runtime(store, services)
-        app.state.runtime = runtime
-        try:
-            yield
-        finally:
-            if owns_runtime:
-                await runtime.shutdown()
+        async with anyio.create_task_group() as service_tasks:
+            app.state.sse_task_group = service_tasks
             if owns_services:
-                await services.shutdown()
+                if services is None:
+                    services = DashboardAppServices(DashboardAppServicesConfig.from_agents_config(store.snapshot()))
+                await services.startup(task_group=service_tasks)
+            if services is not None:
+                app.state.app_services = services
+                app.state.financial_registry = services.registry
+                app.state.market_data_revision = dict(services.market_data_revision)
+            owns_runtime = runtime is None and agent_enabled and store is not None
+            if owns_runtime:
+                if services is None:
+                    raise RuntimeError("embedded Dashboard Runtime requires Dashboard app services")
+                runtime = await create_embedded_runtime(store, services)
+            app.state.runtime = runtime
+            try:
+                yield
+            finally:
+                app.state.sse_task_group = None
+                service_tasks.cancel_scope.cancel()
+                # Cancelling the refresh task group leaves *this* task
+                # cancellation-pending, so every checkpoint below would raise.
+                # Teardown is a bounded, best-effort sequence and must still run to
+                # completion: without the shield the run manager's portal and the
+                # dashboard HTTP clients would be left open.
+                with anyio.CancelScope(shield=True):
+                    run_manager = getattr(app.state, "agent_run_manager", None)
+                    if run_manager is not None:
+                        try:
+                            await run_manager.shutdown()
+                        except Exception:
+                            LOGGER.exception("Failed to shut down the Dashboard agent run manager")
+                    try:
+                        from dojoagents.tools.mcp_tool import ashutdown_mcp_tools
+
+                        await ashutdown_mcp_tools()
+                    except Exception:
+                        LOGGER.exception("Failed to shut down MCP servers")
+                    if owns_runtime:
+                        await runtime.shutdown()
+                    if owns_services:
+                        await services.shutdown()
 
     app = FastAPI(title="DojoAgents Dashboard", lifespan=lifespan)
     app.state.runtime = runtime
     app.state.config_store = store
+    app.state.sse_task_group = None
     from dojoagents.dashboard.auth import LegacyLocalPrincipalProvider
 
     app.state.principal_provider = LegacyLocalPrincipalProvider()
@@ -555,41 +584,48 @@ def create_app(  # noqa: C901
 
         if is_stream:
             # SSE streaming mode
-            queue: asyncio.Queue = asyncio.Queue()
+            event_stream = SSEEventStream(max_buffer_size=32)
             run_id = f"run-{uuid.uuid4().hex[:8]}"
-            event_sink = make_event_queue_sink(queue, run_id=run_id, session_id=req.session_id)
+            event_sink = make_event_queue_sink(event_stream, run_id=run_id, session_id=req.session_id)
             session_handle = None
             if sessions is not None:
                 session_handle = await sessions.begin_run(req, model=model, run_id=run_id)
 
             async def _stream_and_restore():
-                try:
-                    response = await _run_agent(runtime, req, event_sink=event_sink)
-                    if sessions is not None and session_handle is not None:
-                        await sessions.finish_run(session_handle, response, events=event_sink.events)
-                    await asyncio.sleep(0)
-                    await queue.put(None)
-                except Exception as exc:
-                    if sessions is not None and session_handle is not None:
-                        await sessions.fail_run(session_handle, str(exc))
-                    await asyncio.sleep(0)
-                    await queue.put(exc)
-                    raise
-
-            # Start agent run as background task
-            task = asyncio.ensure_future(_stream_and_restore())
+                async with anyio.from_thread.BlockingPortal() as portal:
+                    event_stream.bind_portal(portal)
+                    try:
+                        response = await _run_agent(runtime, req, event_sink=event_sink)
+                        if sessions is not None and session_handle is not None:
+                            await sessions.finish_run(session_handle, response, events=event_sink.events)
+                    except Exception as exc:
+                        if sessions is not None and session_handle is not None:
+                            await sessions.fail_run(session_handle, str(exc))
+                        await event_stream.send(exc)
+                    finally:
+                        with anyio.CancelScope(shield=True):
+                            await event_stream.close()
+                        event_stream.unbind_portal()
 
             async def _generate():
+                task_group = app.state.sse_task_group
+                if task_group is None:
+                    raise RuntimeError("Dashboard SSE task owner is not running")
+                producer = await start_owned_sse_producer(
+                    task_group,
+                    _stream_and_restore,
+                    name=f"chat-sse:{run_id}",
+                )
                 try:
                     async for chunk_line in stream_completion_chunks(
-                        queue,
+                        event_stream.receive_stream,
                         model=model,
                         event_format=event_format,
                     ):
                         yield chunk_line
                 finally:
-                    if not task.done():
-                        await task
+                    await producer.stop()
+                    await event_stream.receive_stream.aclose()
 
             return StreamingResponse(
                 _generate(),
@@ -692,6 +728,8 @@ def create_app(  # noqa: C901
             )
         except ValueError as exc:
             return JSONResponse(status_code=422, content={"error": str(exc)})
+        except PortalShutdownError as exc:
+            return JSONResponse(status_code=503, content={"error": str(exc)})
         return {
             "run_id": record.id,
             "session_id": record.session_id,
@@ -872,24 +910,51 @@ def create_app(  # noqa: C901
         if use_persisted_events:
 
             async def _persisted():
-                iterator = stream_persisted_run_events(service, principal, run_id, after_seq=max(0, cursor)).__aiter__()
-                next_event = asyncio.create_task(anext(iterator))
+                send_stream, receive_stream = anyio.create_memory_object_stream[dict[str, Any] | BaseException](1)
+
+                async def _produce() -> None:
+                    iterator = stream_persisted_run_events(
+                        service,
+                        principal,
+                        run_id,
+                        after_seq=max(0, cursor),
+                    ).__aiter__()
+                    try:
+                        async with send_stream:
+                            try:
+                                async for event in iterator:
+                                    await send_stream.send(event)
+                            except Exception as exc:
+                                await send_stream.send(exc)
+                    finally:
+                        with anyio.CancelScope(shield=True):
+                            await iterator.aclose()
+
+                task_group = app.state.sse_task_group
+                if task_group is None:
+                    raise RuntimeError("Dashboard SSE task owner is not running")
+                producer = await start_owned_sse_producer(
+                    task_group,
+                    _produce,
+                    name=f"persisted-sse:{run_id}",
+                )
                 try:
                     while True:
-                        done, _ = await asyncio.wait((next_event,), timeout=10)
-                        if not done:
+                        event = None
+                        with anyio.move_on_after(10) as timeout_scope:
+                            try:
+                                event = await receive_stream.receive()
+                            except anyio.EndOfStream:
+                                return
+                        if timeout_scope.cancel_called:
                             yield ": keepalive\n\n"
                             continue
-                        try:
-                            event = next_event.result()
-                        except StopAsyncIteration:
-                            return
+                        if isinstance(event, BaseException):
+                            raise event
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                        next_event = asyncio.create_task(anext(iterator))
                 finally:
-                    if not next_event.done():
-                        next_event.cancel()
-                    await iterator.aclose()
+                    await producer.stop()
+                    await receive_stream.aclose()
 
             return StreamingResponse(
                 _persisted(),

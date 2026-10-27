@@ -42,6 +42,16 @@ def get_financial_registry(request: Request) -> FinancialDomainRegistry:
     return _require(_registry_from_request(request), "financial_registry")
 
 
+async def ensure_registry_stores_loaded(
+    registry: Any,
+    *store_names: str,
+) -> None:
+    """Use registry lazy loading when supported (test doubles stay compatible)."""
+    ensure = getattr(registry, "ensure_stores_loaded", None)
+    if callable(ensure):
+        await ensure(*store_names)
+
+
 def _registry_value(request: Request, name: str):
     registry = _registry_from_request(request)
     if registry is not None:
@@ -105,9 +115,12 @@ def get_dojo_sphere_service(
     return _registry_value(request, "dojo_sphere_service")
 
 
-def get_sector_precomputed_store(
+async def get_sector_precomputed_store(
     request: Request = None,
 ) -> SectorPrecomputedStore:
+    registry = _registry_from_request(request)
+    if registry is not None:
+        await ensure_registry_stores_loaded(registry, "sector_precomputed_store")
     return _registry_value(request, "sector_precomputed_store")
 
 
@@ -147,6 +160,7 @@ __all__ = [
     "get_chat_session_service",
     "get_config_store",
     "get_dojo_sphere_service",
+    "ensure_registry_stores_loaded",
     "get_financial_registry",
     "get_forex_store",
     "get_kline_store",

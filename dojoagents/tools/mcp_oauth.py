@@ -1,5 +1,5 @@
 from dojoagents.logging import LOGGER
-import asyncio
+import anyio
 import json
 import logging
 import os
@@ -8,13 +8,13 @@ import secrets
 import socket
 import stat
 import sys
-import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
+from dojoagents.utils.async_runtime import run_sync_bounded
 
 logger = logging.getLogger("dojoagents")
 
@@ -128,7 +128,7 @@ class DojoTokenStorage:
         return _get_token_dir() / f"{self._server_name}.meta.json"
 
     async def get_tokens(self) -> Optional[Any]:
-        data = _read_json(self._tokens_path())
+        data = await run_sync_bounded(_read_json, self._tokens_path())
         if data is None:
             return None
         absolute_expiry = data.pop("expires_at", None)
@@ -148,10 +148,10 @@ class DojoTokenStorage:
                 payload["expires_at"] = time.time() + int(expires_in)
             except (TypeError, ValueError):
                 pass
-        _write_json(self._tokens_path(), payload)
+        await run_sync_bounded(_write_json, self._tokens_path(), payload)
 
     async def get_client_info(self) -> Optional[Any]:
-        data = _read_json(self._client_info_path())
+        data = await run_sync_bounded(_read_json, self._client_info_path())
         if data is None:
             return None
         try:
@@ -161,7 +161,11 @@ class DojoTokenStorage:
             return None
 
     async def set_client_info(self, client_info: Any) -> None:
-        _write_json(self._client_info_path(), client_info.model_dump(mode="json", exclude_none=True))
+        await run_sync_bounded(
+            _write_json,
+            self._client_info_path(),
+            client_info.model_dump(mode="json", exclude_none=True),
+        )
 
     def save_oauth_metadata(self, metadata: Any) -> None:
         _write_json(self._meta_path(), metadata.model_dump(exclude_none=True, mode="json"))
@@ -220,7 +224,7 @@ async def _redirect_handler(authorization_url: str) -> None:
 
     if _can_open_browser():
         try:
-            webbrowser.open(authorization_url)
+            await run_sync_bounded(webbrowser.open, authorization_url, abandon_on_cancel=True)
         except Exception:
             pass
 
@@ -236,18 +240,13 @@ async def _wait_for_callback() -> tuple[str, Optional[str]]:
     except OSError:
         raise OAuthNonInteractiveError("OAuth callback timed out — could not bind callback port.")
 
-    server_thread = threading.Thread(target=server.handle_request, daemon=True)
-    server_thread.start()
-
     timeout = 300.0
-    poll_interval = 0.5
-    elapsed = 0.0
+    server.timeout = timeout
     try:
-        while elapsed < timeout:
-            if result["auth_code"] is not None or result["error"] is not None:
-                break
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
+        with anyio.fail_after(timeout):
+            await run_sync_bounded(server.handle_request, abandon_on_cancel=True)
+    except TimeoutError:
+        raise OAuthNonInteractiveError("OAuth callback timed out") from None
     finally:
         server.server_close()
 

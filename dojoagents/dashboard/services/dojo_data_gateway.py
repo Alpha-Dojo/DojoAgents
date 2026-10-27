@@ -1,15 +1,36 @@
 from __future__ import annotations
-import asyncio
+
 import inspect
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
-import pandas as pd
+
 import httpx
+import pandas as pd
 
 from dojoagents.logging import LOGGER
 from dojoagents.dashboard.schemas.freshness import DataSource
+from dojoagents.utils.async_runtime import gather_ordered
 
 T = TypeVar("T")
+
+KLINE_QUERY_FIELDS = [
+    "symbol",
+    "kline_t",
+    "bar_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "vol",
+    "amount",
+    "change_p",
+    "tr",
+    "adj_factor_cum",
+    "dividends",
+    "splits",
+]
 
 
 class GatewayError(RuntimeError):
@@ -34,6 +55,7 @@ class GatewayResult(Generic[T]):
     as_of: str | None
     source: DataSource
     stale: bool
+    snapshot: dict[str, str] | None = None
 
 
 def _canonical_symbol(symbol: str) -> str:
@@ -102,32 +124,70 @@ def _list_result(payload: Any, operation: str, *keys: str) -> GatewayResult[list
     return GatewayResult(_map_market_back(normalized), as_of, source, stale)
 
 
-def _df_result(df: "pd.DataFrame") -> GatewayResult["pd.DataFrame"]:
+def _df_result(
+    df: "pd.DataFrame",
+    *,
+    snapshot: dict[str, str] | None = None,
+) -> GatewayResult["pd.DataFrame"]:
     if not df.empty and "market" in df.columns:
         df["market"] = df["market"].replace({"cn": "sh", "zh": "sh"})
-    return GatewayResult(df, None, "sdk_snapshot", False)
+    as_of = str(df["bar_time"].max()) if not df.empty and "bar_time" in df.columns else None
+    return GatewayResult(df, as_of, "sdk_snapshot", False, snapshot)
 
 
 class DojoDataGateway:
-    def __init__(self, client: Any, *, kline_max_concurrent: int = 50) -> None:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        live_client: Any | None = None,
+        kline_max_concurrent: int = 50,
+    ) -> None:
         if kline_max_concurrent < 1:
             raise ValueError("kline_max_concurrent must be at least 1")
         self.client = client
+        self.live_client = live_client
         self.kline_max_concurrent = kline_max_concurrent
-        self._kline_symbol_index: dict[str, pd.DataFrame] | None = None
-        self._kline_index_lock = asyncio.Lock()
-
-    def invalidate_kline_index(self) -> None:
-        self._kline_symbol_index = None
+        self._latest_kline_snapshot: dict[str, str] | None = None
 
     @property
-    def kline_index_ready(self) -> bool:
-        return self._kline_symbol_index is not None
+    def has_live_client(self) -> bool:
+        return self.live_client is not None
+
+    async def _call_realtime(
+        self,
+        operation: str,
+        live_factory: Any,
+        snapshot_factory: Any,
+    ) -> tuple[Any, bool]:
+        """Prefer the live API and fall back to the offline snapshot.
+
+        Factories are used instead of pre-created coroutine objects so a
+        successful live request never leaves an un-awaited fallback coroutine.
+        """
+        if self.live_client is not None:
+            try:
+                return await self._call(operation, live_factory()), True
+            except GatewayError as exc:
+                LOGGER.warning(
+                    "%s live request failed; falling back to the committed snapshot: %s",
+                    operation,
+                    exc,
+                )
+        return await self._call(operation, snapshot_factory()), False
+
+    def invalidate_kline_snapshot(self) -> None:
+        """Forget the last observed snapshot identity after an explicit refresh."""
+        self._latest_kline_snapshot = None
+
+    @property
+    def latest_kline_snapshot(self) -> dict[str, str] | None:
+        return self._latest_kline_snapshot
 
     async def _call(self, operation: str, awaitable: Any) -> Any:
         try:
             return await awaitable
-        except (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException) as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise GatewayTimeoutError(f"{operation}: upstream request timed out") from exc
         except (ConnectionError, httpx.NetworkError) as exc:
             raise GatewayUnavailableError(f"{operation}: upstream source is unavailable") from exc
@@ -158,8 +218,26 @@ class DojoDataGateway:
 
     async def stock_quotes(self, market: str, symbols: list[str]) -> GatewayResult[list[dict[str, Any]]]:
         canonical = [_canonical_symbol(symbol) for symbol in symbols]
-        payload = await self._call("stock_quotes", self.client.stocks.post_quote(body={"symbols": ",".join(canonical)}))
+        body = {"symbols": ",".join(canonical)}
+        payload, used_live = await self._call_realtime(
+            "stock_quotes",
+            lambda: self.live_client.stocks.post_quote(body=body),
+            lambda: self.client.stocks.post_quote(body=body),
+        )
         result = _list_result(payload, "stock_quotes", "quotes")
+        if used_live:
+            result = GatewayResult(result.data, result.as_of, "sdk_online", False, result.snapshot)
+        elif self.live_client is not None:
+            result = GatewayResult(result.data, result.as_of, "sdk_snapshot", True, result.snapshot)
+        else:
+            # Pure snapshot deployment: no live client is configured, so the
+            # payload is served from the committed offline snapshot. It carries
+            # no ``source`` field of its own, which previously fell through to
+            # the ``"remote" -> "sdk_online"`` alias default and mislabelled
+            # snapshot quotes as live. Consumers (e.g. the sector-movers
+            # live-quote overlay) then treated a lagging quote snapshot as
+            # fresher than the independently published sector precompute.
+            result = GatewayResult(result.data, result.as_of, "sdk_snapshot", False, result.snapshot)
         payload_keys = list(payload)[:10] if isinstance(payload, dict) else []
         returned_symbols = [str(row.get("symbol") or row.get("ticker")) for row in result.data[:5] if isinstance(row, dict) and (row.get("symbol") or row.get("ticker"))]
         LOGGER.debug(
@@ -183,88 +261,94 @@ class DojoDataGateway:
         kwargs = {key: value for key, value in window.items() if value is not None}
         kwargs.pop("market", None)
         online = getattr(self.client, "_online", None)
-        if online is True:
+        LOGGER.debug(
+            "dojo_kline_route route=%s symbols=%d window=%s",
+            "offline_batch" if online is False else "online_per_symbol",
+            len(canonical_symbols),
+            kwargs,
+        )
+        if online is not False:
             return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
-        if online is None and (kwargs.get("start_time") or kwargs.get("end_time")):
-            return await self._fetch_klines_per_symbol(canonical_symbols, kwargs)
+        return await self._fetch_offline_kline_batch(canonical_symbols, kwargs)
 
-        await self._ensure_kline_index()
-        frames = [self._slice_indexed_klines(symbol, kwargs) for symbol in canonical_symbols]
-        found = {symbol for symbol, frame in zip(canonical_symbols, frames) if not frame.empty}
-        missing = [symbol for symbol in canonical_symbols if symbol not in found]
-        if missing:
-            fetched = await self._fetch_klines_per_symbol(missing, kwargs)
-            if not fetched.data.empty:
-                frames.append(fetched.data)
-        populated = [frame for frame in frames if not frame.empty]
-        frame = pd.concat(populated, ignore_index=True) if populated else pd.DataFrame()
-        if not frame.empty and str(kwargs.get("price_adj_type") or "pre").lower() not in {"none", "raw"}:
-            frame = self._apply_pre_adjustment(frame)
-        return _df_result(frame)
-
-    async def _ensure_kline_index(self) -> None:
-        if self._kline_symbol_index is not None:
-            return
-        async with self._kline_index_lock:
-            if self._kline_symbol_index is not None:
-                return
-            result = await self.stock_all_klines()
-            frame = self._normalize_kline_frame(result.data)
-            if frame.empty or "symbol" not in frame.columns:
-                self._kline_symbol_index = {}
-                return
-            sort_column = "bar_time" if "bar_time" in frame.columns else "date"
-            self._kline_symbol_index = {symbol: rows.sort_values(sort_column).reset_index(drop=True) for symbol, rows in frame.groupby("symbol", sort=False)}
-
-    def _slice_indexed_klines(self, symbol: str, window: dict[str, Any]) -> pd.DataFrame:
-        frame = (self._kline_symbol_index or {}).get(symbol)
-        if frame is None or frame.empty:
-            return pd.DataFrame()
-        rows = frame
-        time_col = "bar_time" if "bar_time" in rows.columns else "date" if "date" in rows.columns else None
-        if time_col:
-            if window.get("start_time"):
-                rows = rows[rows[time_col].astype(str).str[:10] >= str(window["start_time"])[:10]]
-            if window.get("end_time"):
-                rows = rows[rows[time_col].astype(str).str[:10] <= str(window["end_time"])[:10]]
-        limit = int(window.get("limit") or 0)
-        return rows.tail(limit) if limit > 0 else rows
-
-    @staticmethod
-    def _apply_pre_adjustment(frame: pd.DataFrame) -> pd.DataFrame:
-        if "adj_factor_cum" not in frame.columns:
-            return frame
-        adjusted = frame.copy()
-        factors = pd.to_numeric(adjusted["adj_factor_cum"], errors="coerce")
-        latest = factors.groupby(adjusted["symbol"]).transform("last")
-        ratio = factors.div(latest.where(latest > 0)).fillna(1.0)
-        for column in ("open", "high", "low", "close"):
-            if column in adjusted.columns:
-                adjusted[column] = pd.to_numeric(adjusted[column], errors="coerce") * ratio
-        return adjusted
+    async def _fetch_offline_kline_batch(
+        self,
+        symbols: list[str],
+        kwargs: dict[str, Any],
+    ) -> GatewayResult["pd.DataFrame"]:
+        limit = kwargs.get("limit")
+        requested_fields = kwargs.get("fields")
+        fields = (
+            list(dict.fromkeys(str(field).strip() for field in requested_fields if str(field).strip())) if isinstance(requested_fields, (list, tuple)) else list(KLINE_QUERY_FIELDS)
+        )
+        payload = await self._call(
+            "stock_klines",
+            self.client.stocks.get_klines(
+                symbols=symbols,
+                start=kwargs.get("start_time"),
+                end=kwargs.get("end_time"),
+                fields=fields,
+                limit_per_symbol=(None if limit in {None, 0} else int(limit)),
+                adjust=kwargs.get("price_adj_type") or "pre",
+                kline_t=kwargs.get("kline_t"),
+                adjustment_reference_date=kwargs.get("price_adj_date"),
+            ),
+        )
+        mapping = _payload_mapping(payload, "stock_klines")
+        rows = mapping.get("rows")
+        if not isinstance(rows, list):
+            raise GatewayBadResponseError("stock_klines: batch rows are not a list")
+        snapshot = mapping.get("snapshot")
+        if not isinstance(snapshot, dict):
+            raise GatewayBadResponseError("stock_klines: snapshot metadata is missing")
+        normalized_snapshot = {str(key): str(value) for key, value in snapshot.items()}
+        self._latest_kline_snapshot = normalized_snapshot
+        normalized_rows = [row.model_dump() if hasattr(row, "model_dump") else row for row in rows]
+        frame = self._normalize_kline_frame(normalized_rows)
+        return _df_result(frame, snapshot=normalized_snapshot)
 
     async def _fetch_kline_rows(self, symbols: list[str], kwargs: dict[str, Any]) -> list[dict[str, Any]]:
-        semaphore = asyncio.Semaphore(self.kline_max_concurrent)
-
         async def fetch_one(symbol: str) -> list[dict[str, Any]]:
-            async with semaphore:
-                payload = await self._call(
-                    "stock_klines",
-                    self.client.stocks.get_kline(symbol=symbol, **kwargs),
-                )
+            payload = await self._call(
+                "stock_klines",
+                self.client.stocks.get_kline(symbol=symbol, **kwargs),
+            )
             result = _list_result(payload, "stock_klines", "klines")
+            if LOGGER.isEnabledFor(logging.DEBUG) and symbol in symbols[:3]:
+                sample = []
+                for row in (result.data[:1] + result.data[-1:] if len(result.data) > 1 else result.data):
+                    raw_time = row.get("bar_time") or row.get("date") or row.get("datetime")
+                    sample.append({"bar_time": raw_time, "bar_time_type": type(raw_time).__name__, "close": row.get("close")})
+                raw_times = [str(row.get("bar_time") or row.get("date") or row.get("datetime")) for row in result.data]
+                LOGGER.debug(
+                    "dojo_kline_raw_sample symbol=%s rows=%d raw_min=%s raw_max=%s sample=%s",
+                    symbol,
+                    len(result.data),
+                    min(raw_times, default=None),
+                    max(raw_times, default=None),
+                    json.dumps(sample, default=str),
+                )
             return result.data
 
-        results = await asyncio.gather(*(fetch_one(symbol) for symbol in symbols), return_exceptions=True)
+        results = await gather_ordered(
+            [lambda symbol=symbol: fetch_one(symbol) for symbol in symbols],
+            max_concurrency=self.kline_max_concurrent,
+            return_exceptions=True,
+        )
         rows: list[dict[str, Any]] = []
         failures = 0
-        for result in results:
+        failure_sample = []
+        for symbol, result in zip(symbols, results):
             if isinstance(result, Exception):
                 failures += 1
+                if len(failure_sample) < 3:
+                    failure_sample.append({"symbol": symbol, "error_type": type(result).__name__})
                 continue
             rows.extend(result)
         if failures:
             LOGGER.warning("Failed to fetch %d/%d stock K-lines", failures, len(symbols))
+            LOGGER.debug("dojo_kline_failures count=%d sample=%s", failures, failure_sample)
+        LOGGER.debug("dojo_kline_response requested_symbols=%d returned_rows=%d failures=%d", len(symbols), len(rows), failures)
         return rows
 
     async def _fetch_klines_per_symbol(
@@ -272,41 +356,16 @@ class DojoDataGateway:
         symbols: list[str],
         kwargs: dict[str, Any],
     ) -> GatewayResult["pd.DataFrame"]:
+        # The legacy online endpoint does not expose column projection. Keep
+        # ``fields`` as an offline-only optimization instead of leaking an
+        # unsupported parameter into get_kline().
+        kwargs.pop("fields", None)
         rows = await self._fetch_kline_rows(symbols, kwargs)
         frame = pd.DataFrame(rows)
         if getattr(self.client, "_online", None) is True:
             as_of = str(frame["bar_time"].max()) if not frame.empty and "bar_time" in frame.columns else None
             return GatewayResult(frame, as_of, "sdk_online", False)
         return _df_result(frame)
-
-    async def stock_all_klines(
-        self,
-        *,
-        symbols: list[str] | None = None,
-    ) -> GatewayResult["pd.DataFrame"]:
-        try:
-            payload_df = await self._call(
-                "stock_all_klines",
-                self.client.stocks.get_all_klines_with_df(),
-            )
-            payload_df = self._normalize_kline_frame(payload_df)
-            if symbols is not None:
-                canonical_symbols = {_canonical_symbol(symbol) for symbol in symbols}
-                payload_df = payload_df[payload_df["symbol"].isin(canonical_symbols)]
-            return _df_result(payload_df)
-        except Exception:
-            pass
-
-        kwargs: dict[str, Any] = {}
-        if symbols is not None:
-            kwargs["symbols"] = [_canonical_symbol(symbol) for symbol in symbols]
-        payload = await self._call(
-            "stock_all_klines",
-            self.client.stocks.get_all_klines(**kwargs),
-        )
-        res = _list_result(payload, "stock_all_klines", "klines")
-
-        return GatewayResult(pd.DataFrame(res.data), res.as_of, res.source, res.stale)
 
     @staticmethod
     def _normalize_kline_frame(payload: Any) -> pd.DataFrame:
@@ -320,7 +379,7 @@ class DojoDataGateway:
             if frame.index.name == "symbol":
                 frame = frame.reset_index()
             else:
-                raise GatewayBadResponseError("stock_all_klines: upstream rows have no symbol")
+                raise GatewayBadResponseError("stock_klines: upstream rows have no symbol")
         frame["symbol"] = frame["symbol"].astype(str).str.strip().str.upper()
         return frame[frame["symbol"] != ""].reset_index(drop=True)
 
@@ -334,11 +393,17 @@ class DojoDataGateway:
     ) -> GatewayResult[list[dict[str, Any]]]:
         del market
         kwargs = {"symbol": _canonical_symbol(symbol), "page": page, "page_size": page_size}
-        payload = await self._call(
+        payload, used_live = await self._call_realtime(
             "stock_events",
-            self.client.stocks.get_event_remind(**{key: value for key, value in kwargs.items() if value is not None}),
+            lambda: self.live_client.stocks.get_event_remind(**{key: value for key, value in kwargs.items() if value is not None}),
+            lambda: self.client.stocks.get_event_remind(**{key: value for key, value in kwargs.items() if value is not None}),
         )
-        return _list_result(payload, "stock_events", "data")
+        result = _list_result(payload, "stock_events", "data")
+        if used_live:
+            return GatewayResult(result.data, result.as_of, "sdk_online", False, result.snapshot)
+        if self.live_client is not None:
+            return GatewayResult(result.data, result.as_of, "sdk_snapshot", True, result.snapshot)
+        return result
 
     async def stock_news(
         self,
@@ -350,11 +415,17 @@ class DojoDataGateway:
     ) -> GatewayResult[list[dict[str, Any]]]:
         del market
         kwargs = {"symbol": _canonical_symbol(symbol), "page": page, "page_size": page_size}
-        payload = await self._call(
+        payload, used_live = await self._call_realtime(
             "stock_news",
-            self.client.stocks.get_news(**{key: value for key, value in kwargs.items() if value is not None}),
+            lambda: self.live_client.stocks.get_news(**{key: value for key, value in kwargs.items() if value is not None}),
+            lambda: self.client.stocks.get_news(**{key: value for key, value in kwargs.items() if value is not None}),
         )
-        return _list_result(payload, "stock_news", "news")
+        result = _list_result(payload, "stock_news", "news")
+        if used_live:
+            return GatewayResult(result.data, result.as_of, "sdk_online", False, result.snapshot)
+        if self.live_client is not None:
+            return GatewayResult(result.data, result.as_of, "sdk_snapshot", True, result.snapshot)
+        return result
 
     async def stock_financial_indicators(
         self,

@@ -21,7 +21,7 @@
 | `dojoagents/planning/` | Plan store、engine、tools、triggers |
 | `dojoagents/quant/` | Quant context、risk、workflow |
 | `tests/` | Pytest suite |
-| `docs/` | MkDocs 正式文档和 `docs/plans/` 历史规划材料 |
+| `docs/` | MkDocs 源码；正文按 `docs/site/{locale}/` 分类，共享资源位于站点 assets |
 
 ## 必须复用的基础设施
 

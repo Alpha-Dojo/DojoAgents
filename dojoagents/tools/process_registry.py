@@ -1,11 +1,13 @@
-import asyncio
-import uuid
+import anyio
 import atexit
 import contextvars
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from dojoagents.logging import LOGGER
+from dojoagents.tools import processes
+from dojoagents.utils.detached_tasks import start_detached
 
 # Context variable to track active session ID (typically session key) during tool execution
 active_session_id = contextvars.ContextVar("active_session_id", default="")
@@ -31,77 +33,120 @@ active_write_session_file_guard = contextvars.ContextVar(
 
 
 class BackgroundProcessSession:
-    def __init__(self, session_id: str, process: asyncio.subprocess.Process, command: str):
+    """One registered background child process.
+
+    The process handle is the unified :class:`dojoagents.tools.processes.Process`
+    adapter; the session adds the bookkeeping the ``terminal`` tool needs
+    (``session_key`` / ``notify_on_complete`` / accumulated ``output_buffer``).
+    """
+
+    def __init__(self, session_id: str, process: processes.Process, command: str):
         self.id = session_id
         self.process = process
         self.command = command
         self.notify_on_complete = False
         self.output_buffer = ""
         self.session_key = ""
+        self._output_drained = anyio.Event()
+
+    @property
+    def returncode(self) -> int | None:
+        return self.process.returncode
 
     async def wait(self):
         try:
-            await self.process.wait()
+            return await self.process.wait()
         except Exception:
-            pass
+            return self.process.returncode
 
     def terminate(self):
-        try:
-            self.process.terminate()
-        except OSError:
-            pass
+        self.process.terminate()
 
     def kill(self):
-        try:
-            self.process.kill()
-        except OSError:
-            pass
+        self.process.kill()
+
+    async def wait_for_output_drain(self, *, timeout: float = 5.0) -> None:
+        """Wait (bounded) for the stdout reader to observe EOF."""
+        with anyio.move_on_after(timeout):
+            await self._output_drained.wait()
 
 
 class AsyncProcessRegistry:
     def __init__(self):
         self.processes: Dict[str, BackgroundProcessSession] = {}
-        self.completion_queue = asyncio.Queue()
+        self._completion_send, self.completion_events = anyio.create_memory_object_stream[dict[str, Any]](
+            max_buffer_size=32
+        )
 
     async def spawn(self, command: str, env_vars: dict = None) -> BackgroundProcessSession:
         session_id = uuid.uuid4().hex[:12]
-        process = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.DEVNULL, env=env_vars)
+        process = await processes.open_process(
+            command,
+            stdin=processes.DEVNULL,
+            stdout=processes.PIPE,
+            stderr=processes.STDOUT,
+            env=env_vars,
+        )
         session = BackgroundProcessSession(session_id, process, command)
         self.processes[session_id] = session
 
-        asyncio.create_task(self._read_stdout(session))
-        asyncio.create_task(self._reap_process(session_id))
+        # The drainer and the reaper must outlive this call: the tool call
+        # returns immediately while the child keeps running, and the enclosing
+        # request may well end first.  AnyIO has no fire-and-forget primitive, so
+        # ownership is handed to the audited detached-task boundary.
+        start_detached(self._drain_stdout(session), name=f"dojo-bg-stdout:{session_id}")
+        start_detached(self._reap_process(session), name=f"dojo-bg-reap:{session_id}")
         return session
 
-    async def _read_stdout(self, session: BackgroundProcessSession):
+    async def _drain_stdout(self, session: BackgroundProcessSession) -> None:
+        """Read the child's stdout to EOF, then release the reaper."""
         try:
-            while True:
-                line = await session.process.stdout.readline()
-                if not line:
-                    break
-                session.output_buffer += line.decode("utf-8", errors="replace")
+            async for chunk in session.process.read_stdout():
+                session.output_buffer += chunk.decode("utf-8", errors="replace")
         except Exception:
-            pass
+            LOGGER.debug("Background stdout reader stopped early: session=%s", session.id)
+        finally:
+            session._output_drained.set()
 
-    async def _reap_process(self, session_id: str):
-        session = self.processes.get(session_id)
-        if session:
+    async def _reap_process(self, session: BackgroundProcessSession) -> None:
+        """Await exit, publish the completion event, then deregister.
+
+        The session object is held directly instead of being looked up in
+        ``self.processes``: :meth:`has_active_processes` prunes exited sessions,
+        and a prune that won the race must not swallow the completion event.
+        """
+        try:
             await session.wait()
-            # Give a tiny bit of time for the stdout reader to finish reading remaining buffer
-            await asyncio.sleep(0.05)
-            if getattr(session, "notify_on_complete", False):
+            await session.wait_for_output_drain()
+            if session.notify_on_complete:
                 event = {
                     "type": "completion",
                     "session_id": session.id,
                     "command": session.command,
                     "exit_code": session.process.returncode,
-                    "output": getattr(session, "output_buffer", ""),
-                    "session_key": getattr(session, "session_key", ""),
+                    "output": session.output_buffer,
+                    "session_key": session.session_key,
                 }
-                await self.completion_queue.put(event)
+                try:
+                    await self._completion_send.send(event)
+                except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    LOGGER.debug("Completion stream closed; dropping event for session=%s", session.id)
+        except Exception:
+            LOGGER.exception("Background process reaper failed: session=%s", session.id)
+        finally:
+            self.processes.pop(session.id, None)
+
+    def _prune_exited(self) -> None:
+        """Drop sessions whose child already exited.
+
+        A reaper that never runs (for example because its detached task was
+        discarded) must not leave the registry reporting phantom activity.
+        """
+        for session_id in [sid for sid, session in self.processes.items() if session.returncode is not None]:
             self.processes.pop(session_id, None)
 
     def has_active_processes(self) -> bool:
+        self._prune_exited()
         return len(self.processes) > 0
 
     def cleanup(self):

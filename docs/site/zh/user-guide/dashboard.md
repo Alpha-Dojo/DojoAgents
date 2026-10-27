@@ -109,4 +109,4 @@ SSE 中断：
 
 - [Dashboard 架构](../architecture/dashboard.md)
 - [Dashboard API Reference](../reference/dashboard-api.md)
-- [Session 设计与集成](../development/session-history-design.md)
+- [Session 设计与集成](../design/session-history.md)

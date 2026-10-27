@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from dojoagents.dashboard.deps import get_financial_registry
+from dojoagents.dashboard.deps import ensure_registry_stores_loaded, get_financial_registry
 from dojoagents.dashboard.schemas.domain_api import (
     TickerFinancialsResponseV1,
     TickerNewsEventsResponseV1,
@@ -33,6 +33,12 @@ async def ticker_quote(
     market: Optional[str] = Query(None, pattern="^(cn|sh|hk|us)$"),
     registry=Depends(get_financial_registry),
 ) -> TickerQuoteResponseV1:
+    await ensure_registry_stores_loaded(
+        registry,
+        "stock_store",
+        "stock_sector_store",
+        "sector_store",
+    )
     response = await build_ticker_quote_v1(registry, ticker=ticker, market=market)
     if response is None:
         raise HTTPException(status_code=404, detail=f"quote not found for {ticker}")

@@ -9,6 +9,7 @@ DojoAgents 是一个面向量化金融分析工作流的 Agent Runtime。它把 
 - 想调用后端接口，读 [Chat API](reference/chat-api.md) 和 [dojo.v2 协议](reference/dojo-v2-protocol.md)。
 - 想扩展系统，读 [仓库地图](development/repository-map.md)、[添加工具](development/adding-tools.md) 和 [测试](development/testing.md)。
 - 想理解整体架构，读 [架构总览](architecture/overview.md)。
+- 想了解具体技术契约，读 [设计](design/index.md)。
 
 ## 核心能力
 
@@ -25,7 +26,7 @@ DojoAgents 是一个面向量化金融分析工作流的 Agent Runtime。它把 
 
 ## 文档状态
 
-这套 MkDocs 文档只呈现当前正式内容。主导航中的指南、架构、reference 和开发文档以当前仓库实现为准；历史规划、迁移和原型材料保留在 `docs/plans/`，不作为正式读者入口。
+项目文档统一维护在这套 MkDocs 源码中。指南、架构、设计、Reference 和开发文档以当前实现为准；提案、迁移记录和历史决策统一放在 [计划](plans/index.md)，并与权威行为说明明确区分。
 
 ## 快速命令
 

@@ -1,27 +1,47 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 import concurrent.futures
+import inspect
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-import threading
 from typing import Any, Literal
 
 from dojoagents.agent.events import AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.config.models import LLMProviderConfig
 from dojoagents.logging import get_logger
+from dojoagents.utils.blocking_portal import ThreadedBlockingPortal
 
 LOGGER = get_logger(__name__)
 
 RunStatus = Literal["running", "done", "error", "cancelled"]
 
 _RUN_TTL_SECONDS = 60 * 60
+# Cancellation is not instantaneous: the agent has to unwind its own awaits and
+# anyio has to hand the cancellation back to the run's event loop.  The wait is
+# bounded so a wedged run can never pin the HTTP handler.
+_RUN_CANCEL_SETTLE_SECONDS = 10.0
 
 
 class UnsupportedInputModalityError(ValueError):
     """The selected model cannot consume one or more request modalities."""
+
+
+class PortalShutdownError(RuntimeError):
+    """A background run was requested after the run manager stopped accepting work."""
+
+
+def _log_unobserved_run_failure(task: concurrent.futures.Future[Any]) -> None:
+    """Surface a run task that failed outside the normal error/cancel handling."""
+
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None and not isinstance(exc, Exception):
+        LOGGER.error("Dashboard background run task aborted: %r", exc)
 
 
 def _content_input_modalities(content: Any) -> set[str]:
@@ -74,7 +94,25 @@ class AgentRunRecord:
     result_content: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    # Handle to the run task living on the manager's portal loop.  It is a
+    # thread-safe ``concurrent.futures.Future`` rather than a bare loop task, so
+    # the manager never needs the asyncio module for lifecycle control.
     task: concurrent.futures.Future[Any] | None = None
+    _settled: threading.Event = field(default_factory=threading.Event, repr=False, compare=False)
+
+    @property
+    def settled(self) -> bool:
+        """Whether the run task has finished unwinding (any status)."""
+
+        return self._settled.is_set()
+
+    def mark_settled(self) -> None:
+        self._settled.set()
+
+    def wait_settled(self, timeout: float) -> bool:
+        """Block the current thread until the run unwinds. Used by cancel/status paths."""
+
+        return self._settled.wait(timeout)
 
     def is_visible_to(self, principal: Any) -> bool:
         if not self.owner_user_id:
@@ -114,7 +152,7 @@ class AgentRunRecord:
     async def wait_for_events(self, cursor: int, timeout: float = 0.25) -> tuple[int, RunStatus]:
         if cursor < len(self.events) or self.status != "running":
             return len(self.events), self.status
-        await asyncio.sleep(timeout)
+        await anyio.sleep(timeout)
         return len(self.events), self.status
 
 
@@ -145,23 +183,45 @@ async def validate_request_modalities(request: ChatRequest, agent: Any) -> None:
 
 
 class AgentRunManager:
-    def __init__(self) -> None:
-        self._runs: dict[str, AgentRunRecord] = {}
-        self._lock = asyncio.Lock()
-        self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop,
-            name="dojo-agent-runs",
-            daemon=True,
-        )
-        self._thread.start()
+    """Owns Dashboard background runs and the portal loop they execute on.
 
-    def _run_loop(self) -> None:
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_forever()
+    Runs must outlive the HTTP request that created them, so they execute on a
+    dedicated event loop owned by this component.  The portal is started once
+    here and closed by :meth:`shutdown`; it is never created per request, and no
+    code path keeps a second, older loop alive alongside it.
+    """
+
+    def __init__(self, *, portal: ThreadedBlockingPortal | None = None) -> None:
+        self._runs: dict[str, AgentRunRecord] = {}
+        self._lock = anyio.Lock()
+        self._portal = portal or ThreadedBlockingPortal(name="dojo-agent-runs")
+        self._portal.start()
+        self._closed = False
 
     def get(self, run_id: str) -> AgentRunRecord | None:
         return self._runs.get(run_id)
+
+    async def shutdown(self, *, timeout: float = 10.0) -> None:
+        """Cancel every live run, then close the portal and join its thread.
+
+        Idempotent: the Dashboard lifespan calls this on teardown, and a second
+        call (or a call after a failed start) is a no-op.
+        """
+
+        if self._closed:
+            return
+        self._closed = True
+        for record in list(self._runs.values()):
+            if record.task is not None and not record.task.done():
+                await self._portal.run_sync(record.task.cancel, abandon_on_cancel=True)
+        for record in list(self._runs.values()):
+            if record.task is not None:
+                await self._portal.run_sync(
+                    record.wait_settled,
+                    timeout,
+                    abandon_on_cancel=True,
+                )
+        await self._portal.ashutdown(timeout=timeout)
 
     async def create_run(
         self,
@@ -190,7 +250,7 @@ class AgentRunManager:
             self._runs[run_id] = record
         if on_started is not None:
             result = on_started(record)
-            if asyncio.iscoroutine(result):
+            if inspect.isawaitable(result):
                 await result
 
         def emit_event(event) -> None:
@@ -220,7 +280,7 @@ class AgentRunManager:
                 record.set_status("done")
                 if on_completed is not None:
                     result = on_completed(record, response)
-                    if asyncio.iscoroutine(result):
+                    if inspect.isawaitable(result):
                         await result
                 LOGGER.info(
                     "Dashboard background run completed: run_id=%s event_count=%d content_length=%d",
@@ -228,14 +288,14 @@ class AgentRunManager:
                     len(record.events),
                     len(record.result_content),
                 )
-            except asyncio.CancelledError:
+            except anyio.get_cancelled_exc_class():
                 if not sink.events or sink.events[-1]["type"] not in {"done", "error"}:
                     sink.error("Run cancelled", code="cancelled")
                 record.result_metadata = {"cancelled": True}
                 record.set_status("cancelled")
                 if on_cancelled is not None:
                     result = on_cancelled(record)
-                    if asyncio.iscoroutine(result):
+                    if inspect.isawaitable(result):
                         await result
                 LOGGER.info(
                     "Dashboard background run cancelled: run_id=%s event_count=%d",
@@ -250,7 +310,7 @@ class AgentRunManager:
                 record.set_status("error")
                 if on_failed is not None:
                     result = on_failed(record, exc)
-                    if asyncio.iscoroutine(result):
+                    if inspect.isawaitable(result):
                         await result
                 LOGGER.exception(
                     "Dashboard background run failed: run_id=%s status=%s event_count=%d",
@@ -258,8 +318,15 @@ class AgentRunManager:
                     record.status,
                     len(record.events),
                 )
+            finally:
+                # Signals cancel/status callers that the run has fully unwound,
+                # including the receipt of the cancellation itself.
+                record.mark_settled()
 
-        record.task = asyncio.run_coroutine_threadsafe(_execute(), self._loop)
+        if self._closed:
+            raise PortalShutdownError("the Dashboard run manager is shutting down and no longer accepts new runs")
+        record.task = self._portal.start_task(_execute, name=f"dojo-run:{run_id}")
+        record.task.add_done_callback(_log_unobserved_run_failure)
         LOGGER.info(
             "Dashboard background run scheduled: run_id=%s session_id=%s model=%s canonical_session=%s",
             run_id,
@@ -273,13 +340,17 @@ class AgentRunManager:
         record = self._runs.get(run_id)
         if record is None or record.status != "running" or record.task is None:
             return False
-        record.task.cancel()
-        try:
-            await asyncio.wrap_future(record.task)
-        except asyncio.CancelledError:
-            pass
-        except concurrent.futures.CancelledError:
-            pass
+        # Off the event loop: cancelling the future hands the cancellation back to
+        # the portal loop, which blocks until that loop services it.
+        await self._portal.run_sync(record.task.cancel, abandon_on_cancel=True)
+        # The run's own cancellation handler sets the final status, so wait for it
+        # to unwind instead of guessing here.  The wait is bounded and runs on a
+        # worker thread because the run lives on the portal loop, not this one.
+        await self._portal.run_sync(
+            record.wait_settled,
+            _RUN_CANCEL_SETTLE_SECONDS,
+            abandon_on_cancel=True,
+        )
         if record.status == "running":
             record.set_status("cancelled")
         return True

@@ -13,40 +13,38 @@ TARGET = "2026-07-03"
 SYMBOL = "0700.HK"
 
 
-class BulkHasBarSingleDayEmptyFake(FakeDojo):
-    """Reproduce production: bulk index has the bar; get_kline(single day) returns empty."""
+class SnapshotBatchFake(FakeDojo):
+    """Return the requested window through the snapshot-aware batch API."""
 
     def __init__(self) -> None:
-        super().__init__(
-            stocks={
-                "get_all_klines_with_df": pd.DataFrame(
-                    [
-                        {
-                            "symbol": SYMBOL,
-                            "bar_time": "2026-07-01",
-                            "open": 420.0,
-                            "high": 425.0,
-                            "low": 418.0,
-                            "close": 422.0,
-                        },
-                        {
-                            "symbol": SYMBOL,
-                            "bar_time": TARGET,
-                            "open": 433.0,
-                            "high": 445.8,
-                            "low": 431.2,
-                            "close": 431.2,
-                        },
-                    ]
-                ),
-                "get_kline": {"klines": []},
+        rows = [
+            {"symbol": SYMBOL, "bar_time": "2026-07-01", "open": 420.0, "high": 425.0, "low": 418.0, "close": 422.0},
+            {"symbol": SYMBOL, "bar_time": TARGET, "open": 433.0, "high": 445.8, "low": 431.2, "close": 431.2},
+        ]
+
+        def get_klines(**kwargs):
+            selected = rows
+            if kwargs.get("start"):
+                selected = [row for row in selected if row["bar_time"] >= str(kwargs["start"])[:10]]
+            if kwargs.get("end"):
+                selected = [row for row in selected if row["bar_time"] <= str(kwargs["end"])[:10]]
+            return {
+                "rows": selected,
+                "snapshot": {
+                    "backend": "huggingface",
+                    "repo_id": "repo",
+                    "resolved_revision": "revision",
+                    "snapshot_token": "token",
+                },
             }
-        )
+
+        super().__init__(stocks={"get_klines": get_klines})
+        self._online = False
 
 
 @pytest.mark.asyncio
-async def test_gateway_single_day_uses_get_kline_and_can_return_empty_while_bulk_has_bar() -> None:
-    client = BulkHasBarSingleDayEmptyFake()
+async def test_gateway_single_day_uses_snapshot_batch_without_bulk_index() -> None:
+    client = SnapshotBatchFake()
     gateway = DojoDataGateway(client)
 
     bulk = await gateway.stock_klines([SYMBOL], limit=500)
@@ -54,18 +52,30 @@ async def test_gateway_single_day_uses_get_kline_and_can_return_empty_while_bulk
 
     bulk_times = [str(v)[:10] for v in bulk.data["bar_time"].tolist()]
     assert TARGET in bulk_times
-    assert single.data.empty
-    assert client.stocks.calls[0][0] == "get_all_klines_with_df"
+    assert [str(v)[:10] for v in single.data["bar_time"].tolist()] == [TARGET]
+    assert client.stocks.calls[0][0] == "get_klines"
     single_call = client.stocks.calls[1]
-    assert single_call[0] == "get_kline"
-    assert single_call[1]["symbol"] == SYMBOL
-    assert single_call[1]["start_time"] == TARGET
-    assert single_call[1]["end_time"] == TARGET
+    assert single_call[0] == "get_klines"
+    assert single_call[1]["symbols"] == [SYMBOL]
+    assert single_call[1]["start"] == TARGET
+    assert single_call[1]["end"] == TARGET
 
 
 @pytest.mark.asyncio
-async def test_kline_store_single_day_returns_none_when_get_kline_empty() -> None:
-    client = BulkHasBarSingleDayEmptyFake()
+async def test_gateway_forwards_dynamic_fields_to_offline_sdk_batch() -> None:
+    client = SnapshotBatchFake()
+    gateway = DojoDataGateway(client)
+
+    await gateway.stock_klines([SYMBOL], fields=["close", "vol", "close"])
+
+    call = client.stocks.calls[0]
+    assert call[0] == "get_klines"
+    assert call[1]["fields"] == ["close", "vol"]
+
+
+@pytest.mark.asyncio
+async def test_kline_store_single_day_returns_snapshot_batch_bar() -> None:
+    client = SnapshotBatchFake()
     gateway = DojoDataGateway(client)
     store = KlineStore(gateway, stock_store=object(), stock_sector_store=object())
 
@@ -76,10 +86,10 @@ async def test_kline_store_single_day_returns_none_when_get_kline_empty() -> Non
         end_time=TARGET,
     )
 
-    assert response is None
-    get_kline_call = next((call for call in client.stocks.calls if call[0] == "get_kline"), None)
-    assert get_kline_call is not None
-    assert "limit" not in get_kline_call[1]
+    assert response is not None
+    assert response.bars[0].bar_time[:10] == TARGET
+    get_klines_call = next(call for call in client.stocks.calls if call[0] == "get_klines")
+    assert get_klines_call[1]["limit_per_symbol"] is None
 
 
 @pytest.mark.asyncio
@@ -132,7 +142,7 @@ async def test_kline_store_single_day_returns_target_bar_when_sdk_has_full_windo
 
 @pytest.mark.asyncio
 async def test_kline_store_wide_min_bar_time_returns_target_bar() -> None:
-    client = BulkHasBarSingleDayEmptyFake()
+    client = SnapshotBatchFake()
     gateway = DojoDataGateway(client)
     store = KlineStore(gateway, stock_store=object(), stock_sector_store=object())
 

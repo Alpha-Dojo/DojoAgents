@@ -18,6 +18,9 @@ from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.stock import Stock
 from dojoagents.dashboard.schemas.stock_kline import StockKlineBar, StockKlineResponse
+from dojoagents.dashboard.services.kline_store import KLINE_CLOSE_FIELDS
+
+KLINE_INDEX_FIELDS = ("symbol", "bar_time", "open", "close")
 
 INDEX_BASE = 100.0
 PRE_CLOSE_MATCH_TOLERANCE = 0.002
@@ -38,7 +41,7 @@ MARKET_REGULAR_OPEN: Dict[str, Tuple[int, int]] = {
 
 class KlineStoreReader(Protocol):
     async def get_kline(self, symbol: str) -> Any: ...  # noqa
-    async def get_klines(self, symbols: List[str]) -> Any: ...  # noqa
+    async def get_klines(self, symbols: List[str], **kwargs: Any) -> Any: ...  # noqa
 
 
 @dataclass(frozen=True)
@@ -209,7 +212,9 @@ async def quote_session_leads_kline(
         if kline_items is not None:
             batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
         else:
-            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch = await kline_store.get_klines(
+                chunk, fields=KLINE_CLOSE_FIELDS
+            ) if hasattr(kline_store, "get_klines") else None
             batch_items = batch.items if batch else {}
         for ticker in chunk:
             market_code = stock_store.find_market(ticker)
@@ -250,7 +255,9 @@ async def market_cap_weighted_quote_session_return(
         if kline_items is not None:
             batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
         else:
-            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch = await kline_store.get_klines(
+                chunk, fields=KLINE_CLOSE_FIELDS
+            ) if hasattr(kline_store, "get_klines") else None
             batch_items = batch.items if batch else {}
         for ticker in chunk:
             if stock_store.find_market(ticker) != market:
@@ -396,7 +403,9 @@ async def compute_market_index_series(
         if kline_items is not None:
             batch_items = {ticker: kline_items[ticker] for ticker in chunk if ticker in kline_items}
         else:
-            batch = await kline_store.get_klines(chunk) if hasattr(kline_store, "get_klines") else None
+            batch = await kline_store.get_klines(
+                chunk, fields=KLINE_INDEX_FIELDS
+            ) if hasattr(kline_store, "get_klines") else None
             batch_items = batch.items if batch else {}
         for ticker in chunk:
             member = _load_index_member(

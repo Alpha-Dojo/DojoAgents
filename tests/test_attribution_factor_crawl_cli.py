@@ -137,25 +137,6 @@ def test_task_command_passes_resolved_discovery_context() -> None:
     assert "change_percent=-5.2" in command
 
 
-def test_legacy_daily_script_passes_same_discovery_context() -> None:
-    from run_daily_attribution_factor_crawl import (
-        SectorJob as LegacySectorJob,
-        _build_task_command as build_legacy_command,
-    )
-
-    command = build_legacy_command(
-        LegacySectorJob("us", "Application Software", "1/3/7", -5.2),
-        trading_date="2026-07-31",
-        local=False,
-    )
-
-    assert "market=us" in command
-    assert "sector_id=1/3/7" in command
-    assert "sector_path_id=1/3/7" in command
-    assert "sector_name=Application Software" in command
-    assert "change_percent=-5.2" in command
-
-
 @pytest.mark.asyncio
 async def test_fetch_movers_surfaces_dashboard_error_detail() -> None:
     from dojoagents.dashboard.cli.attribution_factor_crawl import _fetch_movers_for_market
@@ -266,7 +247,7 @@ async def test_managed_dashboard_reuses_existing_instance() -> None:
             "dojoagents.dashboard.cli.attribution_factor_crawl.check_dashboard_health",
             new=AsyncMock(return_value=True),
         ),
-        patch("dojoagents.dashboard.cli.attribution_factor_crawl.asyncio.create_subprocess_exec") as spawn,
+        patch("dojoagents.tools.processes.open_process") as spawn,
     ):
         async with managed_dashboard_runtime(
             base_url="http://127.0.0.1:8765",
@@ -303,7 +284,7 @@ async def test_managed_dashboard_starts_waits_and_stops_owned_process() -> None:
             new=health,
         ),
         patch(
-            "dojoagents.dashboard.cli.attribution_factor_crawl.asyncio.create_subprocess_exec",
+            "dojoagents.tools.processes.open_process",
             new=spawn,
         ),
         patch(
@@ -319,15 +300,20 @@ async def test_managed_dashboard_starts_waits_and_stops_owned_process() -> None:
             assert process.terminated is False
 
     spawn.assert_awaited_once_with(
-        "/venv/bin/dojoagents",
-        "dashboard",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8765",
-        "--config",
-        "custom.yaml",
-        "--lightweight-runtime",
+        [
+            "/venv/bin/dojoagents",
+            "dashboard",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8765",
+            "--config",
+            "custom.yaml",
+            "--lightweight-runtime",
+        ],
+        stdin=None,
+        stdout=None,
+        stderr=None,
     )
     assert process.terminated is True
     assert process.killed is False

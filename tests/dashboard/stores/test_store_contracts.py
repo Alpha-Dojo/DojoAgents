@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
+from dojo import MaterializationLimitError
 
 import dojoagents.dashboard.services.kline_store as kline_store_module
 from dojoagents.dashboard.schemas.portfolio import CreatePortfolioRequest, PortfolioDetail
@@ -10,6 +11,7 @@ from dojoagents.dashboard.schemas.stock_kline import ConstituentKlineBatchRespon
 from dojoagents.dashboard.schemas.stock import Stock, StockQuote
 from dojoagents.dashboard.schemas.stock_sector import StockSectorLabel
 from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_bar_utils import KLINE_WARM_MAX_SYMBOLS
 from dojoagents.dashboard.services.portfolio_allocation import initial_shares_for_new_holding
 from dojoagents.dashboard.services.portfolio_service import PortfolioService
 from dojoagents.dashboard.services.portfolio_store import PortfolioStore
@@ -100,7 +102,6 @@ async def test_kline_get_or_fetch_and_load_all_share_memory_cache() -> None:
     assert response.bars[0].close == 100
     assert response.as_of == "2026-06-20"
     assert client.stocks.calls == [
-        ("get_all_klines_with_df", {}),
         ("get_kline", {"symbol": "AAPL", "limit": 20, "kline_t": "1D"}),
     ]
 
@@ -126,7 +127,6 @@ async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
 
     assert set(result.items) == {"AAPL", "MSFT"}
     assert client.stocks.calls == [
-        ("get_all_klines_with_df", {}),
         ("get_kline", {"symbol": "AAPL", "limit": 15}),
         ("get_kline", {"symbol": "MSFT", "limit": 15}),
     ]
@@ -134,23 +134,74 @@ async def test_kline_batch_calls_single_symbol_sdk_contract() -> None:
 
 @pytest.mark.asyncio
 async def test_kline_stats_reports_memory_state() -> None:
-    client = FakeDojo()
-    store = KlineStore(client, StockStore(client), StockSectorStore(client))
-    import pandas as pd
+    def kline_rows(*, symbol: str, **_kwargs):
+        return [
+            {
+                "symbol": symbol,
+                "bar_time": "2026-06-20",
+                "open": 99,
+                "high": 101,
+                "low": 98,
+                "close": 100,
+            }
+        ]
 
-    store._in_memory_updates = {
-        "AAPL": pd.DataFrame([{"symbol": "AAPL", "bar_time": "2026-06-20"}]),
-        "MSFT": pd.DataFrame(),
-    }
-    store._cache = {"AAPL_None_None_None_None_252": "dummy"}
+    client = FakeDojo(stocks={"get_kline": kline_rows})
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
     store.member_symbols = 2
+    await store.get_or_fetch_kline("AAPL", limit=20)
 
     stats = await store.stats()
 
     assert stats.member_symbols == 2
-    assert stats.tracked_symbols == 2
+    assert stats.tracked_symbols == 1
     assert stats.loaded_symbols == 1
     assert stats.initial_load_in_progress is False
+
+
+def test_kline_response_cache_is_invalidated_when_snapshot_token_changes() -> None:
+    client = FakeDojo()
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
+    response = kline_store_module.StockKlineResponse(
+        symbol="AAPL",
+        as_of="2026-06-20",
+        bars=[],
+    )
+    first_snapshot = {
+        "backend": "huggingface",
+        "repo_id": "AlphaDojo/dojo_stock_kline",
+        "snapshot_token": "token-1",
+        "resolved_revision": "revision-1",
+    }
+    store._observe_snapshot(first_snapshot)
+    key = store._response_cache_key(
+        "AAPL",
+        market=None,
+        kline_t="1D",
+        start_time=None,
+        end_time=None,
+        min_bar_time=None,
+        price_adj_type="pre",
+        limit=20,
+    )
+    store._cache_put(key, response)
+    assert len(store._cache) == 1
+
+    store._observe_snapshot(
+        {
+            "backend": "huggingface",
+            "repo_id": "AlphaDojo/dojo_stock_kline",
+            "snapshot_token": "token-2",
+            "resolved_revision": "revision-2",
+        }
+    )
+    assert not store._cache
+    assert store.snapshot_metadata == {
+        "backend": "huggingface",
+        "repo_id": "AlphaDojo/dojo_stock_kline",
+        "snapshot_token": "token-2",
+        "resolved_revision": "revision-2",
+    }
 
 
 @pytest.mark.asyncio
@@ -209,8 +260,13 @@ async def test_prioritize_sector_path_fetches_l3_then_l2_then_l1(monkeypatch) ->
         },
     )
 
-    async def record(symbols: list[str], limit: int = 252) -> ConstituentKlineBatchResponse:
+    async def record(
+        symbols: list[str],
+        limit: int = 252,
+        fields: tuple[str, ...] | None = None,
+    ) -> ConstituentKlineBatchResponse:
         del limit
+        assert fields == ("symbol", "bar_time", "open", "high", "low", "close", "vol")
         calls.append(symbols)
         return ConstituentKlineBatchResponse()
 
@@ -219,6 +275,102 @@ async def test_prioritize_sector_path_fetches_l3_then_l2_then_l1(monkeypatch) ->
     await store.prioritize_sector_path(_sector_path(), market="us")
 
     assert calls == [["L3"], ["L2"], ["L1"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("symbol_count", [199, 200])
+async def test_prioritize_sector_path_warms_at_or_below_limit(monkeypatch, symbol_count: int) -> None:
+    client = FakeDojo()
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
+    symbols = {f"S{index:03d}" for index in range(symbol_count)}
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        kline_store_module,
+        "collect_sector_scope_tickers",
+        lambda *_args, **_kwargs: {"L1": symbols, "L2": symbols, "L3": symbols},
+    )
+
+    async def record(requested: list[str], **_kwargs) -> ConstituentKlineBatchResponse:
+        calls.append(requested)
+        return ConstituentKlineBatchResponse()
+
+    monkeypatch.setattr(store, "get_klines", record)
+    await store.prioritize_sector_path(_sector_path(), market="us")
+
+    assert len(calls) == 1
+    assert len(calls[0]) == symbol_count
+
+
+@pytest.mark.asyncio
+async def test_prioritize_sector_path_skips_large_level_before_query_and_keeps_dedup(monkeypatch, caplog) -> None:
+    client = FakeDojo()
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
+    l3 = {f"L3-{index:03d}" for index in range(KLINE_WARM_MAX_SYMBOLS + 1)}
+    l2_additions = {"L2-A", "L2-B"}
+    l1_additions = {"L1-A"}
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        kline_store_module,
+        "collect_sector_scope_tickers",
+        lambda *_args, **_kwargs: {
+            "L3": l3,
+            "L2": l3 | l2_additions,
+            "L1": l3 | l2_additions | l1_additions,
+        },
+    )
+
+    async def record(requested: list[str], **_kwargs) -> ConstituentKlineBatchResponse:
+        calls.append(requested)
+        return ConstituentKlineBatchResponse()
+
+    monkeypatch.setattr(store, "get_klines", record)
+    with caplog.at_level("INFO", logger="dojoagents"):
+        await store.prioritize_sector_path(_sector_path(), market="us")
+
+    assert calls == [["L2-A", "L2-B"], ["L1-A"]]
+    assert "Skipped kline cache warm before query" in caplog.text
+    assert "symbols=201 max=200" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_prioritize_sector_path_materialization_limit_is_best_effort(monkeypatch, caplog) -> None:
+    client = FakeDojo()
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
+    monkeypatch.setattr(
+        kline_store_module,
+        "collect_sector_scope_tickers",
+        lambda *_args, **_kwargs: {"L3": {"AAPL"}, "L2": {"AAPL"}, "L1": {"AAPL"}},
+    )
+
+    async def fail(*_args, **_kwargs):
+        raise MaterializationLimitError(limit=100, observed_at_least=101)
+
+    monkeypatch.setattr(store, "get_klines", fail)
+    with caplog.at_level("WARNING", logger="dojoagents"):
+        await store.prioritize_sector_path(_sector_path(), market="us")
+
+    assert "exceeded materialization limit" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_prioritize_sector_path_logs_unexpected_warm_error(monkeypatch, caplog) -> None:
+    client = FakeDojo()
+    store = KlineStore(client, StockStore(client), StockSectorStore(client))
+    monkeypatch.setattr(
+        kline_store_module,
+        "collect_sector_scope_tickers",
+        lambda *_args, **_kwargs: {"L3": {"AAPL"}, "L2": {"AAPL"}, "L1": {"AAPL"}},
+    )
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("unexpected warm failure")
+
+    monkeypatch.setattr(store, "get_klines", fail)
+    with caplog.at_level("ERROR", logger="dojoagents"):
+        await store.prioritize_sector_path(_sector_path(), market="us")
+
+    assert "Kline cache warm failed" in caplog.text
+    assert "unexpected warm failure" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,9 @@
-import asyncio
+import anyio
 import os
 import shlex
 from abc import ABC, abstractmethod
+
+from dojoagents.tools import processes
 
 
 class BaseEnvironment(ABC):
@@ -12,7 +14,7 @@ class BaseEnvironment(ABC):
         self.env_vars = os.environ.copy()
 
     @abstractmethod
-    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> asyncio.subprocess.Process:
+    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> processes.Process:
         pass
 
     async def execute(self, command: str, timeout: float = None) -> dict:
@@ -30,20 +32,21 @@ class BaseEnvironment(ABC):
         )
 
         process = await self._run_bash(wrapped_command, eff_timeout)
+        cancelled_exc = anyio.get_cancelled_exc_class()
         try:
-            stdout_bytes, _ = await asyncio.wait_for(process.communicate(), timeout=eff_timeout)
+            with anyio.fail_after(eff_timeout):
+                stdout_bytes, _ = await process.communicate()
             output = stdout_bytes.decode("utf-8", errors="replace")
             from dojoagents.agent.redact import redact_sensitive_text
 
             output = redact_sensitive_text(output)
             returncode = process.returncode
-        except asyncio.TimeoutError:
-            try:
-                process.kill()
-            except OSError:
-                pass
-            await process.wait()
+        except TimeoutError:
+            await self._stop_process(process)
             return {"output": "Command timed out", "exit_code": 124}
+        except cancelled_exc:
+            await self._stop_process(process)
+            raise
 
         if cwd_marker in output:
             parts = output.split(cwd_marker)
@@ -57,3 +60,9 @@ class BaseEnvironment(ABC):
             "output": output.strip(),
             "exit_code": returncode if returncode is not None else 0,
         }
+
+    @staticmethod
+    async def _stop_process(process: processes.Process) -> None:
+        """Kill and reap a child without letting caller cancellation skip cleanup."""
+
+        await processes.terminate_then_kill(process)

@@ -75,7 +75,7 @@ def get_schema_hint_registry() -> SchemaHintRegistry:
 
 def register_financial_response_models(registry: SchemaHintRegistry | None = None) -> SchemaHintRegistry:
     """Bind financial tool names to Pydantic response models (idempotent)."""
-    from dojoagents.dashboard.schemas.domain_api import (
+    from dojoagents.financial_schemas import (
         CompanyTickerSearchResponse,
         MarketOverviewResponse,
         SectorAttributionFactorsResponse,

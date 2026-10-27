@@ -379,6 +379,30 @@ async def test_company_ticker_search_converts_core_items_to_source_schema(monkey
 
 
 @pytest.mark.asyncio
+async def test_company_ticker_search_matches_real_search_signature() -> None:
+    stock = _quoted_stock("NVDA", market="us")
+    stock_store = SimpleNamespace(
+        list_market=lambda market: [stock] if market == "us" else [],
+        is_ticker_market_cap_eligible=lambda _ticker: True,
+    )
+    registry = SimpleNamespace(
+        stock_store=stock_store,
+        stock_sector_store=object(),
+        sector_precomputed_store=object(),
+        sector_store=object(),
+    )
+
+    response = await domain_api.search_company_ticker(
+        registry,
+        q="NVDA",
+        market="us",
+        limit=10,
+    )
+
+    assert [item.ticker for item in response.items] == ["NVDA"]
+
+
+@pytest.mark.asyncio
 async def test_build_sector_analysis_falls_back_to_precomputed_path_when_index_missing(monkeypatch) -> None:
     async def fake_metrics(*_args, **_kwargs):
         return SimpleNamespace(

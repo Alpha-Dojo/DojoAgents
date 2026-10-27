@@ -25,7 +25,6 @@ async def test_current_session_layout_contains_all_sidecars(tmp_path):
     loop = AgentLoop(
         llm_provider=StaticLLMProvider(
             [
-                LLMResult(content=('{"continue_unfinished": false, ' '"prior_task_summary": "", ' '"last_turn_status": "complete"}')),
                 LLMResult(content="baseline reply"),
             ]
         ),

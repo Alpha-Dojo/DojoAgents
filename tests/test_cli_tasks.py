@@ -492,7 +492,10 @@ async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_
     client.analysis.create_market_dynamics = AsyncMock()
     client.aclose = AsyncMock()
 
-    with patch("dojoagents.dashboard.cli.tasks.ConfigStore") as config_store, patch("dojoagents.dashboard.cli.tasks.AsyncDojo", return_value=client):
+    with patch("dojoagents.dashboard.cli.tasks.ConfigStore") as config_store, patch(
+        "dojoagents.dashboard.cli.tasks.create_async_dojo",
+        return_value=client,
+    ) as client_factory:
         config_store.return_value.snapshot.return_value = config
         succeeded = await _upload_daily_market_events(
             "agents.yaml",
@@ -502,6 +505,7 @@ async def test_upload_daily_market_events_preserves_market_and_trading_date(tmp_
         )
 
     assert succeeded is True
+    client_factory.assert_called_once_with(config, online=True)
     assert client.analysis.create_market_dynamics.await_count == 1
     kwargs = client.analysis.create_market_dynamics.await_args.kwargs
     generation_time = kwargs.pop("generation_time")
@@ -669,7 +673,7 @@ def test_tasks_eval_validates_jsonl_against_schema(tmp_path) -> None:
         '"category":"macro_data","source":{"zh":"来源","en":"Source"},'
         '"content":{"zh":"内容","en":"Content"},"surprise":"expected"},'
         '"sector_impacts":[{"sector_id":"1/2/3","sector_name":{"zh":"板块","en":"Sector"},'
-        '"direction":"Positive","window_1d":3.0,"window_5d":5.0,"window_10d":7.0,'
+            '"direction":"Positive","window_1d":3.0,"window_3d":4.0,"window_5d":5.0,"window_10d":7.0,'
         '"window_20d":9.0,"window_label":"persistent_up",'
         '"leader_concentration_tier":"healthy","reason":"up 3%"}]}\n',
         encoding="utf-8",

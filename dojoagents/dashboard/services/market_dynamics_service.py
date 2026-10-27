@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
+import anyio
 import json
 import math
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -21,14 +22,18 @@ from dojoagents.logging import LOGGER
 
 # Full normalized catalog (SDK offline ignores start/end; we filter here).
 _events_cache: list[MarketDynamicsEvent] | None = None
-_events_cache_lock = asyncio.Lock()
+_events_cache_key: int | None = None
+_events_cache_expires_at: float = 0.0
+_events_cache_lock = anyio.Lock()
 _SDK_FETCH_LIMIT = 10000
 
 
 def clear_market_dynamics_cache() -> None:
     """Drop the in-process event catalog (e.g. after offline data refresh)."""
-    global _events_cache
+    global _events_cache, _events_cache_key, _events_cache_expires_at
     _events_cache = None
+    _events_cache_key = None
+    _events_cache_expires_at = 0.0
 
 
 def _parse_maybe_json(value: Any) -> Any:
@@ -178,20 +183,33 @@ def filter_events_by_date_window(
     return filtered, has_more_before, has_more_after
 
 
-async def _load_catalog(client: AsyncDojo) -> list[MarketDynamicsEvent]:
-    global _events_cache
-    if _events_cache is not None:
+async def _load_catalog(
+    client: AsyncDojo,
+    *,
+    fallback_client: AsyncDojo | None = None,
+) -> list[MarketDynamicsEvent]:
+    global _events_cache, _events_cache_key, _events_cache_expires_at
+    cache_key = id(client)
+    now = time.monotonic()
+    if _events_cache is not None and _events_cache_key == cache_key and now < _events_cache_expires_at:
         return _events_cache
 
     async with _events_cache_lock:
-        if _events_cache is not None:
+        now = time.monotonic()
+        if _events_cache is not None and _events_cache_key == cache_key and now < _events_cache_expires_at:
             return _events_cache
 
         try:
             payload = await client.analysis.get_market_dynamics(limit=_SDK_FETCH_LIMIT)
-        except Exception:
-            LOGGER.exception("Failed to fetch market dynamics from Dojo SDK")
-            raise
+        except Exception as exc:
+            if fallback_client is None or fallback_client is client:
+                LOGGER.exception("Failed to fetch market dynamics from Dojo SDK")
+                raise
+            LOGGER.warning(
+                "Live market dynamics request failed; using the committed snapshot: %s",
+                exc,
+            )
+            payload = await fallback_client.analysis.get_market_dynamics(limit=_SDK_FETCH_LIMIT)
 
         rows, _total = _unwrap_payload(payload)
         events: list[MarketDynamicsEvent] = []
@@ -204,6 +222,10 @@ async def _load_catalog(client: AsyncDojo) -> list[MarketDynamicsEvent]:
 
         events.sort(key=lambda item: (item.trading_date, item.event_time, item.id))
         _events_cache = events
+        _events_cache_key = cache_key
+        # Market dynamics is a live feed. A short TTL avoids freezing it for
+        # the lifetime of the Dashboard process while still coalescing bursts.
+        _events_cache_expires_at = time.monotonic() + 120.0
         LOGGER.debug("Cached %s market dynamics events", len(events))
         return events
 
@@ -227,11 +249,12 @@ def _default_latest_window(
 async def build_market_dynamics(
     client: AsyncDojo,
     *,
+    fallback_client: AsyncDojo | None = None,
     limit: int = 5000,
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> MarketDynamicsResponse:
-    catalog = await _load_catalog(client)
+    catalog = await _load_catalog(client, fallback_client=fallback_client)
     trading_dates = _trading_dates(catalog)
     dataset_start = trading_dates[0] if trading_dates else ""
     dataset_end = trading_dates[-1] if trading_dates else ""

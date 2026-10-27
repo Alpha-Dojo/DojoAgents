@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_ELIGIBILITY_FIELDS, KlineStore
 from dojoagents.dashboard.schemas.stock import Stock
 from dojoagents.dashboard.schemas.stock_kline import StockKlineResponse
 from dojoagents.dashboard.services.stock_quote_filter import stock_passes_ticker_market_cap_min
@@ -66,6 +66,7 @@ async def is_sector_constituent_eligible(
         stock.ticker,
         market=stock.market,
         limit=RECENT_VOLUME_LOOKBACK,
+        fields=KLINE_ELIGIBILITY_FIELDS,
     )
     return is_sector_constituent_eligible_from_response(stock, response)
 

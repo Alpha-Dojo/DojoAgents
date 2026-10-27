@@ -53,7 +53,7 @@ tools:
   web:
     search_backend: ddgs
     extract_backend: fetch
-    # Paid backends such as tavily / exa / firecrawl need api_key or api_key_env
+    # Paid backends such as tavily / serply / exa / firecrawl need api_key or api_key_env
     # api_key_env: TAVILY_API_KEY
     max_extract_urls: 5
     max_content_bytes: 2000000
@@ -92,6 +92,14 @@ skills:
   disabled: []
   read_claude_skills: false
 
+dojosdk:
+  offline:
+    cache_dir: ~/.cache/huggingface/hub
+    backend: auto
+    startup_paths:
+      - /api/qdata/v1/stock/kline
+      - /api/qdata/v1/sector/info
+
 dashboard:
   host: 127.0.0.1
   port: 8765
@@ -99,7 +107,6 @@ dashboard:
     enabled: false
   financial:
     dashboard_data_root: ~/.dojo/dashboard-data
-    sdk_cache_dir: ~/.cache/huggingface/hub
     stock_quote_refresh_seconds: 15
     constituent_kline_max_concurrent: 8
 

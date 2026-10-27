@@ -74,7 +74,7 @@ class RunCoordinator:
         self._next_sequence = (existing.items[-1].sequence + 1) if existing.items else 1
         return self.handle
 
-    async def append_events(self, events: Sequence[tuple[str, JsonValue]]) -> tuple[SessionEvent, ...]:
+    async def append_events(self, events: Sequence[tuple[str, JsonValue]], *, flush: bool = True) -> tuple[SessionEvent, ...]:
         handle = self._active_handle()
         if self._terminal is not None:
             raise SessionConflictError("run is already terminal")
@@ -93,7 +93,7 @@ class RunCoordinator:
             )
             self._buffer.append(event)
             created.append(event)
-        if len(self._buffer) >= self.service.config.runtime.event_batch_size:
+        if flush and len(self._buffer) >= self.service.config.runtime.event_batch_size:
             await self.flush()
         return tuple(created)
 

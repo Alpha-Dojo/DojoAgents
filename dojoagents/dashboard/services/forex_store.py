@@ -1,5 +1,4 @@
 from dojoagents.logging import LOGGER
-import asyncio
 from datetime import date
 from typing import Dict, List, Optional, Tuple
 
@@ -15,6 +14,7 @@ from dojoagents.dashboard.services.fin_currency_conversion import (
 )
 from dojoagents.dashboard.services.fin_indicators_utils import extract_report_date
 from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time, merge_rows
+from dojoagents.utils.async_runtime import gather_ordered
 
 MAX_FOREX_FETCH_LIMIT = 600
 
@@ -27,12 +27,6 @@ class ForexStore:
         gateway_method = getattr(type(client), "forex", None)
         self.gateway = client if callable(gateway_method) else DojoDataGateway(client)
         self._cache: Dict[str, List[dict]] = {}
-        self._locks: Dict[str, asyncio.Lock] = {}
-
-    def _lock_for(self, symbol: str) -> asyncio.Lock:
-        if symbol not in self._locks:
-            self._locks[symbol] = asyncio.Lock()
-        return self._locks[symbol]
 
     @staticmethod
     def _average_close(bars: List[dict]) -> Optional[float]:
@@ -157,7 +151,7 @@ class ForexStore:
                     end_time=end,
                 )
 
-        await asyncio.gather(*(_ensure(symbol) for symbol in symbols))
+        await gather_ordered([lambda symbol=symbol: _ensure(symbol) for symbol in symbols])
 
     def average_close_for_range(self, symbol: str, start: str, end: str) -> Optional[float]:
         bars = self._cache.get(symbol, [])

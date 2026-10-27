@@ -133,15 +133,31 @@ class SectorMoversService:
         )
         min_cap_by_market = min_cap_by_market or {}
         requested_markets = [normalize_market_code(market)] if market else list(MARKETS)
-        ticker_lookup = self._ticker_lookup(window) if include_members else {}
+        use_live_quotes = (
+            days <= 1
+            and not start_date
+            and not end_date
+            and not as_of
+            # A committed quote snapshot may lag the independently published
+            # sector-precomputed snapshot. Only genuinely online quotes may
+            # override its returns and as-of date.
+            and getattr(self.stock_store, "quote_source", None) == "sdk_online"
+            and bool(getattr(self.stock_store, "quote_as_of", None))
+        )
+        ticker_lookup = (
+            self._live_ticker_lookup()
+            if use_live_quotes
+            else (self._ticker_lookup(window) if include_members else {})
+        )
         payload: dict[str, MarketSectorMovers] = {}
+        catalog = self._live_catalog_for_latest(window) if use_live_quotes else self._catalog_for_window(window)
 
         for internal_market in requested_markets:
             if internal_market is None:
                 continue
             threshold = float(min_cap_by_market.get(internal_market) or 0.0)
             candidates = _filter_ranking_candidates(
-                list(self._catalog_for_window(window).get(internal_market) or []),
+                list(catalog.get(internal_market) or []),
                 min_total_market_cap=threshold,
             )
 
@@ -174,14 +190,78 @@ class SectorMoversService:
                 ],
             )
 
+        live_as_of = (
+            str(getattr(self.stock_store, "quote_as_of", "") or "")[:10]
+            if use_live_quotes
+            else ""
+        )
         return SectorMoversResponse(
             days=window.days,
-            as_of=window.as_of,
+            as_of=live_as_of or window.as_of or window.resolved_end,
             window_mode=window.mode,
-            window_start=window.resolved_start,
-            window_end=window.resolved_end,
+            window_start=live_as_of or window.resolved_start,
+            window_end=live_as_of or window.resolved_end,
             markets=payload,
         )
+
+    def _live_ticker_lookup(self) -> dict[tuple[str, str], dict]:
+        lookup: dict[tuple[str, str], dict] = {}
+        for market in MARKETS:
+            for stock in self.stock_store.list_market(market):
+                quote = getattr(stock, "stock_quote", None)
+                if quote is None:
+                    continue
+                lookup[(market, str(stock.ticker))] = {
+                    "daily_return_pct": finite_float(quote.change_percent),
+                }
+        return lookup
+
+    def _live_catalog_for_latest(
+        self,
+        window: MarketAnalysisWindow,
+    ) -> dict[str, list[_SectorCandidate]]:
+        """Overlay the latest online quote return onto the historical catalog."""
+        base = self._catalog_for_window(window)
+        markets: dict[str, list[_SectorCandidate]] = {market: [] for market in MARKETS}
+        for market, candidates in base.items():
+            for candidate in candidates:
+                constituents = self.sector_precomputed_store.get_sector_constituents_exact(
+                    candidate.level1_id,
+                    candidate.level2_id,
+                    candidate.level3_id,
+                    market=market,
+                )
+                weighted_return = 0.0
+                total_weight = 0.0
+                member_count = 0
+                for constituent in constituents:
+                    stock = self.stock_store.get(market, str(constituent.get("ticker") or ""))
+                    quote = getattr(stock, "stock_quote", None) if stock is not None else None
+                    if quote is None:
+                        continue
+                    weight = finite_float(quote.market_cap) or finite_float(constituent.get("market_cap"))
+                    if weight <= 0:
+                        continue
+                    weighted_return += weight * finite_float(quote.change_percent)
+                    total_weight += weight
+                    member_count += 1
+                if total_weight <= 0 or member_count <= 0:
+                    continue
+                markets.setdefault(market, []).append(
+                    _SectorCandidate(
+                        market=candidate.market,
+                        level1_id=candidate.level1_id,
+                        level2_id=candidate.level2_id,
+                        level3_id=candidate.level3_id,
+                        concept_code=candidate.concept_code,
+                        name=candidate.name,
+                        change_percent=round(weighted_return / total_weight, 2),
+                        total_market_cap=total_weight,
+                        avg_market_cap=total_weight / member_count,
+                        member_count=member_count,
+                    )
+                )
+        return markets
 
     def build_dojo_mesh_sectors_response(
         self,

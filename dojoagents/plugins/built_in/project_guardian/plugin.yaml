@@ -5,4 +5,4 @@ provides_hooks:
   - pre_tool_call
 hooks:
   pre_tool_call:
-    command: "python scripts/audit.py"
+    command: "python3 scripts/audit.py"

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
+import sys
 from collections import Counter
+from dataclasses import replace
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -12,13 +17,14 @@ from dojo.client.async_client import AsyncDojo
 
 from dojoagents.config.loader import ConfigStore
 from dojoagents.config.models import FinancialDashboardConfig
+from dojoagents.dojo_sdk import close_async_dojo, create_async_dojo
 from dojoagents.dashboard.services.financial_registry import FinancialDomainRegistry
 from dojoagents.dashboard.jobs.precompute.sector_daily import (
     ProgressCallback,
     build_sector_precomputed,
 )
 from dojoagents.dashboard.services.stock_quote_filter import apply_configured_ticker_market_cap_mins
-from dojoagents.logging import LOGGER
+from dojoagents.logging import LOGGER, configure_logging, log_debug_configuration
 
 _PHASE_LABELS: dict[str, str] = {
     "prepare": "Scan constituents",
@@ -38,6 +44,7 @@ def configure_parser(subcommands: argparse._SubParsersAction) -> None:
     )
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--config", default="~/.dojo/agents.yaml")
+    parser.add_argument("--debug", action="store_true", help="Log redacted startup configuration and precompute diagnostics")
     parser.add_argument("--start-date", default="2025-01-01")
     parser.add_argument("--trade-date", default=None, help="Trade date assigned to all constituent rows written through qdata (defaults to --start-date)")
     parser.add_argument("--market", choices=("us", "cn", "hk"), default=None)
@@ -184,11 +191,67 @@ async def upload_market_precomputed(
     return counts
 
 
+def log_precompute_startup(args: argparse.Namespace, config_store: ConfigStore) -> None:
+    config = config_store.snapshot()
+    configure_logging(replace(config.logging, level="DEBUG") if getattr(args, "debug", False) else config.logging)
+    if not LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    versions = {}
+    for package in ("dojoagents", "dojosdk"):
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = None
+    log_debug_configuration(
+        "precompute_task_config",
+        {
+            **vars(args),
+            "config_path": str(config_store.path.expanduser().resolve()),
+            "python": sys.executable,
+            "pid": os.getpid(),
+            "versions": versions,
+            "startup_module": __file__,
+            "effective_log_level": logging.getLevelName(LOGGER.getEffectiveLevel()),
+        },
+    )
+    redacted = config_store.redacted()
+    log_debug_configuration("precompute_agent_config", redacted)
+    log_debug_configuration(
+        "precompute_sdk_config",
+        {
+            "configured": redacted.get("dojosdk"),
+            "authentication_configured": bool(config.dojosdk.api_key),
+            "mode_environment": {name: os.getenv(name) for name in ("DOJO_ONLINE", "DOJO_HF_OFFLINE", "DOJO_DATA_BACKEND")},
+        },
+    )
+
+
+def log_precompute_sdk_runtime(client: Any, *, role: str) -> None:
+    source = getattr(client, "_data_source", None)
+    log_debug_configuration(
+        "precompute_sdk_runtime",
+        {
+            "role": role,
+            "online": getattr(client, "online", getattr(client, "_online", None)),
+            "data_source": f"{type(source).__module__}.{type(source).__name__}" if source is not None else None,
+            "base_url": str(getattr(client, "base_url", "")),
+            "authenticated": bool(getattr(client, "api_key", None)),
+            "client_module": type(client).__module__,
+            "client_module_file": getattr(sys.modules.get(type(client).__module__), "__file__", None),
+            "max_retries": getattr(client, "max_retries", None),
+            "timeout": str(getattr(getattr(client, "_client", None), "timeout", None)),
+        },
+    )
+
+
 async def run_precompute_sector(args: argparse.Namespace) -> int:
     data_root_str = args.data_root or FinancialDashboardConfig.dashboard_data_root
     data_root = Path(data_root_str).expanduser().resolve()
     floors = apply_configured_ticker_market_cap_mins(getattr(args, "config", None))
-    financial = ConfigStore(getattr(args, "config", None) or "~/.dojo/agents.yaml").snapshot().dashboard.financial
+    config_store = ConfigStore(getattr(args, "config", None) or "~/.dojo/agents.yaml")
+    agents_config = config_store.snapshot()
+    log_precompute_startup(args, config_store)
+    financial = agents_config.dashboard.financial
     kline_concurrency = args.kline_concurrency if args.kline_concurrency is not None else financial.constituent_kline_max_concurrent
     if kline_concurrency < 1:
         raise ValueError("--kline-concurrency must be at least 1")
@@ -203,11 +266,19 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
     progress = _PrecomputeProgressReporter()
     on_progress: ProgressCallback = progress.callback
 
-    client = AsyncDojo()
-    registry = FinancialDomainRegistry()
-    await registry.init_and_load_all(client, data_root=data_root, preload=True, kline_max_concurrent=kline_concurrency)
-
+    client = create_async_dojo(agents_config, online=True)
+    write_client = None
     try:
+        write_client = create_async_dojo(agents_config, online=True) if args.upload or args.upload_api else None
+        log_precompute_sdk_runtime(client, role="reader")
+        if write_client is not None:
+            log_precompute_sdk_runtime(write_client, role="writer")
+        registry = FinancialDomainRegistry()
+        await registry.init_and_load_all(client, data_root=data_root, preload=False, kline_max_concurrent=kline_concurrency)
+        await registry.ensure_stores_loaded("sector_store", "stock_store", "stock_sector_store")
+        if getattr(args, "with_theme_state", False):
+            await registry.ensure_stores_loaded("benchmark_store")
+
         manifest = await build_sector_precomputed(
             data_root=data_root,
             sector_store=registry.sector_store,
@@ -216,50 +287,52 @@ async def run_precompute_sector(args: argparse.Namespace) -> int:
             kline_store=registry.kline_store,
             start_date=args.start_date,
             market=_source_market(args.market) if args.market else None,
-            upload_client=client if args.upload else None,
+            upload_client=write_client if args.upload else None,
             on_progress=on_progress,
         )
+        if registry.sector_precomputed_store is not None:
+            registry.sector_precomputed_store.reload(Path(manifest["published_dir"]))
+
+        if args.upload_api:
+            counts = await upload_market_precomputed(
+                write_client,
+                Path(manifest["published_dir"]),
+                args.market,
+                trade_date=args.trade_date or args.start_date,
+                start_date=args.start_date,
+            )
+            manifest["uploaded_api"] = {"market": args.market, "rows": counts}
+
+        if getattr(args, "with_theme_state", False):
+            from dojoagents.dashboard.jobs.precompute.theme_state_daily import build_theme_state_precomputed
+
+            LOGGER.info("Phase A complete; enriching dojo_sector_precomputed with theme-state + horizon")
+            theme_progress = _PrecomputeProgressReporter()
+            try:
+                theme_manifest = await build_theme_state_precomputed(
+                    data_root=data_root,
+                    sector_store=registry.sector_store,
+                    kline_store=None if getattr(args, "skip_volume_enrich", False) else registry.kline_store,
+                    benchmark_store=registry.benchmark_store,
+                    fin_store=(None if getattr(args, "skip_fundamentals", False) else registry.stock_fin_indicators_store),
+                    start_date=args.start_date,
+                    upload_client=write_client if args.upload else None,
+                    skip_fundamentals=bool(getattr(args, "skip_fundamentals", False)),
+                    skip_volume_enrich=bool(getattr(args, "skip_volume_enrich", False)),
+                    on_progress=theme_progress.callback,
+                )
+            finally:
+                theme_progress.close()
+            if registry.sector_precomputed_store is not None:
+                registry.sector_precomputed_store.reload(Path(theme_manifest["published_dir"]))
+            if registry.theme_state_precomputed_store is not None:
+                registry.theme_state_precomputed_store.reload(Path(theme_manifest["published_dir"]))
+            manifest = theme_manifest
+
+        LOGGER.info("%s", json.dumps(manifest, ensure_ascii=False, indent=2))
+        return 0
     finally:
         progress.close()
-
-    if registry.sector_precomputed_store is not None:
-        registry.sector_precomputed_store.reload(Path(manifest["published_dir"]))
-
-    if args.upload_api:
-        counts = await upload_market_precomputed(
-            client,
-            Path(manifest["published_dir"]),
-            args.market,
-            trade_date=args.trade_date or args.start_date,
-            start_date=args.start_date,
-        )
-        manifest["uploaded_api"] = {"market": args.market, "rows": counts}
-
-    if getattr(args, "with_theme_state", False):
-        from dojoagents.dashboard.jobs.precompute.theme_state_daily import build_theme_state_precomputed
-
-        LOGGER.info("Phase A complete; enriching dojo_sector_precomputed with theme-state + horizon")
-        theme_progress = _PrecomputeProgressReporter()
-        try:
-            theme_manifest = await build_theme_state_precomputed(
-                data_root=data_root,
-                sector_store=registry.sector_store,
-                kline_store=None if getattr(args, "skip_volume_enrich", False) else registry.kline_store,
-                benchmark_store=registry.benchmark_store,
-                fin_store=(None if getattr(args, "skip_fundamentals", False) else registry.stock_fin_indicators_store),
-                start_date=args.start_date,
-                upload_client=client if args.upload else None,
-                skip_fundamentals=bool(getattr(args, "skip_fundamentals", False)),
-                skip_volume_enrich=bool(getattr(args, "skip_volume_enrich", False)),
-                on_progress=theme_progress.callback,
-            )
-        finally:
-            theme_progress.close()
-        if registry.sector_precomputed_store is not None:
-            registry.sector_precomputed_store.reload(Path(theme_manifest["published_dir"]))
-        if registry.theme_state_precomputed_store is not None:
-            registry.theme_state_precomputed_store.reload(Path(theme_manifest["published_dir"]))
-        manifest = theme_manifest
-
-    LOGGER.info("%s", json.dumps(manifest, ensure_ascii=False, indent=2))
-    return 0
+        await close_async_dojo(client)
+        if write_client is not None:
+            await close_async_dojo(write_client)

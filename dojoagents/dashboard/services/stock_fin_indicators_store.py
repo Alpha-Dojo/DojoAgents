@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 from typing import Optional
+from weakref import WeakValueDictionary
 
 from dojoagents.dashboard.schemas.stock_fin_indicators import CoreTickerFinIndicatorsResponse
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
@@ -16,7 +17,7 @@ class StockFinIndicatorsStore:
     def __init__(self, source):
         self.gateway = source if callable(getattr(source, "stock_financial_indicators", None)) else DojoDataGateway(source)
         self.cache: dict[str, CoreTickerFinIndicatorsResponse] = {}
-        self._inflight: dict[str, asyncio.Task[CoreTickerFinIndicatorsResponse]] = {}
+        self._fetch_locks: WeakValueDictionary[str, anyio.Lock] = WeakValueDictionary()
         self._refresh_keys: set[str] = set()
 
     async def _fetch(
@@ -51,14 +52,11 @@ class StockFinIndicatorsStore:
         cached = self.cache.get(cache_key)
         if cached is not None:
             return cached
-        task = self._inflight.get(cache_key)
-        if task is None:
-            task = asyncio.create_task(self._fetch(symbol, market_code, limit))
-            self._inflight[cache_key] = task
-        try:
-            result = await task
+        lock = self._fetch_locks.setdefault(cache_key, anyio.Lock())
+        async with lock:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+            result = await self._fetch(symbol, market_code, limit)
             self.cache[cache_key] = result
             return result
-        finally:
-            if self._inflight.get(cache_key) is task:
-                self._inflight.pop(cache_key, None)

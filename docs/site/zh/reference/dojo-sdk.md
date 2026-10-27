@@ -39,7 +39,9 @@ dojosdk = { path = "../DojoSDK" }
 | 字段 | 说明 |
 | --- | --- |
 | `dojosdk` (`DojoSDKConfig`) | API key、base_url、timeout、retries |
-| `dashboard.financial.sdk_cache_dir` | HF hub 缓存目录（默认 `~/.cache/huggingface/hub`） |
+| `dojosdk.offline.cache_dir` | 本地快照缓存目录（默认 `~/.cache/huggingface/hub`） |
+| `dojosdk.offline.backend` | `auto`、`huggingface` 或 `modelscope` |
+| `dojosdk.offline.startup_paths` | 启动时显式确保的快照端点 |
 
 ## 数据流
 
@@ -149,4 +151,4 @@ Dashboard 的 Dojo data gateway error family 位于 `dojoagents/dashboard/servic
 
 ## 深入阅读
 
-旧版集成说明的核心内容已并入本页；迁移与能力盘点见 `docs/plans/`（不进站点导航）。
+旧版集成说明的核心内容已并入本页；迁移与能力盘点统一放在 [计划](../plans/index.md)，当前契约仍以本页为准。

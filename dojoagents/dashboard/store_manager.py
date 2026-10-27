@@ -1,6 +1,5 @@
 """Deprecated global financial store graph for synchronous Dashboard tests."""
 
-import asyncio
 from pathlib import Path
 from typing import Optional, Any
 
@@ -22,6 +21,7 @@ from dojoagents.dashboard.services.sector_metrics_store import SectorMetricsStor
 from dojoagents.dashboard.services.sector_movers_service import SectorMoversService
 from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
 from dojoagents.logging import LOGGER
+from dojoagents.utils.async_runtime import gather_ordered
 
 PRELOAD_PHASES: tuple[tuple[str, ...], ...] = (
     (
@@ -97,6 +97,11 @@ class GlobalStores:
         )
         cls.dojo_sphere_service = DojoSphereService(
             SectorMetricsStore(data_root, schema_version=1),
+            revision_provider=lambda: (
+                cls.sector_precomputed_store.data_revision()
+                if cls.sector_precomputed_store is not None
+                else None
+            ),
         )
         cls.sector_precomputed_store = SectorPrecomputedStore(data_root)
         cls.kline_store.sector_precomputed_store = cls.sector_precomputed_store
@@ -123,7 +128,7 @@ class GlobalStores:
         phases = [store_names] if store_names is not None else PRELOAD_PHASES
         errors: list[Exception] = []
         for phase_idx, phase in enumerate(phases, 1):
-            tasks = []
+            operations = []
 
             async def _load_store(name: str, inst: Any) -> Any:
                 LOGGER.debug(f"开始加载 Store: {name} ...")
@@ -137,24 +142,29 @@ class GlobalStores:
             for store_name in phase:
                 store_inst = getattr(cls, store_name)
                 if hasattr(store_inst, "load") and callable(store_inst.load):
-                    tasks.append(_load_store(store_name, store_inst))
-            if not tasks:
+                    operations.append(
+                        lambda store_name=store_name, store_inst=store_inst: _load_store(store_name, store_inst)
+                    )
+            if not operations:
                 continue
 
             if tqdm is not None:
-                pbar = tqdm(total=len(tasks), desc=f"Store Preload Phase {phase_idx}")
+                pbar = tqdm(total=len(operations), desc=f"Store Preload Phase {phase_idx}")
 
-                async def _wrap_task(task):
+                async def _wrap_operation(operation):
                     try:
-                        return await task
+                        return await operation()
                     finally:
                         pbar.update(1)
 
-                wrapped_tasks = [_wrap_task(t) for t in tasks]
-                results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+                wrapped_operations = [
+                    lambda operation=operation: _wrap_operation(operation)
+                    for operation in operations
+                ]
+                results = await gather_ordered(wrapped_operations, return_exceptions=True)
                 pbar.close()
             else:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                results = await gather_ordered(operations, return_exceptions=True)
 
             for res in results:
                 if isinstance(res, Exception):

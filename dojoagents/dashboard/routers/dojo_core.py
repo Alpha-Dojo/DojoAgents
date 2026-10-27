@@ -15,7 +15,7 @@ from dojoagents.dashboard.deps import (
     get_stock_sector_store,
     get_stock_store,
 )
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_OHLCV_FIELDS, KlineStore
 from dojoagents.dashboard.services.dojo_core_fin import (
     resolve_fin_indicators_for_market,
     resolve_income_for_market,
@@ -194,7 +194,9 @@ async def get_ticker_kline(
     if market_code not in ("sh", "hk", "us") or stock_store.get(market_code, symbol) is None:
         raise HTTPException(status_code=404, detail=f"ticker not found: {ticker}")
 
-    response = await kline_store.get_or_fetch_kline(symbol, kline_t=kline_t, limit=limit)
+    response = await kline_store.get_or_fetch_kline(
+        symbol, kline_t=kline_t, limit=limit, fields=KLINE_OHLCV_FIELDS
+    )
     if response is None:
         raise HTTPException(status_code=404, detail=f"kline not found for {ticker}")
     return response

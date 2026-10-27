@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 import httpx
 
-from dojoagents.dashboard.services.domain_api import project_taxonomy_l3_catalog
+from dojoagents.utils.taxonomy_projection import project_taxonomy_l3_catalog
 
 from .base import FinancialToolDefinition
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 import base64
-import contextlib
 import hashlib
 import inspect
 import json
@@ -94,7 +93,8 @@ class WeChatAdapter(BaseGatewayAdapter):
     ) -> None:
         super().__init__(config, http_client=http_client)
         self._message_handler: Any | None = None
-        self._poll_task: asyncio.Task | None = None
+        self._poll_scope: anyio.CancelScope | None = None
+        self._poll_done = anyio.Event()
 
         self._account_id = str(self.config.get("account_id") or "").strip()
         token = self.config.get("token") or self.config.get("bot_token")
@@ -136,7 +136,7 @@ class WeChatAdapter(BaseGatewayAdapter):
     def set_message_handler(self, handler: Any) -> None:
         self._message_handler = handler
 
-    async def start(self) -> None:
+    async def start(self, *, task_group: anyio.abc.TaskGroup | None = None) -> None:
         await super().start()
         # Save credentials to ~/.dojo/wechat/accounts/
         if self._account_id:
@@ -152,16 +152,26 @@ class WeChatAdapter(BaseGatewayAdapter):
                 )
         self.context_tokens.load()
         if self.config.get("polling_enabled", True):
-            self._poll_task = asyncio.create_task(self._poll_loop())
+            if task_group is None:
+                raise RuntimeError("WeChat polling requires a parent TaskGroup")
+            self._poll_done = anyio.Event()
+            task_group.start_soon(self._run_poll_loop)
 
     async def stop(self) -> None:
         await super().stop()
-        if self._poll_task is not None:
-            self._poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._poll_task
-            self._poll_task = None
+        if self._poll_scope is not None:
+            self._poll_scope.cancel()
+            await self._poll_done.wait()
+            self._poll_scope = None
         self.context_tokens.save()
+
+    async def _run_poll_loop(self) -> None:
+        with anyio.CancelScope() as scope:
+            self._poll_scope = scope
+            try:
+                await self._poll_loop()
+            finally:
+                self._poll_done.set()
 
     def save_update_buf(self, get_updates_buf: str) -> None:
         self.save_update_state(get_updates_buf=get_updates_buf)
@@ -203,12 +213,12 @@ class WeChatAdapter(BaseGatewayAdapter):
         while self._running:
             try:
                 await self._poll_once()
-            except asyncio.CancelledError:
+            except anyio.get_cancelled_exc_class():
                 raise
             except Exception:
-                await asyncio.sleep(float(self.config.get("poll_error_sleep", 3.0)))
+                await anyio.sleep(float(self.config.get("poll_error_sleep", 3.0)))
                 continue
-            await asyncio.sleep(interval)
+            await anyio.sleep(interval)
 
     async def _poll_once(self) -> None:
         response = await self._post_ilink(

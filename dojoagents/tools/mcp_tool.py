@@ -1,15 +1,25 @@
-import asyncio
+import anyio
+import concurrent.futures
+import functools
 import os
 import re
 import time
 import logging
 import threading
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypeVar
 from mcp import ClientSession, StdioServerParameters
+from mcp.client import sse as mcp_sse
 from mcp.client.stdio import stdio_client
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
+from dojoagents.utils.blocking_portal import (
+    PortalClosedError,
+    PortalError,
+    ThreadedBlockingPortal,
+)
 
 logger = logging.getLogger("dojoagents")
+
+T = TypeVar("T")
 
 _SAFE_ENV_KEYS = frozenset(
     {
@@ -84,15 +94,34 @@ def _scan_mcp_description(server_name: str, tool_name: str, description: str) ->
     return findings
 
 
-_mcp_loop: asyncio.AbstractEventLoop | None = None
-_mcp_thread: threading.Thread | None = None
-_lock = threading.Lock()
-_servers: dict[str, "MCPServerTask"] = {}
+MCP_KEEPALIVE_INTERVAL_SECONDS = 180.0
+MCP_KEEPALIVE_TIMEOUT_SECONDS = 30.0
+MCP_START_TIMEOUT_SECONDS = 30.0
+MCP_CONNECT_TIMEOUT_SECONDS = 15.0
+MCP_STOP_TIMEOUT_SECONDS = 10.0
+MCP_CALL_TIMEOUT_SECONDS = 120.0
+MCP_SHUTDOWN_TIMEOUT_SECONDS = 30.0
+MCP_RECONNECT_BACKOFF_SECONDS = 1.0
+MCP_RECONNECT_MAX_BACKOFF_SECONDS = 30.0
+MCP_READY_POLL_SECONDS = 0.05
+
+# Outcomes of one open -> keepalive -> close cycle.
+_CYCLE_STOPPED = "stopped"
+_CYCLE_UNHEALTHY = "unhealthy"
+_CYCLE_FAILED = "failed"
 
 _server_error_counts: dict[str, int] = {}
 _server_breaker_opened_at: dict[str, float] = {}
 _CIRCUIT_BREAKER_THRESHOLD = 3
 _CIRCUIT_BREAKER_COOLDOWN_SEC = 60.0
+
+
+class MCPStartupError(RuntimeError):
+    """An MCP server could not become ready inside its bounded startup window."""
+
+
+class MCPUnavailableError(RuntimeError):
+    """An MCP server has no usable session (still starting, reconnecting, or stopped)."""
 
 
 def _bump_server_error(server_name: str) -> None:
@@ -107,18 +136,43 @@ def _reset_server_error(server_name: str) -> None:
     _server_breaker_opened_at.pop(server_name, None)
 
 
-def _ensure_mcp_loop():
-    global _mcp_loop, _mcp_thread
-    with _lock:
-        if _mcp_loop is not None and _mcp_loop.is_running():
-            return
-        _mcp_loop = asyncio.new_event_loop()
-        _mcp_thread = threading.Thread(
-            target=_mcp_loop.run_forever,
-            name="mcp-event-loop",
-            daemon=True,
-        )
-        _mcp_thread.start()
+def _unwrap_error(exc: BaseException) -> BaseException:
+    """Collapse a single-child ``ExceptionGroup`` to its cause.
+
+    AnyIO wraps everything that escapes a task group, so the real transport error
+    would otherwise be hidden behind an unhelpful group.
+    """
+
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+        exc = exc.exceptions[0]
+    return exc
+
+
+async def _wait_for_first(*events: anyio.Event) -> int:
+    """Return the index of whichever event is set first."""
+
+    signalled: list[int] = []
+
+    async def _waiter(index: int, event: anyio.Event) -> None:
+        await event.wait()
+        if not signalled:
+            signalled.append(index)
+        task_group.cancel_scope.cancel()
+
+    async with anyio.create_task_group() as task_group:
+        for index, event in enumerate(events):
+            task_group.start_soon(_waiter, index, event)
+    if not signalled:
+        raise RuntimeError("wait_for_first completed without any event being signalled")
+    return signalled[0]
+
+
+async def _wait_for_event(event: anyio.Event, timeout: float) -> bool:
+    """Wait up to ``timeout`` for ``event``; return whether it was set in time."""
+
+    with anyio.move_on_after(timeout):
+        await event.wait()
+    return event.is_set()
 
 
 from mcp.types import (  # noqa
@@ -220,13 +274,37 @@ class SamplingHandler:
 
 
 class MCPServerTask:
+    """Owns one MCP server session for its whole lifetime.
+
+    ``serve`` is started exactly once by the owning :class:`MCPToolRuntime` and is
+    the only task allowed to open *and* close the transport context and the
+    session: AnyIO requires a nested task group's ``__aenter__``/``__aexit__`` to
+    run in the same task, and the previous shape (connect from the registering
+    call, disconnect from an unrelated call) could never have unwound correctly.
+
+    Keepalive, reconnect, and close all live inside the task group created by
+    ``serve`` so that cancellation always unwinds the whole server with bounded
+    timeouts.
+    """
+
     def __init__(self, name: str, config: dict):
         self.name = name
         self.config = config
         self.session = None
         self.client_ctx = None
         self.tools = []
-        self._keepalive_task = None
+        # Set by the runtime that adopts this server; ``None`` means the server is
+        # not attached to an owning portal (unit tests, or a stopped component).
+        self.portal: ThreadedBlockingPortal | None = None
+        self.ready = threading.Event()
+        self.startup_error: BaseException | None = None
+        self.connect_error: BaseException | None = None
+        self.stopped = threading.Event()
+        self.reconnect_count = 0
+        self.last_reconnect_at: float | None = None
+        self._stop_requested = False
+        self._stop_event: anyio.Event | None = None
+        self._reconnect_event: anyio.Event | None = None
 
     async def connect(self):
         from unittest.mock import Mock
@@ -239,8 +317,6 @@ class MCPServerTask:
             sampling_handler = SamplingHandler(self.name, self.config)
 
             if url or self.config.get("transport") == "sse":
-                from mcp.client.sse import sse_client
-
                 headers = self.config.get("headers", {})
 
                 oauth_auth = None
@@ -257,7 +333,7 @@ class MCPServerTask:
                 if oauth_auth is not None:
                     sse_kwargs["auth"] = oauth_auth
 
-                transport_callable = lambda: sse_client(**sse_kwargs)  # noqa
+                transport_callable = lambda: mcp_sse.sse_client(**sse_kwargs)  # noqa
             else:
                 command = self.config.get("command")
                 args = self.config.get("args", [])
@@ -298,7 +374,7 @@ class MCPServerTask:
             if oauth_auth is not None:
                 sse_kwargs["auth"] = oauth_auth
 
-            self.client_ctx = sse_client(**sse_kwargs)
+            self.client_ctx = mcp_sse.sse_client(**sse_kwargs)
             read_stream, write_stream = await self.client_ctx.__aenter__()
 
             self.session = ClientSession(
@@ -329,42 +405,301 @@ class MCPServerTask:
         tools_result = await self.session.list_tools()
         self.tools = tools_result.tools
 
-        self._keepalive_task = asyncio.create_task(self._run_keepalive())
+    async def disconnect(self) -> None:
+        """Close the session and transport. Must run in the task that opened them."""
 
-    async def disconnect(self):
-        if hasattr(self, "mcp_client") and self.mcp_client:
+        if getattr(self, "mcp_client", None):
             self.mcp_client.stop(None, None, None)
             return
 
-        if self._keepalive_task:
-            self._keepalive_task.cancel()
-            try:
-                await self._keepalive_task
-            except asyncio.CancelledError:
-                pass
-            self._keepalive_task = None
-        if self.session:
-            await self.session.__aexit__(None, None, None)
-        if self.client_ctx:
-            await self.client_ctx.__aexit__(None, None, None)
+        if self.session is not None:
+            session, self.session = self.session, None
+            await session.__aexit__(None, None, None)
+        if self.client_ctx is not None:
+            client_ctx, self.client_ctx = self.client_ctx, None
+            await client_ctx.__aexit__(None, None, None)
 
-    async def _run_keepalive(self):
+    # ── ownership ───────────────────────────────────────────────────
+
+    def request_stop(self) -> None:
+        """Ask ``serve`` to stop. Must be called on the owning event loop."""
+
+        self._stop_requested = True
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+    def request_reconnect(self) -> None:
+        """Ask ``serve`` to rebuild the session. Must be called on the owning loop."""
+
+        if self._reconnect_event is not None:
+            self._reconnect_event.set()
+
+    async def serve(self) -> None:
+        """Supervise the server: open, keep alive, reconnect, and close it."""
+
+        failures = 0
         try:
             while True:
-                await asyncio.sleep(180)  # 3 minutes
-                if self.session:
-                    try:
-                        await asyncio.wait_for(self.session.list_tools(), timeout=30)
-                    except Exception as e:
-                        logger.warning(f"MCP server '{self.name}' keepalive failed: {e}")
-        except asyncio.CancelledError:
-            pass
+                outcome = await self._run_session_cycle()
+                if outcome == _CYCLE_STOPPED:
+                    break
+                if outcome == _CYCLE_FAILED and not self.ready.is_set():
+                    # First attach never succeeded: report it instead of looping.
+                    self.startup_error = self.connect_error or RuntimeError(f"MCP server '{self.name}' failed to start")
+                    break
+                failures += 1
+                delay = min(
+                    MCP_RECONNECT_BACKOFF_SECONDS * (2 ** (failures - 1)),
+                    MCP_RECONNECT_MAX_BACKOFF_SECONDS,
+                )
+                self.reconnect_count += 1
+                self.last_reconnect_at = time.monotonic()
+                logger.info(
+                    "MCP server '%s' rebuilding in %.1fs (reason=%s, failure streak=%d)",
+                    self.name,
+                    delay,
+                    outcome,
+                    failures,
+                )
+                await self._backoff(delay)
+                if self._stop_requested:
+                    break
+        except BaseException as exc:  # noqa: BLE001 - recorded for the starter, then re-raised
+            if not self.ready.is_set():
+                self.startup_error = _unwrap_error(exc)
+            raise
+        finally:
+            if not self.ready.is_set():
+                self.startup_error = self.startup_error or RuntimeError(f"MCP server '{self.name}' stopped before it became ready")
+            self.ready.set()
+            self.stopped.set()
+
+    async def _backoff(self, delay: float) -> None:
+        """Wait before the next rebuild, waking immediately on a stop request."""
+
+        self._stop_event = anyio.Event()
+        try:
+            await _wait_for_event(self._stop_event, delay)
+        finally:
+            self._stop_event = None
+
+    async def _run_session_cycle(self) -> str:
+        """One open -> keepalive -> close cycle, reported as a cycle outcome."""
+
+        async with anyio.create_task_group() as server_tasks:
+            self._stop_event = anyio.Event()
+            self._reconnect_event = anyio.Event()
+            if self._stop_requested:
+                self._stop_event.set()
+            try:
+                try:
+                    with anyio.fail_after(MCP_CONNECT_TIMEOUT_SECONDS):
+                        await self.connect()
+                except anyio.get_cancelled_exc_class():
+                    raise
+                except BaseException as exc:  # noqa: BLE001 - reconnect loop owns recovery
+                    self.connect_error = _unwrap_error(exc)
+                    server_tasks.cancel_scope.cancel()
+                    return _CYCLE_FAILED
+                self.connect_error = None
+                self.ready.set()
+                server_tasks.start_soon(self._keepalive_loop)
+                trigger = await _wait_for_first(self._stop_event, self._reconnect_event)
+                if trigger == 0:
+                    self._stop_requested = True
+                    return _CYCLE_STOPPED
+                return _CYCLE_UNHEALTHY
+            finally:
+                self._stop_event = None
+                self._reconnect_event = None
+                server_tasks.cancel_scope.cancel()
+                await _close_quietly(self)
+
+    async def _keepalive_loop(self) -> None:
+        """Ping the session on an interval; ask ``serve`` to rebuild on failure."""
+
+        while True:
+            if await _wait_for_event(self._stop_event, MCP_KEEPALIVE_INTERVAL_SECONDS):
+                return
+            await self._ping_once()
+
+    async def _ping_once(self) -> None:
+        session = self.session
+        if session is None:
+            self.request_reconnect()
+            return
+        try:
+            with anyio.fail_after(MCP_KEEPALIVE_TIMEOUT_SECONDS):
+                await session.list_tools()
+        except anyio.get_cancelled_exc_class():
+            raise
+        except Exception as exc:  # noqa: BLE001 - any transport failure triggers a rebuild
+            logger.warning("MCP server '%s' keepalive failed: %s", self.name, exc)
+            self.request_reconnect()
+
+    # ── tool dispatch ───────────────────────────────────────────────
+
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        timeout: float = MCP_CALL_TIMEOUT_SECONDS,
+    ) -> Any:
+        """Call a tool on this server's session from any thread or event loop."""
+
+        session = self.session
+        if session is None:
+            raise MCPUnavailableError(f"MCP server '{self.name}' has no active session")
+        portal = self.portal
+        if portal is None:
+            # Not attached to an owning portal: run inline so callers still get a
+            # real error instead of a silently different execution path.
+            return await session.call_tool(tool_name, arguments=arguments)
+        if not portal.running:
+            raise MCPUnavailableError(f"MCP server '{self.name}' is shut down and no longer accepts calls")
+        return await portal.call_async(session.call_tool, tool_name, arguments=arguments, timeout=timeout)
 
 
-async def _run_on_mcp_loop(coro):
-    _ensure_mcp_loop()
-    future = asyncio.run_coroutine_threadsafe(coro, _mcp_loop)
-    return await asyncio.wrap_future(future)
+async def _close_quietly(server: MCPServerTask) -> None:
+    """Close a server's transport, never letting a close failure mask the real cause.
+
+    This deliberately adds no shield or timeout scope around the close: AnyIO only
+    permits a cancel scope to be closed while it is the task's current scope, and
+    the transport's ``__aexit__`` closes scopes that were opened by ``connect`` at
+    the same depth.  Wrapping it would raise ``RuntimeError`` instead of closing.
+    Boundedness comes from the surrounding lifecycle instead: ``stop_server`` and
+    ``portal.shutdown`` give up after their own timeouts.
+    """
+
+    try:
+        await server.disconnect()
+    except Exception:  # noqa: BLE001 - teardown must never mask the real failure
+        logger.warning("MCP server '%s' did not close cleanly", server.name, exc_info=True)
+
+
+def _log_server_task_failure(server: MCPServerTask, future: concurrent.futures.Future) -> None:
+    """Surface a supervisor exit that happened after startup succeeded."""
+
+    if future.cancelled():
+        return
+    exc = future.exception()
+    if exc is not None and server.ready.is_set() and server.startup_error is None:
+        logger.warning("MCP server '%s' supervisor stopped: %s", server.name, exc)
+
+
+class MCPToolRuntime:
+    """Process-wide owner of the MCP portal and the servers running on it.
+
+    The portal is created lazily on first use and lives for the process; nothing
+    here relies on ``__del__``.  ``shutdown`` stops accepting calls, stops every
+    server, then closes the portal and joins its thread.
+    """
+
+    def __init__(self, *, name: str = "mcp-portal") -> None:
+        self._guard = threading.Lock()
+        self._portal = ThreadedBlockingPortal(name=name)
+        self.servers: dict[str, MCPServerTask] = {}
+
+    @property
+    def portal(self) -> ThreadedBlockingPortal:
+        return self._portal
+
+    def start_server(self, server: MCPServerTask, *, timeout: float = MCP_START_TIMEOUT_SECONDS) -> MCPServerTask:
+        """Adopt ``server``, start its supervisor, and wait (bounded) until it is ready."""
+
+        self._portal.start()
+        server.portal = self._portal
+        future = self._portal.start_task(server.serve, name=f"mcp-server:{server.name}")
+        future.add_done_callback(functools.partial(_log_server_task_failure, server))
+        deadline = time.monotonic() + timeout
+        while not server.ready.wait(MCP_READY_POLL_SECONDS):
+            if time.monotonic() >= deadline:
+                raise MCPStartupError(f"MCP server '{server.name}' did not become ready within {timeout:g}s")
+        if server.startup_error is not None:
+            raise MCPStartupError(f"MCP server '{server.name}' failed to start: {server.startup_error}") from server.startup_error
+        with self._guard:
+            self.servers[server.name] = server
+        return server
+
+    def request_reconnect(self, name: str) -> bool:
+        """Thread-safe: ask the owning loop to rebuild the named server's session."""
+
+        server = self.servers.get(name)
+        if server is None:
+            return False
+        try:
+            self._portal.call(server.request_reconnect, timeout=MCP_STOP_TIMEOUT_SECONDS)
+        except PortalError as exc:
+            logger.warning("MCP server '%s' reconnect request failed: %s", name, exc)
+            return False
+        return True
+
+    def stop_server(self, name: str, *, timeout: float = MCP_STOP_TIMEOUT_SECONDS) -> bool:
+        """Stop one server and wait (bounded) for its task to unwind."""
+
+        with self._guard:
+            server = self.servers.pop(name, None)
+        if server is None:
+            return False
+        try:
+            self._portal.call(server.request_stop, timeout=timeout)
+        except PortalError as exc:
+            logger.warning("MCP server '%s' stop request failed: %s", name, exc)
+        server.stopped.wait(timeout)
+        return True
+
+    def shutdown(self, *, timeout: float = MCP_SHUTDOWN_TIMEOUT_SECONDS) -> None:
+        """Stop every server, then close the portal and join its thread. Idempotent."""
+
+        for name in list(self.servers):
+            self.stop_server(name)
+        with self._guard:
+            self.servers.clear()
+        self._portal.shutdown(timeout=timeout)
+
+    async def ashutdown(self, *, timeout: float = MCP_SHUTDOWN_TIMEOUT_SECONDS) -> None:
+        """Async-safe :meth:`shutdown`."""
+
+        await self._portal.run_sync(
+            self.shutdown,
+            timeout=timeout,
+            abandon_on_cancel=True,
+        )
+
+
+_MCP_RUNTIME: MCPToolRuntime | None = None
+_MCP_RUNTIME_GUARD = threading.Lock()
+
+
+def mcp_runtime() -> MCPToolRuntime:
+    """Return the process-wide MCP runtime, creating it on first use."""
+
+    global _MCP_RUNTIME
+    with _MCP_RUNTIME_GUARD:
+        if _MCP_RUNTIME is None:
+            _MCP_RUNTIME = MCPToolRuntime()
+        return _MCP_RUNTIME
+
+
+def shutdown_mcp_tools(*, timeout: float = MCP_SHUTDOWN_TIMEOUT_SECONDS) -> None:
+    """Stop every MCP server and close the shared portal. Safe to call repeatedly."""
+
+    with _MCP_RUNTIME_GUARD:
+        runtime = _MCP_RUNTIME
+    if runtime is None:
+        return
+    runtime.shutdown(timeout=timeout)
+
+
+async def ashutdown_mcp_tools(*, timeout: float = MCP_SHUTDOWN_TIMEOUT_SECONDS) -> None:
+    """Async-safe :func:`shutdown_mcp_tools`."""
+
+    with _MCP_RUNTIME_GUARD:
+        runtime = _MCP_RUNTIME
+    if runtime is None:
+        return
+    await runtime.ashutdown(timeout=timeout)
 
 
 def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
@@ -397,10 +732,11 @@ def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
                 _bump_server_error(server_name)
                 raise Exception(_sanitize_error(str(e)))
 
-        # Legacy / Mock Mode handler (tests)
+        # Legacy session path: dispatch through the owning portal so the session
+        # stays on the event loop that owns it.
         async def _call():
             try:
-                res = await server_task.session.call_tool(tool_name, arguments=args)
+                res = await server_task.call_tool(tool_name, args)
                 if res.isError:
                     error_msg = "".join(b.text for b in res.content if hasattr(b, "text") and b.text)
                     raise Exception(error_msg or f"MCP tool '{tool_name}' returned error")
@@ -411,34 +747,44 @@ def make_mcp_tool_handler(server_task: MCPServerTask, tool_name: str):
                 _bump_server_error(server_name)
                 raise Exception(_sanitize_error(str(e)))
 
-        return await _run_on_mcp_loop(_call())
+        return await _call()
 
     return handler
 
 
 def discover_and_register_mcp_tools(registry: ToolRegistry, mcp_config: dict[str, Any]) -> None:
+    """Register every enabled MCP server's tools into ``registry``.
+
+    Runs on the calling (synchronous) thread: the shared portal accepts the
+    work, and each server reports readiness before its tools are registered, so
+    a failure is raised here instead of surfacing later as an empty tool list.
+    """
+
     if not mcp_config:
         return
-    _ensure_mcp_loop()
 
-    async def _setup_all():
-        for name, cfg in mcp_config.items():
-            if not cfg.get("enabled", True):
-                continue
-            task = MCPServerTask(name, cfg)
-            await task.connect()
-            _servers[name] = task
+    enabled = [(name, cfg) for name, cfg in mcp_config.items() if cfg.get("enabled", True)]
+    if not enabled:
+        return
 
-            for mcp_tool in task.tools:
-                _scan_mcp_description(name, mcp_tool.name, mcp_tool.description or "")
-                safe_name = f"mcp_{name}_{mcp_tool.name}"
-                spec = ToolSpec(name=safe_name, description=mcp_tool.description or "", parameters=mcp_tool.inputSchema, handler=make_mcp_tool_handler(task, mcp_tool.name))
-                registry.register(spec)
+    runtime = mcp_runtime()
+    for name, cfg in enabled:
+        task = MCPServerTask(name, cfg)
+        try:
+            runtime.start_server(task)
+        except MCPStartupError as exc:
+            logger.error("Failed to initialize MCP server '%s': %s", name, exc)
+            if exc.__cause__ is not None:
+                logger.debug("MCP server '%s' startup traceback", name, exc_info=exc.__cause__)
+            continue
 
-    future = asyncio.run_coroutine_threadsafe(_setup_all(), _mcp_loop)
-    try:
-        future.result(timeout=30)
-    except Exception as e:
-        import logging
-
-        logging.getLogger("dojoagents").error(f"Failed to initialize MCP servers: {e}")
+        for mcp_tool in task.tools:
+            _scan_mcp_description(name, mcp_tool.name, mcp_tool.description or "")
+            safe_name = f"mcp_{name}_{mcp_tool.name}"
+            spec = ToolSpec(
+                name=safe_name,
+                description=mcp_tool.description or "",
+                parameters=mcp_tool.inputSchema,
+                handler=make_mcp_tool_handler(task, mcp_tool.name),
+            )
+            registry.register(spec)

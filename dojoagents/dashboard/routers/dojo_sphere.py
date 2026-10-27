@@ -11,7 +11,7 @@ from dojoagents.dashboard.deps import (
     get_stock_store,
     get_dojo_sphere_service,
 )
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_OHLCV_FIELDS, KlineStore
 from dojoagents.dashboard.services.sector_constituents_list import list_sector_constituents
 from dojoagents.dashboard.services.sector_scope_performance import compute_sector_scope_performance
 from dojoagents.dashboard.services.sector_scope_stats import compute_sector_scope_metrics
@@ -185,7 +185,7 @@ async def batch_constituent_klines(
         raise HTTPException(status_code=400, detail="symbols is required")
     if len(requested) > 100:
         raise HTTPException(status_code=400, detail="too many symbols (max 100)")
-    return await store.get_klines(requested)
+    return await store.get_klines(requested, fields=KLINE_OHLCV_FIELDS)
 
 
 @router.get("/constituents/{symbol}/kline", response_model=StockKlineResponse)

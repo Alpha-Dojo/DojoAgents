@@ -175,7 +175,7 @@ async def test_run_one_retries_invalid_output_then_succeeds(tmp_path) -> None:
             return_value="/venv/bin/dojoagents",
         ),
         patch(
-            "dojoagents.dashboard.cli.sector_brief_extract.asyncio.create_subprocess_exec",
+            "dojoagents.tools.processes.open_process",
             new_callable=AsyncMock,
             side_effect=processes,
         ) as create_process,
@@ -206,7 +206,7 @@ async def test_run_one_skips_after_three_process_failures(tmp_path) -> None:
             return_value="/venv/bin/dojoagents",
         ),
         patch(
-            "dojoagents.dashboard.cli.sector_brief_extract.asyncio.create_subprocess_exec",
+            "dojoagents.tools.processes.open_process",
             new_callable=AsyncMock,
             side_effect=[process, process, process],
         ) as create_process,

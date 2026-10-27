@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import List, Optional
 
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_CLOSE_FIELDS, KlineStore
 from dojoagents.dashboard.services.fin_indicators_utils import (
     anchor_for_date,
     build_quarter_net_profit_map,
@@ -142,6 +142,7 @@ async def resolve_core_ticker_pe_band(
             end_time=end_time,
             min_bar_time=None if start_time else DATA_START_DATE,
             limit=limit if not start_time else None,
+            fields=KLINE_CLOSE_FIELDS,
         )
         if kline_response is None or not kline_response.bars:
             return None

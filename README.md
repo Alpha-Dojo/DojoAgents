@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://discord.gg/CCRvSvdvr"><img src="https://img.shields.io/badge/Discord-DojoAgents-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="docs/WECHAT.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
+  <a href="docs/site/en/community/wechat.md"><img src="https://img.shields.io/badge/WeChat-DojoAgents-4CB55E?logo=wechat&logoColor=white" alt="WeChat"></a>
   <a href="https://huggingface.co/AlphaDojo"><img src="https://img.shields.io/badge/HuggingFace-DojoAgents-FFD21E?logo=huggingface&logoColor=000000" alt="HuggingFace"></a>
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
@@ -32,7 +32,7 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
 <div align="center">
   <img
     alt="DojoAgents system architecture diagram"
-    src="docs/imgs/structure.png"
+    src="docs/site/assets/images/structure.png"
     width="720"
   />
   <p><em>Seven-layer architecture — from CLI, Web Dashboard, and Chat Gateways through Agent Loop to tools, data, and infrastructure.</em></p>
@@ -67,7 +67,7 @@ DojoAgents enters a data-gathering phase, calling global market, sector, and equ
 <div align="center">
   <img
     alt="DojoAgents daily market overview demo"
-    src="docs/gifs/market_overview.gif"
+    src="docs/site/assets/gifs/market_overview.gif"
     width="720"
   />
 </div>
@@ -81,7 +81,7 @@ Take Meta's recent AI infrastructure moves — A-share investors naturally asked
 <div align="center">
   <img
     alt="DojoAgents news impact analysis demo"
-    src="docs/gifs/news_impact.gif"
+    src="docs/site/assets/gifs/news_impact.gif"
     width="720"
   />
 </div>
@@ -95,7 +95,7 @@ Upload a screenshot with 40+ positions spanning A-shares, US stocks, and ETFs. D
 <div align="center">
   <img
     alt="DojoAgents portfolio screenshot upload demo"
-    src="docs/gifs/upload_screenshot.gif"
+    src="docs/site/assets/gifs/upload_screenshot.gif"
     width="720"
   />
 </div>
@@ -107,7 +107,7 @@ After the diagnosis, DojoAgents proposes follow-up strategies — trim duplicate
 <div align="center">
   <img
     alt="DojoAgents simulated portfolio demo"
-    src="docs/gifs/simulated_portfolio.gif"
+    src="docs/site/assets/gifs/simulated_portfolio.gif"
     width="720"
   />
 </div>
@@ -216,7 +216,7 @@ jobs, portfolio data, and service lifecycle. Embedded Dashboard deployments bind
 their existing financial backend into Runtime; CLI or Gateway deployments can use
 the standalone SDK backend or a configured remote HTTP backend.
 
-Sessions are scoped by `(tenant_id, user_id, session_id)` and can use file or project-provided stores. See the [external SessionStore / BlobStore adapter contract](docs/session-store-adapter.md) for online MySQL/PostgreSQL/object-storage deployments.
+Sessions are scoped by `(tenant_id, user_id, session_id)` and can use file or project-provided stores. See the [external SessionStore / BlobStore adapter contract](docs/site/en/design/session-store-adapter.md) for online MySQL/PostgreSQL/object-storage deployments.
 
 
 ## 📚 Documentation & Deep Dives
@@ -227,7 +227,7 @@ Ready to build custom quantitative skills, integrate proprietary data, or deploy
 - Writing Custom Plugins & Claude Skills
 - Chat Gateways & Omnichannel Setup
 - Dashboard UI Customization Guide
-- [External SessionStore / BlobStore adapters](docs/session-store-adapter.md)
+- [External SessionStore / BlobStore adapters](docs/site/en/design/session-store-adapter.md)
 
 ## 🤝 Contributing
 

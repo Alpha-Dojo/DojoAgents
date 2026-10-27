@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import copy
 import importlib
 import inspect
@@ -15,6 +14,7 @@ from dojoagents.sessions.blobs.file import FileBlobStore
 from dojoagents.sessions.errors import SessionStoreUnavailableError
 from dojoagents.sessions.store import SessionStore
 from dojoagents.sessions.stores.file import FileSessionStore
+from dojoagents.utils.async_runtime import run_sync_bounded
 
 
 def _load_factory(path: str):
@@ -76,7 +76,7 @@ async def create_session_store(config: StoreProviderConfig) -> SessionStore:
         root = Path(str(options.get("root") or "~/.dojo/agents/strands_sessions")).expanduser().resolve()
         configured_secret = options.get("cursor_secret")
         if configured_secret is None:
-            secret = await asyncio.to_thread(_persistent_cursor_secret, root)
+            secret = await run_sync_bounded(_persistent_cursor_secret, root)
         else:
             secret = str(configured_secret).encode("utf-8")
         store: Any = FileSessionStore(

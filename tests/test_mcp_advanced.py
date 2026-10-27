@@ -38,15 +38,15 @@ async def test_circuit_breaker():
         _bump_server_error,
         _reset_server_error,
         make_mcp_tool_handler,
+        MCPServerTask,
     )
     import dojoagents.tools.mcp_tool as mcp_tool
     
     server_name = "test_breaker_srv"
     mcp_tool._reset_server_error(server_name)
     
-    # Create mock MCPServerTask
-    mock_task = MagicMock()
-    mock_task.name = server_name
+    # A real (unattached) server task: no portal, so dispatch stays inline.
+    mock_task = MCPServerTask(server_name, {})
     mock_task.session = AsyncMock()
     
     # Set mock_task.session.call_tool to fail

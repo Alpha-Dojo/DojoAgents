@@ -133,14 +133,12 @@ def test_filter_constituents_frame_by_ticker_cap_min() -> None:
     assert list(filtered["ticker"]) == ["BIG", "OK"]
 
 
-def test_sector_precomputed_store_drops_below_floor_on_reload(tmp_path, monkeypatch) -> None:
+def test_sector_precomputed_store_drops_below_floor_on_reload(tmp_path) -> None:
     import json
 
     import pandas as pd
 
     from dojoagents.dashboard.services.sector_precomputed_store import SectorPrecomputedStore
-
-    monkeypatch.setenv("DOJO_HF_OFFLINE", "1")
 
     dataset = tmp_path / "dojo_sector_precomputed"
     dataset.mkdir()

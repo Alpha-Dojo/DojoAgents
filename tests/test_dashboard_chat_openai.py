@@ -260,26 +260,26 @@ def test_chat_streaming_returns_sse():
             metadata={"usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7}},
         )
 
-    client = TestClient(_make_app(_make_fake_runtime(agent_run=streaming_agent_run)))
-    with client.stream(
-        "POST",
-        "/api/chat",
-        json={
-            "model": "gpt-4.1",
-            "messages": [{"role": "user", "content": "hi"}],
-            "stream": True,
-            "user": "u1",
-            "metadata": {"session_id": "s1"},
-        },
-    ) as response:
-        assert response.status_code == 200
-        assert "text/event-stream" in response.headers.get("content-type", "")
-        lines = []
-        for line in response.iter_lines():
-            if line:
-                lines.append(line)
-        assert any("chat.completion.chunk" in l for l in lines)  # noqa
-        assert any("[DONE]" in l for l in lines)  # noqa
+    with TestClient(_make_app(_make_fake_runtime(agent_run=streaming_agent_run))) as client:
+        with client.stream(
+            "POST",
+            "/api/chat",
+            json={
+                "model": "gpt-4.1",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+                "user": "u1",
+                "metadata": {"session_id": "s1"},
+            },
+        ) as response:
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers.get("content-type", "")
+            lines = []
+            for line in response.iter_lines():
+                if line:
+                    lines.append(line)
+            assert any("chat.completion.chunk" in line for line in lines)
+            assert any("[DONE]" in line for line in lines)
 
 
 def test_chat_non_streaming_dojo_v2_extension():

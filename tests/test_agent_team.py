@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import anyio
 import hashlib
 from dataclasses import replace
 
@@ -86,21 +87,23 @@ async def test_spawn_wait_and_complete_only_after_child_returns():
         return "done"
 
     team = AgentTeam("run-1", store, run_child, allowed_roles=frozenset({"research"}))
-    root = bind_agent_team(team, ROOT_INSTANCE)
-    call = bind_agent_tool_call("call-1")
-    try:
-        specs = {item.name: item for item in get_agent_team_tool_specs()}
-        spawned = await specs["agent.spawn"].handler({"role_id": "research", "task": "analyze"})
-        instance_id = spawned["data"]["instance_id"]
-        assert (await team.wait((instance_id,), caller=ROOT_INSTANCE, timeout_seconds=0))["status"] == "timeout"
-        allow_finish.set()
-        result = await team.wait((instance_id,), caller=ROOT_INSTANCE, timeout_seconds=2)
-        assert result["messages"][0].content == "done"
-        assert result["instances"][instance_id] == "completed"
-    finally:
-        reset_agent_tool_call(call)
-        reset_agent_team(root)
-        await team.close()
+    async with anyio.create_task_group() as task_group:
+        team.start(task_group)
+        root = bind_agent_team(team, ROOT_INSTANCE)
+        call = bind_agent_tool_call("call-1")
+        try:
+            specs = {item.name: item for item in get_agent_team_tool_specs()}
+            spawned = await specs["agent.spawn"].handler({"role_id": "research", "task": "analyze"})
+            instance_id = spawned["data"]["instance_id"]
+            assert (await team.wait((instance_id,), caller=ROOT_INSTANCE, timeout_seconds=0))["status"] == "timeout"
+            allow_finish.set()
+            result = await team.wait((instance_id,), caller=ROOT_INSTANCE, timeout_seconds=2)
+            assert result["messages"][0].content == "done"
+            assert result["instances"][instance_id] == "completed"
+        finally:
+            reset_agent_tool_call(call)
+            reset_agent_team(root)
+            await team.close()
 
 
 @pytest.mark.asyncio

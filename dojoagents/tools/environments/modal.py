@@ -1,4 +1,4 @@
-import asyncio
+from dojoagents.tools import processes
 from dojoagents.tools.environments.base import BaseEnvironment
 
 
@@ -8,10 +8,13 @@ class ModalEnvironment(BaseEnvironment):
         self.image = image
         self._started = False
 
-    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> asyncio.subprocess.Process:
+    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> processes.Process:
         exec_cmd = ["modal", "sandbox", "run", "--image", self.image, "bash", "-c", cmd_string]
-        return await asyncio.create_subprocess_exec(
-            *exec_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.PIPE if stdin_data else asyncio.subprocess.DEVNULL
+        return await processes.open_process(
+            exec_cmd,
+            stdin=processes.PIPE if stdin_data else processes.DEVNULL,
+            stdout=processes.PIPE,
+            stderr=processes.STDOUT,
         )
 
     def cleanup(self):

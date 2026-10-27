@@ -25,6 +25,7 @@ from dojoagents.tools.registry import ToolRegistry
 from dojoagents.tools.sandbox import SandboxPolicy
 from dojoagents.tools.skill_manage import SkillManagerTool
 from dojoagents.logging import LOGGER
+from dojoagents.utils.async_runtime import SyncWorkload, run_sync_bounded
 
 
 class _ProfileConfigStore:
@@ -322,9 +323,12 @@ class Runtime:
 
         mcp_configs = {spec.component_id: dict(spec.config or {}) for spec in self.capabilities.mcp_sources}
         if mcp_configs:
-            import asyncio
-
-            await asyncio.to_thread(discover_and_register_mcp_tools, registry, mcp_configs)
+            await run_sync_bounded(
+                discover_and_register_mcp_tools,
+                registry,
+                mcp_configs,
+                workload=SyncWorkload.SDK_IO,
+            )
 
         sandbox = SandboxPolicy(
             allowed_roots=self.config.tools.sandbox.allowed_roots,

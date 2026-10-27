@@ -9,8 +9,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from dojo.client.async_client import AsyncDojo
-
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.agent.runtime import Runtime
 from dojoagents.dashboard.client.tasks import (
@@ -20,6 +18,7 @@ from dojoagents.dashboard.client.tasks import (
     run_task_via_dashboard,
 )
 from dojoagents.config.loader import ConfigStore
+from dojoagents.dojo_sdk import close_async_dojo, create_async_dojo
 from dojoagents.logging import LOGGER, configure_logging
 from dojoagents.tasks.activator import TaskActivationError
 from dojoagents.tasks.artifacts import resolve_filename_template
@@ -259,14 +258,7 @@ def _log_response_summary(response: AgentResponse, *, require_pipeline_completed
 
 
 async def _close_dojo_client(client: Any) -> None:
-    close = getattr(client, "aclose", None)
-    if callable(close):
-        await close()
-        return
-    http_client = getattr(client, "_client", None)
-    close = getattr(http_client, "aclose", None)
-    if callable(close):
-        await close()
+    await close_async_dojo(client)
 
 
 async def _prepare_task_runtime(
@@ -293,8 +285,8 @@ async def _prepare_task_runtime(
         services_config = DashboardAppServicesConfig(
             **{
                 **services_config.__dict__,
-                "preload_offline_data": False,
-                "preload_registry": False,
+                "ensure_offline_snapshots": False,
+                "startup_preload_stores": (),
                 "refresh_enabled": False,
             }
         )
@@ -760,14 +752,7 @@ async def _upload_daily_market_events(config_path: str, trading_date: str, marke
         return True
     items = upload_items
 
-    sdk_cfg = config.dojosdk
-    client_kwargs = {
-        "api_key": sdk_cfg.api_key if sdk_cfg else None,
-        "base_url": sdk_cfg.base_url if sdk_cfg else None,
-        "timeout": sdk_cfg.timeout if sdk_cfg else 60.0,
-        "max_retries": sdk_cfg.max_retries if sdk_cfg else 1,
-    }
-    client = AsyncDojo(**{key: value for key, value in client_kwargs.items() if value is not None})
+    client = create_async_dojo(config, online=True)
     try:
         LOGGER.info("Uploading %d market events (%s) to DojoSDK...", len(items), market_code or "?")
         for item in items:

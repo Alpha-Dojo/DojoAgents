@@ -4,7 +4,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from dojoagents.dashboard.deps import get_financial_registry
+from dojoagents.dashboard.deps import (
+    ensure_registry_stores_loaded,
+    get_financial_registry,
+)
 from dojoagents.dashboard.schemas.domain_api import (
     MarketDynamicsResponse,
     MarketOverviewResponse,
@@ -39,6 +42,14 @@ async def market_overview(
     registry=Depends(get_financial_registry),
 ) -> MarketOverviewResponse:
     try:
+        await ensure_registry_stores_loaded(
+            registry,
+            "sector_precomputed_store",
+            "stock_store",
+        )
+        refresh_quotes = getattr(registry.stock_store, "refresh_quotes_if_stale", None)
+        if callable(refresh_quotes):
+            await refresh_quotes(max_age_seconds=60.0)
         return await build_market_overview(
             registry,
             days=days,
@@ -77,6 +88,15 @@ async def market_sector_movers(
     registry=Depends(get_financial_registry),
 ) -> SectorMoversResponse:
     try:
+        stores = ["sector_precomputed_store"]
+        latest_one_day = days <= 1 and not start_date and not end_date and not as_of
+        if include_members or latest_one_day:
+            stores.append("stock_store")
+        await ensure_registry_stores_loaded(registry, *stores)
+        if getattr(registry, "live_client", None) is not None:
+            refresh_quotes = getattr(registry.stock_store, "refresh_quotes_if_stale", None)
+            if callable(refresh_quotes):
+                await refresh_quotes(max_age_seconds=60.0)
         return await build_sector_movers(
             registry,
             days=days,
@@ -114,7 +134,8 @@ async def market_dynamics(
     ),
     registry=Depends(get_financial_registry),
 ) -> MarketDynamicsResponse:
-    client = registry.client
+    snapshot_client = registry.client
+    client = getattr(registry, "live_client", None) or snapshot_client
     if client is None:
         raise HTTPException(status_code=503, detail="Dojo client is not initialized")
     if (start_date and not end_date) or (end_date and not start_date):
@@ -125,6 +146,7 @@ async def market_dynamics(
     try:
         return await build_market_dynamics(
             client,
+            fallback_client=(snapshot_client if snapshot_client is not client else None),
             limit=limit,
             start_date=start_date,
             end_date=end_date,
@@ -156,6 +178,10 @@ async def market_stock_screener(
     registry=Depends(get_financial_registry),
 ) -> StockScreenResponse:
     try:
+        await ensure_registry_stores_loaded(registry, "stock_store")
+        refresh_quotes = getattr(registry.stock_store, "refresh_quotes_if_stale", None)
+        if callable(refresh_quotes):
+            await refresh_quotes(max_age_seconds=60.0)
         return await build_stock_screen(
             registry,
             market=market,

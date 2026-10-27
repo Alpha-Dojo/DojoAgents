@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dojoagents"
-version = "0.2.8"
+version = "0.2.11"
 authors = [
     {name = "Alpha-Dojo"},
 ]
@@ -12,6 +12,7 @@ description = "AI Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "anyio>=4.8,<5",
     "openai>=1.20.0,<2",
     "fastapi>=0.115.2,<0.116",
     "uvicorn>=0.31.1,<0.36.0",
@@ -25,7 +26,7 @@ dependencies = [
     "pyinstrument",
     "strands-agents",
     "strands-agents-tools",
-    "dojosdk>=0.1.23",
+    "dojosdk>=0.1.30",
     "exchange-calendars>=4,<5",
     "portalocker",
     "ddgs",
@@ -69,3 +70,15 @@ docs = [
     "mkdocs-material>=9,<10",
     "mkdocs-static-i18n>=1,<2",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: deterministic tests with no external service dependency",
+    "offline_integration: local DojoSDK snapshot and dashboard integration tests",
+    "online_integration: tests that require live provider or API access",
+    "contract: API, configuration, and cross-repository contract tests",
+    "slow: long-running dataset, dashboard, or end-to-end tests",
+]
+
+[tool.uv.sources]
+dojosdk = { path = "../DojoSDK", editable = true }

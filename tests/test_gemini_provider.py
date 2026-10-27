@@ -137,6 +137,9 @@ class _FakeStreamingAggregateAsyncClient(_FakeAsyncClient):
 
 
 class _FakeEventSink:
+    async def wait_for_capacity(self) -> None:
+        pass
+
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
 

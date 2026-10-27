@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import time
@@ -72,6 +71,7 @@ from dojoagents.sessions.models import (
     encode_cursor,
     utc_now,
 )
+from dojoagents.utils.async_runtime import run_sync_bounded
 
 T = TypeVar("T")
 
@@ -484,7 +484,7 @@ class FileSessionStore:
         raise last_exc
 
     async def _transaction(self, write: bool, callback: Callable[[dict[str, Any]], T]) -> T:
-        return await asyncio.to_thread(self._transaction_sync, write, callback)
+        return await run_sync_bounded(self._transaction_sync, write, callback)
 
     def _session_for(self, state: dict[str, Any], principal: SessionPrincipal, session_id: str) -> SessionRecord:
         uid = state["owner_index"].get(self._owner_key(principal, session_id))

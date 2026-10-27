@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
+import time
 from typing import Dict, Optional
+from weakref import WeakValueDictionary
 
 from dojoagents.dashboard.schemas.stock_news import CoreTickerNewsResponse
 from dojoagents.dashboard.services.dojo_data_gateway import DojoDataGateway
@@ -15,10 +17,8 @@ class StockNewsStore:
     def __init__(self, source):
         self.gateway = source if callable(getattr(source, "stock_news", None)) else DojoDataGateway(source)
         self.cache: Dict[str, CoreTickerNewsResponse] = {}
-        self._inflight: dict[
-            str,
-            asyncio.Task[CoreTickerNewsResponse],
-        ] = {}
+        self._cache_expires_at: Dict[str, float] = {}
+        self._fetch_locks: WeakValueDictionary[str, anyio.Lock] = WeakValueDictionary()
 
     async def load(self) -> None:
         pass
@@ -42,16 +42,16 @@ class StockNewsStore:
         cache_key = f"{market_code}:{symbol}:{page_size}"
 
         cached = self.cache.get(cache_key)
-        if cached is not None:
+        if cached is not None and time.monotonic() < self._cache_expires_at.get(cache_key, 0.0):
             return cached
-        task = self._inflight.get(cache_key)
-        if task is None:
-            task = asyncio.create_task(self._fetch(symbol, market_code, page_size))
-            self._inflight[cache_key] = task
-        try:
-            result = await task
+        self.cache.pop(cache_key, None)
+        self._cache_expires_at.pop(cache_key, None)
+        lock = self._fetch_locks.setdefault(cache_key, anyio.Lock())
+        async with lock:
+            cached = self.cache.get(cache_key)
+            if cached is not None and time.monotonic() < self._cache_expires_at.get(cache_key, 0.0):
+                return cached
+            result = await self._fetch(symbol, market_code, page_size)
             self.cache[cache_key] = result
+            self._cache_expires_at[cache_key] = time.monotonic() + 120.0
             return result
-        finally:
-            if self._inflight.get(cache_key) is task:
-                self._inflight.pop(cache_key, None)

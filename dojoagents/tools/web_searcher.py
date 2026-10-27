@@ -328,6 +328,45 @@ async def _tavily_extract_adapter(
 register_extract_backend("tavily", _tavily_extract_adapter)
 
 
+def _resolve_serply_base_url(cfg: WebToolsConfig) -> str:
+    return (cfg.search_base_url or "https://api.serply.io").rstrip("/")
+
+
+async def _serply_search_adapter(
+    query: str,
+    limit: int,
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    api_key = _require_web_api_key(cfg)
+    base_url = _resolve_serply_base_url(cfg)
+    async with _make_async_client(
+        cfg,
+        headers={"X-Api-Key": api_key, "Accept": "application/json"},
+    ) as client:
+        response = await client.get(
+            f"{base_url}/v1/search",
+            params={"q": query, "num": max(1, min(int(limit), 10))},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    rows: list[dict[str, Any]] = []
+    for index, item in enumerate(list(payload.get("results") or []), start=1):
+        if index > limit:
+            break
+        rows.append(
+            {
+                "title": str(item.get("title") or ""),
+                "url": str(item.get("link") or item.get("url") or ""),
+                "description": str(item.get("description") or ""),
+                "position": index,
+            }
+        )
+    return rows
+
+
+register_search_backend("serply", _serply_search_adapter)
+
+
 def get_web_searcher_specs(cfg: WebToolsConfig) -> list[ToolSpec]:
     async def web_search(args: dict[str, Any]) -> dict[str, Any]:
         backend = cfg.search_backend

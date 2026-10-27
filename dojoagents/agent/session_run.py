@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+import anyio
 
 from dojoagents.agent.events import AgentEvent, AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
@@ -59,30 +60,50 @@ def _durable_run_id(*, event_sink: AgentEventSink | None, metadata: dict[str, An
 class _DurableEventWriter:
     """Persist AgentEventSink output in order while the run is still active."""
 
-    def __init__(self, coordinator: RunCoordinator, sink: AgentEventSink) -> None:
+    def __init__(
+        self,
+        coordinator: RunCoordinator,
+        sink: AgentEventSink,
+        task_group: anyio.abc.TaskGroup,
+    ) -> None:
         self.coordinator = coordinator
         self.sink = sink
-        self.queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+        self._send_stream, self._receive_stream = anyio.create_memory_object_stream[AgentEvent](max_buffer_size=32)
         self._closed = False
+        self._space_available = anyio.Event()
+        self._error: BaseException | None = None
         self.sink.add_listener(self._enqueue)
-        self.task = asyncio.create_task(
-            self._run(),
-            name=f"dojo-events:{coordinator.run_id}",
-        )
+        self.sink.add_capacity_waiter(self._wait_for_capacity)
+        self._done = anyio.Event()
+        task_group.start_soon(self._run, name=f"dojo-events:{coordinator.run_id}")
+
+    async def _wait_for_capacity(self) -> None:
+        while not self._closed:
+            if self._error is not None:
+                raise self._error
+            available = self._space_available
+            # Reserve space for phase/start/end events around each streaming delta.
+            if self._send_stream.statistics().current_buffer_used < 28:
+                return
+            await available.wait()
 
     def _enqueue(self, event: AgentEvent) -> None:
         if not self._closed:
-            self.queue.put_nowait(event)
+            try:
+                self._send_stream.send_nowait(event)
+            except anyio.WouldBlock as exc:
+                raise RuntimeError("durable event stream buffer is full (capacity=32)") from exc
 
     async def _persist(self, events: list[AgentEvent]) -> None:
         if not events:
             return
         from dojoagents.sessions.errors import SessionLeaseLostError
 
+        # Buffer once; retry only persistence so transient failures cannot duplicate deltas.
+        await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events), flush=False)
         last_exc: Exception | None = None
         for attempt in range(1, 5):
             try:
-                await self.coordinator.append_events(tuple((event.type, event.to_dict()) for event in events))
                 # RunCoordinator's size threshold reduces store calls for bursts, while
                 # this explicit flush guarantees that an idle SSE reader sees the burst
                 # before the Agent turn finishes.
@@ -110,65 +131,79 @@ class _DurableEventWriter:
                     self.coordinator.run_id,
                     exc,
                 )
-                await asyncio.sleep(min(0.05 * (2 ** (attempt - 1)), 0.8))
+                await anyio.sleep(min(0.05 * (2 ** (attempt - 1)), 0.8))
         assert last_exc is not None
         raise last_exc
 
     async def _run(self) -> None:
         from dojoagents.sessions.errors import SessionLeaseLostError
 
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                return
-            pending = [item]
-            await asyncio.sleep(0)
-            while len(pending) < self.coordinator.service.config.runtime.event_batch_size:
-                try:
-                    queued = self.queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                if queued is None:
+        try:
+            async with self._receive_stream:
+                async for item in self._receive_stream:
+                    pending = [item]
+                    await anyio.sleep(0)
+                    stream_closed = False
+                    while len(pending) < self.coordinator.service.config.runtime.event_batch_size:
+                        try:
+                            queued = self._receive_stream.receive_nowait()
+                        except anyio.WouldBlock:
+                            break
+                        except anyio.EndOfStream:
+                            stream_closed = True
+                            break
+                        pending.append(queued)
+                    self._space_available.set()
+                    self._space_available = anyio.Event()
                     try:
                         await self._persist(pending)
-                    except SessionLeaseLostError:
+                    except SessionLeaseLostError as exc:
+                        self._error = exc
                         return
-                    return
-                pending.append(queued)
-            try:
-                await self._persist(pending)
-            except SessionLeaseLostError:
-                return
+                    if stream_closed:
+                        return
+        except BaseException as exc:
+            self._error = exc
+            raise
+        finally:
+            self._space_available.set()
+            self._done.set()
 
     async def close(self) -> None:
         if self._closed:
-            await self.task
+            await self._done.wait()
             return
         self._closed = True
         self.sink.remove_listener(self._enqueue)
-        self.queue.put_nowait(None)
-        await self.task
+        self.sink.remove_capacity_waiter(self._wait_for_capacity)
+        self._space_available.set()
+        await self._send_stream.aclose()
+        await self._done.wait()
 
 
 class _RunHeartbeat:
     """Renew the session lease and convert durable cancellation into task cancellation."""
 
-    def __init__(self, coordinator: RunCoordinator, owner_task: asyncio.Task[Any]) -> None:
+    def __init__(
+        self,
+        coordinator: RunCoordinator,
+        owner_cancel_scope: anyio.CancelScope,
+        task_group: anyio.abc.TaskGroup,
+    ) -> None:
         self.coordinator = coordinator
-        self.owner_task = owner_task
+        self.owner_cancel_scope = owner_cancel_scope
         configured = float(coordinator.service.config.runtime.heartbeat_seconds)
         self.interval = max(0.1, configured)
         self._transient_failures = 0
-        self.task = asyncio.create_task(
-            self._run(),
-            name=f"dojo-heartbeat:{coordinator.run_id}",
-        )
+        self._stop = anyio.Event()
+        self._done = anyio.Event()
+        task_group.start_soon(self._run, name=f"dojo-heartbeat:{coordinator.run_id}")
 
     async def _run(self) -> None:
         from dojoagents.sessions.errors import SessionLeaseLostError
 
         try:
-            while True:
+            while not self._stop.is_set():
                 try:
                     # Renew first, then sleep — do not burn the first interval unprotected.
                     result = await self.coordinator.heartbeat()
@@ -178,7 +213,7 @@ class _RunHeartbeat:
                         self.coordinator.run_id,
                         self.coordinator.session_id,
                     )
-                    self.owner_task.cancel()
+                    self.owner_cancel_scope.cancel()
                     return
                 except Exception:
                     self._transient_failures += 1
@@ -191,9 +226,9 @@ class _RunHeartbeat:
                     # Store/lock blips should not kill long pipeline runs. Retry until
                     # the next interval; only hard-cancel after repeated failures.
                     if self._transient_failures >= 3:
-                        self.owner_task.cancel()
+                        self.owner_cancel_scope.cancel()
                         return
-                    await asyncio.sleep(self.interval)
+                    await anyio.sleep(self.interval)
                     continue
                 self._transient_failures = 0
                 if result.cancellation_requested:
@@ -202,19 +237,16 @@ class _RunHeartbeat:
                         self.coordinator.run_id,
                         self.coordinator.session_id,
                     )
-                    self.owner_task.cancel()
+                    self.owner_cancel_scope.cancel()
                     return
-                await asyncio.sleep(self.interval)
-        except asyncio.CancelledError:
-            raise
+                with anyio.move_on_after(self.interval):
+                    await self._stop.wait()
+        finally:
+            self._done.set()
 
     async def close(self) -> None:
-        if not self.task.done():
-            self.task.cancel()
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
+        self._stop.set()
+        await self._done.wait()
 
 
 @dataclass
@@ -236,7 +268,7 @@ class CanonicalAgentRun:
     replay_from_start: bool = False
     message_base: int = 0
     checkpointed_message_ids: set[str] = field(default_factory=set, repr=False)
-    checkpoint_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    checkpoint_lock: anyio.Lock = field(default_factory=anyio.Lock, repr=False)
 
     @classmethod
     async def begin(
@@ -249,6 +281,8 @@ class CanonicalAgentRun:
         agent_id: str,
         event_sink: AgentEventSink | None = None,
         memory_sync_worker: SessionMemorySyncWorker | None = None,
+        task_group: anyio.abc.TaskGroup,
+        owner_cancel_scope: anyio.CancelScope,
     ) -> "CanonicalAgentRun":
         principal = request.principal
         if principal is None:  # ChatRequest validates this; defensive for alternate request implementations.
@@ -326,11 +360,8 @@ class CanonicalAgentRun:
             (coordinator.handle.lease.expires_at.isoformat() if coordinator.handle is not None else None),
         )
         sink = event_sink or AgentEventSink(run_id=run_id, session_id=request.session_id)
-        owner_task = asyncio.current_task()
-        if owner_task is None:
-            raise RuntimeError("canonical run requires an active asyncio task")
-        event_writer = _DurableEventWriter(coordinator, sink)
-        heartbeat = _RunHeartbeat(coordinator, owner_task)
+        event_writer = _DurableEventWriter(coordinator, sink, task_group)
+        heartbeat = _RunHeartbeat(coordinator, owner_cancel_scope, task_group)
         canonical = cls(
             service=service,
             coordinator=coordinator,

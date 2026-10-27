@@ -1,6 +1,8 @@
 import tempfile
 import json
 import os
+import shlex
+import sys
 from pathlib import Path
 import pytest
 from dojoagents.plugins.registry import DojoPluginRegistry, PluginManifest
@@ -100,7 +102,7 @@ def test_claude_stdin_hook_execution():
             "version": "1.0.0",
             "hooks": {
                 "PreToolUse": {
-                    "command": "python script.py"
+                    "command": f"{shlex.quote(sys.executable)} script.py"
                 }
             }
         }

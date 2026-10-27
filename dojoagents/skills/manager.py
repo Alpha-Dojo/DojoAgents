@@ -170,3 +170,30 @@ class SkillManager:
             if root.exists():
                 names.extend(path.parent.name for path in sorted(root.glob("*/SKILL.md")))
         return [n for n in names if n not in active_disabled]
+
+    def load_skill(self, name: str, platform: str | None = None) -> str | None:
+        """Return one active skill's full instructions, respecting runtime filters."""
+        normalized = name.strip()
+        if not normalized:
+            return None
+
+        active_disabled = set(self.disabled_skills)
+        if platform and platform in self.platform_disabled:
+            active_disabled.update(self.platform_disabled[platform])
+        if normalized in active_disabled:
+            return None
+
+        for root in self.skill_dirs:
+            skill_file = root / normalized / "SKILL.md"
+            if not skill_file.is_file():
+                continue
+            try:
+                frontmatter, body = self._get_skill_content(skill_file)
+            except Exception:
+                continue
+            if not self._matches_platform(frontmatter):
+                return None
+            if not self._matches_tool_requirements(frontmatter):
+                return None
+            return body.strip()
+        return None

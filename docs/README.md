@@ -1,26 +1,45 @@
 # DojoAgents 文档站维护说明
 
-本目录包含 DojoAgents 的 MkDocs 在线文档源文件和历史规划文档。
+本目录包含 DojoAgents 的 MkDocs 在线文档源码。除本维护说明外，所有可发布文档和文档资源都必须放在 `docs/site/` 中，禁止再在 `docs/` 根目录新增独立设计文档。
 
 ## 目录结构
 
 ```text
 docs/
-├── README.md          # 本文件
-├── site/              # MkDocs 正式站点内容
-│   ├── zh/            # 中文站点，默认发布到 /
-│   └── en/            # 英文站点，发布到 /en/
-└── plans/             # 设计方案、升级规划和历史计划
+├── README.md                  # 仅供维护者阅读的文档治理说明
+└── site/                      # MkDocs 的唯一 docs_dir
+    ├── assets/                # 中英文共享的图片、动图等静态资源
+    │   ├── images/
+    │   └── gifs/
+    ├── zh/                    # 中文站点，默认发布到 /
+    │   ├── getting-started/   # 安装和首次运行
+    │   ├── user-guide/        # 面向使用者的操作指南
+    │   ├── architecture/      # 系统级组件关系和数据流
+    │   ├── design/            # 子系统设计、技术决策和集成契约
+    │   ├── reference/         # 稳定接口、协议和配置参考
+    │   ├── development/       # 开发、测试、扩展和发布操作
+    │   ├── plans/             # 实施计划、迁移步骤和历史决策
+    │   └── community/         # 社区入口
+    └── en/                    # 英文站点；与 zh 保持相同相对路径
 ```
 
-正式文档只维护在 `docs/site/` 下。正式站点只包含当前指南、架构、Reference 和开发文档；历史规划、迁移记录、原型讨论保存在 `docs/plans/`，不进入正式站点导航。
+## 分类边界
+
+- `architecture/`：解释系统由哪些组件组成、组件如何协作和数据如何流动。
+- `design/`：记录一个具体子系统当前有效的设计、所有权边界和外部适配器契约。
+- `plans/`：记录尚未完成的方案、迁移顺序、backlog 或历史决策；它不是当前 API 契约。
+- `reference/`：记录调用者可以依赖的接口、协议、配置项和清单。
+- `development/`：记录如何开发、测试、扩展、构建和发布。
+- `assets/`：只存放站点共享静态资源，不存放 Markdown 正文。
+
+计划实施完成后，要把长期有效的结论迁移到 `architecture/`、`design/`、`reference/` 或 `development/`，并删除或归档失效计划。不要让同一份权威说明同时存在于多个分类。
 
 金融 Agent 工具与 Task 的权威说明在正式站：
 
 - `docs/site/*/reference/dojo-sdk.md`（`dojo.sdk.*` 清单与待补能力）
 - `docs/site/*/user-guide/tasks-and-pipelines.md`（流水线与 Theme Deep Dive）
 
-`docs/plans/` 中的能力盘点 / backlog 应与上述正式说明保持方向一致（SDK 为主路径），但细节仍以 site 为准。
+`docs/site/*/plans/` 中的能力盘点 / backlog 应与上述正式说明保持方向一致（SDK 为主路径），但当前行为仍以正式分类和代码为准。
 
 ## 本地预览
 
@@ -125,6 +144,8 @@ server {
 - 英文页面放在 `docs/site/en/`。
 - 中英文页面尽量保持相同相对路径，方便语言切换。
 - 新增正式页面后，需要同步更新 `mkdocs.yml` 的 `nav`。
+- 图片和动图统一放在 `docs/site/assets/images/` 与 `docs/site/assets/gifs/`，不要从站点文档跨目录引用前端源码资源。
+- 不要在 `docs/` 根目录新增可发布 Markdown；`docs/README.md` 只承担维护规则说明。
 - 新增文档构建依赖时，必须同步更新 `pyproject.toml` 和 `uv.lock`。
 - 不要编辑 `site/` 构建产物。
 - 不要使用 git 命令。

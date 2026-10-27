@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ from dojoagents.tools.write_authorization import (
     should_allow_write_session_file_for_task,
     write_session_file_guardrail_from_classification,
 )
+from dojoagents.utils.async_runtime import run_sync_bounded
 
 SESSION_OUTPUT_SUBDIR = "outputs"
 _SUPPORTED_FORMATS = frozenset({"text", "json", "jsonl"})
@@ -340,7 +340,7 @@ class SessionFileIO:
 
         # Task artifacts: filesystem only (same truth as activator / pipeline handoff).
         if active is not None and self.task_output_root is not None:
-            return await asyncio.to_thread(
+            return await run_sync_bounded(
                 self.read_filesystem,
                 session_id=session_id,
                 filename=safe_name,
@@ -365,7 +365,7 @@ class SessionFileIO:
 
                 if not isinstance(exc, SessionNotFoundError):
                     raise
-                return await asyncio.to_thread(
+                return await run_sync_bounded(
                     self.read_filesystem,
                     session_id=session_id,
                     filename=safe_name,
@@ -374,7 +374,7 @@ class SessionFileIO:
                     max_chars=max_chars,
                 )
 
-        return await asyncio.to_thread(
+        return await run_sync_bounded(
             self.read_filesystem,
             session_id=session_id,
             filename=safe_name,
@@ -402,7 +402,7 @@ class SessionFileIO:
 
         # Task artifacts never touch the session-store lock used by heartbeats.
         if active is not None and self.task_output_root is not None:
-            return await asyncio.to_thread(
+            return await run_sync_bounded(
                 self.write_filesystem,
                 session_id=session_id,
                 filename=safe_name,
@@ -423,7 +423,7 @@ class SessionFileIO:
                 fmt=normalized_fmt,
             )
 
-        return await asyncio.to_thread(
+        return await run_sync_bounded(
             self.write_filesystem,
             session_id=session_id,
             filename=safe_name,

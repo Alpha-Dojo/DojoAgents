@@ -7,7 +7,7 @@ from dojoagents.dashboard.services.kline_segment import (
     MAX_SECTOR_MEMBER_DAILY_RETURN,
     sector_member_daily_return_usable,
 )
-from dojoagents.dashboard.services.precompute_sector_daily import _build_index_rows
+from dojoagents.dashboard.jobs.precompute.sector_daily import _build_index_rows
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 
 

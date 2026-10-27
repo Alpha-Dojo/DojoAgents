@@ -109,4 +109,4 @@ Session history is missing:
 
 - [Dashboard Architecture](../architecture/dashboard.md)
 - [Dashboard API Reference](../reference/dashboard-api.md)
-- [Session Design and Integration](../development/session-history-design.md)
+- [Session Design and Integration](../design/session-history.md)

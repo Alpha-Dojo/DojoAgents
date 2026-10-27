@@ -18,6 +18,22 @@ Notes / intentional limits of the Windows fallback:
 - SSL over AF_UNIX is not implemented here.
 - Windows AF_UNIX does not support Linux abstract namespace addresses.
 - The returned server is asyncio.Server-like, not an actual asyncio.Server.
+
+Retention and removal condition
+-------------------------------
+
+This is one of the two sanctioned asyncio boundaries.  It exists because AnyIO
+offers no high-level AF_UNIX connection/server helpers, and because the Windows
+AF_UNIX support that ``asyncio`` lacks is implemented on top of the same API
+shape.  It is registered in ``PERMANENT_ASYNCIO_ALLOWLIST``
+(``tests/test_asyncio_boundaries.py``) and ``PRESERVE_ALLOWLIST``
+(``.agents/scripts/audit_asyncio_usage.py``).
+
+Delete this module once AnyIO exposes equivalent AF_UNIX primitives (or once
+AF_UNIX transport is no longer required on Windows), and migrate
+``dojoagents.tools.code_execution_tool`` to that API in the same change.  Until
+then it must stay a thin adapter: no business logic, no runtime state beyond the
+connection objects it returns.
 """
 
 from __future__ import annotations

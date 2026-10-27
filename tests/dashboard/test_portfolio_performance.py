@@ -237,8 +237,9 @@ async def test_build_performance_batches_order_klines(tmp_path) -> None:
     calls: list[list[str]] = []
 
     class BatchKlines:
-        async def get_klines(self, symbols, limit=None):
+        async def get_klines(self, symbols, limit=None, fields=None):
             del limit
+            assert fields == ("symbol", "bar_time", "close")
             calls.append(list(symbols))
             items = {
                 symbol: StockKlineResponse(
@@ -344,8 +345,9 @@ async def test_build_performance_backfills_missing_order_klines_and_uses_deep_be
         store.add_candidate(portfolio["id"], ticker=ticker, market="us")
 
     class BatchKlines:
-        async def get_klines(self, symbols, limit=None):
+        async def get_klines(self, symbols, limit=None, fields=None):
             del limit
+            assert fields == ("symbol", "bar_time", "close")
             # Simulate large candidate batch omitting filled order tickers.
             items = {
                 symbol: StockKlineResponse(
@@ -366,8 +368,9 @@ async def test_build_performance_backfills_missing_order_klines_and_uses_deep_be
             }
             return ConstituentKlineBatchResponse(items=items)
 
-        async def get_or_fetch_kline(self, symbol, limit=None):
+        async def get_or_fetch_kline(self, symbol, limit=None, fields=None):
             del limit
+            assert fields == ("symbol", "bar_time", "close")
             assert symbol == "NVDA"
             return StockKlineResponse(
                 symbol=symbol,
@@ -530,8 +533,9 @@ async def test_service_builds_independent_market_series_with_default_benchmarks(
                 ],
             )
 
-        async def get_klines(self, symbols, limit=None):
+        async def get_klines(self, symbols, limit=None, fields=None):
             del limit
+            assert fields == ("symbol", "bar_time", "close")
             items = {}
             for symbol in symbols:
                 market = next(m for (m, s) in stocks if s == symbol)

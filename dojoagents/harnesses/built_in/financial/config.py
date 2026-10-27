@@ -28,12 +28,22 @@ class FinancialSDKConfig:
     max_retries: int
     cache_dir: Path
     offline_mode: bool
+    backend: str
+    local_files_only: bool
+    startup_paths: tuple[str, ...] = ()
+    startup_repos: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.timeout <= 0:
             raise ValueError("financial SDK timeout must be greater than zero")
         if self.max_retries < 0:
             raise ValueError("financial SDK max_retries must not be negative")
+        if self.backend not in {"auto", "huggingface", "modelscope"}:
+            raise ValueError("financial SDK backend must be auto, huggingface, or modelscope")
+        if any(not path.strip() for path in self.startup_paths):
+            raise ValueError("financial SDK startup_paths must not contain blank paths")
+        if any(not repo.strip() for repo in self.startup_repos):
+            raise ValueError("financial SDK startup_repos must not contain blank repos")
 
 
 @dataclass(frozen=True)
@@ -59,18 +69,29 @@ class FinancialHarnessConfig:
         root = context.config
         options = dict(context.harness_config)
         sdk = root.dojosdk
+        offline = sdk.offline
         tasks = root.tasks
 
+        startup_paths = options.get("startup_paths", offline.startup_paths)
+        startup_repos = options.get("startup_repos", offline.startup_repos)
+        if not isinstance(startup_paths, (list, tuple)):
+            raise ValueError("financial harness config 'startup_paths' must be a list")
+        if not isinstance(startup_repos, (list, tuple)):
+            raise ValueError("financial harness config 'startup_repos' must be a list")
         sdk_config = FinancialSDKConfig(
             api_key=options.get("api_key", sdk.api_key),
             base_url=options.get("base_url", sdk.base_url),
             timeout=float(options.get("timeout", sdk.timeout)),
             max_retries=int(options.get("max_retries", sdk.max_retries)),
             cache_dir=_path(
-                options.get("sdk_cache_dir"),
-                Path("~/.cache/huggingface/hub"),
+                options.get("cache_dir"),
+                Path(offline.cache_dir),
             ),
-            offline_mode=_bool(options, "offline_mode", True),
+            offline_mode=_bool(options, "offline_mode", offline.enabled),
+            backend=str(options.get("data_backend", offline.backend)).strip().lower(),
+            local_files_only=_bool(options, "local_files_only", offline.local_files_only),
+            startup_paths=tuple(str(path).strip() for path in startup_paths),
+            startup_repos=tuple(str(repo).strip() for repo in startup_repos),
         )
         task_dirs = options.get("task_dirs", tasks.dirs)
         if not isinstance(task_dirs, (list, tuple)):

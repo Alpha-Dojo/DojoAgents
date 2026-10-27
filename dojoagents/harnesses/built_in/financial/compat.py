@@ -9,9 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from dojoagents.agent.models import ChatRequest
-from dojoagents.agent.guardrails import ToolGuardrailDecision
+from dojoagents.agent.guardrails import ToolGuardrailAction, ToolGuardrailDecision
 from dojoagents.agent.temporal_context import build_temporal_context_block
 
+from .context import FinancialRequestContextCodec
 from .policies.legacy_harness import FinancialHarnessLoopState
 from .policies.legacy_completion import apply_turn_completion_after_model
 from .policies.legacy_completion_hook import TurnCompletionHook
@@ -33,6 +34,12 @@ class FinancialLegacyBehavior:
     """Own the financial-only branches still needed by the sync facade."""
 
     state_factory = FinancialHarnessLoopState
+
+    def __init__(
+        self,
+        context_codec: FinancialRequestContextCodec | None = None,
+    ) -> None:
+        self.context_codec = context_codec or FinancialRequestContextCodec()
 
     @staticmethod
     def create_hook() -> TurnCompletionHook:
@@ -57,9 +64,12 @@ class FinancialLegacyBehavior:
                 session_id=request.session_id,
             ),
         ]
-        if request.quant is not None:
-            blocks.append(request.quant.prompt_block())
-            blocks.append(loop.extension_registry.prompt_context(request.quant))
+        financial_context = self.context_codec.decode(request)
+        if financial_context is not None:
+            blocks.append(financial_context.prompt_block())
+            blocks.append(
+                loop.extension_registry.prompt_context(financial_context)
+            )
         if ctx.has_prompt_pack(PACK_DASHBOARD_PROTOCOL) or ctx.has_prompt_pack(PACK_DASHBOARD_VIZ):
             locale = str(request.metadata.get("locale") or "en")
             if ctx.has_prompt_pack(PACK_DASHBOARD_VIZ):
@@ -133,7 +143,7 @@ class FinancialLegacyBehavior:
         if not blocked:
             return None
         return ToolGuardrailDecision(
-            action="block",
+            action=ToolGuardrailAction.BLOCK,
             code=code,
             message=message,
             tool_name=tool_name,

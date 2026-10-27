@@ -5,9 +5,9 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from dojoagents.config.models import DojoSDKConfig
 from dojoagents.tools.registry import ToolSpec
 
+from ..config import FinancialSDKConfig
 from ..tools.sdk_runtime import DojoSDKToolManager
 from .base import FinancialToolDefinition
 
@@ -15,7 +15,7 @@ from .base import FinancialToolDefinition
 class SDKFinancialToolBackend:
     """Expose only capabilities implemented directly by DojoSDK."""
 
-    def __init__(self, config: DojoSDKConfig) -> None:
+    def __init__(self, config: FinancialSDKConfig) -> None:
         self._manager = DojoSDKToolManager(config)
         self._specs: dict[str, ToolSpec] = {spec.name: spec for spec in self._manager.get_tool_specs()}
         self._definitions = MappingProxyType(

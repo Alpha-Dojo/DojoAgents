@@ -77,8 +77,8 @@ async def test_agent_loop_background_wakeup_flow():
     # The command is instant (echo), so it should finish quickly.
     event = None
     for _ in range(20):
-        if not process_registry.completion_queue.empty():
-            event = process_registry.completion_queue.get_nowait()
+        if process_registry.completion_events.statistics().current_buffer_used:
+            event = process_registry.completion_events.receive_nowait()
             break
         await asyncio.sleep(0.1)
         

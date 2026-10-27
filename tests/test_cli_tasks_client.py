@@ -127,7 +127,7 @@ async def test_wait_for_chat_run_polls_until_terminal_status() -> None:
 
     transport = httpx.MockTransport(handler)
     with patch("dojoagents.dashboard.client.tasks.httpx.AsyncClient", side_effect=_client_factory(transport)):
-        with patch("dojoagents.dashboard.client.tasks.asyncio.sleep", new_callable=AsyncMock):
+        with patch("dojoagents.dashboard.client.tasks.anyio.sleep", new_callable=AsyncMock):
             record = await wait_for_chat_run("http://127.0.0.1:8765", "run-123", poll_interval=0.01)
 
     assert calls["count"] == 2

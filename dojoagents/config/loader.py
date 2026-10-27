@@ -17,6 +17,7 @@ from dojoagents.config.models import (
     ChatCacheConfig,
     DEFAULT_LOG_DATE_FORMAT,
     DEFAULT_LOG_FORMAT,
+    DEFAULT_DOJOSDK_STARTUP_PATHS,
     DashboardConfig,
     FinancialDashboardConfig,
     DojoExtensionsConfig,
@@ -35,6 +36,7 @@ from dojoagents.config.models import (
     ExecuteCodeToolsConfig,
     WebToolsConfig,
     DojoSDKConfig,
+    DojoSDKOfflineConfig,
     ProfilerConfig,
     SessionRuntimeConfig,
     SessionsConfig,
@@ -153,6 +155,19 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         if not isinstance(raw_header_value, str):
             raise ValueError(f"llm_provider.providers.{name}.extra_headers.{header_name} must be a string")
         extra_headers[header_name] = raw_header_value
+    raw_model_keys = raw.get("model_keys", {})
+    if raw_model_keys is None:
+        raw_model_keys = {}
+    if not isinstance(raw_model_keys, dict):
+        raise ValueError(f"llm_provider.providers.{name}.model_keys must be a mapping")
+    model_keys: dict[str, str] = {}
+    for raw_model_name, raw_key in raw_model_keys.items():
+        key_name = _as_non_empty_string(raw_model_name)
+        if key_name is None:
+            raise ValueError(f"llm_provider.providers.{name}.model_keys keys must be non-empty strings")
+        if not isinstance(raw_key, str) or not raw_key.strip():
+            raise ValueError(f"llm_provider.providers.{name}.model_keys.{key_name} must be a non-empty string")
+        model_keys[key_name] = raw_key
     return LLMProviderConfig(
         model=parsed_model,
         models=tuple(models),
@@ -160,6 +175,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         base_url=raw.get("base_url"),
         api_key_env=api_key_env,
         api_key=api_key,
+        model_keys=model_keys,
         extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
     )
@@ -187,10 +203,16 @@ def _provider_for_model(
     model: str,
 ) -> LLMProviderConfig:
     author, slug = _split_author_and_model(model)
+    api_key = provider.api_key
+    if provider.model_keys and slug:
+        # Model-specific credential (credential center per-model binding) wins
+        # over the provider-wide key for exactly this model's calls.
+        api_key = provider.model_keys.get(slug) or provider.model_keys.get(model) or api_key
     return replace(
         provider,
         model=slug,
         author=author or provider.author,
+        api_key=api_key,
     )
 
 
@@ -303,8 +325,8 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             timeout_seconds=float(sandbox_raw.get("timeout_seconds", 120)),
         ),
         web=WebToolsConfig(
-            search_backend=web_raw.get("search_backend") or "ddgs",
-            extract_backend=web_raw.get("extract_backend") or "fetch",
+            search_backend=(web_raw.get("search_backend") if "search_backend" in web_raw else "ddgs"),
+            extract_backend=(web_raw.get("extract_backend") if "extract_backend" in web_raw else "fetch"),
             user_agent=web_raw.get("user_agent"),
             search_base_url=web_raw.get("search_base_url"),
             extract_base_url=web_raw.get("extract_base_url"),
@@ -327,6 +349,46 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
     gateway_raw = raw.get("gateway", {})
     dashboard_raw = raw.get("dashboard", {})
     financial_raw = dashboard_raw.get("financial", {})
+    dojosdk_raw = raw.get("dojosdk", {})
+    if not isinstance(dojosdk_raw, dict):
+        raise ValueError("dojosdk must be a mapping")
+    offline_raw = dojosdk_raw.get("offline", {})
+    if not isinstance(offline_raw, dict):
+        raise ValueError("dojosdk.offline must be a mapping")
+    startup_paths_raw = offline_raw.get(
+        "startup_paths",
+        DEFAULT_DOJOSDK_STARTUP_PATHS,
+    )
+    startup_repos_raw = offline_raw.get("startup_repos", [])
+    startup_preload_stores_raw = financial_raw.get(
+        "startup_preload_stores",
+        ("sector_store", "benchmark_store"),
+    )
+    if not isinstance(startup_paths_raw, (list, tuple)) or any(
+        not isinstance(item, str) or not item.strip() for item in startup_paths_raw
+    ):
+        raise ValueError("dojosdk.offline.startup_paths must be a list of non-empty strings")
+    if not isinstance(startup_repos_raw, (list, tuple)) or any(
+        not isinstance(item, str) or not item.strip() for item in startup_repos_raw
+    ):
+        raise ValueError("dojosdk.offline.startup_repos must be a list of non-empty strings")
+    if not isinstance(startup_preload_stores_raw, (list, tuple)) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in startup_preload_stores_raw
+    ):
+        raise ValueError(
+            "dashboard.financial.startup_preload_stores must be a list of non-empty strings"
+        )
+    offline_enabled = offline_raw.get("enabled", True)
+    local_files_only = offline_raw.get("local_files_only", False)
+    if type(offline_enabled) is not bool:
+        raise ValueError("dojosdk.offline.enabled must be a boolean")
+    if type(local_files_only) is not bool:
+        raise ValueError("dojosdk.offline.local_files_only must be a boolean")
+    offline_backend = str(offline_raw.get("backend", "auto")).strip().lower()
+    if offline_backend not in {"auto", "huggingface", "modelscope"}:
+        raise ValueError("dojosdk.offline.backend must be auto, huggingface, or modelscope")
+    offline_cache_dir = offline_raw.get("cache_dir", "~/.cache/huggingface/hub")
     extensions_raw = raw.get("dojo_extensions", {})
     logging_raw = raw.get("logging", {})
     multi_agent_raw = raw.get("multi_agent", {})
@@ -476,7 +538,6 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
             profiler=ProfilerConfig(enabled=bool(dashboard_raw.get("profiler", {}).get("enabled", False))),
             financial=FinancialDashboardConfig(
                 enabled=bool(financial_raw.get("enabled", True)),
-                sdk_cache_dir=str(financial_raw.get("sdk_cache_dir", "~/.cache/dojo")),
                 dashboard_data_root=str(financial_raw.get("dashboard_data_root", "~/.dojo/dashboard-data")),
                 stock_quote_refresh_seconds=int(financial_raw.get("stock_quote_refresh_seconds", 15)),
                 constituent_kline_post_close_poll_seconds=int(financial_raw.get("constituent_kline_post_close_poll_seconds", 300)),
@@ -486,6 +547,9 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
                 ticker_market_cap_min_hk=float(financial_raw.get("ticker_market_cap_min_hk", 1_000_000_000.0)),
                 derived_cache_schema_version=int(financial_raw.get("derived_cache_schema_version", 1)),
                 market_calendar_provider=str(financial_raw.get("market_calendar_provider", "exchange_calendars")),
+                startup_preload_stores=tuple(
+                    dict.fromkeys(item.strip() for item in startup_preload_stores_raw)
+                ),
             ),
         ),
         dojo_extensions=DojoExtensionsConfig(enabled=list(extensions_raw.get("enabled", ["dojo_research"]))),
@@ -496,10 +560,18 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         ),
         mcp_servers=dict(raw.get("mcp_servers", {})),
         dojosdk=DojoSDKConfig(
-            api_key=_as_non_empty_string(os.getenv("DOJO_API_KEY")) or raw.get("dojosdk", {}).get("api_key"),
-            base_url=_as_non_empty_string(os.getenv("DOJO_BASE_URL")) or raw.get("dojosdk", {}).get("base_url"),
-            timeout=float(raw.get("dojosdk", {}).get("timeout", 60.0)),
-            max_retries=int(raw.get("dojosdk", {}).get("max_retries", 1)),
+            api_key=_as_non_empty_string(os.getenv("DOJO_API_KEY")) or dojosdk_raw.get("api_key"),
+            base_url=_as_non_empty_string(os.getenv("DOJO_BASE_URL")) or dojosdk_raw.get("base_url"),
+            timeout=float(dojosdk_raw.get("timeout", 60.0)),
+            max_retries=int(dojosdk_raw.get("max_retries", 1)),
+            offline=DojoSDKOfflineConfig(
+                enabled=offline_enabled,
+                cache_dir=str(offline_cache_dir),
+                backend=offline_backend,
+                local_files_only=local_files_only,
+                startup_paths=tuple(dict.fromkeys(item.strip() for item in startup_paths_raw)),
+                startup_repos=tuple(dict.fromkeys(item.strip() for item in startup_repos_raw)),
+            ),
         ),
         multi_agent=MultiAgentConfig(
             enabled=bool(multi_agent_raw.get("enabled", False)),
@@ -583,6 +655,8 @@ class ConfigStore:
             provider["api_key_configured"] = configured
             if provider.get("api_key") or provider.get("api_key_env"):
                 provider["api_key"] = "***"
+            if provider.get("model_keys"):
+                provider["model_keys"] = {key: "***" for key in provider["model_keys"]}
             if provider.get("extra_headers"):
                 provider["extra_headers"] = {key: "***" for key in provider["extra_headers"]}
         sensitive_fragments = ("dsn", "password", "secret", "access_key", "api_key", "token", "credential", "endpoint")

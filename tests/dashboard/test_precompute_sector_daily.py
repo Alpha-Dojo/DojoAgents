@@ -103,7 +103,6 @@ class StubDojoClient:
 
 @pytest.mark.asyncio
 async def test_build_sector_precomputed_publishes_market_aware_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DOJO_HF_OFFLINE", "true")
     path = ResolvedSectorPath(
         level1_id="L1",
         level2_id="L2",
@@ -300,6 +299,7 @@ def test_market_increment_preserves_other_markets_and_earlier_dates(tmp_path: Pa
     pd.DataFrame([constituent("us", "US"), constituent("sh", "OLD")])[CONSTITUENT_COLUMNS].to_parquet(out_dir / "constituents.parquet", index=False)
     pd.DataFrame([ticker("us", "US", "2026-08-10"), ticker("sh", "OLD", "2026-08-10")])[TICKER_DAILY_COLUMNS].to_parquet(out_dir / "ticker_daily.parquet", index=False)
     pd.DataFrame([sector("us", "2026-08-10"), sector("sh", "2026-08-10")])[SECTOR_DAILY_COLUMNS].to_parquet(out_dir / "sector_daily.parquet", index=False)
+    (out_dir / "theme_state_daily.parquet").write_bytes(b"supplemental")
 
     new_frames = (
         pd.DataFrame([constituent("sh", "NEW")])[CONSTITUENT_COLUMNS],
@@ -316,3 +316,98 @@ def test_market_increment_preserves_other_markets_and_earlier_dates(tmp_path: Pa
     ticker_daily = pd.read_parquet(staging_dir / "ticker_daily.parquet")
     assert set(constituents["ticker"]) == {"US", "NEW"}
     assert set(ticker_daily["trade_date"]) == {"2026-08-10", "2026-08-11"}
+    assert (staging_dir / "theme_state_daily.parquet").read_bytes() == b"supplemental"
+
+
+def test_full_market_increment_preserves_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A full-markets run with a late start_date must extend, not replace.
+
+    Regression: a run with --start-date <today> and no --market used to wipe
+    the entire published history (2025-01-01 onward) and keep only the single
+    new day, flattening every sector performance curve.
+    """
+    out_dir = tmp_path / "dojo_sector_precomputed"
+    out_dir.mkdir()
+
+    def constituent(market: str, ticker: str) -> dict:
+        return dict.fromkeys(CONSTITUENT_COLUMNS) | {
+            "level1_id": "1",
+            "level2_id": "2",
+            "level3_id": "3",
+            "market": market,
+            "ticker": ticker,
+            "role": "primary",
+            "market_cap": 2e9,
+            "pe": 20.0,
+        }
+
+    def ticker(market: str, ticker_name: str, trade_date: str) -> dict:
+        return dict.fromkeys(TICKER_DAILY_COLUMNS) | {"market": market, "ticker": ticker_name, "trade_date": trade_date, "close": 10.0}
+
+    def sector(market: str, trade_date: str) -> dict:
+        return dict.fromkeys(SECTOR_DAILY_COLUMNS) | {
+            "trade_date": trade_date,
+            "scope": "L3",
+            "market": market,
+            "level1_id": "1",
+            "level2_id": "2",
+            "level3_id": "3",
+        }
+
+    pd.DataFrame([constituent("us", "OLD-US"), constituent("sh", "OLD-SH")])[CONSTITUENT_COLUMNS].to_parquet(out_dir / "constituents.parquet", index=False)
+    pd.DataFrame([ticker("us", "US", "2026-08-10"), ticker("sh", "SH", "2026-08-10")])[TICKER_DAILY_COLUMNS].to_parquet(out_dir / "ticker_daily.parquet", index=False)
+    pd.DataFrame([sector("us", "2026-08-10"), sector("sh", "2026-08-10")])[SECTOR_DAILY_COLUMNS].to_parquet(out_dir / "sector_daily.parquet", index=False)
+
+    new_frames = (
+        pd.DataFrame([constituent("us", "NEW-US"), constituent("sh", "NEW-SH")])[CONSTITUENT_COLUMNS],
+        pd.DataFrame([ticker("us", "US", "2026-08-11"), ticker("sh", "SH", "2026-08-11")])[TICKER_DAILY_COLUMNS],
+        pd.DataFrame([sector("us", "2026-08-11"), sector("sh", "2026-08-11")])[SECTOR_DAILY_COLUMNS],
+        {"files": {}},
+    )
+    monkeypatch.setattr("dojoagents.dashboard.jobs.precompute.sector_daily.compute_sector_precomputed_frames", lambda _snapshot: new_frames)
+    snapshot = PrecomputeInputSnapshot("2026-08-11", None, "2026-08-11T00:00:00Z", [], [], {"markets": {}})
+
+    manifest, staging_dir = compute_and_stage_sector_precomputed(snapshot, out_dir, None)
+
+    sector_daily = pd.read_parquet(staging_dir / "sector_daily.parquet")
+    ticker_daily = pd.read_parquet(staging_dir / "ticker_daily.parquet")
+    assert set(sector_daily["trade_date"]) == {"2026-08-10", "2026-08-11"}
+    assert set(ticker_daily["trade_date"]) == {"2026-08-10", "2026-08-11"}
+    constituents = pd.read_parquet(staging_dir / "constituents.parquet")
+    # Constituents are a current-state snapshot: fully replaced by the new run.
+    assert set(constituents["ticker"]) == {"NEW-US", "NEW-SH"}
+    assert manifest["sector_daily_rows"] == len(sector_daily)
+
+
+def test_full_window_run_still_replaces_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """start_date == DATA_START_DATE without market is a deliberate full rebuild."""
+    out_dir = tmp_path / "dojo_sector_precomputed"
+    out_dir.mkdir()
+
+    def sector(market: str, trade_date: str) -> dict:
+        return dict.fromkeys(SECTOR_DAILY_COLUMNS) | {
+            "trade_date": trade_date,
+            "scope": "L3",
+            "market": market,
+            "level1_id": "1",
+            "level2_id": "2",
+            "level3_id": "3",
+        }
+
+    pd.DataFrame([sector("us", "2026-08-10")])[SECTOR_DAILY_COLUMNS].to_parquet(out_dir / "sector_daily.parquet", index=False)
+    pd.DataFrame([dict.fromkeys(CONSTITUENT_COLUMNS) | {"level1_id": "1", "level2_id": "2", "level3_id": "3", "market": "us", "ticker": "OLD", "role": "primary", "market_cap": 2e9, "pe": 20.0}])[CONSTITUENT_COLUMNS].to_parquet(out_dir / "constituents.parquet", index=False)
+    pd.DataFrame([dict.fromkeys(TICKER_DAILY_COLUMNS) | {"market": "us", "ticker": "OLD", "trade_date": "2026-08-10", "close": 10.0}])[TICKER_DAILY_COLUMNS].to_parquet(out_dir / "ticker_daily.parquet", index=False)
+
+    new_frames = (
+        pd.DataFrame([dict.fromkeys(CONSTITUENT_COLUMNS) | {"level1_id": "1", "level2_id": "2", "level3_id": "3", "market": "us", "ticker": "NEW", "role": "primary", "market_cap": 2e9, "pe": 20.0}])[CONSTITUENT_COLUMNS],
+        pd.DataFrame([dict.fromkeys(TICKER_DAILY_COLUMNS) | {"market": "us", "ticker": "NEW", "trade_date": "2025-01-02", "close": 10.0}])[TICKER_DAILY_COLUMNS],
+        pd.DataFrame([sector("us", "2025-01-02")])[SECTOR_DAILY_COLUMNS],
+        {"files": {}},
+    )
+    monkeypatch.setattr("dojoagents.dashboard.jobs.precompute.sector_daily.compute_sector_precomputed_frames", lambda _snapshot: new_frames)
+    snapshot = PrecomputeInputSnapshot("2025-01-01", None, "2025-01-01T00:00:00Z", [], [], {"markets": {}})
+
+    _manifest, staging_dir = compute_and_stage_sector_precomputed(snapshot, out_dir, None)
+
+    sector_daily = pd.read_parquet(staging_dir / "sector_daily.parquet")
+    assert set(sector_daily["trade_date"]) == {"2025-01-02"}

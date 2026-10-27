@@ -159,7 +159,7 @@ async def test_gateway_unauthorized_user_pairing_dm(tmp_path):
     assert result2 != {"accepted": False, "reason": "unauthorized"}
 
 
-def test_cli_pairing_commands(tmp_path, capsys):
+def test_cli_pairing_commands(tmp_path, caplog):
     import yaml
     from dojoagents.cli.main import main
 
@@ -173,8 +173,7 @@ def test_cli_pairing_commands(tmp_path, capsys):
     # Initially, list should print "no pending pairing requests"
     code = main(["gateway", "pairing", "list", "--config", str(config_path)])
     assert code == 0
-    out, err = capsys.readouterr()
-    out = out + err
+    out = caplog.text
     assert "no pending pairing requests" in out.lower()
 
     # Generate a code manually to test CLI approve/deny
@@ -184,16 +183,14 @@ def test_cli_pairing_commands(tmp_path, capsys):
     # List should now show the pending request
     code = main(["gateway", "pairing", "list", "--config", str(config_path)])
     assert code == 0
-    out, err = capsys.readouterr()
-    out = out + err
+    out = caplog.text
     assert "user_1" in out
     assert p_code in out
 
     # Approve via CLI
     code = main(["gateway", "pairing", "approve", "slack", p_code, "--config", str(config_path)])
     assert code == 0
-    out, err = capsys.readouterr()
-    out = out + err
+    out = caplog.text
     assert "successfully approved" in out.lower()
 
     # Verify approved in store
@@ -203,16 +200,14 @@ def test_cli_pairing_commands(tmp_path, capsys):
     # Try denying a non-existent code
     code = main(["gateway", "pairing", "deny", "slack", "NOTEXIST", "--config", str(config_path)])
     assert code == 1
-    out, err = capsys.readouterr()
-    out = out + err
+    out = caplog.text
     assert "failed to deny" in out.lower()
 
     # Generate another code for deny
     p_code2 = store.generate_code("slack", "user_2", "User Two")
     code = main(["gateway", "pairing", "deny", "slack", p_code2, "--config", str(config_path)])
     assert code == 0
-    out, err = capsys.readouterr()
-    out = out + err
+    out = caplog.text
     assert "successfully denied" in out.lower()
 
     # Verify not pending and not approved

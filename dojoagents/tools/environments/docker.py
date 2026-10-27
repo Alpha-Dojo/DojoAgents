@@ -1,4 +1,4 @@
-import asyncio
+from dojoagents.tools import processes
 from dojoagents.tools.environments.base import BaseEnvironment
 
 
@@ -17,15 +17,18 @@ class DockerEnvironment(BaseEnvironment):
 
         host_cwd = os.getcwd()
         start_cmd = ["docker", "run", "-d", "--name", self.container_name, "-v", f"{host_cwd}:/workspace", "--workdir", "/workspace", self.image, "tail", "-f", "/dev/null"]
-        proc = await asyncio.create_subprocess_exec(*start_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        await proc.communicate()
+        # 短命令：只关心退出码，不需要流式读取
+        await processes.run_process(start_cmd, stdout=processes.PIPE, stderr=processes.PIPE)
         self._started = True
 
-    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> asyncio.subprocess.Process:
+    async def _run_bash(self, cmd_string: str, timeout: float, stdin_data: str = None) -> processes.Process:
         await self._ensure_container()
         exec_cmd = ["docker", "exec", "-i", self.container_name, "bash", "-c", cmd_string]
-        return await asyncio.create_subprocess_exec(
-            *exec_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, stdin=asyncio.subprocess.PIPE if stdin_data else asyncio.subprocess.DEVNULL
+        return await processes.open_process(
+            exec_cmd,
+            stdin=processes.PIPE if stdin_data else processes.DEVNULL,
+            stdout=processes.PIPE,
+            stderr=processes.STDOUT,
         )
 
     def cleanup(self):

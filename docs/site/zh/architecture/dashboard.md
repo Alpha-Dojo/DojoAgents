@@ -33,4 +33,4 @@ Dashboard 把 FastAPI 后端、React 前端、金融数据服务和 Agent chat A
 - [Dashboard API](../reference/dashboard-api.md)
 - [Dashboard 用户指南](../user-guide/dashboard.md)
 - [任务与流水线](../user-guide/tasks-and-pipelines.md)
-- [Session 设计与集成](../development/session-history-design.md)
+- [Session 设计与集成](../design/session-history.md)

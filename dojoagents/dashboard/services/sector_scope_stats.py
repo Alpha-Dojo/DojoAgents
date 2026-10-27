@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict
 
 from dojoagents.dashboard.services.sector_constituents import MARKETS, SectorLevel
 from dojoagents.dashboard.services.sector_store import ResolvedSectorPath
 from dojoagents.dashboard.services.stock_store import StockStore
 from dojoagents.dashboard.schemas.dojo_sphere import SectorScopeMarketStats, SectorScopeMetricsResponse
+from dojoagents.utils.async_runtime import SyncWorkload, run_sync_bounded
 
 LEVELS: tuple[SectorLevel, ...] = ("L1", "L2", "L3")
 
@@ -58,10 +58,11 @@ async def compute_sector_scope_metrics(
 ) -> SectorScopeMetricsResponse:
     """Total market cap and weighted PE for L1/L2/L3 scopes in each market."""
     del stock_store
-    return await asyncio.to_thread(
+    return await run_sync_bounded(
         _compute_sector_scope_metrics_sync,
         sector_precomputed_store,
         path,
+        workload=SyncWorkload.SDK_IO,
     )
 
 

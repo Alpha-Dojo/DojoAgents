@@ -64,9 +64,26 @@ export interface SettingsFormState {
     read_claude_skills: boolean;
   };
   scheduler: { enabled: boolean; timezone: string; store: string };
-  dashboard: { host: string; port: number };
+  dashboard: {
+    host: string;
+    port: number;
+    financial: { startup_preload_stores: string };
+  };
   logging: { level: string; format: string; date_format: string };
-  dojosdk: { api_key: string; base_url: string; timeout: number; max_retries: number };
+  dojosdk: {
+    api_key: string;
+    base_url: string;
+    timeout: number;
+    max_retries: number;
+    offline: {
+      enabled: boolean;
+      cache_dir: string;
+      backend: 'auto' | 'huggingface' | 'modelscope';
+      local_files_only: boolean;
+      startup_paths: string;
+      startup_repos: string;
+    };
+  };
   multi_agent: {
     enabled: boolean;
     max_workers: number;

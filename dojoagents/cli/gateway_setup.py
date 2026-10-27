@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dojoagents.logging import LOGGER
 
-import asyncio
+import anyio
 import inspect
 import json
 from dataclasses import dataclass
@@ -165,7 +165,7 @@ class WeChatQRLoginClient:
                 LOGGER.info("WeChat QR login URL: " + str(qr_url))
             if status_name in {"scaned", "scanned", "scaned_but_redirect"}:
                 LOGGER.info("WeChat scan detected; waiting for phone confirmation...")
-            await asyncio.sleep(self.poll_interval_seconds)
+            await anyio.sleep(self.poll_interval_seconds)
 
         raise RuntimeError("Timed out waiting for WeChat QR login confirmation.")
 
@@ -374,9 +374,9 @@ def _run_async(value: Awaitable[dict[str, str]] | dict[str, str]) -> dict[str, s
     if not inspect.isawaitable(value):
         return value
     try:
-        asyncio.get_running_loop()
+        anyio.get_current_task()
     except RuntimeError:
-        return asyncio.run(value)
+        return anyio.run(lambda: value)
     raise RuntimeError("Cannot run WeChat QR login from an active event loop.")
 
 

@@ -51,6 +51,11 @@ plugins:
             架构: Architecture
             总览: Overview
             Harness、Agent 与 Session: Harness, Agent, and Session
+            设计: Design
+            K 线快照查询职责: K-line Snapshot Query Ownership
+            Session 设计与集成: Session Design and Integration
+            外部 SessionStore / BlobStore 适配器: External SessionStore / BlobStore Adapters
+            异步运行时: Async Runtime
             配置: Configuration
             开发: Development
             仓库地图: Repository Map
@@ -62,6 +67,9 @@ plugins:
             前端样式规范: Frontend Style Guide
             构建发布: Release Build
             Docker 打包: Docker Packaging
+            计划: Plans
+            社区: Community
+            微信社区: WeChat Community
 extra:
   alternate:
     - name: 中文
@@ -93,7 +101,7 @@ nav:
       - 总览: architecture/overview.md
       - Runtime: architecture/runtime.md
       - Harness、Agent 与 Session: architecture/harness-agent-session-integration.md
-      - Harness Runtime: harness-runtime.md
+      - Harness Runtime: architecture/harness-runtime.md
       - Agent Loop: architecture/agent-loop.md
       - Tools 与 Sandbox: architecture/tools-and-sandbox.md
       - Dashboard: architecture/dashboard.md
@@ -102,6 +110,12 @@ nav:
       - Multi-Agent 与 Planning: architecture/multi-agent-planning.md
       - Memory: architecture/memory.md
       - Event-driven: architecture/event-driven.md
+  - 设计:
+      - design/index.md
+      - K 线快照查询职责: design/kline-snapshot-queries.md
+      - Session 设计与集成: design/session-history.md
+      - 外部 SessionStore / BlobStore 适配器: design/session-store-adapter.md
+      - 异步运行时: design/async-runtime.md
   - Reference:
       - reference/index.md
       - 配置: reference/configuration.md
@@ -118,10 +132,13 @@ nav:
       - 仓库地图: development/repository-map.md
       - 本地开发: development/local-development.md
       - 测试: development/testing.md
-      - Session 设计与集成: development/session-history-design.md
       - 添加工具: development/adding-tools.md
       - 添加 Dashboard 路由: development/adding-dashboard-routes.md
       - 添加 Gateway Adapter: development/adding-gateway-adapters.md
       - 前端样式规范: development/frontend-style-guide.md
       - 构建发布: development/release-build.md
       - Docker 打包: development/docker-packaging.md
+  - 计划:
+      - plans/index.md
+  - 社区:
+      - 微信社区: community/wechat.md

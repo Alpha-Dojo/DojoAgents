@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import os
 import uuid
@@ -12,6 +11,7 @@ from typing import Any, Callable, TypeVar
 import portalocker
 
 from dojoagents.sessions.atomic import AtomicJsonStore, FileStoreError
+from dojoagents.utils.async_runtime import run_sync_bounded
 from dojoagents.logging import LOGGER
 from dojoagents.sessions.errors import BlobStoreError, SessionDataCorruptError, SessionNotFoundError
 from dojoagents.sessions.models import (
@@ -133,7 +133,7 @@ class FileBlobStore:
             return result
 
     async def _locked(self, blob_id: str, callback: Callable[[dict[str, Any] | None], T], *, write: bool) -> T:
-        return await asyncio.to_thread(self._locked_sync, blob_id, callback, write=write)
+        return await run_sync_bounded(self._locked_sync, blob_id, callback, write=write)
 
     @staticmethod
     def _authorize(record: dict[str, Any] | None, principal: SessionPrincipal) -> BlobRef:
@@ -145,11 +145,11 @@ class FileBlobStore:
         return ref
 
     async def startup(self) -> None:
-        await asyncio.to_thread(self.root.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(self.data_root.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(self.temp_root.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(self.lock_root.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(self._metadata.root.mkdir, parents=True, exist_ok=True)
+        await run_sync_bounded(self.root.mkdir, parents=True, exist_ok=True)
+        await run_sync_bounded(self.data_root.mkdir, parents=True, exist_ok=True)
+        await run_sync_bounded(self.temp_root.mkdir, parents=True, exist_ok=True)
+        await run_sync_bounded(self.lock_root.mkdir, parents=True, exist_ok=True)
+        await run_sync_bounded(self._metadata.root.mkdir, parents=True, exist_ok=True)
         self._started = True
 
     async def health(self) -> StoreHealth:
@@ -185,14 +185,14 @@ class FileBlobStore:
         digest = hashlib.sha256()
         size = 0
         try:
-            await asyncio.to_thread(_initialize_file, temp_path)
+            await run_sync_bounded(_initialize_file, temp_path)
             async for chunk in data:
                 if not isinstance(chunk, bytes):
                     raise TypeError("blob stream chunks must be bytes")
                 digest.update(chunk)
                 size += len(chunk)
-                await asyncio.to_thread(_append_chunk, temp_path, chunk)
-            await asyncio.to_thread(_finalize_file, temp_path, self._data_path(blob_id))
+                await run_sync_bounded(_append_chunk, temp_path, chunk)
+            await run_sync_bounded(_finalize_file, temp_path, self._data_path(blob_id))
             completed_pending = replace(pending, checksum_sha256=digest.hexdigest(), size_bytes=size)
 
             def mark_ready(record: dict[str, Any] | None) -> None:
@@ -220,15 +220,15 @@ class FileBlobStore:
         path = self._data_path(current.blob_id)
 
         async def chunks():
-            handle = await asyncio.to_thread(path.open, "rb")
+            handle = await run_sync_bounded(path.open, "rb")
             try:
                 while True:
-                    chunk = await asyncio.to_thread(handle.read, 64 * 1024)
+                    chunk = await run_sync_bounded(handle.read, 64 * 1024)
                     if not chunk:
                         break
                     yield chunk
             finally:
-                await asyncio.to_thread(handle.close)
+                await run_sync_bounded(handle.close)
 
         return chunks()
 
@@ -260,8 +260,8 @@ class FileBlobStore:
 
         current = await self._locked(blob_ref.blob_id, tombstone, write=True)
         try:
-            await asyncio.to_thread(_unlink_if_exists, self._data_path(current.blob_id))
-            await asyncio.to_thread(_unlink_if_exists, self._temp_path(current.blob_id))
+            await run_sync_bounded(_unlink_if_exists, self._data_path(current.blob_id))
+            await run_sync_bounded(_unlink_if_exists, self._temp_path(current.blob_id))
         except OSError as exc:
             raise BlobStoreError(f"blob soft-delete pending: {exc}") from exc
 
@@ -271,7 +271,7 @@ class FileBlobStore:
                 return []
             return [path.stem for path in self._metadata.root.glob("*.json")]
 
-        return await asyncio.to_thread(scan)
+        return await run_sync_bounded(scan)
 
     async def collect_expired_pending(self, now: datetime) -> int:
         removed = 0
@@ -291,8 +291,8 @@ class FileBlobStore:
                 expired = await self._locked(blob_id, inspect, write=True)
                 if not expired:
                     continue
-                await asyncio.to_thread(_unlink_if_exists, self._data_path(blob_id))
-                await asyncio.to_thread(_unlink_if_exists, self._temp_path(blob_id))
+                await run_sync_bounded(_unlink_if_exists, self._data_path(blob_id))
+                await run_sync_bounded(_unlink_if_exists, self._temp_path(blob_id))
                 removed += 1
             except Exception:
                 LOGGER.exception("Failed to collect pending blob %s", blob_id)
@@ -309,8 +309,8 @@ class FileBlobStore:
                 record = await self._locked(blob_id, lambda item: item, write=False)
                 if record is None or _decode_ref(record["ref"]).state != "deleted":
                     continue
-                await asyncio.to_thread(_unlink_if_exists, self._data_path(blob_id))
-                await asyncio.to_thread(_unlink_if_exists, self._temp_path(blob_id))
+                await run_sync_bounded(_unlink_if_exists, self._data_path(blob_id))
+                await run_sync_bounded(_unlink_if_exists, self._temp_path(blob_id))
                 retried += 1
             except Exception:
                 LOGGER.exception("Failed to retry soft-deleted blob %s", blob_id)

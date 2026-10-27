@@ -262,6 +262,108 @@ async def test_web_search_tavily_without_api_key_returns_error():
 
 
 @pytest.mark.asyncio
+async def test_web_search_serply_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/v1/search"
+        assert request.url.host == "api.serply.io"
+        assert request.url.params["q"] == "dojo"
+        assert request.url.params["num"] == "1"
+        assert request.headers.get("x-api-key") == "serply-test"
+        assert request.headers.get("user-agent", "").startswith("DojoAgents/")
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "Serply Dojo",
+                        "link": "https://example.com/serply",
+                        "description": "Serply snippet",
+                    },
+                    {
+                        "title": "Second",
+                        "link": "https://example.com/second",
+                        "description": "Second snippet",
+                    },
+                ]
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "serply", "api_key": "serply-test"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 1})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "serply"
+    assert len(result.data["web"]) == 1
+    assert result.data["web"][0]["title"] == "Serply Dojo"
+    assert result.data["web"][0]["url"] == "https://example.com/serply"
+    assert result.data["web"][0]["description"] == "Serply snippet"
+
+
+@pytest.mark.asyncio
+async def test_web_search_serply_caps_num_at_ten(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["num"] == "10"
+        return httpx.Response(200, json={"results": []})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "serply", "api_key": "serply-test"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 25})
+    )
+
+    assert result.ok is True
+    assert result.data["web"] == []
+
+
+@pytest.mark.asyncio
+async def test_web_search_serply_rejected_key_returns_error(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "Invalid API key"})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "serply", "api_key": "bad-key"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"})
+    )
+
+    assert result.ok is False
+    assert "401" in result.error
+
+
+@pytest.mark.asyncio
+async def test_web_search_serply_without_api_key_returns_error():
+    executor = _make_executor({"tools": {"web": {"search_backend": "serply"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"})
+    )
+
+    assert result.ok is False
+    assert "api key" in result.error.lower()
+
+
+@pytest.mark.asyncio
 async def test_web_extract_tavily_adapter_parses_results(monkeypatch):
     from dojoagents.tools import web_searcher
 

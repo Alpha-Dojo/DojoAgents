@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from pathlib import Path
 from fastapi import Request
@@ -48,8 +47,7 @@ class PyInstrumentProfilerMiddleware(BaseHTTPMiddleware):
 
         # If globally triggered, save to disk and return original response
         try:
-            local_data_dir = os.environ.get("DOJO_CACHE_DIR", os.path.expanduser("~/.dojo/data"))
-            profiles_dir = Path(local_data_dir) / "profiles"
+            profiles_dir = Path("~/.dojo/data/profiles").expanduser()
             profiles_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -15,6 +16,7 @@ from dojoagents.sessions.identifiers import validate_session_id
 
 LOGGER = get_logger(__name__)
 
+ARTIFACT_MAX_BYTES = 1024 * 1024 * 1024
 ARTIFACT_PERSIST_THRESHOLD_CHARS = 5000
 ARTIFACT_KEEP_FULL_CONTENT_TOOLS = frozenset(
     {
@@ -99,8 +101,18 @@ class ToolResultArtifactStore:
             "data": data,
             "created_at": _utc_now(),
         }
-        _atomic_write_json(path, payload)
+        _atomic_write_json(path, payload, max_bytes=ARTIFACT_MAX_BYTES)
         return path
+
+    def delete_session(self, session_id: str) -> None:
+        """Remove only this session's disposable tool results."""
+        directory = self._artifact_dir(session_id)
+        if directory.resolve() != directory:
+            raise ValueError("tool result cleanup must not follow symlink directories")
+        try:
+            shutil.rmtree(directory)
+        except FileNotFoundError:
+            pass
 
     def load(self, session_id: str, call_id: str) -> dict[str, Any] | None:
         path = self.artifact_path(session_id, call_id)
@@ -139,7 +151,6 @@ class ToolResultArtifactStore:
         return rows
 
 
-ARTIFACT_MAX_CONTENT_CHARS = 2_000_000
 _PREVIEW_PRIORITY = (
     "schema_version",
     "partial",
@@ -363,7 +374,7 @@ def build_artifact_pointer_message(
 
 __all__ = [
     "ARTIFACT_KEEP_FULL_CONTENT_TOOLS",
-    "ARTIFACT_MAX_CONTENT_CHARS",
+    "ARTIFACT_MAX_BYTES",
     "build_artifact_data_preview",
     "compact_artifact_schema_hint",
     "structured_artifact_data",

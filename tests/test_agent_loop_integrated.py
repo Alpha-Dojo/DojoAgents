@@ -100,10 +100,15 @@ async def test_request_model_override_is_used_for_provider_call():
     assert provider_cfg.model == "deepseek-v4-flash-0731"
 
 
-@pytest.mark.asyncio
-async def test_integrated_loop_guardrails():
-    # Verify that a tool loop gets blocked or halted by guardrails inside AgentLoop
+@pytest.mark.anyio
+@pytest.mark.parametrize("block_after", [2, 3])
+async def test_integrated_loop_guardrail_block_skips_tool_and_continues(block_after):
+    # A block rejects only the current tool call and returns control to the model.
+    tool_calls = 0
+
     async def failing_tool(args):
+        nonlocal tool_calls
+        tool_calls += 1
         return {"content": "Error: compilation failed"}
 
     registry = ToolRegistry()
@@ -116,34 +121,20 @@ async def test_integrated_loop_guardrails():
         )
     )
 
-    # LLM keeps calling the failing tool unchanged
+    # Warn after the second failure; block only once the configured limit is reached.
     llm = StaticLLMProvider(
         [
-            LLMResult(
-                content="",
-                tool_calls=[ToolCall(id="c1", name="fail_tool", arguments={"v": 1})],
-            ),
-            LLMResult(
-                content="",
-                tool_calls=[ToolCall(id="c2", name="fail_tool", arguments={"v": 1})],
-            ),
-            LLMResult(
-                content="",
-                tool_calls=[ToolCall(id="c3", name="fail_tool", arguments={"v": 1})],
-            ),
-            LLMResult(
-                content="",
-                tool_calls=[ToolCall(id="c4", name="fail_tool", arguments={"v": 1})],
-            ),
-            LLMResult(
-                content="",
-                tool_calls=[ToolCall(id="c5", name="fail_tool", arguments={"v": 1})],
-            ),
+            *[
+                LLMResult(
+                    content="",
+                    tool_calls=[ToolCall(id=f"c{index}", name="fail_tool", arguments={"v": 1})],
+                )
+                for index in range(1, block_after + 2)
+            ],
             LLMResult(content="Done"),
         ]
     )
 
-    # Set exact_failure_block_after low to trigger block/halt quickly
     loop = AgentLoop(
         llm_provider=llm,
         tool_executor=ToolExecutor(registry, SandboxPolicy(timeout_seconds=2)),
@@ -159,14 +150,86 @@ async def test_integrated_loop_guardrails():
         ),
     )
 
-    # Override guardrails limits to block quickly
-    loop.guardrails.exact_failure_block_after = 2
+    loop.guardrails.exact_failure_block_after = block_after
 
     response = await loop.run(ChatRequest(user_id="local", session_id="s1", message="Run loop test."))
 
-    # The guardrail should block the call on the 3rd iteration and halt the loop
+    assert response.content == "Done"
+    assert response.metadata.get("stopped") != "guardrail_halt"
+    assert tool_calls == block_after
+    assert len(llm.calls) == block_after + 2
+    warning_result = next(
+        message for message in llm.calls[2]["messages"]
+        if message.get("role") == "tool" and message.get("tool_call_id") == "c2"
+    )
+    assert "Error: compilation failed" in warning_result["content"]
+    assert "Tool loop warning" in warning_result["content"]
+    blocked_result = next(
+        message for message in llm.calls[-1]["messages"]
+        if message.get("role") == "tool"
+        and message.get("tool_call_id") == f"c{block_after + 1}"
+    )
+    assert "repeated_exact_failure_block" in blocked_result["content"]
+    assert '"action": "block"' in blocked_result["content"]
+    assert "Blocked fail_tool" in blocked_result["content"]
+
+
+@pytest.mark.anyio
+async def test_integrated_loop_guardrail_halt_ends_session() -> None:
+    tool_calls = 0
+
+    async def failing_tool(args):
+        nonlocal tool_calls
+        tool_calls += 1
+        return {"content": "Error: compilation failed"}
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            name="fail_tool",
+            description="Always fail.",
+            parameters={"type": "object"},
+            handler=failing_tool,
+        )
+    )
+    llm = StaticLLMProvider(
+        [
+            LLMResult(
+                content="",
+                tool_calls=[ToolCall(id="c1", name="fail_tool", arguments={"v": 1})],
+            ),
+            LLMResult(
+                content="",
+                tool_calls=[ToolCall(id="c2", name="fail_tool", arguments={"v": 2})],
+            ),
+            LLMResult(
+                content="This response must not be reached",
+                tool_calls=[ToolCall(id="c3", name="fail_tool", arguments={"v": 3})],
+            ),
+        ]
+    )
+    loop = AgentLoop(
+        llm_provider=llm,
+        tool_executor=ToolExecutor(registry, SandboxPolicy(timeout_seconds=2)),
+        skill_manager=SkillManager([]),
+        memory_manager=MemoryManager(),
+        extension_registry=DojoExtensionRegistry(),
+        config=AgentConfig(
+            model="test-model",
+            enable_think_scrubbing=False,
+            enable_guardrails=True,
+            enable_context_compression=False,
+            max_iterations=8,
+        ),
+    )
+    loop.guardrails.same_tool_failure_halt_after = 2
+
+    response = await loop.run(ChatRequest(user_id="local", session_id="halt", message="Run loop test."))
+
     assert response.metadata.get("stopped") == "guardrail_halt"
-    assert "Blocked fail_tool" in response.content
+    assert "Stopped fail_tool" in response.content
+    assert tool_calls == 2
+    assert len(llm.calls) == 2
 
 
 @pytest.mark.asyncio

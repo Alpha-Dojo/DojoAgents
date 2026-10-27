@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 import json
 import re
 import uuid
@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from dojoagents.plugins import get_plugin_registry
 
-from dojoagents.agent.events import AgentEventSink
+from dojoagents.agent.events import AgentEventSink, StreamDeltaCallback
 from dojoagents.harnesses.components.task_flows import HarnessLoopState
 from dojoagents.agent.empty_assistant import (
     build_empty_assistant_recovery_prompt,
@@ -28,10 +28,12 @@ from dojoagents.sessions.errors import SessionLeaseLostError
 from dojoagents.skills.manager import SkillManager
 from dojoagents.tasks.manager import TaskPromptManager
 from dojoagents.tools.executor import ToolExecutor
+from dojoagents.agent.telemetry import bind_run_id
 from dojoagents.logging import LOGGER
 
 from dojoagents.agent.think_scrubber import StreamingThinkScrubber
 from dojoagents.agent.guardrails import (
+    ToolGuardrailAction,
     ToolCallGuardrailController,
 )
 from dojoagents.agent.context_length import ContextLengthExceededError
@@ -323,12 +325,15 @@ class DojoStrandsModelBridge(Model):
                     }
                 )
 
-        import asyncio
+        send_stream, receive_stream = anyio.create_memory_object_stream[Any](max_buffer_size=64)
 
-        queue = asyncio.Queue()
+        def sync_callback(delta: str) -> None:
+            try:
+                send_stream.send_nowait(delta)
+            except anyio.WouldBlock as exc:
+                raise RuntimeError("provider delta stream buffer is full (capacity=64)") from exc
 
-        def callback(delta: str) -> None:
-            queue.put_nowait(delta)
+        callback = StreamDeltaCallback(sync_callback, send_stream.send)
 
         async def run_chat():
             nonlocal dojo_msgs
@@ -360,7 +365,7 @@ class DojoStrandsModelBridge(Model):
                     len(res.tool_calls),
                     len(str((res.metadata or {}).get("reasoning_content") or "")),
                 )
-                queue.put_nowait(res)
+                await send_stream.send(res)
             except ContextLengthExceededError as exc:
                 handler = (invocation_state or {}).get("_dojo_handle_context_length_exceeded")
                 agent = (invocation_state or {}).get("_dojo_agent")
@@ -383,65 +388,87 @@ class DojoStrandsModelBridge(Model):
                             stream_callback=callback,
                             metadata=invocation_state,
                         )
-                        queue.put_nowait(res)
+                        await send_stream.send(res)
                         return
-                queue.put_nowait(exc)
+                await send_stream.send(exc)
             except Exception as e:
-                queue.put_nowait(e)
+                await send_stream.send(e)
+            finally:
+                await send_stream.aclose()
 
-        chat_task = asyncio.create_task(run_chat())
+        task_group = (invocation_state or {}).get("_dojo_task_group")
+        if task_group is None:
+            raise RuntimeError("model streaming requires an AgentLoop-owned task group")
+        chat_done = anyio.Event()
+        chat_started = anyio.Event()
+        chat_cancel_scope: anyio.CancelScope | None = None
+        original_run_chat = run_chat
+
+        async def run_chat() -> None:
+            nonlocal chat_cancel_scope
+            try:
+                with anyio.CancelScope() as scope:
+                    chat_cancel_scope = scope
+                    chat_started.set()
+                    await original_run_chat()
+            finally:
+                chat_done.set()
+
+        task_group.start_soon(run_chat, name="dojo-provider-chat")
+        await chat_started.wait()
 
         yield {"messageStart": {"role": "assistant"}}
         yield {"contentBlockStart": {"contentBlockIndex": 0, "start": {"text": ""}}}
 
         has_text_delta = False
-        while True:
-            try:
-                item = await queue.get()
-                if isinstance(item, Exception):
-                    raise item
-                elif isinstance(item, str):
-                    has_text_delta = True
-                    yield {
-                        "contentBlockDelta": {
-                            "contentBlockIndex": 0,
-                            "delta": {"text": item},
-                        }
-                    }
-                else:
-                    llm_result = item
-                    if invocation_state is not None:
-                        usage = (llm_result.metadata or {}).get("usage")
-                        if isinstance(usage, dict):
-                            invocation_state["_dojo_last_usage"] = dict(usage)
-                        else:
-                            prompt_est = _estimate_tokens_rough(dojo_msgs)
-                            completion_est = _estimate_tokens_rough(
-                                [
-                                    {
-                                        "role": "assistant",
-                                        "content": llm_result.content or "",
-                                    }
-                                ]
-                            )
-                            invocation_state["_dojo_last_usage"] = {
-                                "prompt_tokens": prompt_est,
-                                "completion_tokens": completion_est,
-                                "total_tokens": prompt_est + completion_est,
-                                "usage_available": False,
-                            }
-                    break
-            except asyncio.CancelledError:
-                if not chat_task.done():
-                    chat_task.cancel()
+        async with receive_stream:
+            async for item in receive_stream:
                 try:
-                    await chat_task
-                except asyncio.CancelledError:
-                    pass
-                raise
-            except Exception as e:
-                LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
-                raise e
+                    if isinstance(item, Exception):
+                        raise item
+                    elif isinstance(item, str):
+                        sink = (invocation_state or {}).get("_dojo_event_sink")
+                        if sink is not None:
+                            await sink.wait_for_capacity()
+                        has_text_delta = True
+                        yield {
+                            "contentBlockDelta": {
+                                "contentBlockIndex": 0,
+                                "delta": {"text": item},
+                            }
+                        }
+                    else:
+                        llm_result = item
+                        if invocation_state is not None:
+                            usage = (llm_result.metadata or {}).get("usage")
+                            if isinstance(usage, dict):
+                                invocation_state["_dojo_last_usage"] = dict(usage)
+                            else:
+                                prompt_est = _estimate_tokens_rough(dojo_msgs)
+                                completion_est = _estimate_tokens_rough(
+                                    [
+                                        {
+                                            "role": "assistant",
+                                            "content": llm_result.content or "",
+                                        }
+                                    ]
+                                )
+                                invocation_state["_dojo_last_usage"] = {
+                                    "prompt_tokens": prompt_est,
+                                    "completion_tokens": completion_est,
+                                    "total_tokens": prompt_est + completion_est,
+                                    "usage_available": False,
+                                }
+                        break
+                except anyio.get_cancelled_exc_class():
+                    if chat_cancel_scope is not None:
+                        chat_cancel_scope.cancel()
+                    with anyio.CancelScope(shield=True):
+                        await chat_done.wait()
+                    raise
+                except Exception as e:
+                    LOGGER.exception("Error in DojoStrandsModelBridge stream: %s", e)
+                    raise e
 
         try:
             if invocation_state is not None:
@@ -502,6 +529,7 @@ class DojoStrandsModelBridge(Model):
             event_sink = (invocation_state or {}).get("_dojo_event_sink")
             reasoning_streamed = bool((llm_result.metadata or {}).get("reasoning_streamed"))
             if event_sink is not None and not reasoning_streamed and isinstance(reasoning_content, str) and reasoning_content.strip():
+                await event_sink.wait_for_capacity()
                 event_sink.thinking_start()
                 event_sink.thinking_delta(reasoning_content)
                 event_sink.thinking_end()
@@ -667,6 +695,45 @@ class AgentLoop:
         self.usage_llm_provider = ensure_metered_provider(provider)
 
     async def run(self, request: ChatRequest, *, event_sink: AgentEventSink | None = None) -> AgentResponse:
+        """Run one turn inside a structured lifecycle scope."""
+
+        result: AgentResponse | None = None
+        owner_cancel_scope: anyio.CancelScope | None = None
+        try:
+            with anyio.CancelScope() as owner_cancel_scope:
+                async with anyio.create_task_group() as task_group:
+                    result = await self._run_scoped(
+                        request,
+                        event_sink=event_sink,
+                        task_group=task_group,
+                        owner_cancel_scope=owner_cancel_scope,
+                    )
+        except BaseExceptionGroup as exc:
+            # TaskGroup wraps child failures.  AgentLoop's public contract
+            # predates exception groups, so preserve the original single-error
+            # boundary for callers while leaving genuinely multiple failures
+            # grouped.
+            current: BaseException = exc
+            while isinstance(current, BaseExceptionGroup) and len(current.exceptions) == 1:
+                current = current.exceptions[0]
+            raise current from exc
+        if owner_cancel_scope is not None and owner_cancel_scope.cancel_called:
+            # A CancelScope suppresses the cancellation it owns on exit.  A
+            # heartbeat/request cancellation is nevertheless part of the
+            # AgentLoop API and must remain observable by its caller.
+            raise anyio.get_cancelled_exc_class()()
+        if result is None:
+            raise RuntimeError("agent run completed without a response")
+        return result
+
+    async def _run_scoped(
+        self,
+        request: ChatRequest,
+        *,
+        event_sink: AgentEventSink | None,
+        task_group: anyio.abc.TaskGroup,
+        owner_cancel_scope: anyio.CancelScope,
+    ) -> AgentResponse:
         """Run one turn with optional canonical persistence and Harness lifecycle hooks."""
 
         canonical_run = None
@@ -685,9 +752,17 @@ class AgentLoop:
                 agent_id="dojo-agent",
                 event_sink=event_sink,
                 memory_sync_worker=self.memory_sync_worker,
+                task_group=task_group,
+                owner_cancel_scope=owner_cancel_scope,
             )
             active_request = canonical_run.request
             active_sink = canonical_run.event_sink
+        active_request.metadata["_dojo_task_group"] = task_group
+        from dojoagents.multi_agent.team import current_agent_team
+
+        agent_team = current_agent_team()
+        if agent_team is not None:
+            agent_team.start(task_group)
 
         cache_plan = None
         cache_collector = None
@@ -755,11 +830,13 @@ class AgentLoop:
                         LOGGER.exception("Chat cache run alias failed; canonical replay will continue")
                     try:
                         for payload in replayed:
+                            await active_sink.wait_for_capacity()
                             active_sink.replay(payload)
                         await canonical_run.commit(response)
                         return response
-                    except asyncio.CancelledError:
-                        await canonical_run.cancel()
+                    except anyio.get_cancelled_exc_class():
+                        with anyio.CancelScope(shield=True):
+                            await canonical_run.cancel()
                         raise
                     except BaseException as exc:
                         await canonical_run.fail(exc)
@@ -830,7 +907,10 @@ class AgentLoop:
             coordinator=(canonical_run.coordinator if canonical_run is not None else active_request.metadata.get("_agent_usage_coordinator")),
             start_index=int(active_request.metadata.get("_agent_usage_start_index") or recovery_start_index),
         )
-        with bind_usage_collector(collector):
+        # Telemetry context: run_id resolved just above; events emitted anywhere
+        # in the tree (LLM provider, tool executor) inherit it. Scoped to the run
+        # like the usage collector, so no metadata side channel is needed.
+        with bind_usage_collector(collector), bind_run_id(run_id):
             try:
                 turn_result = await self._run_core(
                     active_request,
@@ -893,21 +973,22 @@ class AgentLoop:
                         except Exception:
                             LOGGER.exception("Chat cache write failed after canonical commit")
                 return response
-            except asyncio.CancelledError:
+            except anyio.get_cancelled_exc_class():
                 if canonical_run is not None:
-                    try:
-                        control = active_request.metadata.get("_run_control") or {}
-                        if control.get("timeout"):
-                            await canonical_run.fail(TimeoutError("Chat execution deadline exceeded"))
-                        elif control.get("suspending"):
-                            await canonical_run.suspend()
-                        else:
-                            await canonical_run.cancel()
-                    except SessionLeaseLostError:
-                        LOGGER.warning(
-                            "Canonical run cancel skipped; session lease already lost: session_id=%s",
-                            active_request.session_id,
-                        )
+                    with anyio.CancelScope(shield=True):
+                        try:
+                            control = active_request.metadata.get("_run_control") or {}
+                            if control.get("timeout"):
+                                await canonical_run.fail(TimeoutError("Chat execution deadline exceeded"))
+                            elif control.get("suspending"):
+                                await canonical_run.suspend()
+                            else:
+                                await canonical_run.cancel()
+                        except SessionLeaseLostError:
+                            LOGGER.warning(
+                                "Canonical run cancel skipped; session lease already lost: session_id=%s",
+                                active_request.session_id,
+                            )
                 raise
             except SessionLeaseLostError:
                 # The fencing token is no longer ours. Do not attempt any further
@@ -974,6 +1055,7 @@ class AgentLoop:
         invocation_state: dict[str, Any] = {
             "session_id": request.session_id,
             "channel": request.channel,
+            "_dojo_task_group": request.metadata.get("_dojo_task_group"),
         }
         prepared_tool_call_ids: set[str] = set()
         tool_ledger = canonical_run if canonical_run is not None else request.metadata.get("_agent_tool_ledger")
@@ -1558,7 +1640,7 @@ class AgentLoop:
                     )
 
                     decision = ToolGuardrailDecision(
-                        action="block",
+                        action=ToolGuardrailAction.BLOCK,
                         code="image_turn_tool_block",
                         message=(f"Blocked {tool_name}: the user attached image(s) in this turn. " "Answer from the image directly instead of using shell or code tools."),
                         tool_name=tool_name,
@@ -1607,7 +1689,7 @@ class AgentLoop:
                             )
 
                             decision = ToolGuardrailDecision(
-                                action="block",
+                                action=ToolGuardrailAction.BLOCK,
                                 code="execute_code_task_file_write_forbidden",
                                 message=("Blocked execute_code in task mode: use write_session_file directly " "for required task outputs. Do not write JSON files via Python."),
                                 tool_name=tool_name,
@@ -1656,7 +1738,7 @@ class AgentLoop:
                             )
 
                             decision = ToolGuardrailDecision(
-                                action="block",
+                                action=ToolGuardrailAction.BLOCK,
                                 code=guardrail_code,
                                 message=block_message,
                                 tool_name=tool_name,
@@ -1790,7 +1872,9 @@ class AgentLoop:
 
             if self.config.enable_guardrails:
                 decision = self.guardrails.after_call(tool_name, args, raw_result, failed=is_failed)
-                if decision.action == "warn":
+                if decision.should_halt:
+                    raise GuardrailHaltException(decision.message, "guardrail_halt")
+                if decision.action == ToolGuardrailAction.WARN:
                     from dojoagents.agent.guardrails import append_toolguard_guidance
 
                     warned_content = append_toolguard_guidance(raw_result, decision)

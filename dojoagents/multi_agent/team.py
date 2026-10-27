@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import anyio
 import hashlib
 import json
 import math
@@ -11,7 +11,6 @@ from typing import Any, Awaitable, Callable
 
 from dojoagents.multi_agent.mailbox import AgentAddress, AgentEnvelope, AgentInstance, MessageStore
 from dojoagents.tools.registry import ToolSpec
-from dojoagents.logging import LOGGER
 
 ROOT_INSTANCE = "root"
 AGENT_TEAM_PROTOCOL_VERSION = 1
@@ -71,12 +70,19 @@ class AgentTeam:
         self.run_child = run_child
         self.allowed_roles = allowed_roles
         self.max_children = min(max(1, max_children), 3)
-        self._slots = asyncio.Semaphore(min(max(1, max_parallel), 2))
-        self.deadline = asyncio.get_running_loop().time() + max(0.0, deadline_seconds)
-        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._slots = anyio.Semaphore(min(max(1, max_parallel), 2))
+        self.deadline = anyio.current_time() + max(0.0, deadline_seconds)
+        self._task_group: anyio.abc.TaskGroup | None = None
+        self._task_scopes: dict[str, anyio.CancelScope] = {}
+        self._task_done: dict[str, anyio.Event] = {}
         self._seen: dict[str, int] = {}
         self._waiting: dict[str, frozenset[str]] = {}
         self._pending_completion: dict[str, str] = {}
+
+    def start(self, task_group: anyio.abc.TaskGroup) -> None:
+        """Attach child agents to the owning run's structured lifecycle."""
+
+        self._task_group = task_group
 
     @staticmethod
     def _caller() -> tuple[AgentTeam, str, str]:
@@ -107,39 +113,35 @@ class AgentTeam:
         instance_id = instance.address.instance_id
         if instance.status in {"completed", "failed", "cancelled"}:
             return
-        if instance_id in self._tasks and not self._tasks[instance_id].done():
+        if instance_id in self._task_scopes:
             return
+        if self._task_group is None:
+            raise RuntimeError("AgentTeam must be attached to a parent TaskGroup before spawning")
 
         async def run() -> None:
-            tokens = bind_agent_team(self, instance_id)
-            try:
-                async with self._slots:
-                    await self.store.set_status(instance_id, "runnable")
-                    result = await self.run_child(instance)
-                current = {item.address.instance_id: item for item in await self.store.list_instances()}
-                if current[instance_id].status not in {"completed", "failed", "cancelled"}:
-                    await self.store.complete(instance_id, self._pending_completion.get(instance_id, result))
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                current = {item.address.instance_id: item for item in await self.store.list_instances()}
-                if current[instance_id].status not in {"completed", "failed", "cancelled"}:
-                    await self.store.complete(instance_id, f"{type(exc).__name__}: {exc}", failed=True)
-            finally:
-                reset_agent_team(tokens)
+            done = self._task_done.setdefault(instance_id, anyio.Event())
+            with anyio.CancelScope() as scope:
+                self._task_scopes[instance_id] = scope
+                tokens = bind_agent_team(self, instance_id)
+                try:
+                    async with self._slots:
+                        await self.store.set_status(instance_id, "runnable")
+                        result = await self.run_child(instance)
+                    current = {item.address.instance_id: item for item in await self.store.list_instances()}
+                    if current[instance_id].status not in {"completed", "failed", "cancelled"}:
+                        await self.store.complete(instance_id, self._pending_completion.get(instance_id, result))
+                except anyio.get_cancelled_exc_class():
+                    raise
+                except Exception as exc:
+                    current = {item.address.instance_id: item for item in await self.store.list_instances()}
+                    if current[instance_id].status not in {"completed", "failed", "cancelled"}:
+                        await self.store.complete(instance_id, f"{type(exc).__name__}: {exc}", failed=True)
+                finally:
+                    reset_agent_team(tokens)
+                    self._task_scopes.pop(instance_id, None)
+                    done.set()
 
-        task = asyncio.create_task(run(), name=f"agent-team:{self.root_run_id}:{instance_id}")
-        self._tasks[instance_id] = task
-
-        def observe(done: asyncio.Task[None]) -> None:
-            if done.cancelled():
-                return
-            try:
-                done.result()
-            except Exception:
-                LOGGER.exception("Agent team child task failed: root_run_id=%s instance_id=%s", self.root_run_id, instance_id)
-
-        task.add_done_callback(observe)
+        self._task_group.start_soon(run)
 
     async def resume(self) -> None:
         for instance in await self.store.list_instances():
@@ -202,7 +204,7 @@ class AgentTeam:
         if any(reaches(target, caller, set()) for target in targets):
             raise ValueError("agent_wait_cycle")
         self._waiting[caller] = frozenset(targets)
-        until = min(self.deadline, asyncio.get_running_loop().time() + min(max(timeout_seconds, 0), 30))
+        until = min(self.deadline, anyio.current_time() + min(max(timeout_seconds, 0), 30))
         collected: list[AgentEnvelope] = []
         try:
             await self.store.set_status(caller, "waiting")
@@ -215,9 +217,9 @@ class AgentTeam:
                 finished = bool(targets) and all(instances[target].status in {"completed", "failed", "cancelled"} for target in targets)
                 if replied or (in_reply_to is None and (messages or finished)):
                     return {"status": "ready", "instances": {target: instances[target].status for target in targets}, "messages": tuple(collected)}
-                if asyncio.get_running_loop().time() >= until:
+                if anyio.current_time() >= until:
                     return {"status": "timeout", "instances": {target: instances[target].status for target in targets}, "messages": tuple(collected)}
-                await asyncio.sleep(min(0.25, max(0, until - asyncio.get_running_loop().time())))
+                await anyio.sleep(min(0.25, max(0, until - anyio.current_time())))
         finally:
             self._waiting.pop(caller, None)
             try:
@@ -237,11 +239,13 @@ class AgentTeam:
         return {"status": "pending", "instance_id": caller}
 
     async def close(self, *, suspending: bool = False) -> None:
-        for task in self._tasks.values():
-            if not task.done():
-                task.cancel()
-        if self._tasks:
-            await asyncio.wait(self._tasks.values(), timeout=5)
+        for scope in tuple(self._task_scopes.values()):
+            scope.cancel()
+        with anyio.move_on_after(5):
+            for done in tuple(self._task_done.values()):
+                await done.wait()
+        self._task_scopes.clear()
+        self._task_done.clear()
         if not suspending:
             await self.store.cancel_active()
 

@@ -1,10 +1,12 @@
 import json
 import logging
-import asyncio
 from pathlib import Path
 import datetime
 
+from dojoagents.utils.async_runtime import run_sync_bounded
+
 logger = logging.getLogger(__name__)
+SNAPSHOT_REFRESH_STATE_KEY = "offline_snapshots"
 
 
 class RefreshStateStore:
@@ -50,12 +52,12 @@ class RefreshStateStore:
         self._write(data)
 
     async def get_last_refresh_date_async(self, market_group: str) -> datetime.date | None:
-        return await asyncio.to_thread(self.get_last_refresh_date, market_group)
+        return await run_sync_bounded(self.get_last_refresh_date, market_group)
 
     async def set_last_refresh_date_async(self, market_group: str, date: datetime.date) -> None:
-        await asyncio.to_thread(self.set_last_refresh_date, market_group, date)
+        await run_sync_bounded(self.set_last_refresh_date, market_group, date)
 
-    def get_market_data_revision(self, market_group: str = "preload_offline_data") -> dict[str, str | None]:
+    def get_market_data_revision(self, market_group: str = SNAPSHOT_REFRESH_STATE_KEY) -> dict[str, str | None]:
         data = self._read()
         preload_date = data.get(market_group)
         updated_at = data.get(f"{market_group}_updated_at")
@@ -73,6 +75,6 @@ class RefreshStateStore:
 
     async def get_market_data_revision_async(
         self,
-        market_group: str = "preload_offline_data",
+        market_group: str = SNAPSHOT_REFRESH_STATE_KEY,
     ) -> dict[str, str | None]:
-        return await asyncio.to_thread(self.get_market_data_revision, market_group)
+        return await run_sync_bounded(self.get_market_data_revision, market_group)

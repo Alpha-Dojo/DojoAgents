@@ -11,8 +11,8 @@ def test_get_market_data_revision_prefers_updated_at(tmp_path: Path) -> None:
     store.file_path.write_text(
         json.dumps(
             {
-                "preload_offline_data": "2026-06-30",
-                "preload_offline_data_updated_at": "2026-06-30T08:05:12+00:00",
+                "offline_snapshots": "2026-06-30",
+                "offline_snapshots_updated_at": "2026-06-30T08:05:12+00:00",
             }
         ),
         encoding="utf-8",

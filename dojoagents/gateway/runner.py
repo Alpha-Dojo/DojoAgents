@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
+import inspect
 import os
 import re
 import time
@@ -52,12 +53,17 @@ class GatewayRunner:
         self.pairing_store = PairingStore(self.gateway_config.get("pairing_store", "~/.dojo/gateway/pairing.json"))
         self.adapters: dict[str, Any] = {}
         self.platform_status: dict[str, dict[str, Any]] = {}
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks: dict[str, anyio.Lock] = {}
         self._pending_events: dict[str, list[GatewayEvent]] = {}
-        self._reconnect_tasks: dict[str, asyncio.Task] = {}
+        self._reconnect_scopes: dict[str, anyio.CancelScope] = {}
+        self._event_scopes: set[anyio.CancelScope] = set()
+        self._task_group: anyio.abc.TaskGroup | None = None
+        self._owned_task_group: anyio.abc.TaskGroup | None = None
+        self._watcher_scope: anyio.CancelScope | None = None
+        self._watcher_done = anyio.Event()
         self._started_at: float | None = None
         self._state = "initialized"
-        self._stop_event = asyncio.Event()
+        self._stop_event = anyio.Event()
         self._hooks: dict[str, list[Any]] = {}
         self._agent_cache: dict[str, Any] = {}
         self._pending_approvals: dict[str, dict[str, Any]] = {}
@@ -76,7 +82,13 @@ class GatewayRunner:
         self._pid_file = Path(self.gateway_config.get("pid_file", default_pid_path)).expanduser()
         self._clean_marker = Path(self.gateway_config.get("clean_marker", default_clean_path)).expanduser()
 
-    async def start(self) -> bool:
+    async def start(self, *, task_group: anyio.abc.TaskGroup | None = None) -> bool:
+        if task_group is None:
+            self._owned_task_group = anyio.create_task_group()
+            task_group = await self._owned_task_group.__aenter__()
+        self._task_group = task_group
+        self._stop_event = anyio.Event()
+        self._watcher_done = anyio.Event()
         self._state = "starting"
         self._started_at = time.time()
         self._acquire_pid_lock()
@@ -87,7 +99,7 @@ class GatewayRunner:
                 continue
             await self._connect_platform(platform, hook_config)
         self._state = "running"
-        self._watcher_task = asyncio.create_task(self._watch_completion_queue())
+        task_group.start_soon(self._run_completion_watcher)
         await self._emit("gateway:startup", self.status())
         await self._send_startup_notifications()
         return True
@@ -95,15 +107,15 @@ class GatewayRunner:
     async def stop(self) -> None:
         self._state = "stopping"
         await self._emit("gateway:shutdown", self.status())
-        if hasattr(self, "_watcher_task") and self._watcher_task:
-            self._watcher_task.cancel()
-            try:
-                await self._watcher_task
-            except asyncio.CancelledError:
-                pass
-        for task in self._reconnect_tasks.values():
-            task.cancel()
-        self._reconnect_tasks.clear()
+        if self._watcher_scope is not None:
+            self._watcher_scope.cancel()
+            await self._watcher_done.wait()
+            self._watcher_scope = None
+        for scope in tuple(self._reconnect_scopes.values()):
+            scope.cancel()
+        self._reconnect_scopes.clear()
+        for scope in tuple(self._event_scopes):
+            scope.cancel()
         for platform, adapter in list(self.adapters.items()):
             try:
                 await adapter.stop()
@@ -115,6 +127,10 @@ class GatewayRunner:
         self._release_pid_lock()
         self._state = "stopped"
         self._stop_event.set()
+        if self._owned_task_group is not None:
+            await self._owned_task_group.__aexit__(None, None, None)
+            self._owned_task_group = None
+        self._task_group = None
 
     async def wait_for_shutdown(self) -> None:
         await self._stop_event.wait()
@@ -175,7 +191,7 @@ class GatewayRunner:
         command_result = await self._handle_command(adapter, event)
         if command_result is not None:
             return command_result
-        lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+        lock = self._session_locks.setdefault(session_key, anyio.Lock())
         if lock.locked():
             self._pending_events.setdefault(session_key, []).append(event)
             return {"accepted": True, "queued": True, "session_key": session_key}
@@ -219,7 +235,11 @@ class GatewayRunner:
             if setter is not None:
                 setter(lambda payload, _platform=platform: self.handle_webhook(_platform, payload))
             self.adapters[platform] = adapter
-            await adapter.start()
+            start = adapter.start
+            if "task_group" in inspect.signature(start).parameters:
+                await start(task_group=self._task_group)
+            else:
+                await start()
             LOGGER.info(f"Connected to platform: {platform}")
             self._set_platform_status(platform, "connected")
         except Exception as exc:
@@ -237,7 +257,7 @@ class GatewayRunner:
         adapter = self.adapters.get(event.platform)
         if adapter is None:
             return
-        lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+        lock = self._session_locks.setdefault(session_key, anyio.Lock())
         await self._run_event(adapter, event, lock)
 
     def _authorized(self, platform: str, event: GatewayEvent) -> bool:
@@ -427,6 +447,18 @@ class GatewayRunner:
                 await adapter.send(event.target, "Usage:\n/plugins list - List all plugins\n/plugins delete <name> - Delete a plugin", thread_id=event.thread_id)
                 return {"accepted": True, "command": "plugins-help"}
 
+        skill_manager = getattr(getattr(self.runtime, "agent", None), "skill_manager", None)
+        if skill_manager is not None:
+            skill_instructions = skill_manager.load_skill(name, platform=event.platform)
+            if skill_instructions is not None:
+                user_request = arg.strip()
+                object.__setattr__(event, "text", (
+                    f'[IMPORTANT: The user has invoked the "{name}" skill. '
+                    "Follow these instructions for this request.]\n\n"
+                    f"{skill_instructions}\n\n"
+                    f"User request: {user_request}"
+                ))
+
         return None
 
     def _hook_config(self, platform: str) -> dict[str, Any] | None:
@@ -442,26 +474,33 @@ class GatewayRunner:
         }
 
     def _schedule_reconnect(self, platform: str, delay: float = 30.0) -> None:
-        if platform in self._reconnect_tasks:
+        if platform in self._reconnect_scopes:
             return
 
         async def _loop() -> None:
-            while self._state not in {"stopping", "stopped"}:
-                await asyncio.sleep(delay)
-                config = self._hook_config(platform)
-                if config is None:
-                    return
-                await self._connect_platform(platform, config)
-                if platform in self.adapters:
-                    return
+            with anyio.CancelScope() as scope:
+                self._reconnect_scopes[platform] = scope
+                try:
+                    while self._state not in {"stopping", "stopped"}:
+                        await anyio.sleep(delay)
+                        config = self._hook_config(platform)
+                        if config is None:
+                            return
+                        await self._connect_platform(platform, config)
+                        if platform in self.adapters:
+                            return
+                finally:
+                    self._reconnect_scopes.pop(platform, None)
 
-        self._reconnect_tasks[platform] = asyncio.create_task(_loop())
+        if self._task_group is None:
+            raise RuntimeError("GatewayRunner must be started before scheduling reconnects")
+        self._task_group.start_soon(_loop)
 
     async def _run_event(
         self,
         adapter: Any,
         event: GatewayEvent,
-        lock: asyncio.Lock,
+        lock: anyio.Lock,
     ) -> dict[str, Any]:
         async with lock:
             self.session_store.set_status(event.session_key, "active")
@@ -482,7 +521,9 @@ class GatewayRunner:
                     thread_id=event.thread_id,
                     edit_interval=stream_cfg.get("edit_interval", 0.2),
                 )
-                await consumer.start()
+                if self._task_group is None:
+                    raise RuntimeError("GatewayRunner has no lifecycle TaskGroup")
+                await consumer.start(self._task_group)
                 agent.stream_delta_callback = consumer.on_delta
 
             try:
@@ -530,7 +571,9 @@ class GatewayRunner:
                 response = AgentResponse(content=content, session_id=event.session_key)
             finally:
                 if consumer is not None:
-                    await consumer.stop()
+                    with anyio.CancelScope(shield=True):
+                        with anyio.move_on_after(5):
+                            await consumer.stop()
                     if hasattr(agent, "stream_delta_callback"):
                         agent.stream_delta_callback = None
                 await self._send_typing(adapter, event, False)
@@ -593,7 +636,7 @@ class GatewayRunner:
     async def _emit(self, event: str, payload: dict[str, Any]) -> None:
         for handler in self._hooks.get(event, []):
             result = handler(payload)
-            if asyncio.iscoroutine(result):
+            if inspect.isawaitable(result):
                 await result
 
     def _recover_sessions(self) -> None:
@@ -634,7 +677,7 @@ class GatewayRunner:
 
         while not self._stop_event.is_set():
             try:
-                event = await process_registry.completion_queue.get()
+                event = await process_registry.completion_events.receive()
                 session_key = event.get("session_key")
                 if not session_key:
                     continue
@@ -673,16 +716,42 @@ class GatewayRunner:
                     internal=True,
                 )
 
-                lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+                lock = self._session_locks.setdefault(session_key, anyio.Lock())
                 if lock.locked():
                     self._pending_events.setdefault(session_key, []).append(gateway_event)
                 else:
-                    asyncio.create_task(self._run_event(adapter, gateway_event, lock))
-            except asyncio.CancelledError:
-                break
+                    if self._task_group is None:
+                        raise RuntimeError("GatewayRunner has no lifecycle TaskGroup")
+                    self._task_group.start_soon(self._run_event_scoped, adapter, gateway_event, lock)
+            except anyio.get_cancelled_exc_class():
+                raise
             except Exception as e:
                 LOGGER.error("Error in completion queue watcher: %s", e)
-                await asyncio.sleep(1)
+            await anyio.sleep(1)
+
+    async def _run_completion_watcher(self) -> None:
+        with anyio.CancelScope() as scope:
+            self._watcher_scope = scope
+            try:
+                await self._watch_completion_queue()
+            finally:
+                self._watcher_done.set()
+
+    async def _run_event_scoped(self, adapter: Any, event: GatewayEvent, lock: anyio.Lock) -> None:
+        with anyio.CancelScope() as scope:
+            self._event_scopes.add(scope)
+            try:
+                await self._run_event(adapter, event, lock)
+            except anyio.get_cancelled_exc_class():
+                raise
+            except Exception:
+                LOGGER.exception(
+                    "Gateway background event failed: platform=%s session_key=%s",
+                    event.platform,
+                    event.session_key,
+                )
+            finally:
+                self._event_scopes.discard(scope)
 
 
 def _coerce_list(value: Any) -> list[str]:

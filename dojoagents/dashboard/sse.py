@@ -2,16 +2,161 @@
 
 from __future__ import annotations
 
-import asyncio
+import anyio
 import json
+import threading
 import time
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
 from dojoagents.agent.events import AgentEvent, AgentEventSink
 from dojoagents.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+SSE_EVENT_BUFFER_SIZE = 32
+SSE_PRODUCER_STOP_TIMEOUT_SECONDS = 5.0
+
+
+class StreamBackpressureError(RuntimeError):
+    """A synchronous event-loop producer exhausted its bounded stream."""
+
+
+@dataclass(frozen=True)
+class OwnedSSEProducer:
+    """Handle for an app-owned producer that a response generator may cancel.
+
+    The producer enters and exits its own cancel scope in one task.  The response
+    generator only calls :meth:`stop`, so no cancel-scope context manager spans
+    an ASGI ``yield`` or gets closed by Starlette's disconnect task.
+    """
+
+    cancel_scope: anyio.CancelScope
+    done: anyio.Event
+    name: str
+
+    async def stop(self, *, timeout: float = SSE_PRODUCER_STOP_TIMEOUT_SECONDS) -> bool:
+        """Cancel the producer and wait a bounded time for owned cleanup."""
+
+        self.cancel_scope.cancel()
+        with anyio.CancelScope(shield=True):
+            with anyio.move_on_after(timeout) as timeout_scope:
+                await self.done.wait()
+        if timeout_scope.cancelled_caught:
+            LOGGER.warning(
+                "SSE producer did not stop within %.1fs: name=%s",
+                timeout,
+                self.name,
+            )
+            return False
+        return True
+
+
+async def start_owned_sse_producer(
+    task_group: anyio.abc.TaskGroup,
+    producer: Callable[[], Awaitable[None]],
+    *,
+    name: str,
+) -> OwnedSSEProducer:
+    """Start ``producer`` under an app-owned group and return its cancel handle."""
+
+    async def _run(
+        *,
+        task_status: anyio.abc.TaskStatus[OwnedSSEProducer] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
+        done = anyio.Event()
+        with anyio.CancelScope() as cancel_scope:
+            task_status.started(OwnedSSEProducer(cancel_scope=cancel_scope, done=done, name=name))
+            try:
+                await producer()
+            except anyio.get_cancelled_exc_class():
+                raise
+            except BaseExceptionGroup as exc:
+                cancelled, remainder = exc.split(anyio.get_cancelled_exc_class())
+                if cancelled is not None:
+                    raise cancelled
+                LOGGER.exception("Grouped failure in app-owned SSE producer '%s': %s", name, remainder or exc)
+            except Exception:
+                # App-level task groups must not be torn down by a single HTTP
+                # stream. Endpoint producers translate expected failures into
+                # their stream before this final defensive boundary.
+                LOGGER.exception("Failure in app-owned SSE producer '%s'", name)
+            finally:
+                done.set()
+
+    return await task_group.start(_run, name=name)
+
+
+class SSEEventStream:
+    """Bounded request stream with a safe synchronous callback boundary.
+
+    Callbacks running on the request's event-loop thread cannot block without
+    deadlocking the consumer, so they use ``send_nowait`` and fail closed when
+    the explicit buffer is exhausted. External threads use a BlockingPortal
+    and therefore apply real blocking backpressure.
+    """
+
+    def __init__(self, max_buffer_size: int = SSE_EVENT_BUFFER_SIZE) -> None:
+        if max_buffer_size <= 0:
+            raise ValueError("SSE event buffer size must be positive")
+        self.max_buffer_size = max_buffer_size
+        self.send_stream, self.receive_stream = anyio.create_memory_object_stream[Any](
+            max_buffer_size=max_buffer_size
+        )
+        self._portal: anyio.from_thread.BlockingPortal | None = None
+        self._owner_thread_id: int | None = None
+        self._closed = False
+        self._state_lock = threading.Lock()
+
+    def bind_portal(self, portal: anyio.from_thread.BlockingPortal) -> None:
+        with self._state_lock:
+            self._portal = portal
+            self._owner_thread_id = threading.get_ident()
+
+    def unbind_portal(self) -> None:
+        with self._state_lock:
+            self._portal = None
+            self._owner_thread_id = None
+
+    def publish_sync(self, item: Any) -> None:
+        with self._state_lock:
+            if self._closed:
+                return
+            portal = self._portal
+            owner_thread_id = self._owner_thread_id
+        try:
+            if owner_thread_id == threading.get_ident():
+                self.send_stream.send_nowait(item)
+            elif portal is not None:
+                portal.call(self.send_stream.send, item)
+            else:
+                raise RuntimeError("SSE event stream is not active")
+        except anyio.WouldBlock as exc:
+            raise StreamBackpressureError(
+                f"SSE event buffer is full (capacity={self.max_buffer_size})"
+            ) from exc
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError, RuntimeError):
+            # Browser disconnect/portal shutdown may race with a late provider
+            # callback. The request owner has already cancelled the producer.
+            with self._state_lock:
+                if self._closed or self._portal is None:
+                    return
+            raise
+
+    async def send(self, item: Any) -> None:
+        with self._state_lock:
+            if self._closed:
+                return
+        await self.send_stream.send(item)
+
+    async def close(self) -> None:
+        with self._state_lock:
+            if self._closed:
+                return
+            self._closed = True
+        await self.send_stream.aclose()
 
 
 async def stream_persisted_run_events(
@@ -79,36 +224,28 @@ async def stream_persisted_run_events(
                 now - started_at,
             )
             last_wait_log_at = now
-        await asyncio.sleep(poll_seconds)
+        await anyio.sleep(poll_seconds)
 
 
-def make_stream_delta_callback(queue: asyncio.Queue):
-    """Backward-compatible callback that pushes raw text deltas onto a queue."""
+def make_stream_delta_callback(stream: SSEEventStream):
+    """Create a sync callback backed by a bounded request stream."""
 
     def callback(delta: str) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.call_soon_threadsafe(queue.put_nowait, delta)
-        except RuntimeError:
-            pass
+        stream.publish_sync(delta)
 
     return callback
 
 
 def make_event_queue_sink(
-    queue: asyncio.Queue,
+    stream: SSEEventStream,
     *,
     run_id: str,
     session_id: str,
 ) -> AgentEventSink:
-    """Create a request-scoped event sink that writes typed events to a queue."""
+    """Create a request-scoped event sink that writes to a bounded stream."""
 
     def emit(event: AgentEvent) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.call_soon_threadsafe(queue.put_nowait, event.to_dict())
-        except RuntimeError:
-            pass
+        stream.publish_sync(event.to_dict())
 
     return AgentEventSink(run_id=run_id, session_id=session_id, emit=emit)
 
@@ -156,7 +293,7 @@ def _tool_delta_from_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 async def stream_completion_chunks(
-    queue: asyncio.Queue,
+    receive_stream: anyio.abc.ObjectReceiveStream[Any],
     *,
     model: str,
     event_format: str = "openai.v1",
@@ -178,10 +315,7 @@ async def stream_completion_chunks(
     terminal_error: dict[str, Any] | None = None
     terminal_done: dict[str, Any] | None = None
 
-    while True:
-        item = await queue.get()
-        if item is None:
-            break
+    async for item in receive_stream:
         if isinstance(item, Exception):
             raise item
         if isinstance(item, str):

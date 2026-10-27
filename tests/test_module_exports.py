@@ -40,14 +40,20 @@ class TestMultiAgentExports:
         import dojoagents.multi_agent as mod
 
         assert set(mod.__all__) == {
+            "AgentAddress",
+            "AgentEnvelope",
+            "AgentInstance",
             "AgentMessage",
             "AgentPool",
             "AgentRole",
             "AgentSpec",
+            "AgentTeam",
+            "MessageStore",
             "MultiAgentTriggerHook",
             "Orchestrator",
             "SubTask",
             "TaskStatus",
+            "get_agent_team_tool_specs",
             "get_delegation_tool_spec",
         }
 
@@ -95,13 +101,29 @@ class TestHarnessExports:
 
         assert set(mod.__all__) == {
             "AgentHarness",
+            "CapabilityConflictError",
+            "CompletionDecision",
             "HarnessBuildContext",
             "HarnessBuilder",
             "HarnessCapabilities",
             "HarnessDescriptor",
+            "HarnessError",
+            "HarnessLifecycleError",
             "HarnessLoader",
+            "HarnessLoadError",
+            "HarnessObjectFacade",
             "HarnessRuntime",
             "HarnessRuntimeContext",
+            "HarnessRuntimeState",
             "HarnessSessionContext",
+            "HarnessSessionState",
+            "HarnessSessionStateFacade",
+            "HarnessStateCodec",
             "HarnessTurnContext",
+            "HarnessTurnState",
+            "InvalidHarnessError",
+            "LifecycleManager",
+            "ToolControlDecision",
+            "TurnContext",
+            "validate_harness",
         }

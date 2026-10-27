@@ -302,3 +302,115 @@ def test_compute_market_sector_lead_excludes_single_member_sectors() -> None:
 
     assert lead.gainers == []
     assert lead.losers == []
+
+
+def test_latest_one_day_sector_movers_use_live_quote_returns() -> None:
+    sector_rows = pd.DataFrame(
+        [
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "1",
+                "level3_id": "1",
+                "daily_return_pct": -9.0,
+                "total_market_cap": 300.0,
+                "member_count": 5,
+            }
+        ]
+    )
+
+    class Precomputed:
+        load_generation = 1
+
+        def resolve_window_bounds(self, window):
+            return window.with_resolved_bounds(start="2026-09-25", end="2026-09-25")
+
+        def get_sector_movers_window_frame_for_window(self, _window):
+            return sector_rows
+
+        def get_sector_constituents_exact(self, *_args, **_kwargs):
+            return [
+                {"ticker": ticker, "market_cap": 100.0}
+                for ticker in ("AAA", "BBB", "CCC", "DDD", "EEE")
+            ]
+
+    stocks = {
+        "AAA": SimpleNamespace(
+            ticker="AAA",
+            short_name="AAA",
+            long_name="AAA",
+            stock_quote=SimpleNamespace(last_price=10.0, market_cap=100.0, change_percent=2.0),
+        ),
+        "BBB": SimpleNamespace(
+            ticker="BBB",
+            short_name="BBB",
+            long_name="BBB",
+            stock_quote=SimpleNamespace(last_price=20.0, market_cap=100.0, change_percent=4.5),
+        ),
+        "CCC": SimpleNamespace(ticker="CCC", short_name="CCC", long_name="CCC", stock_quote=SimpleNamespace(last_price=20.0, market_cap=100.0, change_percent=4.5)),
+        "DDD": SimpleNamespace(ticker="DDD", short_name="DDD", long_name="DDD", stock_quote=SimpleNamespace(last_price=20.0, market_cap=100.0, change_percent=4.5)),
+        "EEE": SimpleNamespace(ticker="EEE", short_name="EEE", long_name="EEE", stock_quote=SimpleNamespace(last_price=20.0, market_cap=100.0, change_percent=4.5)),
+    }
+    stock_store = SimpleNamespace(
+        quote_source="sdk_online",
+        quote_as_of="2026-09-29T02:30:00Z",
+        get=lambda _market, ticker: stocks.get(ticker),
+        list_market=lambda market: list(stocks.values()) if market == "us" else [],
+    )
+    service = SectorMoversService(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="科技", level3_en="Technology")
+        ),
+        stock_store=stock_store,
+        sector_precomputed_store=Precomputed(),
+    )
+
+    response = service.build_market_movers_response(days=1, limit=5, market="us", include_members=False)
+
+    assert response.as_of == "2026-09-29"
+    assert response.window_end == "2026-09-29"
+    assert response.markets["us"].gainers[0].change_percent == pytest.approx(4.0)
+
+
+def test_latest_one_day_sector_movers_keep_newer_precomputed_data_over_snapshot_quotes() -> None:
+    sector_rows = pd.DataFrame(
+        [
+            {
+                "market": "us",
+                "scope": "L3",
+                "level1_id": "1",
+                "level2_id": "2",
+                "level3_id": "3",
+                "daily_return_pct": 7.5,
+                "total_market_cap": 500.0,
+                "member_count": 5,
+            }
+        ]
+    )
+
+    class Precomputed:
+        load_generation = 1
+
+        def resolve_window_bounds(self, window):
+            return window.with_resolved_bounds(start="2026-10-08", end="2026-10-08")
+
+        def get_sector_movers_window_frame_for_window(self, _window):
+            return sector_rows
+
+    service = SectorMoversService(
+        sector_store=SimpleNamespace(
+            find_resolved_path=lambda *_args: SimpleNamespace(level3_zh="科技", level3_en="Technology")
+        ),
+        stock_store=SimpleNamespace(
+            quote_source="sdk_snapshot",
+            quote_as_of="2026-10-07T16:00:00Z",
+        ),
+        sector_precomputed_store=Precomputed(),
+    )
+
+    response = service.build_market_movers_response(days=1, limit=5, market="us", include_members=False)
+
+    assert response.as_of == "2026-10-08"
+    assert response.window_end == "2026-10-08"
+    assert response.markets["us"].gainers[0].change_percent == pytest.approx(7.5)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -135,7 +135,7 @@ async def wait_for_chat_run(
             last_event_count = event_count
         if status in {"done", "error", "cancelled"}:
             return record
-        await asyncio.sleep(max(0.5, float(poll_interval)))
+        await anyio.sleep(max(0.5, float(poll_interval)))
 
 
 async def run_message_via_dashboard(

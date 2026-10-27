@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
+import anyio
 from fastapi import FastAPI
 from fastapi import HTTPException
 
@@ -20,13 +21,15 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if autostart and runner is not None and hasattr(runner, "start"):
-            await runner.start()
-        try:
-            yield
-        finally:
-            if autostart and runner is not None and hasattr(runner, "stop"):
-                await runner.stop()
+        async with anyio.create_task_group() as task_group:
+            if autostart and runner is not None and hasattr(runner, "start"):
+                await runner.start(task_group=task_group)
+            try:
+                yield
+            finally:
+                if autostart and runner is not None and hasattr(runner, "stop"):
+                    await runner.stop()
+                task_group.cancel_scope.cancel()
 
     app = FastAPI(title="DojoAgents Gateway", lifespan=lifespan)
     platform_registry = registry or create_default_gateway_registry()

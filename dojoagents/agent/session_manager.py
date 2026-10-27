@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
+import inspect
 import json
 import shutil
 import time
@@ -287,6 +288,7 @@ class DojoAgentSessionManager:
         response: AgentResponse,
         *,
         events: list[dict[str, Any]] | None = None,
+        _perform_memory_sync: bool = True,
     ) -> None:
         sidecar = self._load_sidecar(handle.session_id)
         token_snapshot = response.metadata.get("session_tokens")
@@ -311,7 +313,7 @@ class DojoAgentSessionManager:
                 "updated_at": _utc(),
             },
         )
-        if self.sync_memory:
+        if self.sync_memory and _perform_memory_sync:
             self._sync_memory_sync(handle)
 
     async def finish_run(
@@ -321,7 +323,9 @@ class DojoAgentSessionManager:
         *,
         events: list[dict[str, Any]] | None = None,
     ) -> None:
-        self.finish_run_sync(handle, response, events=events)
+        self.finish_run_sync(handle, response, events=events, _perform_memory_sync=False)
+        if self.sync_memory:
+            await self._sync_memory(handle)
 
     def fail_run_sync(self, handle: DojoSessionRunHandle, message: str, *, code: str = "runtime_error") -> None:
         sidecar = self._load_sidecar(handle.session_id)
@@ -343,24 +347,36 @@ class DojoAgentSessionManager:
         self.cancel_run_sync(handle)
 
     def _sync_memory_sync(self, handle: DojoSessionRunHandle) -> None:
-        if self.memory_manager is None:
+        result, latest_id = self._prepare_memory_sync(handle)
+        if result is None:
             return
+        if inspect.isawaitable(result):
+            anyio.run(lambda: result)
+        self._write_memory_sync_marker(handle, latest_id)
+
+    async def _sync_memory(self, handle: DojoSessionRunHandle) -> None:
+        result, latest_id = self._prepare_memory_sync(handle)
+        if result is None:
+            return
+        if inspect.isawaitable(result):
+            await result
+        self._write_memory_sync_marker(handle, latest_id)
+
+    def _prepare_memory_sync(self, handle: DojoSessionRunHandle) -> tuple[Any | None, int | None]:
+        if self.memory_manager is None:
+            return None, None
         user_text, assistant_text, latest_id = self._latest_pair(handle.session_id, handle.agent_id)
         if not user_text or not assistant_text:
-            return
+            return None, latest_id
         existing_turns = getattr(self.memory_manager, "turns", None)
         if isinstance(existing_turns, list) and existing_turns:
             last = existing_turns[-1]
             if isinstance(last, dict) and last.get("session_id") == handle.session_id and last.get("user") == user_text and last.get("assistant") == assistant_text:
-                return
+                return None, latest_id
         result = self.memory_manager.sync_turn(user_text, assistant_text, session_id=handle.session_id)
-        if asyncio.iscoroutine(result):
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                asyncio.run(result)
-            else:
-                loop.create_task(result)
+        return result, latest_id
+
+    def _write_memory_sync_marker(self, handle: DojoSessionRunHandle, latest_id: int | None) -> None:
         _atomic_write(
             self._memory_path(handle.session_id),
             {

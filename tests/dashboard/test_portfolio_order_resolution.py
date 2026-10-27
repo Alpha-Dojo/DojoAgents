@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date as _date
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,19 @@ from dojoagents.dashboard.services.portfolio_order_resolution import (
     validate_share_quantity,
     resolve_portfolio_order_request,
 )
+from dojoagents.dashboard.services import portfolio_kline_fetch
+
+
+class _FixtureDate(_date):
+    @classmethod
+    def today(cls) -> _date:
+        return cls(2026, 7, 4)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_kline_query_date(monkeypatch):
+    """Keep fixed 2026 K-line fixtures inside the recent lookup window."""
+    monkeypatch.setattr(portfolio_kline_fetch, "date", _FixtureDate)
 
 
 class Bar:

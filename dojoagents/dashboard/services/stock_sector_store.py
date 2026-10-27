@@ -137,6 +137,7 @@ class StockSectorStore:
                         LOGGER.warning(f"Failed to parse sector label for {ticker}: {e}")
         except Exception:
             LOGGER.error("Failed to load sector relations from SDK", exc_info=True)
+            raise
 
     def get(self, market: str, ticker: str) -> Optional[StockSectorLabel]:
         normalized_market = normalize_market_code(market) or market.strip().lower()

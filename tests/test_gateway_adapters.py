@@ -881,6 +881,7 @@ async def test_wechat_adapter_file_persistence(tmp_path, monkeypatch):
         "token": "token-12345",
         "base_url": "https://ilink.test",
         "home_channel": "wechat-owner",
+        "polling_enabled": False,
     }
     
     # 1. Initialize adapter and start it

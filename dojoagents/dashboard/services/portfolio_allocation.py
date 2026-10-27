@@ -4,7 +4,7 @@ import math
 from typing import Dict, Iterable, List, Optional
 
 from dojoagents.dashboard.services.kline_bar_utils import extract_bar_time
-from dojoagents.dashboard.services.kline_store import KlineStore
+from dojoagents.dashboard.services.kline_store import KLINE_OPEN_FIELDS, KlineStore
 from dojoagents.dashboard.services.stock_store import StockStore
 
 MARKETS = ("us", "sh", "hk")
@@ -27,7 +27,7 @@ async def lookup_open_price(
     ticker: str,
     date_str: str,
 ) -> Optional[float]:
-    rows = (await kline_store.get_or_fetch_kline(ticker)).bars
+    rows = (await kline_store.get_or_fetch_kline(ticker, fields=KLINE_OPEN_FIELDS)).bars
     if not rows:
         return None
 

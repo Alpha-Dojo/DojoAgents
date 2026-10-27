@@ -8,7 +8,7 @@ import './SettingsModal.css';
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const CUSTOM_MODEL_VALUE = '__custom_model__';
-const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel'];
+const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel', 'serply'];
 const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel'];
 
 interface ModelPreset {
@@ -311,8 +311,10 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
   const skills = asRecord(cfg.skills);
   const scheduler = asRecord(cfg.scheduler);
   const dashboard = asRecord(cfg.dashboard);
+  const financial = asRecord(dashboard.financial);
   const logging = asRecord(cfg.logging);
   const dojosdk = asRecord(cfg.dojosdk);
+  const offline = asRecord(dojosdk.offline);
   const multiAgent = asRecord(cfg.multi_agent);
   const defaultAgents = Array.isArray(multiAgent.default_agents) ? multiAgent.default_agents : [];
 
@@ -375,6 +377,9 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
     dashboard: {
       host: asString(dashboard.host, '127.0.0.1'),
       port: asNumber(dashboard.port, 8765),
+      financial: {
+        startup_preload_stores: arrToLines(financial.startup_preload_stores),
+      },
     },
     logging: {
       level: asString(logging.level, 'INFO'),
@@ -386,6 +391,16 @@ function buildForm(cfg: SettingsConfig): SettingsFormState {
       base_url: asString(dojosdk.base_url),
       timeout: asNumber(dojosdk.timeout, 60),
       max_retries: asNumber(dojosdk.max_retries, 1),
+      offline: {
+        enabled: asBool(offline.enabled, true),
+        cache_dir: asString(offline.cache_dir, '~/.cache/huggingface/hub'),
+        backend: (['auto', 'huggingface', 'modelscope'].includes(asString(offline.backend))
+          ? asString(offline.backend)
+          : 'auto') as 'auto' | 'huggingface' | 'modelscope',
+        local_files_only: asBool(offline.local_files_only, false),
+        startup_paths: arrToLines(offline.startup_paths),
+        startup_repos: arrToLines(offline.startup_repos),
+      },
     },
     multi_agent: {
       enabled: asBool(multiAgent.enabled, false),
@@ -436,6 +451,14 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
     base_url: form.dojosdk.base_url || null,
     timeout: form.dojosdk.timeout,
     max_retries: form.dojosdk.max_retries,
+    offline: {
+      enabled: form.dojosdk.offline.enabled,
+      cache_dir: form.dojosdk.offline.cache_dir,
+      backend: form.dojosdk.offline.backend,
+      local_files_only: form.dojosdk.offline.local_files_only,
+      startup_paths: linesToArr(form.dojosdk.offline.startup_paths),
+      startup_repos: linesToArr(form.dojosdk.offline.startup_repos),
+    },
   };
   if (form.dojosdk.api_key) sdkPatch.api_key = form.dojosdk.api_key;
 
@@ -479,7 +502,15 @@ function buildPatch(form: SettingsFormState): SettingsConfig {
       disabled: linesToArr(form.skills.disabled),
     },
     scheduler: { ...form.scheduler },
-    dashboard: { ...form.dashboard },
+    dashboard: {
+      host: form.dashboard.host,
+      port: form.dashboard.port,
+      financial: {
+        startup_preload_stores: linesToArr(
+          form.dashboard.financial.startup_preload_stores,
+        ),
+      },
+    },
     logging: { ...form.logging },
     dojosdk: sdkPatch,
     multi_agent: {
@@ -1007,6 +1038,15 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               <Section title="Dashboard">
                 <Field label="Host">{textInput(form.dashboard.host, (value) => updateField((draft) => { draft.dashboard.host = value; }))}</Field>
                 <Field label="Port">{numberInput(form.dashboard.port, (value) => updateField((draft) => { draft.dashboard.port = value; }), 1, 65535)}</Field>
+                <Field label="Startup small-store whitelist (one per line)">
+                  <textarea
+                    rows={3}
+                    value={form.dashboard.financial.startup_preload_stores}
+                    onChange={(event) => updateField((draft) => {
+                      draft.dashboard.financial.startup_preload_stores = event.target.value;
+                    })}
+                  />
+                </Field>
               </Section>
 
               <Section title="Logging">
@@ -1034,6 +1074,32 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <Field label="Base URL">{textInput(form.dojosdk.base_url, (value) => updateField((draft) => { draft.dojosdk.base_url = value; }))}</Field>
                   <Field label="Timeout (seconds)">{numberInput(form.dojosdk.timeout, (value) => updateField((draft) => { draft.dojosdk.timeout = value; }), 1)}</Field>
                   <Field label="Max Retries">{numberInput(form.dojosdk.max_retries, (value) => updateField((draft) => { draft.dojosdk.max_retries = value; }), 0)}</Field>
+                  <div className="settings-subsection">
+                    <h3>Offline snapshots</h3>
+                    <CheckboxField label="Enabled" checked={form.dojosdk.offline.enabled} onChange={(checked) => updateField((draft) => { draft.dojosdk.offline.enabled = checked; })} />
+                    <CheckboxField label="Local files only" checked={form.dojosdk.offline.local_files_only} onChange={(checked) => updateField((draft) => { draft.dojosdk.offline.local_files_only = checked; })} />
+                    <Field label="Backend">
+                      <DojoSelect
+                        size="sm"
+                        value={form.dojosdk.offline.backend}
+                        onChange={(event) => updateField((draft) => {
+                          draft.dojosdk.offline.backend = event.target.value as 'auto' | 'huggingface' | 'modelscope';
+                        })}
+                        options={[
+                          { value: 'auto', label: 'Auto' },
+                          { value: 'huggingface', label: 'Hugging Face' },
+                          { value: 'modelscope', label: 'ModelScope' },
+                        ]}
+                      />
+                    </Field>
+                    <Field label="Cache directory">{textInput(form.dojosdk.offline.cache_dir, (value) => updateField((draft) => { draft.dojosdk.offline.cache_dir = value; }))}</Field>
+                    <Field label="Startup endpoint paths (one per line)">
+                      <textarea rows={4} value={form.dojosdk.offline.startup_paths} onChange={(event) => updateField((draft) => { draft.dojosdk.offline.startup_paths = event.target.value; })} />
+                    </Field>
+                    <Field label="Startup repository IDs (one per line)">
+                      <textarea rows={3} value={form.dojosdk.offline.startup_repos} onChange={(event) => updateField((draft) => { draft.dojosdk.offline.startup_repos = event.target.value; })} />
+                    </Field>
+                  </div>
                 </form>
               </Section>
             </div>

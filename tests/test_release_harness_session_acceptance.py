@@ -32,7 +32,7 @@ ACCEPTANCE_EVIDENCE = {
     27: "tests/harnesses/financial/test_presenters.py",
     28: "tests/characterization/test_financial_flow_baseline.py",
     29: "tests/sessions/test_factory.py",
-    30: "docs/session-store-adapter.md",
+    30: "docs/site/en/design/session-store-adapter.md",
 }
 
 

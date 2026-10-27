@@ -1,6 +1,8 @@
 import asyncio
 import time
+import anyio
 import pytest
+import threading
 from unittest.mock import MagicMock
 
 from dojoagents.agent.models import ChatRequest, LLMResult
@@ -100,18 +102,19 @@ async def test_gateway_stream_consumer_throttling_and_think_stripping():
         edit_interval=0.05
     )
 
-    await consumer.start()
+    async with anyio.create_task_group() as task_group:
+        await consumer.start(task_group)
 
-    # Send chunks, including a thinking block
-    consumer.on_delta("Hello! ")
-    consumer.on_delta("<think>Thinking step 1...")
-    consumer.on_delta("Thinking step 2...</think>")
-    consumer.on_delta("Here is the answer.")
-    consumer.on_delta("<thought>another thought</thought> Done.")
+        # Send chunks, including a thinking block
+        consumer.on_delta("Hello! ")
+        consumer.on_delta("<think>Thinking step 1...")
+        consumer.on_delta("Thinking step 2...</think>")
+        consumer.on_delta("Here is the answer.")
+        consumer.on_delta("<thought>another thought</thought> Done.")
 
-    # Sleep to allow consumer task to process items
-    await asyncio.sleep(0.15)
-    await consumer.stop()
+        # Sleep to allow consumer task to process items
+        await asyncio.sleep(0.15)
+        await consumer.stop()
 
     # Verify that the final text sent or edited contains NO thinking blocks
     assert len(sent_messages) == 1
@@ -123,6 +126,33 @@ async def test_gateway_stream_consumer_throttling_and_think_stripping():
     assert "Thinking" not in final_text
     assert "thought" not in final_text
     assert final_text == "Hello! Here is the answer. Done."
+
+
+@pytest.mark.asyncio
+async def test_gateway_stream_consumer_accepts_external_thread_callback():
+    adapter = MagicMock()
+    delivered: list[str] = []
+
+    async def mock_send(target, text, *, thread_id=None):
+        delivered.append(text)
+        return GatewaySendResult(success=True, message_id="msg-thread")
+
+    adapter.send = mock_send
+    adapter.edit = None
+    consumer = GatewayStreamConsumer(adapter=adapter, target="T1", edit_interval=0)
+    callback_thread: list[int] = []
+
+    def publish() -> None:
+        callback_thread.append(threading.get_ident())
+        consumer.on_delta("threaded")
+
+    async with anyio.create_task_group() as task_group:
+        await consumer.start(task_group)
+        await anyio.to_thread.run_sync(publish)
+        await consumer.stop()
+
+    assert callback_thread != [threading.get_ident()]
+    assert delivered[-1] == "threaded"
 
 
 @pytest.mark.asyncio
