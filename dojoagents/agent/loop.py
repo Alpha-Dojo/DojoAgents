@@ -1490,7 +1490,7 @@ class AgentLoop:
                 memory_manager=self.memory_manager,
                 session_id=request.session_id,
             )
-            if compressed_history:
+            if compressed_history and compressed_history != history_msgs:
                 history_msgs = compressed_history
                 token_state.note_compression(_estimate_tokens_rough(flatten_messages_for_compress(compressed_history)))
                 if event_sink is not None:
@@ -2418,6 +2418,7 @@ class AgentLoop:
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
+            max_retries=provider_cfg.max_retries,
         )
 
     def _sanitize_tool_specs(

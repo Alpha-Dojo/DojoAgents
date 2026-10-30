@@ -123,6 +123,9 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     if not api_key and api_key_env:
         api_key = os.getenv(str(api_key_env))
     context_window = raw.get("context_window")
+    max_retries = raw.get("max_retries", 5)
+    if type(max_retries) is not int or max_retries < 0:
+        raise ValueError(f"llm_provider.providers.{name}.max_retries must be a nonnegative integer")
     raw_model = _as_non_empty_string(raw.get("model"))
     raw_models = raw.get("models", [])
     if raw_models is None:
@@ -178,6 +181,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         model_keys=model_keys,
         extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
+        max_retries=max_retries,
     )
 
 
@@ -364,21 +368,12 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
         "startup_preload_stores",
         ("sector_store", "benchmark_store"),
     )
-    if not isinstance(startup_paths_raw, (list, tuple)) or any(
-        not isinstance(item, str) or not item.strip() for item in startup_paths_raw
-    ):
+    if not isinstance(startup_paths_raw, (list, tuple)) or any(not isinstance(item, str) or not item.strip() for item in startup_paths_raw):
         raise ValueError("dojosdk.offline.startup_paths must be a list of non-empty strings")
-    if not isinstance(startup_repos_raw, (list, tuple)) or any(
-        not isinstance(item, str) or not item.strip() for item in startup_repos_raw
-    ):
+    if not isinstance(startup_repos_raw, (list, tuple)) or any(not isinstance(item, str) or not item.strip() for item in startup_repos_raw):
         raise ValueError("dojosdk.offline.startup_repos must be a list of non-empty strings")
-    if not isinstance(startup_preload_stores_raw, (list, tuple)) or any(
-        not isinstance(item, str) or not item.strip()
-        for item in startup_preload_stores_raw
-    ):
-        raise ValueError(
-            "dashboard.financial.startup_preload_stores must be a list of non-empty strings"
-        )
+    if not isinstance(startup_preload_stores_raw, (list, tuple)) or any(not isinstance(item, str) or not item.strip() for item in startup_preload_stores_raw):
+        raise ValueError("dashboard.financial.startup_preload_stores must be a list of non-empty strings")
     offline_enabled = offline_raw.get("enabled", True)
     local_files_only = offline_raw.get("local_files_only", False)
     if type(offline_enabled) is not bool:
@@ -547,9 +542,7 @@ def _to_config(raw: dict[str, Any], *, base_dir: Path | None = None, source_raw:
                 ticker_market_cap_min_hk=float(financial_raw.get("ticker_market_cap_min_hk", 1_000_000_000.0)),
                 derived_cache_schema_version=int(financial_raw.get("derived_cache_schema_version", 1)),
                 market_calendar_provider=str(financial_raw.get("market_calendar_provider", "exchange_calendars")),
-                startup_preload_stores=tuple(
-                    dict.fromkeys(item.strip() for item in startup_preload_stores_raw)
-                ),
+                startup_preload_stores=tuple(dict.fromkeys(item.strip() for item in startup_preload_stores_raw)),
             ),
         ),
         dojo_extensions=DojoExtensionsConfig(enabled=list(extensions_raw.get("enabled", ["dojo_research"]))),

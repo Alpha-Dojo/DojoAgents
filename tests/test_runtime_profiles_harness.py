@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dojoagents.agent.runtime import RuntimeFactory
+import pytest
+
+from dojoagents.agent.runtime import Runtime, RuntimeFactory
 from dojoagents.config.loader import ConfigStore
 
 
@@ -29,3 +31,34 @@ profiles:
     assert factory.for_profile("model_only") is default
     assert factory.for_profile("restricted") is not default
     assert default.capabilities.descriptor.id == "minimal"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("retries", [0, 2, 5])
+async def test_runtime_passes_provider_retry_configuration(tmp_path, retries):
+    config_path = tmp_path / "agents.yaml"
+    config_path.write_text(
+        f"""
+harness:
+  id: minimal
+  factory: tests.fixtures.minimal_harness:create_harness
+llm_provider:
+  default: qwen
+  providers:
+    qwen:
+      model: test-model
+      api_key: test-only-key
+      max_retries: {retries}
+sessions:
+  enabled: false
+  root: {tmp_path / "sessions"}
+tasks:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+    runtime = await Runtime.create(ConfigStore(config_path))
+    try:
+        assert runtime.agent.llm_provider.max_retries == retries
+    finally:
+        await runtime.shutdown()

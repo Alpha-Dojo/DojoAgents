@@ -8,6 +8,10 @@
 
 运行时通过 `ConfigStore.snapshot()` 读取 typed config；Dashboard 配置 API 通过 `ConfigStore.raw()`、deep merge 和 `ConfigStore.save_raw()` 更新用户配置；对外展示必须使用 `ConfigStore.redacted()`。
 
+OpenAI 兼容供应商（含 Qwen）的 `max_retries` 必须是非负整数，默认 `5`：首次请求失败后最多重试 5 次，共 6 次请求；设为 `0` 关闭重试。Chat 与上下文压缩共用此值。重试由 DojoAgents provider 控制，OpenAI SDK 内部重试固定为 0，避免两层相乘。连接错误、请求超时和 HTTP 408/409/429/5xx 可以重试；上游 `x-should-retry` 可显式允许或禁止重试。指数退避从 0.5 秒开始、上限 8 秒并附加抖动；有效 `retry-after-ms`/`Retry-After`（秒数或 HTTP 日期）最多等待 60 秒，超过时直接返回原异常并记录 `retry_after_exceeds_limit`，不提前重试。流式响应建立后断流不会自动重发。此配置不会重放整个 Agent 或创建新的定时 Run。原生 Gemini 使用独立的 HTTP 实现。
+
+每个 HTTP 请求使用独立 `call_id`，通过 `llm_request_attempt`、`llm_request_retry`、`llm_request_response` 和 `llm_request_end` 记录尝试次数、错误类型、HTTP 状态、退避、耗时及最终结果；`response` 只表示收到响应，`end.outcome` 才表示成功/失败/取消。日志不包含消息、工具参数、密钥或错误响应体。宿主可通过可选 telemetry 回调 `on_llm_request(LLMRequestEvent)` 收集指标；该回调不受日志级别控制，旧 telemetry hook 无需实现它。取消不会重试，客户端在结束时关闭。
+
 ## 示例
 
 ```yaml
@@ -28,6 +32,7 @@ llm_provider:
         X-Tenant-ID: ${OPENAI_TENANT_ID}
         X-Request-Source: dojoagents
       context_window: 128000
+      max_retries: 5
 
 agent:
   max_iterations: 100

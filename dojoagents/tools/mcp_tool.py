@@ -12,7 +12,6 @@ from mcp.client import sse as mcp_sse
 from mcp.client.stdio import stdio_client
 from dojoagents.tools.registry import ToolRegistry, ToolSpec
 from dojoagents.utils.blocking_portal import (
-    PortalClosedError,
     PortalError,
     ThreadedBlockingPortal,
 )
@@ -206,6 +205,7 @@ class SamplingHandler:
                 api_key=provider_cfg.api_key,
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
+                max_retries=provider_cfg.max_retries,
                 extra_headers=provider_cfg.extra_headers,
             )
             model = provider_cfg.model or ""

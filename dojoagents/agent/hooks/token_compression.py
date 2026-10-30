@@ -144,13 +144,16 @@ class TokenCompressionHook:
         ):
             return False
 
+        original = list(agent.messages)
         compressed = await self.compressor.compress(
-            list(agent.messages),
+            original,
             self.llm_provider,
             self.model,
             memory_manager=self.memory_manager,
             session_id=str(invocation_state.get("session_id", ledger.session_id)),
         )
+        if compressed == original:
+            return False
         agent.messages = compressed
         ledger.state.note_compression(_estimate_tokens_rough(flatten_messages_for_compress(compressed)))
 

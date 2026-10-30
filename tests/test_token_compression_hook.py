@@ -94,3 +94,21 @@ async def test_handle_context_length_exceeded_forces_compress_and_updates_window
     assert state.last_prompt_tokens < 100
     registry.note_context_window.assert_called_once_with("openai", "gpt-4.1", 1048565)
     compressor.compress.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_unchanged_or_rejected_compression_does_not_update_agent_or_ledger(tmp_path):
+    ledger = SessionTokenLedger(tmp_path)
+    state = ledger.load_or_create("unchanged", provider="static", model_id="test", model_context_window=1000, session_max_tokens=1000, compression_threshold_ratio=0.8)
+    original = [{"role": "user", "content": [{"text": "keep original"}]}]
+    agent = MagicMock(messages=original)
+    compressor = MagicMock()
+    compressor.compress = AsyncMock(side_effect=lambda messages, *args, **kwargs: messages)
+    sink = MagicMock()
+    hook = TokenCompressionHook(
+        compressor=compressor, policy=TokenCompressionPolicy(threshold_ratio=0.8), llm_provider=MagicMock(), model="test", memory_manager=None, enabled=True
+    )
+    changed = await hook._maybe_compress(agent, {"_dojo_token_ledger": ledger, "_dojo_event_sink": sink}, prompt_tokens=1000, force=True)
+    assert changed is False
+    assert agent.messages is original and state.compression_count == 0
+    sink.context_compacted.assert_not_called()

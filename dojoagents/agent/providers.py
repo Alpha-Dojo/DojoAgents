@@ -1,7 +1,13 @@
+import email.utils
 import json
+import logging
 import math
+import random
 import re
 import time
+import uuid
+
+import anyio
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -10,7 +16,7 @@ from dojoagents.agent.context_length import ContextLengthExceededError, parse_co
 from dojoagents.logging import LOGGER
 from dojoagents.agent.models import LLMResult, ToolCall
 from dojoagents.agent.events import emit_stream_delta
-from dojoagents.agent.telemetry import LLMCallEvent, current_run_id, emit
+from dojoagents.agent.telemetry import LLMCallEvent, LLMRequestEvent, current_run_id, emit
 
 _REDACTED_PROVIDER_KEYS = {"thought_signature", "thoughtSignature", "reasoningSignature", "signature"}
 _IMAGE_DATA_URL_RE = re.compile(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.*)$", re.DOTALL)
@@ -36,6 +42,59 @@ def redact_provider_response(value: Any, secret: str = "") -> Any:
             value,
         )
     return value
+
+
+def _log_model_request(event: str, context: dict, *, level: int = logging.INFO, **fields) -> None:
+    data = {**context, **fields, "event": event}
+    emit(
+        LLMRequestEvent(
+            run_id=context["run_id"],
+            provider=context["provider"],
+            model=context["model"],
+            event=event,
+            attempt=context["attempt"],
+            outcome=fields.get("outcome", ""),
+            elapsed_ms=fields.get("elapsed_ms", 0),
+        )
+    )
+    LOGGER.log(level, "%s %s", event, json.dumps(data, ensure_ascii=False, separators=(",", ":")), extra={"llm_request": data})
+
+
+def _retryable_model_error(error: Exception) -> bool:
+    from openai import APIConnectionError, APIStatusError
+
+    if isinstance(error, APIConnectionError):
+        return True
+    if not isinstance(error, APIStatusError):
+        return False
+    hint = error.response.headers.get("x-should-retry")
+    if hint in {"true", "false"}:
+        return hint == "true"
+    return error.status_code in {408, 409, 429} or error.status_code >= 500
+
+
+def _model_retry_delay(error: Exception, attempt: int) -> float | None:
+    from openai import APIStatusError
+
+    delay = None
+    if isinstance(error, APIStatusError):
+        headers = error.response.headers
+        try:
+            delay = float(headers["retry-after-ms"]) / 1000
+        except (KeyError, ValueError):
+            value = headers.get("retry-after")
+            try:
+                delay = float(value)
+            except (TypeError, ValueError):
+                try:
+                    parsed = email.utils.parsedate_tz(value) if value else None
+                    if parsed is not None:
+                        delay = email.utils.mktime_tz(parsed) - time.time()
+                except (OverflowError, ValueError):
+                    pass
+    if delay is not None and math.isfinite(delay) and delay > 0:
+        return delay if delay <= 60 else None
+    return min(0.5 * 2 ** min(attempt - 1, 4), 8) * random.uniform(0.75, 1)
 
 
 class _BoundedResponseStream(httpx.AsyncByteStream):
@@ -213,15 +272,54 @@ class OpenAICompatibleProvider:
             raise ValueError("timeout must be finite and positive")
         if max_response_bytes is not None and (type(max_response_bytes) is not int or max_response_bytes <= 0):
             raise ValueError("max_response_bytes must be a positive integer")
-        self.max_retries = max_retries
+        self.max_retries = 5 if max_retries is None else max_retries
         self.timeout = timeout
         self.max_response_bytes = max_response_bytes
 
-    async def _raw_completion(self, client, create_kwargs) -> LLMResult:
+    async def _request_with_retries(self, client, create_kwargs, context, *, raw=False):
+        create = client.chat.completions.with_raw_response.create if raw else client.chat.completions.create
+        for attempt in range(1, self.max_retries + 2):
+            context["attempt"] = attempt
+            for key in ("http_status", "error_type", "retryable", "retry_exhausted"):
+                context.pop(key, None)
+            started = time.perf_counter()
+            _log_model_request("llm_request_attempt", context)
+            try:
+                response = await create(**create_kwargs)
+            except Exception as exc:
+                retryable = _retryable_model_error(exc)
+                context.update(
+                    error_type=type(exc).__name__,
+                    http_status=getattr(exc, "status_code", None),
+                    retryable=retryable,
+                    retry_exhausted=retryable and attempt > self.max_retries,
+                )
+                if not retryable or attempt > self.max_retries:
+                    raise
+                delay = _model_retry_delay(exc, attempt)
+                if delay is None:
+                    context.update(retryable=False, stop_reason="retry_after_exceeds_limit")
+                    raise
+                _log_model_request(
+                    "llm_request_retry",
+                    context,
+                    level=logging.WARNING,
+                    next_attempt=attempt + 1,
+                    retry_delay_seconds=delay,
+                    attempt_elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+                )
+                await anyio.sleep(delay)
+            else:
+                status = getattr(response, "status_code", None)
+                context["http_status"] = status if type(status) is int else 200
+                _log_model_request("llm_request_response", context, attempt_elapsed_ms=round((time.perf_counter() - started) * 1000, 1))
+                return response
+
+    async def _raw_completion(self, client, create_kwargs, request_context) -> LLMResult:
         from openai import APIStatusError
 
         try:
-            raw = await client.chat.completions.with_raw_response.create(**create_kwargs)
+            raw = await self._request_with_retries(client, create_kwargs, request_context, raw=True)
             response = raw.http_response
         except APIStatusError as exc:
             response = exc.response
@@ -320,9 +418,7 @@ class OpenAICompatibleProvider:
             )
         from openai import AsyncOpenAI
 
-        client_options: dict[str, Any] = {}
-        if self.max_retries is not None:
-            client_options["max_retries"] = self.max_retries
+        client_options: dict[str, Any] = {"max_retries": 0}
         if self.timeout is not None:
             client_options["timeout"] = self.timeout
         if self.max_response_bytes is not None:
@@ -352,243 +448,268 @@ class OpenAICompatibleProvider:
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             actual_model = f"{self.author}/{model}"
 
-        request_started = time.perf_counter()
-        request_started_wall = time.time()
+        request_context = {
+            "call_id": "llm-" + uuid.uuid4().hex,
+            "provider": self.name,
+            "model": actual_model,
+            "run_id": current_run_id(),
+            "session_id": getattr((metadata or {}).get("_dojo_request"), "session_id", "") or (metadata or {}).get("session_id", ""),
+            "max_attempts": self.max_retries + 1,
+            "attempt": 0,
+            "stream_opened": False,
+        }
+        outcome = "failed"
+        call_started = time.perf_counter()
         try:
-            create_kwargs: dict[str, Any] = {
-                "model": actual_model,
-                "messages": messages,
-                "tools": [{"type": "function", "function": tool} for tool in tools] or None,
-                "stream": stream,
-            }
-            if stream:
-                create_kwargs["stream_options"] = {"include_usage": True}
-            create_kwargs.update(options)
-            if include_raw_response:
-                try:
-                    return await self._raw_completion(client, create_kwargs)
-                finally:
-                    await client.close()
-            response = await client.chat.completions.create(**create_kwargs)
-        except Exception as e:
-            err_msg = str(e)
-            max_context, requested = parse_context_length_error(err_msg)
-            if max_context is not None or requested is not None:
-                LOGGER.warning(
-                    "Context length exceeded for model %s: max=%s requested=%s",
-                    model,
-                    max_context,
-                    requested,
-                )
-                raise ContextLengthExceededError(
-                    err_msg,
-                    max_context=max_context,
-                    requested_tokens=requested,
-                ) from e
-            LOGGER.exception(
-                "Error calling OpenAI API: %s, messages: %s, tools: %s, model: %s",
-                redact_provider_response(str(e), self.api_key or ""),
-                _redact_provider_metadata(messages),
-                _redact_provider_metadata(tools),
-                model,
-            )
-            raise e
+            request_started = time.perf_counter()
+            request_started_wall = time.time()
+            try:
+                create_kwargs: dict[str, Any] = {
+                    "model": actual_model,
+                    "messages": messages,
+                    "tools": [{"type": "function", "function": tool} for tool in tools] or None,
+                    "stream": stream,
+                }
+                if stream:
+                    create_kwargs["stream_options"] = {"include_usage": True}
+                create_kwargs.update(options)
+                if include_raw_response:
+                    result = await self._raw_completion(client, create_kwargs, request_context)
+                    outcome = "succeeded" if result.metadata["raw_response"]["http_status"] < 400 else "failed"
+                    return result
+                response = await self._request_with_retries(client, create_kwargs, request_context)
+                request_context["stream_opened"] = stream
+            except Exception as e:
+                err_msg = str(e)
+                max_context, requested = parse_context_length_error(err_msg)
+                if max_context is not None or requested is not None:
+                    LOGGER.warning(
+                        "Context length exceeded for model %s: max=%s requested=%s",
+                        model,
+                        max_context,
+                        requested,
+                    )
+                    raise ContextLengthExceededError(
+                        err_msg,
+                        max_context=max_context,
+                        requested_tokens=requested,
+                    ) from e
+                raise
 
-        if stream and stream_callback:
-            full_content = []
-            full_reasoning = []
-            tool_calls_buffer: dict[int, dict[str, Any]] = {}
-            stream_usage: dict[str, int] | None = None
-            event_sink = (metadata or {}).get("_dojo_event_sink")
-            reasoning_started = False
-            reasoning_ended = False
-            content_started = False
-            coalesce = getattr((metadata or {}).get("_dojo_request"), "channel", None) == "job"
-            pending_reasoning: list[str] = []
-            pending_text: list[str] = []
-            reasoning_chars = text_chars = 0
-            last_reasoning_flush = last_text_flush = time.monotonic()
-            # Stream timing markers must exist before the loop: they are read on
-            # every chunk, so a missing initializer raises UnboundLocalError.
-            first_chunk_at: float | None = None
-            first_content_at: float | None = None
-            last_chunk_at: float | None = None
+            if stream and stream_callback:
+                full_content = []
+                full_reasoning = []
+                tool_calls_buffer: dict[int, dict[str, Any]] = {}
+                stream_usage: dict[str, int] | None = None
+                event_sink = (metadata or {}).get("_dojo_event_sink")
+                reasoning_started = False
+                reasoning_ended = False
+                content_started = False
+                coalesce = getattr((metadata or {}).get("_dojo_request"), "channel", None) == "job"
+                pending_reasoning: list[str] = []
+                pending_text: list[str] = []
+                reasoning_chars = text_chars = 0
+                last_reasoning_flush = last_text_flush = time.monotonic()
+                # Stream timing markers must exist before the loop: they are read on
+                # every chunk, so a missing initializer raises UnboundLocalError.
+                first_chunk_at: float | None = None
+                first_content_at: float | None = None
+                last_chunk_at: float | None = None
 
-            async def flush_reasoning() -> None:
-                nonlocal reasoning_chars, last_reasoning_flush
-                if pending_reasoning:
-                    await event_sink.wait_for_capacity()
-                    event_sink.thinking_delta("".join(pending_reasoning))
-                    pending_reasoning.clear()
-                    reasoning_chars = 0
-                    last_reasoning_flush = time.monotonic()
+                async def flush_reasoning() -> None:
+                    nonlocal reasoning_chars, last_reasoning_flush
+                    if pending_reasoning:
+                        await event_sink.wait_for_capacity()
+                        event_sink.thinking_delta("".join(pending_reasoning))
+                        pending_reasoning.clear()
+                        reasoning_chars = 0
+                        last_reasoning_flush = time.monotonic()
 
-            async def flush_text() -> None:
-                nonlocal text_chars, last_text_flush
-                if pending_text:
-                    await emit_stream_delta(stream_callback, "".join(pending_text))
-                    pending_text.clear()
-                    text_chars = 0
-                    last_text_flush = time.monotonic()
+                async def flush_text() -> None:
+                    nonlocal text_chars, last_text_flush
+                    if pending_text:
+                        await emit_stream_delta(stream_callback, "".join(pending_text))
+                        pending_text.clear()
+                        text_chars = 0
+                        last_text_flush = time.monotonic()
 
-            async for chunk in response:
-                chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
-                if chunk_usage is not None:
-                    stream_usage = chunk_usage
-                if not chunk.choices:
-                    continue
-                last_chunk_at = time.perf_counter()
-                if first_chunk_at is None:
-                    # Reasoning chunks count as the first token: users still wait
-                    # for them, and providers bill them.
-                    first_chunk_at = last_chunk_at
-                choice = chunk.choices[0]
-                delta = choice.delta
-                if event_sink is not None:
-                    await event_sink.wait_for_capacity()
-                reasoning_delta = getattr(delta, "reasoning_content", None) or (
-                    delta.model_extra.get("reasoning_content") if hasattr(delta, "model_extra") and delta.model_extra else None
-                )
-                if reasoning_delta:
-                    full_reasoning.append(reasoning_delta)
-                    if event_sink is not None and not content_started:
-                        if not reasoning_started:
-                            event_sink.thinking_start()
-                            reasoning_started = True
+                async for chunk in response:
+                    chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
+                    if chunk_usage is not None:
+                        stream_usage = chunk_usage
+                    if not chunk.choices:
+                        continue
+                    last_chunk_at = time.perf_counter()
+                    if first_chunk_at is None:
+                        # Reasoning chunks count as the first token: users still wait
+                        # for them, and providers bill them.
+                        first_chunk_at = last_chunk_at
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    if event_sink is not None:
+                        await event_sink.wait_for_capacity()
+                    reasoning_delta = getattr(delta, "reasoning_content", None) or (
+                        delta.model_extra.get("reasoning_content") if hasattr(delta, "model_extra") and delta.model_extra else None
+                    )
+                    if reasoning_delta:
+                        full_reasoning.append(reasoning_delta)
+                        if event_sink is not None and not content_started:
+                            if not reasoning_started:
+                                event_sink.thinking_start()
+                                reasoning_started = True
+                            if coalesce:
+                                pending_reasoning.append(reasoning_delta)
+                                reasoning_chars += len(reasoning_delta)
+                                if reasoning_chars >= 1024 or time.monotonic() - last_reasoning_flush >= 0.05:
+                                    await flush_reasoning()
+                            else:
+                                event_sink.thinking_delta(reasoning_delta)
+                    content_delta = delta.content or ""
+                    if content_delta:
+                        if first_content_at is None:
+                            first_content_at = time.perf_counter()
+                        if event_sink is not None and reasoning_started and not reasoning_ended:
+                            await flush_reasoning()
+                            event_sink.thinking_end()
+                            reasoning_ended = True
+                        content_started = True
+                        full_content.append(content_delta)
                         if coalesce:
-                            pending_reasoning.append(reasoning_delta)
-                            reasoning_chars += len(reasoning_delta)
-                            if reasoning_chars >= 1024 or time.monotonic() - last_reasoning_flush >= 0.05:
-                                await flush_reasoning()
+                            pending_text.append(content_delta)
+                            text_chars += len(content_delta)
+                            if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
+                                await flush_text()
                         else:
-                            event_sink.thinking_delta(reasoning_delta)
-                content_delta = delta.content or ""
-                if content_delta:
-                    if first_content_at is None:
-                        first_content_at = time.perf_counter()
-                    if event_sink is not None and reasoning_started and not reasoning_ended:
-                        await flush_reasoning()
-                        event_sink.thinking_end()
-                        reasoning_ended = True
-                    content_started = True
-                    full_content.append(content_delta)
-                    if coalesce:
-                        pending_text.append(content_delta)
-                        text_chars += len(content_delta)
-                        if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
-                            await flush_text()
-                    else:
-                        await emit_stream_delta(stream_callback, content_delta)
-                if delta.tool_calls:
-                    for tc_delta in delta.tool_calls:
-                        idx = tc_delta.index
-                        if idx not in tool_calls_buffer:
-                            tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": "", "metadata": {}}
-                        if tc_delta.id:
-                            tool_calls_buffer[idx]["id"] = tc_delta.id
-                        if tc_delta.function and tc_delta.function.name:
-                            tool_calls_buffer[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function and tc_delta.function.arguments:
-                            tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
-                        tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
+                            await emit_stream_delta(stream_callback, content_delta)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {"id": "", "name": "", "arguments": "", "metadata": {}}
+                            if tc_delta.id:
+                                tool_calls_buffer[idx]["id"] = tc_delta.id
+                            if tc_delta.function and tc_delta.function.name:
+                                tool_calls_buffer[idx]["name"] = tc_delta.function.name
+                            if tc_delta.function and tc_delta.function.arguments:
+                                tool_calls_buffer[idx]["arguments"] += tc_delta.function.arguments
+                            tool_calls_buffer[idx]["metadata"].update(_extract_tool_call_metadata(tc_delta, self.name))
 
-            await flush_reasoning()
-            await flush_text()
-            if event_sink is not None and reasoning_started and not reasoning_ended:
-                await event_sink.wait_for_capacity()
-                event_sink.thinking_end()
-                reasoning_ended = True
-            final_tool_calls = []
-            for idx, tc in sorted(tool_calls_buffer.items()):
-                args_dict = {}
-                if tc["arguments"].strip():
-                    try:
-                        args_dict = json.loads(tc["arguments"])
-                    except json.JSONDecodeError:
-                        args_dict = {"raw_arguments": tc["arguments"]}
-                final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict, metadata=dict(tc["metadata"])))
-            metadata: dict[str, Any] = {
-                "provider": self.name,
-                "reasoning_content": "".join(full_reasoning),
-                # Prevent the Strands bridge from replaying final reasoning
-                # after streamed answer deltas.
-                "reasoning_streamed": bool(full_reasoning),
-            }
-            if stream_usage is not None:
-                metadata["usage"] = stream_usage
-            else:
-                metadata["usage_available"] = False
-            # Timing no longer rides a private metadata channel; the framework
-            # emits a neutral LLMCallEvent instead and the host persists it.
-            stream_ended = time.perf_counter()
-            timing: dict[str, int] = {"request_ms": int((stream_ended - request_started) * 1000)}
-            if first_chunk_at is not None:
-                timing["ttft_ms"] = int((first_chunk_at - request_started) * 1000)
-            if first_content_at is not None:
-                timing["ttfc_ms"] = int((first_content_at - request_started) * 1000)
-            if first_chunk_at is not None and last_chunk_at is not None:
-                timing["decode_ms"] = int((last_chunk_at - first_chunk_at) * 1000)
-            # Framework-neutral telemetry event; the host decides how to persist
-            # it. run_id comes from the run-scoped context (see telemetry.py).
-            emit(
-                LLMCallEvent(
-                    run_id=current_run_id(),
-                    model=actual_model,
-                    provider=self.name,
-                    started_at=request_started_wall,
-                    request_ms=timing.get("request_ms", 0),
-                    ttft_ms=timing.get("ttft_ms"),
-                    ttfc_ms=timing.get("ttfc_ms"),
-                    decode_ms=timing.get("decode_ms"),
-                    usage=stream_usage,
-                    status="succeeded",
-                )
-            )
-            return LLMResult(
-                content="".join(full_content),
-                tool_calls=final_tool_calls,
-                metadata=metadata,
-            )
-        else:
-            message = response.choices[0].message
-            reasoning_content = getattr(message, "reasoning_content", None) or (
-                message.model_extra.get("reasoning_content") if hasattr(message, "model_extra") and message.model_extra else None
-            )
-            final_tool_calls = []
-            if message.tool_calls:
-                for tc in message.tool_calls:
+                await flush_reasoning()
+                await flush_text()
+                if event_sink is not None and reasoning_started and not reasoning_ended:
+                    await event_sink.wait_for_capacity()
+                    event_sink.thinking_end()
+                    reasoning_ended = True
+                final_tool_calls = []
+                for idx, tc in sorted(tool_calls_buffer.items()):
                     args_dict = {}
-                    if tc.function.arguments:
+                    if tc["arguments"].strip():
                         try:
-                            args_dict = json.loads(tc.function.arguments)
+                            args_dict = json.loads(tc["arguments"])
                         except json.JSONDecodeError:
-                            args_dict = {"raw_arguments": tc.function.arguments}
-                    final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict, metadata=_extract_tool_call_metadata(tc, self.name)))
-            result_metadata: dict[str, Any] = {
-                "provider": self.name,
-                "reasoning_content": reasoning_content or "",
-            }
-            usage_dict = self._usage_dict(getattr(response, "usage", None))
-            if usage_dict is not None:
-                result_metadata["usage"] = usage_dict
-            else:
-                result_metadata["usage_available"] = False
-            emit(
-                LLMCallEvent(
-                    run_id=current_run_id(),
-                    model=actual_model,
-                    provider=self.name,
-                    started_at=request_started_wall,
-                    request_ms=max(0, int((time.perf_counter() - request_started) * 1000)),
-                    usage=usage_dict,
-                    status="succeeded",
+                            args_dict = {"raw_arguments": tc["arguments"]}
+                    final_tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args_dict, metadata=dict(tc["metadata"])))
+                metadata: dict[str, Any] = {
+                    "provider": self.name,
+                    "reasoning_content": "".join(full_reasoning),
+                    # Prevent the Strands bridge from replaying final reasoning
+                    # after streamed answer deltas.
+                    "reasoning_streamed": bool(full_reasoning),
+                }
+                if stream_usage is not None:
+                    metadata["usage"] = stream_usage
+                else:
+                    metadata["usage_available"] = False
+                # Timing no longer rides a private metadata channel; the framework
+                # emits a neutral LLMCallEvent instead and the host persists it.
+                stream_ended = time.perf_counter()
+                timing: dict[str, int] = {"request_ms": int((stream_ended - request_started) * 1000)}
+                if first_chunk_at is not None:
+                    timing["ttft_ms"] = int((first_chunk_at - request_started) * 1000)
+                if first_content_at is not None:
+                    timing["ttfc_ms"] = int((first_content_at - request_started) * 1000)
+                if first_chunk_at is not None and last_chunk_at is not None:
+                    timing["decode_ms"] = int((last_chunk_at - first_chunk_at) * 1000)
+                # Framework-neutral telemetry event; the host decides how to persist
+                # it. run_id comes from the run-scoped context (see telemetry.py).
+                emit(
+                    LLMCallEvent(
+                        run_id=current_run_id(),
+                        model=actual_model,
+                        provider=self.name,
+                        started_at=request_started_wall,
+                        request_ms=timing.get("request_ms", 0),
+                        ttft_ms=timing.get("ttft_ms"),
+                        ttfc_ms=timing.get("ttfc_ms"),
+                        decode_ms=timing.get("decode_ms"),
+                        usage=stream_usage,
+                        status="succeeded",
+                    )
                 )
+                outcome = "succeeded"
+                return LLMResult(
+                    content="".join(full_content),
+                    tool_calls=final_tool_calls,
+                    metadata=metadata,
+                )
+            else:
+                message = response.choices[0].message
+                reasoning_content = getattr(message, "reasoning_content", None) or (
+                    message.model_extra.get("reasoning_content") if hasattr(message, "model_extra") and message.model_extra else None
+                )
+                final_tool_calls = []
+                if message.tool_calls:
+                    for tc in message.tool_calls:
+                        args_dict = {}
+                        if tc.function.arguments:
+                            try:
+                                args_dict = json.loads(tc.function.arguments)
+                            except json.JSONDecodeError:
+                                args_dict = {"raw_arguments": tc.function.arguments}
+                        final_tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args_dict, metadata=_extract_tool_call_metadata(tc, self.name)))
+                result_metadata: dict[str, Any] = {
+                    "provider": self.name,
+                    "reasoning_content": reasoning_content or "",
+                }
+                usage_dict = self._usage_dict(getattr(response, "usage", None))
+                if usage_dict is not None:
+                    result_metadata["usage"] = usage_dict
+                else:
+                    result_metadata["usage_available"] = False
+                emit(
+                    LLMCallEvent(
+                        run_id=current_run_id(),
+                        model=actual_model,
+                        provider=self.name,
+                        started_at=request_started_wall,
+                        request_ms=max(0, int((time.perf_counter() - request_started) * 1000)),
+                        usage=usage_dict,
+                        status="succeeded",
+                    )
+                )
+                outcome = "succeeded"
+                return LLMResult(
+                    content=message.content or "",
+                    tool_calls=final_tool_calls,
+                    metadata=result_metadata,
+                )
+        except BaseException as exc:
+            outcome = "cancelled" if isinstance(exc, anyio.get_cancelled_exc_class()) else "failed"
+            request_context["error_type"] = type(exc).__name__
+            raise
+        finally:
+            _log_model_request(
+                "llm_request_end",
+                request_context,
+                level=logging.INFO if outcome == "succeeded" else logging.WARNING,
+                outcome=outcome,
+                elapsed_ms=round((time.perf_counter() - call_started) * 1000, 1),
             )
-            return LLMResult(
-                content=message.content or "",
-                tool_calls=final_tool_calls,
-                metadata=result_metadata,
-            )
+            with anyio.move_on_after(5, shield=True):
+                try:
+                    await client.close()
+                except Exception as exc:
+                    LOGGER.warning("llm_client_close_failed error_type=%s", type(exc).__name__)
 
 
 def get_strands_model(provider_name: str, config: Any) -> Any:
@@ -608,12 +729,14 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         base_url = config.get("base_url")
         model = config.get("model")
         extra_headers = config.get("extra_headers") or {}
+        max_retries = config.get("max_retries", 5)
     else:
         api_key = getattr(config, "api_key", None)
         api_key_env = getattr(config, "api_key_env", None)
         base_url = getattr(config, "base_url", None)
         model = getattr(config, "model", None)
         extra_headers = getattr(config, "extra_headers", {}) or {}
+        max_retries = getattr(config, "max_retries", 5)
 
     if not api_key and api_key_env:
         api_key = os.getenv(api_key_env)
@@ -625,6 +748,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url,
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "gpt-4o",
         )
@@ -634,6 +758,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://api.deepseek.com",
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "deepseek-chat",
         )
@@ -643,6 +768,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "qwen-max",
         )
@@ -652,6 +778,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://api.moonshot.cn/v1",
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "moonshot-v1-8k",
         )
@@ -661,6 +788,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "glm-4",
         )
@@ -670,6 +798,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "api_key": api_key,
                 "base_url": base_url or "https://api.minimax.chat/v1",
                 "default_headers": extra_headers or None,
+                "max_retries": max_retries,
             },
             model_id=model or "abab6.5-chat",
         )

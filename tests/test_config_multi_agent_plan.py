@@ -174,6 +174,16 @@ class TestConfigLoader:
         )
         assert provider_model_candidates(cfg.llm_provider.providers["openai"]) == ("gpt-4.1", "gpt-4o")
 
+    @pytest.mark.parametrize("options, expected", [({}, 5), ({"max_retries": 0}, 0), ({"max_retries": 2}, 2)])
+    def test_provider_retry_configuration(self, options, expected):
+        cfg = _to_config({"llm_provider": {"providers": {"qwen": options}}})
+        assert cfg.llm_provider.providers["qwen"].max_retries == expected
+
+    @pytest.mark.parametrize("value", [-1, True, 1.5, "5", None])
+    def test_provider_rejects_invalid_retry_configuration(self, value):
+        with pytest.raises(ValueError, match="max_retries"):
+            _to_config({"llm_provider": {"providers": {"qwen": {"max_retries": value}}}})
+
     def test_provider_parses_extra_headers(self):
         cfg = _to_config(
             {

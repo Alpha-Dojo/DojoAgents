@@ -16,9 +16,10 @@ async def test_optional_request_settings_preserve_legacy_defaults_and_metadata_e
     message = MagicMock(content="hello", tool_calls=None, reasoning_content=None, model_extra=None)
     response = MagicMock(choices=[MagicMock(message=message)], usage=None)
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         await provider.chat([], [], model="qwen", metadata={"_dojo_extra_body": {"enable_thinking": False}})
-        assert "max_retries" not in client_cls.call_args.kwargs
+        assert client_cls.call_args.kwargs["max_retries"] == 0
         assert "timeout" not in client_cls.call_args.kwargs
         assert client_cls.return_value.chat.completions.create.await_args.kwargs["extra_body"] == {"enable_thinking": False}
         with pytest.raises(ValueError):
@@ -159,6 +160,7 @@ async def test_openai_provider_non_stream_usage():
     response = MagicMock(choices=[MagicMock(message=message)], usage=usage)
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         result = await provider.chat([], [], model="gpt-4.1", stream=False)
 
@@ -177,6 +179,7 @@ async def test_openai_provider_adds_configured_extra_headers():
     response = MagicMock(choices=[MagicMock(message=message)], usage=None)
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         await provider.chat([], [], model="gpt-4.1", stream=False)
 
@@ -194,6 +197,7 @@ async def test_openai_provider_stream_usage():
         yield MagicMock(choices=[MagicMock(delta=MagicMock(content="", tool_calls=None, reasoning_content=None, model_extra=None))], usage=chunk_usage)
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=_stream())
         deltas: list[str] = []
         result = await provider.chat([], [], model="gpt-4.1", stream=True, stream_callback=deltas.append)
@@ -255,6 +259,7 @@ async def test_openai_provider_streams_reasoning_before_content():
         )
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=_stream())
         result = await provider.chat(
             [],
@@ -284,6 +289,7 @@ async def test_openai_provider_raises_context_length_exceeded():
     api_error = Exception("Error code: 400 - maximum context length is 1048565 tokens. However, you requested 3037564 tokens")
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(side_effect=api_error)
         with pytest.raises(ContextLengthExceededError) as exc_info:
             await provider.chat([], [], model="gpt-4.1", stream=False)
@@ -301,6 +307,7 @@ async def test_openai_provider_preserves_tool_call_metadata_non_stream() -> None
     response = MagicMock(choices=[MagicMock(message=message)], usage=None)
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         result = await provider.chat([], [], model="gpt-4.1", stream=False)
 
@@ -323,6 +330,7 @@ async def test_openrouter_provider_restores_selected_model_author_prefix():
     response.usage = None
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         await provider.chat([], [], model="glm-5.2")
 
@@ -344,6 +352,7 @@ async def test_orcarouter_provider_restores_selected_model_author_prefix():
     response.usage = None
 
     with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
         client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
         await provider.chat([], [], model="gpt-5.5")
 
