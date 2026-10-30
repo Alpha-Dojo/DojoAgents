@@ -12,7 +12,7 @@ from dojoagents.agent.events import AgentEvent, AgentEventSink
 from dojoagents.agent.models import AgentResponse, ChatRequest
 from dojoagents.harnesses.base import HarnessDescriptor
 from dojoagents.logging import LOGGER
-from dojoagents.sessions.errors import SessionNotFoundError
+from dojoagents.sessions.errors import SessionLeaseLostError, SessionNotFoundError
 from dojoagents.sessions.memory_sync import SessionMemorySyncWorker
 from dojoagents.sessions.models import (
     HistoryQuery,
@@ -78,9 +78,11 @@ class _DurableEventWriter:
         task_group.start_soon(self._run, name=f"dojo-events:{coordinator.run_id}")
 
     async def _wait_for_capacity(self) -> None:
-        while not self._closed:
+        while True:
             if self._error is not None:
                 raise self._error
+            if self._closed:
+                return
             available = self._space_available
             # Reserve space for phase/start/end events around each streaming delta.
             if self._send_stream.statistics().current_buffer_used < 28:
@@ -88,6 +90,8 @@ class _DurableEventWriter:
             await available.wait()
 
     def _enqueue(self, event: AgentEvent) -> None:
+        if self._error is not None:
+            raise self._error
         if not self._closed:
             try:
                 self._send_stream.send_nowait(event)
@@ -159,7 +163,7 @@ class _DurableEventWriter:
                         await self._persist(pending)
                     except SessionLeaseLostError as exc:
                         self._error = exc
-                        return
+                        raise
                     if stream_closed:
                         return
         except BaseException as exc:
@@ -195,51 +199,70 @@ class _RunHeartbeat:
         configured = float(coordinator.service.config.runtime.heartbeat_seconds)
         self.interval = max(0.1, configured)
         self._transient_failures = 0
+        self._error: BaseException | None = None
         self._stop = anyio.Event()
         self._done = anyio.Event()
         task_group.start_soon(self._run, name=f"dojo-heartbeat:{coordinator.run_id}")
 
     async def _run(self) -> None:
-        from dojoagents.sessions.errors import SessionLeaseLostError
-
         try:
             while not self._stop.is_set():
+                remaining = self.coordinator.lease_remaining_seconds
+                if remaining <= 0:
+                    lost = SessionLeaseLostError("session lease expired before heartbeat could renew")
+                    lost.__cause__ = self._error
+                    self._error = lost
+                    LOGGER.error("Canonical run heartbeat lease expired: run_id=%s session_id=%s", self.coordinator.run_id, self.coordinator.session_id)
+                    self.owner_cancel_scope.cancel()
+                    raise lost
+                started = anyio.current_time()
+                timeout = min(10.0, self.interval / 2, remaining)
                 try:
-                    # Renew first, then sleep — do not burn the first interval unprotected.
-                    result = await self.coordinator.heartbeat()
-                except SessionLeaseLostError:
+                    with anyio.fail_after(timeout):
+                        result = await self.coordinator.heartbeat()
+                except SessionLeaseLostError as exc:
+                    self._error = exc
                     LOGGER.exception(
                         "Canonical run lost session lease during heartbeat: run_id=%s session_id=%s",
                         self.coordinator.run_id,
                         self.coordinator.session_id,
                     )
                     self.owner_cancel_scope.cancel()
-                    return
-                except Exception:
+                    raise
+                except Exception as exc:
+                    self._error = exc
                     self._transient_failures += 1
-                    LOGGER.exception(
-                        "Canonical run heartbeat failed (attempt %d): run_id=%s session_id=%s",
+                    remaining = self.coordinator.lease_remaining_seconds
+                    LOGGER.warning(
+                        "Canonical run heartbeat failed attempt=%d/3 run_id=%s session_id=%s " "timeout_seconds=%.3f remaining_seconds=%.3f elapsed_ms=%.1f error_type=%s",
                         self._transient_failures,
                         self.coordinator.run_id,
                         self.coordinator.session_id,
+                        timeout,
+                        remaining,
+                        (anyio.current_time() - started) * 1000,
+                        type(exc).__name__,
                     )
-                    # Store/lock blips should not kill long pipeline runs. Retry until
-                    # the next interval; only hard-cancel after repeated failures.
+                    if remaining <= 0:
+                        # Re-enter the expiry guard without starting another request.
+                        continue
                     if self._transient_failures >= 3:
                         self.owner_cancel_scope.cancel()
                         return
-                    await anyio.sleep(self.interval)
-                    continue
-                self._transient_failures = 0
-                if result.cancellation_requested:
-                    LOGGER.info(
-                        "Canonical run observed cancellation request: run_id=%s session_id=%s",
-                        self.coordinator.run_id,
-                        self.coordinator.session_id,
-                    )
-                    self.owner_cancel_scope.cancel()
-                    return
-                with anyio.move_on_after(self.interval):
+                    delay = min(1.0, self.interval / 4, remaining / 4)
+                else:
+                    self._error = None
+                    self._transient_failures = 0
+                    if result.cancellation_requested:
+                        LOGGER.info(
+                            "Canonical run observed cancellation request: run_id=%s session_id=%s",
+                            self.coordinator.run_id,
+                            self.coordinator.session_id,
+                        )
+                        self.owner_cancel_scope.cancel()
+                        return
+                    delay = min(max(0, self.interval - (anyio.current_time() - started)), max(0, self.coordinator.lease_remaining_seconds / 2))
+                with anyio.move_on_after(delay):
                     await self._stop.wait()
         finally:
             self._done.set()
@@ -387,8 +410,12 @@ class CanonicalAgentRun:
         return canonical
 
     async def _prepare_terminal(self) -> None:
-        await self.heartbeat.close()
-        await self.event_writer.close()
+        with anyio.CancelScope(shield=True):
+            await self.heartbeat.close()
+            await self.event_writer.close()
+            for error in (self.event_writer._error, self.heartbeat._error):
+                if isinstance(error, SessionLeaseLostError):
+                    raise error
 
     def _turn_messages(
         self,

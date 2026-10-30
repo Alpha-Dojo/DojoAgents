@@ -25,6 +25,10 @@ At minimum, enforce these uniqueness constraints (deployments may choose their o
 
 Lease acquisition, renewal, release, and takeover use conditional updates that validate version, lease ID, holder, expiry, and fencing token. A stale worker's fencing token must never be able to commit a new event or turn.
 
+Session heartbeats run independently inside the owning Run's AnyIO TaskGroup. Every cycle renews the lease at `sessions.runtime.heartbeat_seconds`, without waiting for half the lease to elapse; normal cycle spacing includes RPC time. The complete heartbeat (renewal plus Run-status lookup) is bounded by the minimum of 10 seconds, half the heartbeat interval, and the remaining lease time. Transient failures use short backoff, stop after three consecutive failures, and re-read the latest lease budget before each attempt. No renewal starts after that budget expires.
+
+Confirmed lease loss in the event writer or heartbeat cancels the owning run immediately. Event enqueue and terminal preparation preserve the original `SessionLeaseLostError` instead of replacing it with a closed-stream `BrokenResourceError`, and skip further terminal writes. Explicit user cancellation retains its existing cancellation path.
+
 Schema changes use explicit, auditable, reversible migration versions. Application requests must not mutate the production schema implicitly. Production connections use TLS, least-privilege credentials, connection and query timeouts, and capacity-limited pools.
 
 ## External conformance gate
