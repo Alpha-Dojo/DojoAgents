@@ -8,8 +8,8 @@ import './SettingsModal.css';
 
 const LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const CUSTOM_MODEL_VALUE = '__custom_model__';
-const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel', 'serply'];
-const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel'];
+const WEB_SEARCH_BACKENDS = ['', 'ddgs', 'tavily', 'exa', 'firecrawl', 'brave-free', 'parallel', 'serply', 'keenable'];
+const WEB_EXTRACT_BACKENDS = ['', 'firecrawl', 'tavily', 'exa', 'searxng', 'parallel', 'keenable'];
 
 interface ModelPreset {
   value: string;

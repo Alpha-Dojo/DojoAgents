@@ -60,6 +60,7 @@ tools:
     extract_backend: fetch
     # tavily / serply / exa / firecrawl 等付费后端需要配置 api_key 或 api_key_env
     # api_key_env: TAVILY_API_KEY
+    # keenable（search 与 extract）无需 key 即可使用；配置 api_key_env: KEENABLE_API_KEY 可提高速率限制
     max_extract_urls: 5
     max_content_bytes: 2000000
   execute_code:
