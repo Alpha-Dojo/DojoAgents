@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import httpx
 
@@ -361,6 +363,155 @@ async def test_web_search_serply_without_api_key_returns_error():
 
     assert result.ok is False
     assert "api key" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_web_search_outcrawl_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert str(request.url) == "https://api.outcrawl.ai/v1/search"
+        assert request.headers.get("authorization") == "Bearer oc-test"
+        assert request.headers.get("user-agent", "").startswith("DojoAgents/")
+        assert json.loads(request.content) == {"query": "dojo", "limit": 1}
+        return httpx.Response(
+            200,
+            json={
+                "hits": [
+                    {
+                        "url": "https://example.com/outcrawl",
+                        "title": "Outcrawl Dojo",
+                        "snippet": "Outcrawl snippet",
+                        "rank": 1,
+                    },
+                    {
+                        "url": "https://example.com/second",
+                        "title": "Second",
+                        "snippet": "Second snippet",
+                        "rank": 2,
+                    },
+                ],
+                "usage": {"credits": "0.5"},
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "outcrawl", "api_key": "oc-test"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 1})
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "outcrawl"
+    assert len(result.data["web"]) == 1
+    assert result.data["web"][0]["title"] == "Outcrawl Dojo"
+    assert result.data["web"][0]["url"] == "https://example.com/outcrawl"
+    assert result.data["web"][0]["description"] == "Outcrawl snippet"
+
+
+@pytest.mark.asyncio
+async def test_web_search_outcrawl_caps_limit_at_twenty(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["limit"] == 20
+        return httpx.Response(200, json={"hits": []})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "outcrawl", "api_key": "oc-test"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo", "limit": 50})
+    )
+
+    assert result.ok is True
+    assert result.data["web"] == []
+
+
+@pytest.mark.asyncio
+async def test_web_search_outcrawl_rejected_key_returns_error(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid api key"})
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"search_backend": "outcrawl", "api_key": "bad-key"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"})
+    )
+
+    assert result.ok is False
+    assert "401" in result.error
+
+
+@pytest.mark.asyncio
+async def test_web_search_outcrawl_without_api_key_returns_error():
+    executor = _make_executor({"tools": {"web": {"search_backend": "outcrawl"}}})
+    result = await executor.execute_one(
+        ToolCall(id="call-1", name="web_search", arguments={"query": "dojo"})
+    )
+
+    assert result.ok is False
+    assert "api key" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_web_extract_outcrawl_adapter_parses_results(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.outcrawl.ai/v1/scrape"
+        assert request.headers.get("authorization") == "Bearer oc-test"
+        body = json.loads(request.content)
+        assert body == {"url": body["url"], "formats": ["markdown"], "onlyMainContent": True}
+        if body["url"] == "https://example.com/missing":
+            return httpx.Response(402, json={"error": "out of credits"})
+        return httpx.Response(
+            200,
+            json={
+                "url": "https://example.com/page",
+                "statusCode": 200,
+                "markdown": "# Extracted\n\nFull page content",
+                "metadata": {"title": "Extracted"},
+            },
+        )
+
+    def fake_client_factory(cfg, **kwargs):
+        return _mock_async_client(web_searcher, cfg, handler, **kwargs)
+
+    monkeypatch.setattr(web_searcher, "_make_async_client", fake_client_factory)
+
+    executor = _make_executor({"tools": {"web": {"extract_backend": "outcrawl", "api_key": "oc-test"}}})
+    result = await executor.execute_one(
+        ToolCall(
+            id="call-1",
+            name="web_extract",
+            arguments={"urls": ["https://example.com/page", "https://example.com/missing"]},
+        )
+    )
+
+    assert result.ok is True
+    assert result.metadata["backend"] == "outcrawl"
+    first, second = result.data["results"]
+    assert first["title"] == "Extracted"
+    assert first["content"] == "# Extracted\n\nFull page content"
+    assert first["error"] is None
+    assert second["url"] == "https://example.com/missing"
+    assert second["content"] == ""
+    assert "402" in second["error"]
 
 
 @pytest.mark.asyncio

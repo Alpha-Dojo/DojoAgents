@@ -58,7 +58,7 @@ tools:
   web:
     search_backend: ddgs
     extract_backend: fetch
-    # Paid backends such as tavily / serply / exa / firecrawl need api_key or api_key_env
+    # Paid backends such as tavily / serply / outcrawl / exa / firecrawl need api_key or api_key_env
     # api_key_env: TAVILY_API_KEY
     max_extract_urls: 5
     max_content_bytes: 2000000
