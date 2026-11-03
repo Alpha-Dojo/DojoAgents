@@ -79,14 +79,14 @@ def test_offline_kline_filters_datetime_window_and_returns_recent_limit(
         params={
             "symbol": "AAA",
             "start_time": "2026-01-01",
-            "end_time": "2026-01-03",
+            "end_time": "2026-01-03T23:59:59",
             "limit": 2,
         },
     )
 
-    # The per-symbol limit selects the latest two rows, then the public result
-    # is normalized back to chronological order.
-    assert [row["close"] for row in result["data"]["data"]] == [2.0, 3.0]
+    # The bounded K-line API selects the latest two rows. The legacy fetch
+    # envelope preserves the endpoint's descending presentation order.
+    assert [row["close"] for row in result["data"]["data"]] == [3.0, 2.0]
 
 
 def test_huggingface_datasource_does_not_start_download_watchdog(tmp_path) -> None:

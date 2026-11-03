@@ -15,6 +15,7 @@ BODY = {
         {
             "brief_uid": "brief-1",
             "market": "cn",
+            "sector_ref": "1/9/10",
             "sector_id": "1/9/10",
             "as_of_date": "2026-07-31",
             "key_drivers": [
@@ -39,7 +40,7 @@ BODY = {
 
 def test_sector_brief_extract_sync_list_and_create() -> None:
     client = Mock()
-    listed = SectorBriefExtractListResponse(total_num=0, data=[])
+    listed = SectorBriefExtractListResponse(page=1, size=20, total_num=0, total_page=0, num=0, data=[])
     created = SectorBriefExtractWriteResponse(data=[])
     client.get.return_value = listed
     client.post.return_value = created
@@ -50,8 +51,8 @@ def test_sector_brief_extract_sync_list_and_create() -> None:
     assert (
         resource.list_sector_brief_extract(
             market="cn",
-            sector_id="1/9/10",
-            as_of_date="2026-07-31",
+            sector_id=10,
+            start_date="2026-07-31",
             limit=20,
         )
         is listed
@@ -62,8 +63,8 @@ def test_sector_brief_extract_sync_list_and_create() -> None:
         options={
             "params": {
                 "market": "cn",
-                "sector_id": "1/9/10",
-                "as_of_date": "2026-07-31",
+                "sector_id": 10,
+                "start_date": "2026-07-31",
                 "limit": 20,
             }
         },
@@ -90,7 +91,7 @@ def test_sector_brief_extract_rejects_invalid_payload_before_request() -> None:
 @pytest.mark.asyncio
 async def test_sector_brief_extract_async_list_and_create() -> None:
     client = Mock()
-    listed = SectorBriefExtractListResponse(total_num=0, data=[])
+    listed = SectorBriefExtractListResponse(page=1, size=20, total_num=0, total_page=0, num=0, data=[])
     created = SectorBriefExtractWriteResponse(data=[])
     client.get = AsyncMock(return_value=listed)
     client.post = AsyncMock(return_value=created)
