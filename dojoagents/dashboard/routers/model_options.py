@@ -30,6 +30,7 @@ _PROVIDER_LABELS = {
     "ollama": "Ollama",
     "minimax": "MiniMax",
     "orcarouter": "OrcaRouter",
+    "cheaperinference": "Cheaper Inference",
 }
 
 
