@@ -49,6 +49,7 @@ sdist = "dojoagents.packaging_hooks.SdistCommand"
 
 [tool.setuptools.package-data]
 "dojoagents" = [
+    "plugins/built_in/adanos/plugin.yaml",
     "skills/built_in/**/*",
     "harnesses/built_in/financial/tasks/definitions/**/*",
     "harnesses/built_in/financial/pipelines/definitions/*.yaml",
