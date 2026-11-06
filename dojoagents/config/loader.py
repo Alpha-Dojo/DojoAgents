@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import os
 import re
 from dataclasses import asdict, replace
@@ -126,6 +127,9 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
     max_retries = raw.get("max_retries", 5)
     if type(max_retries) is not int or max_retries < 0:
         raise ValueError(f"llm_provider.providers.{name}.max_retries must be a nonnegative integer")
+    connect_timeout = raw.get("connect_timeout")
+    if connect_timeout is not None and (type(connect_timeout) not in (int, float) or not math.isfinite(connect_timeout) or connect_timeout <= 0):
+        raise ValueError(f"llm_provider.providers.{name}.connect_timeout must be finite and positive")
     raw_model = _as_non_empty_string(raw.get("model"))
     raw_models = raw.get("models", [])
     if raw_models is None:
@@ -182,6 +186,7 @@ def _provider_config(name: str, raw: dict[str, Any]) -> LLMProviderConfig:
         extra_headers=extra_headers,
         context_window=int(context_window) if context_window is not None else None,
         max_retries=max_retries,
+        connect_timeout=connect_timeout,
     )
 
 

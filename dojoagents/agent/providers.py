@@ -260,6 +260,7 @@ class OpenAICompatibleProvider:
         extra_headers: dict[str, str] | None = None,
         max_retries: int | None = None,
         timeout: float | None = None,
+        connect_timeout: float | None = None,
         max_response_bytes: int | None = None,
     ) -> None:
         self.api_key = api_key
@@ -274,6 +275,9 @@ class OpenAICompatibleProvider:
             raise ValueError("max_response_bytes must be a positive integer")
         self.max_retries = 5 if max_retries is None else max_retries
         self.timeout = timeout
+        if connect_timeout is not None and (type(connect_timeout) not in (int, float) or not math.isfinite(connect_timeout) or connect_timeout <= 0):
+            raise ValueError("connect_timeout must be finite and positive")
+        self.connect_timeout = connect_timeout
         self.max_response_bytes = max_response_bytes
 
     async def _request_with_retries(self, client, create_kwargs, context, *, raw=False):
@@ -416,11 +420,15 @@ class OpenAICompatibleProvider:
                 content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
                 metadata={"provider": self.name, "live": False},
             )
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DEFAULT_TIMEOUT
 
         client_options: dict[str, Any] = {"max_retries": 0}
         if self.timeout is not None:
             client_options["timeout"] = self.timeout
+        if self.connect_timeout is not None:
+            request_timeout = httpx.Timeout(self.timeout if self.timeout is not None else DEFAULT_TIMEOUT)
+            request_timeout.connect = self.connect_timeout
+            client_options["timeout"] = request_timeout
         if self.max_response_bytes is not None:
 
             async def bound_response(response):
@@ -730,6 +738,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         model = config.get("model")
         extra_headers = config.get("extra_headers") or {}
         max_retries = config.get("max_retries", 5)
+        connect_timeout = config.get("connect_timeout")
     else:
         api_key = getattr(config, "api_key", None)
         api_key_env = getattr(config, "api_key_env", None)
@@ -737,9 +746,18 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         model = getattr(config, "model", None)
         extra_headers = getattr(config, "extra_headers", {}) or {}
         max_retries = getattr(config, "max_retries", 5)
+        connect_timeout = getattr(config, "connect_timeout", None)
 
     if not api_key and api_key_env:
         api_key = os.getenv(api_key_env)
+
+    timeout_args = {}
+    if connect_timeout is not None:
+        from openai import DEFAULT_TIMEOUT
+
+        request_timeout = httpx.Timeout(DEFAULT_TIMEOUT)
+        request_timeout.connect = connect_timeout
+        timeout_args["timeout"] = request_timeout
 
     # 1. OpenAI, DeepSeek, Qwen, Moonshot, etc.
     if provider_name == "openai":
@@ -749,6 +767,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url,
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "gpt-4o",
         )
@@ -759,6 +778,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url or "https://api.deepseek.com",
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "deepseek-chat",
         )
@@ -769,6 +789,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "qwen-max",
         )
@@ -779,6 +800,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url or "https://api.moonshot.cn/v1",
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "moonshot-v1-8k",
         )
@@ -789,6 +811,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "glm-4",
         )
@@ -799,6 +822,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
                 "base_url": base_url or "https://api.minimax.chat/v1",
                 "default_headers": extra_headers or None,
                 "max_retries": max_retries,
+                **timeout_args,
             },
             model_id=model or "abab6.5-chat",
         )

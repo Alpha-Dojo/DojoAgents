@@ -49,6 +49,7 @@ llm_provider:
       model: test-model
       api_key: test-only-key
       max_retries: {retries}
+      connect_timeout: 60
 sessions:
   enabled: false
   root: {tmp_path / "sessions"}
@@ -60,5 +61,6 @@ tasks:
     runtime = await Runtime.create(ConfigStore(config_path))
     try:
         assert runtime.agent.llm_provider.max_retries == retries
+        assert runtime.agent.llm_provider.connect_timeout == 60
     finally:
         await runtime.shutdown()

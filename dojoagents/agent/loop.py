@@ -2420,13 +2420,20 @@ class AgentLoop:
         base_url = base_url_value if isinstance(base_url_value, str) else ""
         if "generativelanguage.googleapis.com" in base_url:
             return None
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DEFAULT_TIMEOUT
+        import httpx
 
+        timeout_args = {}
+        if provider_cfg.connect_timeout is not None:
+            request_timeout = httpx.Timeout(DEFAULT_TIMEOUT)
+            request_timeout.connect = provider_cfg.connect_timeout
+            timeout_args["timeout"] = request_timeout
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
             max_retries=provider_cfg.max_retries,
+            **timeout_args,
         )
 
     def _sanitize_tool_specs(
