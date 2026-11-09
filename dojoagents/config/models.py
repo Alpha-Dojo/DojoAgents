@@ -23,6 +23,7 @@ class LLMProviderConfig:
     extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
     max_retries: int = 5
+    connect_timeout: float | None = None
 
 
 @dataclass(frozen=True)

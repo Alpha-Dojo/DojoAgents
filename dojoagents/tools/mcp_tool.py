@@ -206,6 +206,7 @@ class SamplingHandler:
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 max_retries=provider_cfg.max_retries,
+                connect_timeout=provider_cfg.connect_timeout,
                 extra_headers=provider_cfg.extra_headers,
             )
             model = provider_cfg.model or ""

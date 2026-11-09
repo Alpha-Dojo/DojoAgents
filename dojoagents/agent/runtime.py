@@ -499,6 +499,7 @@ class Runtime:
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 max_retries=provider_cfg.max_retries,
+                connect_timeout=provider_cfg.connect_timeout,
                 extra_headers=provider_cfg.extra_headers,
             )
             llm_provider.name = provider_name or "openai"
@@ -782,6 +783,7 @@ class Runtime:
                 base_url=provider_cfg.base_url,
                 author=provider_cfg.author,
                 max_retries=provider_cfg.max_retries,
+                connect_timeout=provider_cfg.connect_timeout,
                 extra_headers=provider_cfg.extra_headers,
             )
             provider.name = provider_name or "openai"

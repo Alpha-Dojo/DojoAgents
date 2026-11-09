@@ -14,6 +14,8 @@ Each HTTP request has a separate `call_id`. The `llm_request_attempt`, `llm_requ
 
 ## Example
 
+OpenAI-compatible providers accept `connect_timeout` in seconds as a finite positive number. It overrides only connection establishment; omitting it preserves the SDK default. Chat, context compression and Strands clients share this setting, while read/write/pool timeouts and retry counts retain their existing values.
+
 ```yaml
 version: 1
 
