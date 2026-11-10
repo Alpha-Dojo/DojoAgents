@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import anyio
+import httpx
 import json
 import re
 import uuid
@@ -2011,9 +2012,16 @@ class AgentLoop:
         turn_message_start = len(agent.messages)
 
         # 7. Run Agent
+        locale = str(request.metadata.get("locale") or "en")
         user_prompt = openai_content_to_strands_blocks(user_content)
         if not user_prompt:
-            user_prompt = request.message
+            user_prompt = str(request.message or "").strip()
+        if not user_prompt:
+            # Strands 1.63 rejects blank user turns before model invocation.
+            # Dashboard-triggered harness runs may intentionally carry all task
+            # context in metadata/system instructions and therefore need a
+            # neutral, non-blank continuation prompt.
+            user_prompt = "继续当前任务。" if locale.lower().startswith("zh") else "Continue with the current task."
         if image_turn:
             LOGGER.info(
                 "Multimodal user turn: session_id=%s provider=%s text_len=%d",
@@ -2021,7 +2029,6 @@ class AgentLoop:
                 provider_name,
                 len(openai_content_text(user_content)),
             )
-        locale = str(request.metadata.get("locale") or "en")
 
         def _scrub_response_text(text: str) -> str:
             cleaned = text.strip()

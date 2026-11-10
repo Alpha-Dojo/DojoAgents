@@ -22,8 +22,8 @@ class LLMProviderConfig:
     model_keys: dict[str, str] = field(default_factory=dict)
     extra_headers: dict[str, str] = field(default_factory=dict)
     context_window: int | None = None
-    max_retries: int = 5
     connect_timeout: float | None = None
+    max_retries: int = 5
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from dojo import AsyncDojo
-from dojo.types.models import SectorBriefExtractWriteRequest
+from dojo.types.models import SectorBriefExtractWriteItem
 
 from dojoagents.config.loader import ConfigStore
 from dojoagents.dashboard.cli.attribution_factor_crawl import (
@@ -387,7 +387,11 @@ def _has_reusable_output(path: Path, as_of_date: str) -> bool:
 
 
 def _brief_uid(payload: dict[str, Any]) -> str:
-    identity = "\x1f".join(str(payload.get(key) or "").strip().casefold() for key in ("market", "sector_id", "as_of_date"))
+    sector_ref = payload.get("sector_ref") or payload.get("sector_id")
+    identity = "\x1f".join(
+        str(value or "").strip().casefold()
+        for value in (payload.get("market"), sector_ref, payload.get("as_of_date"))
+    )
     return f"dojoagents:{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
 
 
@@ -403,9 +407,18 @@ def _api_write_items(payloads: Iterable[dict[str, Any]]) -> list[dict[str, Any]]
             )
             continue
         item = dict(payload)
+        sector_ref = canonical_attribution_sector_ref(
+            {"sector_ref": item.get("sector_ref") or item.get("sector_id")}
+        )
+        if not sector_ref:
+            raise ValueError(
+                "Sector brief lacks a canonical sector_ref "
+                "(expected level1_id/level2_id/level3_id)"
+            )
+        item["sector_ref"] = sector_ref
         brief_uid = str(item.get("brief_uid") or "").strip() or _brief_uid(item)
         item["brief_uid"] = brief_uid
-        validated = SectorBriefExtractWriteRequest(items=[item]).items[0]
+        validated = SectorBriefExtractWriteItem.model_validate(item)
         items_by_uid[brief_uid] = validated.model_dump(mode="json", exclude_none=True)
     return list(items_by_uid.values())
 

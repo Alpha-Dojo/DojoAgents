@@ -184,6 +184,15 @@ class TestConfigLoader:
         with pytest.raises(ValueError, match="max_retries"):
             _to_config({"llm_provider": {"providers": {"qwen": {"max_retries": value}}}})
 
+    def test_provider_connection_timeout_configuration(self):
+        cfg = _to_config({"llm_provider": {"providers": {"qwen": {"connect_timeout": 60}}}})
+        assert cfg.llm_provider.providers["qwen"].connect_timeout == 60
+
+    @pytest.mark.parametrize("value", [0, -1, True, "60", float("inf"), float("nan")])
+    def test_provider_rejects_invalid_connection_timeout(self, value):
+        with pytest.raises(ValueError, match="connect_timeout"):
+            _to_config({"llm_provider": {"providers": {"qwen": {"connect_timeout": value}}}})
+
     def test_provider_parses_extra_headers(self):
         cfg = _to_config(
             {
