@@ -259,6 +259,7 @@ class OpenAICompatibleProvider:
         author: str | None = None,
         extra_headers: dict[str, str] | None = None,
         max_retries: int | None = None,
+        connect_timeout: float | None = None,
         timeout: float | None = None,
         max_response_bytes: int | None = None,
     ) -> None:
@@ -268,11 +269,14 @@ class OpenAICompatibleProvider:
         self.extra_headers = dict(extra_headers or {})
         if max_retries is not None and (type(max_retries) is not int or max_retries < 0):
             raise ValueError("max_retries must be a nonnegative integer")
+        if connect_timeout is not None and (type(connect_timeout) not in (int, float) or not math.isfinite(connect_timeout) or connect_timeout <= 0):
+            raise ValueError("connect_timeout must be finite and positive")
         if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise ValueError("timeout must be finite and positive")
         if max_response_bytes is not None and (type(max_response_bytes) is not int or max_response_bytes <= 0):
             raise ValueError("max_response_bytes must be a positive integer")
         self.max_retries = 5 if max_retries is None else max_retries
+        self.connect_timeout = float(connect_timeout) if connect_timeout is not None else None
         self.timeout = timeout
         self.max_response_bytes = max_response_bytes
 
@@ -419,7 +423,9 @@ class OpenAICompatibleProvider:
         from openai import AsyncOpenAI
 
         client_options: dict[str, Any] = {"max_retries": 0}
-        if self.timeout is not None:
+        if self.connect_timeout is not None:
+            client_options["timeout"] = httpx.Timeout(600 if self.timeout is None else self.timeout, connect=self.connect_timeout)
+        elif self.timeout is not None:
             client_options["timeout"] = self.timeout
         if self.max_response_bytes is not None:
 
@@ -730,6 +736,7 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         model = config.get("model")
         extra_headers = config.get("extra_headers") or {}
         max_retries = config.get("max_retries", 5)
+        connect_timeout = config.get("connect_timeout")
     else:
         api_key = getattr(config, "api_key", None)
         api_key_env = getattr(config, "api_key_env", None)
@@ -737,68 +744,65 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         model = getattr(config, "model", None)
         extra_headers = getattr(config, "extra_headers", {}) or {}
         max_retries = getattr(config, "max_retries", 5)
+        connect_timeout = getattr(config, "connect_timeout", None)
 
     if not api_key and api_key_env:
         api_key = os.getenv(api_key_env)
+
+    openai_client_args = {
+        "api_key": api_key,
+        "default_headers": extra_headers or None,
+        "max_retries": max_retries,
+    }
+    if connect_timeout is not None:
+        openai_client_args["timeout"] = httpx.Timeout(600, connect=connect_timeout)
 
     # 1. OpenAI, DeepSeek, Qwen, Moonshot, etc.
     if provider_name == "openai":
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url,
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "gpt-4o",
         )
     elif provider_name == "deepseek":
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url or "https://api.deepseek.com",
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "deepseek-chat",
         )
     elif provider_name in ("qwen", "dashscope"):
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "qwen-max",
         )
     elif provider_name in ("kimi", "moonshot"):
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url or "https://api.moonshot.cn/v1",
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "moonshot-v1-8k",
         )
     elif provider_name in ("glm", "zhipu", "zhipuai"):
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url or "https://open.bigmodel.cn/api/paas/v4/",
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "glm-4",
         )
     elif provider_name == "minimax":
         return OpenAIModel(
             client_args={
-                "api_key": api_key,
+                **openai_client_args,
                 "base_url": base_url or "https://api.minimax.chat/v1",
-                "default_headers": extra_headers or None,
-                "max_retries": max_retries,
             },
             model_id=model or "abab6.5-chat",
         )

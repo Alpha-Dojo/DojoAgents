@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import anyio
+import httpx
 import json
 import re
 import uuid
@@ -2420,11 +2421,15 @@ class AgentLoop:
             return None
         from openai import AsyncOpenAI
 
+        client_options: dict[str, Any] = {}
+        if provider_cfg.connect_timeout is not None:
+            client_options["timeout"] = httpx.Timeout(600, connect=provider_cfg.connect_timeout)
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
             max_retries=provider_cfg.max_retries,
+            **client_options,
         )
 
     def _sanitize_tool_specs(

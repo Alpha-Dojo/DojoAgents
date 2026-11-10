@@ -27,6 +27,28 @@ async def test_optional_request_settings_preserve_legacy_defaults_and_metadata_e
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("timeout,expected_other", [(None, 600), (3, 3)])
+async def test_connection_timeout_reaches_openai_client(timeout, expected_other):
+    provider = OpenAICompatibleProvider(api_key="test-key", connect_timeout=60, timeout=timeout)
+    message = MagicMock(content="hello", tool_calls=None, reasoning_content=None, model_extra=None)
+    response = MagicMock(choices=[MagicMock(message=message)], usage=None)
+    with patch("openai.AsyncOpenAI") as client_cls:
+        client_cls.return_value.close = AsyncMock()
+        client_cls.return_value.chat.completions.create = AsyncMock(return_value=response)
+        await provider.chat([], [], model="qwen")
+    assert client_cls.call_args.kwargs["timeout"] == httpx.Timeout(expected_other, connect=60)
+
+
+def test_context_client_preserves_openai_default_timeout_when_connect_timeout_is_unset():
+    from dojoagents.agent.loop import AgentLoop
+    from dojoagents.config.models import LLMProviderConfig
+
+    with patch("openai.AsyncOpenAI") as client_cls:
+        AgentLoop._openai_client_for_context(LLMProviderConfig(api_key="test-key"))
+    assert "timeout" not in client_cls.call_args.kwargs
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [200, 400, 429, 503])
 async def test_raw_receipt_preserves_finish_reason_usage_and_http_errors_without_retry(monkeypatch, status):
     requests = []
