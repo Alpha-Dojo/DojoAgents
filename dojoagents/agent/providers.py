@@ -420,13 +420,17 @@ class OpenAICompatibleProvider:
                 content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
                 metadata={"provider": self.name, "live": False},
             )
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DEFAULT_TIMEOUT
 
         client_options: dict[str, Any] = {"max_retries": 0}
         if self.connect_timeout is not None:
             client_options["timeout"] = httpx.Timeout(600 if self.timeout is None else self.timeout, connect=self.connect_timeout)
         elif self.timeout is not None:
             client_options["timeout"] = self.timeout
+        if self.connect_timeout is not None:
+            request_timeout = httpx.Timeout(self.timeout if self.timeout is not None else DEFAULT_TIMEOUT)
+            request_timeout.connect = self.connect_timeout
+            client_options["timeout"] = request_timeout
         if self.max_response_bytes is not None:
 
             async def bound_response(response):
@@ -755,7 +759,11 @@ def get_strands_model(provider_name: str, config: Any) -> Any:
         "max_retries": max_retries,
     }
     if connect_timeout is not None:
-        openai_client_args["timeout"] = httpx.Timeout(600, connect=connect_timeout)
+        from openai import DEFAULT_TIMEOUT
+
+        request_timeout = httpx.Timeout(DEFAULT_TIMEOUT)
+        request_timeout.connect = connect_timeout
+        openai_client_args["timeout"] = request_timeout
 
     # 1. OpenAI, DeepSeek, Qwen, Moonshot, etc.
     if provider_name == "openai":

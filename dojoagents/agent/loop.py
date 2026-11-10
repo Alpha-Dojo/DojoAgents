@@ -710,11 +710,18 @@ class AgentLoop:
                         owner_cancel_scope=owner_cancel_scope,
                     )
         except BaseExceptionGroup as exc:
-            # TaskGroup wraps child failures.  AgentLoop's public contract
-            # predates exception groups, so preserve the original single-error
-            # boundary for callers while leaving genuinely multiple failures
-            # grouped.
-            current: BaseException = exc
+            # A writer and its producer may surface the same failure instance.
+            pending: list[BaseException] = [exc]
+            errors: list[BaseException] = []
+            while pending:
+                current = pending.pop()
+                if isinstance(current, BaseExceptionGroup):
+                    pending.extend(current.exceptions)
+                elif all(current is not error for error in errors):
+                    errors.append(current)
+            if len(errors) == 1:
+                raise errors[0] from exc
+            current = exc
             while isinstance(current, BaseExceptionGroup) and len(current.exceptions) == 1:
                 current = current.exceptions[0]
             raise current from exc
@@ -990,6 +997,7 @@ class AgentLoop:
                                 "Canonical run cancel skipped; session lease already lost: session_id=%s",
                                 active_request.session_id,
                             )
+                            raise
                 raise
             except SessionLeaseLostError:
                 # The fencing token is no longer ours. Do not attempt any further
@@ -2419,17 +2427,20 @@ class AgentLoop:
         base_url = base_url_value if isinstance(base_url_value, str) else ""
         if "generativelanguage.googleapis.com" in base_url:
             return None
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DEFAULT_TIMEOUT
+        import httpx
 
-        client_options: dict[str, Any] = {}
+        timeout_args = {}
         if provider_cfg.connect_timeout is not None:
-            client_options["timeout"] = httpx.Timeout(600, connect=provider_cfg.connect_timeout)
+            request_timeout = httpx.Timeout(DEFAULT_TIMEOUT)
+            request_timeout.connect = provider_cfg.connect_timeout
+            timeout_args["timeout"] = request_timeout
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
             max_retries=provider_cfg.max_retries,
-            **client_options,
+            **timeout_args,
         )
 
     def _sanitize_tool_specs(

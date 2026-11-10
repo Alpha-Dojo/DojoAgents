@@ -14,6 +14,8 @@ OpenAI 兼容供应商（含 Qwen）的 `max_retries` 必须是非负整数，�
 
 ## 示例
 
+OpenAI 兼容供应商可设置 `connect_timeout`（秒，有限正数）仅覆盖建立连接阶段的超时；省略时沿用 SDK 默认值。Chat、上下文压缩及 Strands 客户端共用此配置，读取/写入/连接池等待超时与重试次数保持原设置。
+
 ```yaml
 version: 1
 
