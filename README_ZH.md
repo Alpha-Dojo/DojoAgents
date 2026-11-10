@@ -38,6 +38,10 @@ DojoAgents 是一款专为个人投资打造的全市场 AI 智能体框架。�
   <p><em>七层架构 — 从 CLI、Web Dashboard、聊天网关，到 Agent Loop、工具执行、数据层与基础设施。</em></p>
 </div>
 
+> 🚀 **不想自己部署？** [免费使用 AlphaDojo！](https://alphadojo.ai/app/?utm_source=github&utm_medium=readme_zh_top&utm_campaign=dojoagents)
+>
+> [了解更多 AlphaDojo →](https://alphadojo.ai/?utm_source=github&utm_medium=readme_zh_top_lp&utm_campaign=dojoagents)
+
 ## ✨ 为什么选择 DojoAgents？
 
 **🧠 基于 Loop-Engineering 的认知型投资组合智能体 (核心引擎):** 绝大多数金融 AI 工具仅被设计用于生成快餐式的内容：新闻摘要、单股解析、基础指标读取或泛泛的市场评论。而我们的认知型投资组合智能体则是专为**具备持仓上下文感知的深度推理**而生。它将您的投资组合与市场数据深度互联，并在四个维度上执行结构化分析：
