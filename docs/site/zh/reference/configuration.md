@@ -182,6 +182,31 @@ Header 值支持环境变量占位符。Dashboard/API 返回配置时会遮蔽�
 
 不要新增第二套 YAML parser、环境变量展开层、配置 singleton 或默认配置路径。
 
+## Parallel 网页搜索（可选）
+
+默认仍为无需密钥的 `ddgs` 搜索和 `fetch` 提取。若要在现有的 `web_search`
+工具中使用 [Parallel Unified MCP 服务](https://docs.parallel.ai/integrations/mcp)，
+请将以下设置合并到 `~/.dojo/agents.yaml`：
+
+```yaml
+tools:
+  web:
+    search_backend: parallel
+    extract_backend: fetch
+```
+
+可尝试用 `query: "AnyIO structured concurrency task groups"` 调用 `web_search`。
+结果以现有元数据格式返回来源 URL 和摘录。连接固定地址
+`https://mcp.parallel.ai/mcp`，使用有速率限制的匿名访问及服务端默认 Fast 模式，
+无需 API 密钥或额外依赖。工具的 `limit` 在本地限制返回的结果数量。
+
+如果配置了 `tools.web.api_key` 或 `api_key_env`，则使用该凭据；环境变量中缺少
+密钥或凭据被拒绝时会报错，不会重试匿名访问。选择匿名 Parallel 访问时，请删除
+上一搜索服务的凭据。错误不会触发其他搜索后端。选择 Parallel 不会改变
+`extract_backend`、禁用搜索的设置或工具权限。固定 MCP 地址不使用
+`search_base_url`。`tools.web.user_agent` 可覆盖所有 MCP 请求及现有网页抓取
+适配器的项目 User-Agent。
+
 ## 相关代码
 
 - `dojoagents/config/models.py`
