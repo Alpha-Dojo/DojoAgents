@@ -18,6 +18,7 @@ PRESET_PROVIDERS = {
     "minimax": {"label": "MiniMax", "default_url": "https://api.minimax.chat/v1", "default_model": "abab6.5-chat"},
     "kimi": {"label": "Kimi (Moonshot)", "default_url": "https://api.moonshot.cn/v1", "default_model": "kimi-k2.6"},
     "orcarouter": {"label": "OrcaRouter", "default_url": "https://api.orcarouter.ai/v1", "default_model": "openai/gpt-5.5"},
+    "atlascloud": {"label": "Atlas Cloud", "default_url": "https://api.atlascloud.ai/v1", "default_model": "deepseek-ai/deepseek-v4-flash"},
 }
 
 
