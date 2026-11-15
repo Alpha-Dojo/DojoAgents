@@ -185,6 +185,62 @@ async def test_model_context_registry_fetches_orcarouter_models_index_and_matche
 
 
 @pytest.mark.asyncio
+async def test_model_context_registry_fetches_requesty_models_index_and_matches_author_slug(tmp_path, monkeypatch):
+    requested = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "other/gpt-4o", "api": "chat", "context_window": 2048},
+                    {"id": "openai/gpt-4o-mini", "api": "chat", "context_window": 128000, "supports_vision": True},
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            requested["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            requested["url"] = url
+            requested["headers"] = headers
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    registry = ModelContextRegistry(tmp_path / "limits.json", default_context_window=32768)
+
+    info = await registry.resolve_info(
+        "openai",
+        LLMProviderConfig(
+            model="gpt-4o-mini",
+            author="openai",
+            base_url="https://router.requesty.ai/v1",
+            api_key="test-key",
+        ),
+    )
+
+    assert requested["url"] == "https://router.requesty.ai/v1/models"
+    assert requested["headers"] == {"Authorization": "Bearer test-key"}
+    assert info == ModelContextInfo(
+        context_window=128000,
+        provider_model_id="openai/gpt-4o-mini",
+        author="openai",
+        slug="gpt-4o-mini",
+    )
+
+
+@pytest.mark.asyncio
 async def test_model_context_registry_adds_provider_extra_headers(tmp_path, monkeypatch):
     requested = {}
 
