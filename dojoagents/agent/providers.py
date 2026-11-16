@@ -6,6 +6,7 @@ import random
 import re
 import time
 import uuid
+from collections.abc import Mapping
 
 import anyio
 from urllib.parse import urlsplit, urlunsplit
@@ -97,6 +98,176 @@ def _model_retry_delay(error: Exception, attempt: int) -> float | None:
     return min(0.5 * 2 ** min(attempt - 1, 4), 8) * random.uniform(0.75, 1)
 
 
+class _ResponseLimitError(ValueError):
+    pass
+
+
+class OpenAIStreamError(ValueError):
+    """A safe failure reason for an incomplete Chat Completions stream."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+_SSE_LINE_END = re.compile(rb"\r\n?|\n")
+_STREAM_METRIC_FIELDS = (
+    "http_status",
+    "first_sse_ms",
+    "first_reasoning_ms",
+    "first_content_ms",
+    "reasoning_chunks",
+    "content_chunks",
+    "finish_reason",
+)
+
+
+async def _iter_sse_lines(chunks):
+    pending = bytearray()
+    first_line = True
+    trailing_cr = False
+    async for chunk in chunks:
+        # A CR at the end of a chunk already ended the line. Skip its paired LF.
+        start = 1 if trailing_cr and chunk.startswith(b"\n") else 0
+        for end in _SSE_LINE_END.finditer(chunk, start):
+            pending.extend(chunk[start:end.start()])
+            try:
+                line = pending.decode("utf-8-sig" if first_line else "utf-8")
+            except UnicodeDecodeError:
+                raise OpenAIStreamError("stream_invalid_event") from None
+            first_line = False
+            pending.clear()
+            yield line
+            start = end.end()
+        pending.extend(chunk[start:])
+        trailing_cr = chunk.endswith(b"\r")
+
+
+def _finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("Non-finite JSON number")
+    return number
+
+
+def _valid_token_count(count: Any) -> bool:
+    return count is None or (type(count) is int and count >= 0)
+
+
+def _check_json_utf8(value: Any) -> None:
+    if isinstance(value, str):
+        value.encode("utf-8")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            key.encode("utf-8")
+            _check_json_utf8(item)
+    elif isinstance(value, list):
+        for item in value:
+            _check_json_utf8(item)
+
+
+def _validate_stream_usage(usage: Any) -> dict[str, Any]:
+    if not isinstance(usage, dict):
+        raise OpenAIStreamError("stream_invalid_event")
+    sections = (
+        (usage, ("prompt_tokens", "completion_tokens", "total_tokens", "reasoning_tokens")),
+        (usage.get("prompt_tokens_details"), ("cached_tokens", "audio_tokens")),
+        (usage.get("completion_tokens_details"), ("reasoning_tokens", "audio_tokens", "accepted_prediction_tokens", "rejected_prediction_tokens")),
+    )
+    for counters, fields in sections:
+        if counters is None:
+            continue
+        if not isinstance(counters, dict):
+            raise OpenAIStreamError("stream_invalid_event")
+        if not all(_valid_token_count(counters.get(field)) for field in fields):
+            raise OpenAIStreamError("stream_invalid_event")
+    try:
+        _check_json_utf8(usage)
+    except (UnicodeEncodeError, RecursionError):
+        raise OpenAIStreamError("stream_invalid_event") from None
+    return usage
+
+
+async def _collect_completion_events(lines, max_content_bytes, metrics, started):
+    data = []
+    event_type = None
+    content = []
+    content_bytes = 0
+    finish_reason = None
+    usage = None
+    metrics.update(reasoning_chunks=0, content_chunks=0)
+    async for line in lines:
+        if line:
+            if line.startswith("data:"):
+                data.append(line[5:].removeprefix(" "))
+            elif line.startswith("event:"):
+                event_type = line[6:].removeprefix(" ")
+            continue
+        if event_type == "error":
+            raise OpenAIStreamError("stream_provider_error")
+        event_type = None
+        if not data:
+            continue
+        payload = "\n".join(data)
+        data.clear()
+        metrics.setdefault("first_sse_ms", round((time.monotonic() - started) * 1000))
+        if payload == "[DONE]":
+            if finish_reason is None or (finish_reason == "stop" and not content):
+                raise OpenAIStreamError("stream_incomplete")
+            return LLMResult(content="".join(content), metadata={**metrics, "usage": usage})
+        try:
+            event = json.loads(payload, parse_float=_finite_json_float, parse_constant=_finite_json_float)
+        except (ValueError, RecursionError):
+            raise OpenAIStreamError("stream_invalid_event") from None
+        if not isinstance(event, dict):
+            raise OpenAIStreamError("stream_invalid_event")
+        if event.get("error") is not None:
+            raise OpenAIStreamError("stream_provider_error")
+        if event.get("usage") is not None:
+            usage = _validate_stream_usage(event["usage"])
+        choices = event.get("choices")
+        if not isinstance(choices, list) or len(choices) > 1:
+            raise OpenAIStreamError("stream_invalid_event")
+        if not choices:
+            continue
+        choice = choices[0]
+        if not isinstance(choice, dict) or type(choice.get("index")) is not int or choice["index"] != 0:
+            raise OpenAIStreamError("stream_invalid_event")
+        reason = choice.get("finish_reason")
+        delta = choice.get("delta")
+        if delta is None and reason is None and (isinstance(choice.get("content_filter_results"), dict) or isinstance(choice.get("content_filter_offsets"), dict)):
+            # Azure asynchronous filter annotations can arrive after the final text chunk.
+            continue
+        if finish_reason is not None:
+            raise OpenAIStreamError("stream_invalid_event")
+        if delta is None and reason == "content_filter":
+            delta = {}
+        if not isinstance(delta, dict) or delta.get("tool_calls") or delta.get("function_call"):
+            raise OpenAIStreamError("stream_invalid_event")
+        if isinstance(delta.get("reasoning_content"), str) and delta["reasoning_content"]:
+            metrics["reasoning_chunks"] += 1
+            metrics.setdefault("first_reasoning_ms", round((time.monotonic() - started) * 1000))
+        content_delta = delta.get("content")
+        if content_delta is not None and not isinstance(content_delta, str):
+            raise OpenAIStreamError("stream_invalid_event")
+        if content_delta:
+            try:
+                content_bytes += len(content_delta.encode("utf-8"))
+            except UnicodeError:
+                raise OpenAIStreamError("stream_invalid_event") from None
+            if content_bytes > max_content_bytes:
+                raise OpenAIStreamError("stream_content_too_large")
+            content.append(content_delta)
+            metrics["content_chunks"] += 1
+            metrics.setdefault("first_content_ms", round((time.monotonic() - started) * 1000))
+        if reason is not None:
+            if reason not in ("stop", "length", "content_filter"):
+                raise OpenAIStreamError("stream_invalid_finish_reason")
+            finish_reason = reason
+            metrics["finish_reason"] = reason
+    raise OpenAIStreamError("stream_incomplete")
+
+
 class _BoundedResponseStream(httpx.AsyncByteStream):
     def __init__(self, stream: httpx.AsyncByteStream, limit: int):
         self.stream = stream
@@ -107,7 +278,7 @@ class _BoundedResponseStream(httpx.AsyncByteStream):
         async for part in self.stream:
             size += len(part)
             if size > self.limit:
-                raise ValueError("Provider response exceeds its read budget")
+                raise _ResponseLimitError("Provider response exceeds its read budget")
             yield part
 
     async def aclose(self):
@@ -356,42 +527,42 @@ class OpenAICompatibleProvider:
     def _usage_dict(usage: Any) -> dict[str, int] | None:
         if usage is None:
             return None
-        prompt = getattr(usage, "prompt_tokens", None)
-        completion = getattr(usage, "completion_tokens", None)
-        total = getattr(usage, "total_tokens", None)
+
+        def read_field(value: Any, name: str) -> Any:
+            return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
+
+        prompt = read_field(usage, "prompt_tokens")
+        completion = read_field(usage, "completion_tokens")
+        total = read_field(usage, "total_tokens")
         if prompt is None and completion is None:
             return None
-        prompt_i = int(prompt or 0)
-        completion_i = int(completion or 0)
+        if not all(_valid_token_count(count) for count in (prompt, completion, total)):
+            return None
+        prompt_count = prompt or 0
+        completion_count = completion or 0
         result = {
-            "prompt_tokens": prompt_i,
-            "completion_tokens": completion_i,
-            "total_tokens": int(total if total is not None else prompt_i + completion_i),
+            "prompt_tokens": prompt_count,
+            "completion_tokens": completion_count,
+            "total_tokens": total if total is not None else prompt_count + completion_count,
         }
-        prompt_details = getattr(usage, "prompt_tokens_details", None)
-        cached_tokens = getattr(prompt_details, "cached_tokens", None)
-        if isinstance(cached_tokens, int):
-            result["cache_read_tokens"] = cached_tokens
-        completion_details = getattr(usage, "completion_tokens_details", None)
-        reasoning_tokens = getattr(completion_details, "reasoning_tokens", None)
-        if isinstance(reasoning_tokens, int):
-            result["reasoning_tokens"] = reasoning_tokens
+        for section, field, key in (
+            ("prompt_tokens_details", "cached_tokens", "cache_read_tokens"),
+            ("completion_tokens_details", "reasoning_tokens", "reasoning_tokens"),
+        ):
+            details = read_field(usage, section)
+            if details is None:
+                continue
+            if not isinstance(details, Mapping) and not hasattr(details, field):
+                return None
+            count = read_field(details, field)
+            if not _valid_token_count(count):
+                return None
+            if count is not None:
+                result[key] = count
         return result
 
-    async def chat(
-        self,
-        messages: list[dict],
-        tools: list[dict],
-        *,
-        model: str,
-        stream: bool = False,
-        metadata: dict | None = None,
-        stream_callback: Callable[[str], None] | None = None,
-        request_options: dict[str, Any] | None = None,
-        include_raw_response: bool = False,
-    ) -> LLMResult:
-        if include_raw_response and stream:
-            raise ValueError("Raw receipts require a non-streaming call")
+    @staticmethod
+    def _request_options(request_options, metadata=None, *, stream=False):
         options = dict(request_options or {})
         allowed = {
             "temperature",
@@ -408,36 +579,41 @@ class OpenAICompatibleProvider:
         }
         if set(extra_body) & {"model", "messages", "tools", "stream"}:
             raise ValueError("extra_body cannot override the chat request identity")
+        if stream:
+            # Keep caller overrides and support SDKs without the stream_options keyword.
+            extra_body.setdefault("stream_options", {"include_usage": True})
+        if "max_completion_tokens" in options:
+            extra_body["max_completion_tokens"] = options.pop("max_completion_tokens")
         if extra_body:
             options["extra_body"] = extra_body
-        if "max_completion_tokens" in options:
-            options["extra_body"] = {
-                **extra_body,
-                "max_completion_tokens": options.pop("max_completion_tokens"),
-            }
-        if not self.api_key:
-            return LLMResult(
-                content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
-                metadata={"provider": self.name, "live": False},
-            )
+        return options
+
+    def _client(self, *, read_timeout=None, diagnostics=None, skip_error_body: bool = False):
         from openai import AsyncOpenAI, DEFAULT_TIMEOUT
 
         client_options: dict[str, Any] = {"max_retries": 0}
-        if self.connect_timeout is not None:
-            client_options["timeout"] = httpx.Timeout(600 if self.timeout is None else self.timeout, connect=self.connect_timeout)
+        if read_timeout is not None or self.connect_timeout is not None:
+            request_timeout = httpx.Timeout(self.timeout if self.timeout is not None else DEFAULT_TIMEOUT)
+            if self.connect_timeout is not None:
+                request_timeout.connect = self.connect_timeout
+            if read_timeout is not None:
+                request_timeout.read = read_timeout
+            client_options["timeout"] = request_timeout
         elif self.timeout is not None:
             client_options["timeout"] = self.timeout
-        if self.connect_timeout is not None:
-            request_timeout = httpx.Timeout(self.timeout if self.timeout is not None else DEFAULT_TIMEOUT)
-            request_timeout.connect = self.connect_timeout
-            client_options["timeout"] = request_timeout
         if self.max_response_bytes is not None:
 
             async def bound_response(response):
+                if diagnostics is not None:
+                    diagnostics["http_status"] = response.status_code
+                if skip_error_body and not response.is_success:
+                    # Close before the SDK tries to read the error body.
+                    await response.aclose()
+                    return
                 if response.headers.get("Content-Encoding", "identity").lower() != "identity":
                     raise ValueError("Bounded provider responses must use identity encoding")
                 if response.is_stream_consumed and len(response.content) > self.max_response_bytes:
-                    raise ValueError("Provider response exceeds its read budget")
+                    raise _ResponseLimitError("Provider response exceeds its read budget")
                 response.stream = _BoundedResponseStream(response.stream, self.max_response_bytes)
 
             client_options["http_client"] = httpx.AsyncClient(
@@ -446,17 +622,96 @@ class OpenAICompatibleProvider:
                 follow_redirects=False,
                 trust_env=False,
             )
-        client = AsyncOpenAI(
+        return AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
             default_headers=self.extra_headers or None,
             **client_options,
         )
 
-        actual_model = model
+    def _model_name(self, model: str) -> str:
         is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower() or "orcarouter.ai" in str(self.base_url or "").lower()
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
-            actual_model = f"{self.author}/{model}"
+            return f"{self.author}/{model}"
+        return model
+
+    async def collect_chat_stream(
+        self,
+        messages: list[dict],
+        *,
+        model: str,
+        max_content_bytes: int,
+        read_timeout: float | None = None,
+        request_options: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> LLMResult:
+        """Collect a bounded Chat Completions SSE response with no automatic replay.
+
+        If provided, diagnostics receives this request's metrics on a best-effort basis.
+        """
+        from openai import APIStatusError
+
+        metrics: dict[str, Any] = {}
+        client = None
+        try:
+            if not self.api_key or self.max_response_bytes is None:
+                raise ValueError("Streaming collection requires credentials and a response byte limit")
+            if type(max_content_bytes) is not int or max_content_bytes <= 0:
+                raise ValueError("max_content_bytes must be a positive integer")
+            if read_timeout is not None and (not math.isfinite(read_timeout) or read_timeout <= 0):
+                raise ValueError("read_timeout must be finite and positive")
+            options = self._request_options(request_options, stream=True)
+            started = time.monotonic()
+            client = self._client(read_timeout=read_timeout, diagnostics=metrics, skip_error_body=True)
+            async with client.chat.completions.with_streaming_response.create(model=self._model_name(model), messages=messages, stream=True, **options) as response:
+                metrics["http_status"] = response.status_code
+                if not 200 <= response.status_code < 300 or response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "text/event-stream":
+                    raise OpenAIStreamError("stream_invalid_content_type")
+                return await _collect_completion_events(_iter_sse_lines(response.iter_bytes()), max_content_bytes, metrics, started)
+        except APIStatusError as exc:
+            metrics["http_status"] = exc.status_code
+            return LLMResult(content="", metadata={"http_status": exc.status_code})
+        except _ResponseLimitError:
+            raise OpenAIStreamError("stream_response_too_large") from None
+        finally:
+            try:
+                if client is not None:
+                    with anyio.move_on_after(5, shield=True):
+                        try:
+                            await client.close()
+                        except Exception as exc:
+                            LOGGER.warning("llm_client_close_failed error_type=%s", type(exc).__name__)
+            finally:
+                if diagnostics is not None:
+                    try:
+                        for field in _STREAM_METRIC_FIELDS:
+                            diagnostics.pop(field, None)
+                        diagnostics.update(metrics)
+                    except Exception as exc:
+                        LOGGER.warning("llm_stream_diagnostics_write_failed error_type=%s", type(exc).__name__)
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        model: str,
+        stream: bool = False,
+        metadata: dict | None = None,
+        stream_callback: Callable[[str], None] | None = None,
+        request_options: dict[str, Any] | None = None,
+        include_raw_response: bool = False,
+    ) -> LLMResult:
+        if include_raw_response and stream:
+            raise ValueError("Raw receipts require a non-streaming call")
+        options = self._request_options(request_options, metadata, stream=stream)
+        if not self.api_key:
+            return LLMResult(
+                content=("OpenAI-compatible provider is configured without an API key. " "Set the configured api_key_env before making live calls."),
+                metadata={"provider": self.name, "live": False},
+            )
+        client = self._client()
+        actual_model = self._model_name(model)
 
         request_context = {
             "call_id": "llm-" + uuid.uuid4().hex,
@@ -480,8 +735,6 @@ class OpenAICompatibleProvider:
                     "tools": [{"type": "function", "function": tool} for tool in tools] or None,
                     "stream": stream,
                 }
-                if stream:
-                    create_kwargs["stream_options"] = {"include_usage": True}
                 create_kwargs.update(options)
                 if include_raw_response:
                     result = await self._raw_completion(client, create_kwargs, request_context)
@@ -506,7 +759,7 @@ class OpenAICompatibleProvider:
                     ) from e
                 raise
 
-            if stream and stream_callback:
+            if stream:
                 full_content = []
                 full_reasoning = []
                 tool_calls_buffer: dict[int, dict[str, Any]] = {}
@@ -537,16 +790,16 @@ class OpenAICompatibleProvider:
 
                 async def flush_text() -> None:
                     nonlocal text_chars, last_text_flush
-                    if pending_text:
+                    if stream_callback is not None and pending_text:
                         await emit_stream_delta(stream_callback, "".join(pending_text))
                         pending_text.clear()
                         text_chars = 0
                         last_text_flush = time.monotonic()
 
                 async for chunk in response:
-                    chunk_usage = self._usage_dict(getattr(chunk, "usage", None))
+                    chunk_usage = getattr(chunk, "usage", None)
                     if chunk_usage is not None:
-                        stream_usage = chunk_usage
+                        stream_usage = self._usage_dict(chunk_usage)
                     if not chunk.choices:
                         continue
                     last_chunk_at = time.perf_counter()
@@ -584,13 +837,14 @@ class OpenAICompatibleProvider:
                             reasoning_ended = True
                         content_started = True
                         full_content.append(content_delta)
-                        if coalesce:
-                            pending_text.append(content_delta)
-                            text_chars += len(content_delta)
-                            if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
-                                await flush_text()
-                        else:
-                            await emit_stream_delta(stream_callback, content_delta)
+                        if stream_callback is not None:
+                            if coalesce:
+                                pending_text.append(content_delta)
+                                text_chars += len(content_delta)
+                                if text_chars >= 1024 or time.monotonic() - last_text_flush >= 0.05:
+                                    await flush_text()
+                            else:
+                                await emit_stream_delta(stream_callback, content_delta)
                     if delta.tool_calls:
                         for tc_delta in delta.tool_calls:
                             idx = tc_delta.index

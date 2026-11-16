@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
 import httpx
@@ -177,7 +178,7 @@ def test_provider_log_redaction_removes_image_data() -> None:
 @pytest.mark.asyncio
 async def test_openai_provider_non_stream_usage():
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
-    usage = MagicMock(prompt_tokens=11, completion_tokens=7, total_tokens=18)
+    usage = SimpleNamespace(prompt_tokens=11, completion_tokens=7, total_tokens=18)
     message = MagicMock(content="hello", tool_calls=None, reasoning_content=None, model_extra=None)
     response = MagicMock(choices=[MagicMock(message=message)], usage=usage)
 
@@ -209,14 +210,17 @@ async def test_openai_provider_adds_configured_extra_headers():
 
 
 @pytest.mark.asyncio
-async def test_openai_provider_stream_usage():
+@pytest.mark.parametrize("usage_as_dict", [True, False])
+async def test_openai_provider_stream_usage(usage_as_dict):
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="http://example")
+    usage = {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25}
 
     async def _stream():
-        chunk_usage = MagicMock(prompt_tokens=20, completion_tokens=5, total_tokens=25)
+        chunk_usage = usage if usage_as_dict else SimpleNamespace(**usage)
         delta = MagicMock(content="hi", tool_calls=None, reasoning_content=None, model_extra=None)
         yield MagicMock(choices=[MagicMock(delta=delta)], usage=None)
         yield MagicMock(choices=[MagicMock(delta=MagicMock(content="", tool_calls=None, reasoning_content=None, model_extra=None))], usage=chunk_usage)
+        yield MagicMock(choices=[], usage=None)
 
     with patch("openai.AsyncOpenAI") as client_cls:
         client_cls.return_value.close = AsyncMock()
@@ -224,9 +228,9 @@ async def test_openai_provider_stream_usage():
         deltas: list[str] = []
         result = await provider.chat([], [], model="gpt-4.1", stream=True, stream_callback=deltas.append)
 
-    assert result.metadata["usage"]["prompt_tokens"] == 20
+    assert result.metadata["usage"] == usage
     client_cls.return_value.chat.completions.create.assert_awaited_once()
-    assert client_cls.return_value.chat.completions.create.await_args.kwargs["stream_options"] == {"include_usage": True}
+    assert client_cls.return_value.chat.completions.create.await_args.kwargs["extra_body"]["stream_options"] == {"include_usage": True}
 
 
 @pytest.mark.asyncio
