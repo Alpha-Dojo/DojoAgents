@@ -202,6 +202,62 @@ async def _ddgs_search_adapter(
 register_search_backend("ddgs", _ddgs_search_adapter)
 
 
+async def _parallel_search_adapter(
+    query: str,
+    limit: int,
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    # Anonymous access is opt-in through search_backend. Never downgrade an
+    # explicitly configured credential to anonymous access on failure.
+    headers = {}
+    if cfg.api_key is not None or cfg.api_key_env:
+        headers["Authorization"] = f"Bearer {_require_web_api_key(cfg)}"
+    async with _make_async_client(cfg, headers=headers) as client:
+        async with streamable_http_client(
+            "https://mcp.parallel.ai/mcp", http_client=client
+        ) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                if not any(tool.name == "web_search" for tool in tools.tools):
+                    raise RuntimeError("Parallel MCP does not expose web_search")
+                result = await session.call_tool(
+                    "web_search", {"objective": query, "search_queries": [query]}
+                )
+
+    if result.isError:
+        detail = "\n".join(block.text for block in result.content if block.type == "text")
+        raise RuntimeError(f"Parallel web search failed: {detail}")
+    payload = result.structuredContent
+    if payload is None:
+        text = "\n".join(block.text for block in result.content if block.type == "text")
+        try:
+            payload = json.loads(text)
+        except ValueError as exc:
+            raise RuntimeError("Parallel web search returned invalid JSON") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        raise RuntimeError("Parallel web search returned no results list")
+    rows: list[dict[str, Any]] = []
+    # The MCP tool has no limit argument. Apply DojoAgents' limit locally.
+    for item in payload["results"][:max(1, min(int(limit), 20))]:
+        if not isinstance(item, dict) or not isinstance(item.get("excerpts"), list):
+            raise RuntimeError("Parallel web search returned an invalid result")
+        rows.append(
+            {
+                "title": str(item.get("title") or ""),
+                "url": str(item.get("url") or ""),
+                "description": "\n".join(str(excerpt) for excerpt in item["excerpts"]),
+            }
+        )
+    return rows
+
+
+register_search_backend("parallel", _parallel_search_adapter)
+
+
 async def _fetch_extract_adapter(
     urls: list[str],
     cfg: WebToolsConfig,

@@ -174,6 +174,34 @@ candidate with the ID returned by `GET /api/v1/models`, for example
 `openai:gpt-4o`; the legacy provider name `openai` still selects that
 provider's default.
 
+## Parallel web search (opt-in)
+
+The default remains keyless `ddgs` search with `fetch` extraction. To use
+[Parallel's Unified MCP server](https://docs.parallel.ai/integrations/mcp)
+for the existing `web_search` tool, merge this into `~/.dojo/agents.yaml`:
+
+```yaml
+tools:
+  web:
+    search_backend: parallel
+    extract_backend: fetch
+```
+
+Try `web_search` with `query: "AnyIO structured concurrency task groups"`.
+Parallel returns source URLs and excerpts in the usual metadata rows. It uses
+`https://mcp.parallel.ai/mcp` with anonymous, rate-limited access and the server's
+default Fast mode. No API key or additional dependency is required. The tool's
+`limit` is applied locally to the returned results.
+
+If `tools.web.api_key` or `api_key_env` is configured, that credential is used;
+a missing environment key or rejected credential fails without an anonymous
+retry. Remove credentials from a previous provider when choosing anonymous
+Parallel access. Errors do not trigger another search provider. Selecting
+Parallel does not change `extract_backend`, disabled search settings, or tool
+permissions. `search_base_url` is not used by this fixed MCP endpoint.
+`tools.web.user_agent` overrides the project User-Agent for all MCP requests
+and the existing page-fetch adapter.
+
 ## Update Rules
 
 - Typed runtime reads: `ConfigStore.snapshot()`.

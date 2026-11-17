@@ -558,3 +558,163 @@ async def test_web_extract_fetch_adapter_uses_configured_user_agent(monkeypatch)
 
     assert result.ok is True
     assert result.data["results"][0]["title"] == "Configured"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("user_agent", [None, "DojoAgents-Custom/1.0"])
+@pytest.mark.parametrize("text_only", [False, True])
+async def test_parallel_mcp_transport_and_result(monkeypatch, user_agent, text_only):
+    import json
+    from dojoagents.tools import web_searcher
+
+    seen = []
+    payload = {"results": [
+        {"title": "AnyIO", "url": "https://anyio.readthedocs.io/", "excerpts": ["First", "Second"]},
+        {"url": "https://example.org/", "excerpts": ["Other"]},
+    ]}
+
+    async def handler(request):
+        seen.append(request)
+        assert request.headers["user-agent"] == (user_agent or web_searcher._default_user_agent())
+        assert "authorization" not in request.headers
+        if request.method == "GET":
+            return httpx.Response(405)
+        if request.method == "DELETE":
+            return httpx.Response(200)
+        body = json.loads(request.content)
+        method = body["method"]
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if method == "initialize":
+            result = {"protocolVersion": body["params"]["protocolVersion"], "capabilities": {},
+                      "serverInfo": {"name": "fixture", "version": "1"}}
+        elif method == "tools/list":
+            result = {"tools": [{"name": "web_search", "inputSchema": {"type": "object"}}]}
+        else:
+            assert method == "tools/call"
+            assert body["params"]["name"] == "web_search"
+            assert body["params"]["arguments"] == {"objective": "AnyIO tasks", "search_queries": ["AnyIO tasks"]}
+            result = {"content": [{"type": "text", "text": json.dumps(payload)}]}
+            if not text_only:
+                result["structuredContent"] = payload
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result},
+                              headers={"mcp-session-id": "fixture-session"})
+
+    factory = web_searcher._make_async_client
+    monkeypatch.setattr(web_searcher, "_make_async_client", lambda cfg, **kw: factory(
+        cfg, transport=httpx.MockTransport(handler), **kw))
+    executor = _make_executor({"tools": {"web": {"search_backend": "parallel", "user_agent": user_agent}}})
+    result = await executor.execute_one(ToolCall(id="parallel", name="web_search", arguments={"query": "AnyIO tasks", "limit": 1}))
+    assert result.ok, result.error
+    assert result.metadata["backend"] == "parallel"
+    assert result.data["web"] == [{"title": "AnyIO", "url": "https://anyio.readthedocs.io/",
+                                   "description": "First\nSecond", "position": 1}]
+    assert {r.method for r in seen} == {"POST", "GET", "DELETE"}
+    assert {json.loads(r.content)["method"] for r in seen if r.method == "POST"} == {
+        "initialize", "notifications/initialized", "tools/list", "tools/call"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error_kind", ["tool", "malformed", "http", "missing_tool"])
+async def test_parallel_errors_do_not_fall_back(monkeypatch, error_kind):
+    import json
+    from dojoagents.tools import web_searcher
+
+    async def handler(request):
+        assert request.url.host == "mcp.parallel.ai"
+        assert request.headers["authorization"] == "Bearer explicit-key"
+        if error_kind == "http":
+            return httpx.Response(401)
+        body = json.loads(request.content)
+        method = body["method"]
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if method == "initialize":
+            result = {"protocolVersion": body["params"]["protocolVersion"], "capabilities": {},
+                      "serverInfo": {"name": "fixture", "version": "1"}}
+        elif method == "tools/list":
+            result = {"tools": [] if error_kind == "missing_tool" else [
+                {"name": "web_search", "inputSchema": {"type": "object"}}]}
+        else:
+            result = {"isError": error_kind == "tool", "content": [{"type": "text", "text": "unavailable"}]}
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+
+    factory = web_searcher._make_async_client
+    monkeypatch.setattr(web_searcher, "_make_async_client", lambda cfg, **kw: factory(
+        cfg, transport=httpx.MockTransport(handler), **kw))
+    executor = _make_executor({"tools": {"web": {"search_backend": "parallel", "api_key": "explicit-key"}}})
+    result = await executor.execute_one(ToolCall(id="error", name="web_search", arguments={"query": "AnyIO"}))
+    assert not result.ok
+    assert result.error
+
+
+@pytest.mark.anyio
+async def test_parallel_explicit_missing_key_env_does_not_use_anonymous(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    monkeypatch.delenv("DOJO_TEST_MISSING_PARALLEL_KEY", raising=False)
+    def unexpected_client(*args, **kwargs):
+        pytest.fail("Missing explicit credential must fail before network I/O")
+    monkeypatch.setattr(web_searcher, "_make_async_client", unexpected_client)
+    executor = _make_executor({"tools": {"web": {"search_backend": "parallel", "api_key_env": "DOJO_TEST_MISSING_PARALLEL_KEY"}}})
+    result = await executor.execute_one(ToolCall(id="key", name="web_search", arguments={"query": "AnyIO"}))
+    assert not result.ok
+    assert "API key" in result.error
+
+
+def test_parallel_saved_config_preserves_defaults_and_extract(tmp_path):
+    from dojoagents.config.loader import ConfigStore
+
+    store = ConfigStore(tmp_path / "agents.yaml")
+    assert store.snapshot().tools.web.search_backend == "ddgs"
+    store.save_raw({"tools": {"web": {"search_backend": "parallel"}}})
+    assert store.snapshot().tools.web.search_backend == "parallel"
+    assert store.snapshot().tools.web.extract_backend == "fetch"
+    store.save_raw({"tools": {"web": {"search_backend": None}}})
+    assert store.snapshot().tools.web.search_backend is None
+
+
+@pytest.mark.anyio
+async def test_parallel_tool_permission_checked_before_network(monkeypatch):
+    from dojoagents.tools import web_searcher
+
+    def deny(self, tool_name):
+        raise PermissionError("web search denied")
+    def unexpected_client(*args, **kwargs):
+        pytest.fail("Denied tool must not perform network I/O")
+    monkeypatch.setattr(web_searcher, "_make_async_client", unexpected_client)
+    executor = _make_executor({"tools": {"web": {"search_backend": "parallel"}}})
+    monkeypatch.setattr(SandboxPolicy, "check_tool", deny)
+    result = await executor.execute_one(ToolCall(id="denied", name="web_search", arguments={"query": "AnyIO"}))
+    assert not result.ok
+    assert "denied" in result.error
+
+
+@pytest.mark.anyio
+async def test_parallel_timeout_preserves_executor_boundary(monkeypatch):
+    import anyio
+    import json
+    from dojoagents.tools import web_searcher
+
+    async def handler(request):
+        body = json.loads(request.content)
+        method = body["method"]
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        if method == "initialize":
+            result = {"protocolVersion": body["params"]["protocolVersion"], "capabilities": {},
+                      "serverInfo": {"name": "fixture", "version": "1"}}
+        elif method == "tools/list":
+            result = {"tools": [{"name": "web_search", "inputSchema": {"type": "object"}}]}
+        else:
+            await anyio.sleep_forever()
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+
+    factory = web_searcher._make_async_client
+    monkeypatch.setattr(web_searcher, "_make_async_client", lambda cfg, **kw: factory(
+        cfg, transport=httpx.MockTransport(handler), **kw))
+    executor = _make_executor({"tools": {"web": {"search_backend": "parallel"}}})
+    executor.sandbox = SandboxPolicy(timeout_seconds=0.1)
+    result = await executor.execute_one(ToolCall(id="timeout", name="web_search", arguments={"query": "AnyIO"}))
+    assert not result.ok
+    assert "timed out" in result.error
