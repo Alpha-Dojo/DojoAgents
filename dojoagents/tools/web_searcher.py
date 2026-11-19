@@ -367,6 +367,84 @@ async def _serply_search_adapter(
 register_search_backend("serply", _serply_search_adapter)
 
 
+def _resolve_keenable_base_url(cfg: WebToolsConfig, *, kind: str) -> str:
+    if kind == "search":
+        return (cfg.search_base_url or "https://api.keenable.ai").rstrip("/")
+    return (cfg.extract_base_url or "https://api.keenable.ai").rstrip("/")
+
+
+def _keenable_headers(api_key: str) -> dict[str, str]:
+    headers = {"X-Keenable-Title": "DojoAgents", "Accept": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    return headers
+
+
+async def _keenable_search_adapter(
+    query: str,
+    limit: int,
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    # Keyless by default; an API key only lifts the rate limits.
+    api_key = (cfg.api_key or "").strip()
+    base_url = _resolve_keenable_base_url(cfg, kind="search")
+    path = "/v1/search" if api_key else "/v1/search/public"
+    async with _make_async_client(cfg, headers=_keenable_headers(api_key)) as client:
+        response = await client.post(
+            f"{base_url}{path}",
+            json={"query": query, "max_results": max(1, min(int(limit), 50))},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    rows: list[dict[str, Any]] = []
+    for index, item in enumerate(list(payload.get("results") or []), start=1):
+        if index > limit:
+            break
+        rows.append(
+            {
+                "title": str(item.get("title") or ""),
+                "url": str(item.get("url") or ""),
+                "description": str(item.get("snippet") or item.get("description") or ""),
+                "position": index,
+            }
+        )
+    return rows
+
+
+register_search_backend("keenable", _keenable_search_adapter)
+
+
+async def _keenable_extract_adapter(
+    urls: list[str],
+    cfg: WebToolsConfig,
+) -> list[dict[str, Any]]:
+    api_key = (cfg.api_key or "").strip()
+    base_url = _resolve_keenable_base_url(cfg, kind="extract")
+    path = "/v1/fetch" if api_key else "/v1/fetch/public"
+    results: list[dict[str, Any]] = []
+    async with _make_async_client(cfg, headers=_keenable_headers(api_key)) as client:
+        for url in urls:
+            try:
+                response = await client.get(f"{base_url}{path}", params={"url": url})
+                response.raise_for_status()
+                payload = response.json()
+            except (httpx.HTTPError, ValueError) as e:
+                results.append({"url": url, "title": "", "content": "", "error": str(e)})
+                continue
+            results.append(
+                {
+                    "url": url,
+                    "title": str(payload.get("title") or ""),
+                    "content": str(payload.get("content") or ""),
+                    "error": None,
+                }
+            )
+    return results
+
+
+register_extract_backend("keenable", _keenable_extract_adapter)
+
+
 def get_web_searcher_specs(cfg: WebToolsConfig) -> list[ToolSpec]:
     async def web_search(args: dict[str, Any]) -> dict[str, Any]:
         backend = cfg.search_backend
