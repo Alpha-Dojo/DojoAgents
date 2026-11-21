@@ -38,6 +38,12 @@ DojoAgents is a full-market AI agent framework designed specifically for persona
   <p><em>Seven-layer architecture — from CLI, Web Dashboard, and Chat Gateways through Agent Loop to tools, data, and infrastructure.</em></p>
 </div>
 
+> 🚀 **Don't want to self-host?**
+>
+> [Try AlphaDojo for free!](https://alphadojo.ai/app/?utm_source=github&utm_medium=readme_top&utm_campaign=dojoagents)
+> 
+> [Learn more about AlphaDojo →](https://alphadojo.ai/?utm_source=github&utm_medium=readme_top_lp&utm_campaign=dojoagents)
+
 ## ✨ Why DojoAgents?
 
 **🧠 Loop-Driven Cognitive Portfolio Agent (Our Core Engine):** Most financial AI tools are built for quick outputs: news summaries, single-stock explanations, basic indicator readings, or generic market commentary. Our Loop-Driven Cognitive Portfolio Agent is built for portfolio-aware reasoning, connecting your holdings with market data and running structured analysis across four dimensions:

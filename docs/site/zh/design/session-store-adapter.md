@@ -25,6 +25,10 @@ DojoAgents Core 不依赖 MySQL、PostgreSQL 或对象存储驱动。在线项�
 
 租约获取、续约、释放和 takeover 必须使用条件更新，同时校验 version、lease id、holder、expiry 与 fencing token。旧 worker 的 fencing token 永远不能提交新事件或 turn。
 
+Session 心跳在所属 Run 的 AnyIO TaskGroup 中独立运行。每轮按 `sessions.runtime.heartbeat_seconds` 实际续租，不再等到租期消耗一半；正常轮次的间隔包含 RPC 耗时。完整心跳（续租 + Run 状态读取）的超时取 10 秒、半个心跳间隔与当前剩余租期中的最小值。临时失败短暂退避，最多连续失败三次，每次重试重新读取最新 lease 的剩余时间；租期耗尽后不再请求续租。
+
+事件写入器或心跳确认丢租时立即取消所属运行；事件入队与终态准备保留原始 `SessionLeaseLostError`，不以已关闭队列的 `BrokenResourceError` 覆盖它，也不再尝试取消/完成等终态写入。外部主动取消仍走原取消流程。
+
 Schema 变更使用显式、可审计、可回滚的迁移版本；应用进程不得在正常请求中隐式修改生产 schema。生产连接必须启用 TLS、最小权限账号、连接/查询超时和容量受限的连接池。
 
 ## 外部 conformance gate

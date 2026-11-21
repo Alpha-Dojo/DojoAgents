@@ -248,6 +248,7 @@ def test_api_write_items_filters_briefs_without_key_drivers() -> None:
 
     assert len(items) == 1
     assert items[0]["sector_id"] == "1/9/10"
+    assert items[0]["sector_ref"] == "1/9/10"
     warning.assert_called_once_with(
         "SKIP sector brief without key_drivers: market=%s sector_id=%s as_of_date=%s",
         "cn",
@@ -331,6 +332,7 @@ async def test_write_only_validates_and_submits_existing_brief(tmp_path) -> None
     client.analysis.create_sector_brief_extract.assert_awaited_once()
     item = client.analysis.create_sector_brief_extract.await_args.kwargs["body"]["items"][0]
     assert item["sector_id"] == "1/9/10"
+    assert item["sector_ref"] == "1/9/10"
     assert item["brief_uid"].startswith("dojoagents:")
     client.aclose.assert_awaited_once()
 

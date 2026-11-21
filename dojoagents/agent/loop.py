@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import anyio
+import httpx
 import json
 import re
 import uuid
@@ -709,11 +710,18 @@ class AgentLoop:
                         owner_cancel_scope=owner_cancel_scope,
                     )
         except BaseExceptionGroup as exc:
-            # TaskGroup wraps child failures.  AgentLoop's public contract
-            # predates exception groups, so preserve the original single-error
-            # boundary for callers while leaving genuinely multiple failures
-            # grouped.
-            current: BaseException = exc
+            # A writer and its producer may surface the same failure instance.
+            pending: list[BaseException] = [exc]
+            errors: list[BaseException] = []
+            while pending:
+                current = pending.pop()
+                if isinstance(current, BaseExceptionGroup):
+                    pending.extend(current.exceptions)
+                elif all(current is not error for error in errors):
+                    errors.append(current)
+            if len(errors) == 1:
+                raise errors[0] from exc
+            current = exc
             while isinstance(current, BaseExceptionGroup) and len(current.exceptions) == 1:
                 current = current.exceptions[0]
             raise current from exc
@@ -989,6 +997,7 @@ class AgentLoop:
                                 "Canonical run cancel skipped; session lease already lost: session_id=%s",
                                 active_request.session_id,
                             )
+                            raise
                 raise
             except SessionLeaseLostError:
                 # The fencing token is no longer ours. Do not attempt any further
@@ -1490,7 +1499,7 @@ class AgentLoop:
                 memory_manager=self.memory_manager,
                 session_id=request.session_id,
             )
-            if compressed_history:
+            if compressed_history and compressed_history != history_msgs:
                 history_msgs = compressed_history
                 token_state.note_compression(_estimate_tokens_rough(flatten_messages_for_compress(compressed_history)))
                 if event_sink is not None:
@@ -2003,9 +2012,16 @@ class AgentLoop:
         turn_message_start = len(agent.messages)
 
         # 7. Run Agent
+        locale = str(request.metadata.get("locale") or "en")
         user_prompt = openai_content_to_strands_blocks(user_content)
         if not user_prompt:
-            user_prompt = request.message
+            user_prompt = str(request.message or "").strip()
+        if not user_prompt:
+            # Strands 1.63 rejects blank user turns before model invocation.
+            # Dashboard-triggered harness runs may intentionally carry all task
+            # context in metadata/system instructions and therefore need a
+            # neutral, non-blank continuation prompt.
+            user_prompt = "继续当前任务。" if locale.lower().startswith("zh") else "Continue with the current task."
         if image_turn:
             LOGGER.info(
                 "Multimodal user turn: session_id=%s provider=%s text_len=%d",
@@ -2013,7 +2029,6 @@ class AgentLoop:
                 provider_name,
                 len(openai_content_text(user_content)),
             )
-        locale = str(request.metadata.get("locale") or "en")
 
         def _scrub_response_text(text: str) -> str:
             cleaned = text.strip()
@@ -2412,12 +2427,20 @@ class AgentLoop:
         base_url = base_url_value if isinstance(base_url_value, str) else ""
         if "generativelanguage.googleapis.com" in base_url:
             return None
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DEFAULT_TIMEOUT
+        import httpx
 
+        timeout_args = {}
+        if provider_cfg.connect_timeout is not None:
+            request_timeout = httpx.Timeout(DEFAULT_TIMEOUT)
+            request_timeout.connect = provider_cfg.connect_timeout
+            timeout_args["timeout"] = request_timeout
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             default_headers=provider_cfg.extra_headers or None,
+            max_retries=provider_cfg.max_retries,
+            **timeout_args,
         )
 
     def _sanitize_tool_specs(

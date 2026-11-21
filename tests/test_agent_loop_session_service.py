@@ -482,12 +482,13 @@ async def test_model_exception_marks_canonical_run_failed(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_lease_loss_stops_without_attempting_another_terminal_write():
+async def test_lease_loss_stops_without_attempting_another_terminal_write(tmp_path):
     canonical = AsyncMock()
     canonical.request = ChatRequest("hi", session_id="s1", principal=SessionPrincipal("alice"))
     canonical.event_sink = None
     canonical.commit.side_effect = SessionLeaseLostError("lost")
     loop = _loop(StaticLLMProvider([LLMResult("hello")]), service=object())
+    loop.model_context_registry.cache_path = tmp_path / "model-limits.json"
 
     with patch("dojoagents.agent.session_run.CanonicalAgentRun.begin", return_value=canonical):
         with pytest.raises(SessionLeaseLostError):
@@ -823,3 +824,59 @@ async def test_cancellation_unblocks_full_provider_and_writer_queues(tmp_path, m
         assert finished.is_set()
     finally:
         await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_background_lease_loss_preserves_original_error_through_cancellation():
+    original = SessionLeaseLostError("heartbeat lease lost")
+    canonical = AsyncMock()
+    canonical.request = ChatRequest("hi", session_id="s1", principal=SessionPrincipal("alice"))
+    canonical.event_sink = None
+    canonical.cancel.side_effect = original
+    loop = _loop(StaticLLMProvider([LLMResult("hello")]), service=object())
+    loop._run_core = AsyncMock(side_effect=asyncio.CancelledError())
+    with patch("dojoagents.agent.session_run.CanonicalAgentRun.begin", return_value=canonical):
+        with pytest.raises(SessionLeaseLostError) as caught:
+            await loop.run(canonical.request)
+    assert caught.value is original
+    canonical.cancel.assert_awaited_once()
+    canonical.fail.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_background_event_lease_loss_cancels_real_agent_loop_without_terminal_write(tmp_path, monkeypatch):
+    from dojoagents.agent.model_context import ModelContextRegistry
+
+    service = await _service(tmp_path)
+    loop = _loop(StaticLLMProvider([LLMResult("hello")]), service)
+    loop.model_context_registry = ModelContextRegistry(cache_path=tmp_path / "model-limits.json")
+    original = SessionLeaseLostError("event writer lost original lease")
+    append = AsyncMock(side_effect=original)
+    finish = AsyncMock(wraps=service._store._finish_run)
+    commit = AsyncMock(wraps=service._store.commit_turn)
+    monkeypatch.setattr(service._store, "append_events", append)
+    monkeypatch.setattr(service._store, "_finish_run", finish)
+    monkeypatch.setattr(service._store, "commit_turn", commit)
+    try:
+        with pytest.raises(SessionLeaseLostError) as caught:
+            await loop.run(ChatRequest("hi", session_id="s1", principal=SessionPrincipal("alice")))
+        assert caught.value is original
+        append.assert_awaited_once()
+        finish.assert_not_awaited()
+        commit.assert_not_awaited()
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_background_error_is_unwrapped_but_distinct_errors_stay_grouped():
+    original = SessionLeaseLostError("same failure from writer and producer")
+    loop = _loop(StaticLLMProvider([LLMResult("hello")]), service=object())
+    loop._run_scoped = AsyncMock(side_effect=ExceptionGroup("duplicate", [original, original]))
+    with pytest.raises(SessionLeaseLostError) as caught:
+        await loop.run(ChatRequest("hi", session_id="s1", principal=SessionPrincipal("alice")))
+    assert caught.value is original
+    loop._run_scoped.side_effect = ExceptionGroup("distinct", [ValueError("first"), ValueError("second")])
+    with pytest.raises(ExceptionGroup) as caught_group:
+        await loop.run(ChatRequest("hi", session_id="s1", principal=SessionPrincipal("alice")))
+    assert len(caught_group.value.exceptions) == 2

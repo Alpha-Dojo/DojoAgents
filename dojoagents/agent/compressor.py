@@ -93,6 +93,7 @@ def flatten_messages_for_compress(messages: list[dict[str, Any]]) -> list[dict[s
                             "tool_call_id": tr.get("toolUseId"),
                             "name": tr.get("name"),
                             "content": result_text,
+                            "status": tr.get("status", "success"),
                         }
                     )
             entry: dict[str, Any] = {"role": role, "content": "\n".join(text_parts)}
@@ -108,6 +109,8 @@ def flatten_messages_for_compress(messages: list[dict[str, Any]]) -> list[dict[s
             entry["tool_call_id"] = msg["tool_call_id"]
         if msg.get("name"):
             entry["name"] = msg["name"]
+        if role == "tool" and msg.get("status") in {"success", "error"}:
+            entry["status"] = msg["status"]
         flat.append(entry)
     return flat
 
@@ -123,7 +126,7 @@ def messages_to_strands(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "content": [
                         {
                             "toolResult": {
-                                "status": "success",
+                                "status": msg.get("status", "success"),
                                 "toolUseId": msg.get("tool_call_id"),
                                 "name": msg.get("name") or "tool",
                                 "content": [{"text": str(msg.get("content") or "")}],
@@ -160,6 +163,43 @@ def messages_to_strands(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
         strands.append({"role": role, "content": blocks})
     return strands
+
+
+def _tool_group_boundaries(messages: list[dict[str, Any]]) -> tuple[list[int], set[str]]:
+    """Cuts are safe only between complete tool groups; the final group may be in flight."""
+    boundaries = [0]
+    pending: set[str] = set()
+    for index, message in enumerate(messages):
+        if message.get("role") == "tool":
+            call_id = message.get("tool_call_id")
+            if not isinstance(call_id, str) or call_id not in pending:
+                raise ValueError(f"unmatched_tool_result index={index} call_id={str(call_id)[:128]!r}")
+            pending.remove(call_id)
+        else:
+            if pending:
+                raise ValueError(f"missing_tool_results index={index} call_ids={sorted(pending)[:8]!r}")
+            calls = message.get("tool_calls") or []
+            if not isinstance(calls, list) or (calls and message.get("role") != "assistant"):
+                raise ValueError(f"invalid_tool_calls index={index}")
+            ids = [call.get("id") if isinstance(call, dict) else None for call in calls]
+            if any(not isinstance(call_id, str) or not call_id for call_id in ids) or len(ids) != len(set(ids)):
+                raise ValueError(f"invalid_or_duplicate_tool_call_id index={index}")
+            pending.update(ids)
+        if not pending:
+            boundaries.append(index + 1)
+    return boundaries, pending
+
+
+def _validated_compression(candidate: list[dict[str, Any]], original: list[dict[str, Any]], session_id: str) -> list[dict[str, Any]]:
+    try:
+        _, pending = _tool_group_boundaries(flatten_messages_for_compress(candidate))
+        _, original_pending = _tool_group_boundaries(flatten_messages_for_compress(original))
+        if pending != original_pending:
+            raise ValueError(f"pending_tool_calls_changed index={len(candidate)}")
+    except ValueError as exc:
+        LOGGER.warning("context_compression_pairing_invalid session_id=%s reason=%s action=keep_original", session_id, exc)
+        return original
+    return candidate
 
 
 def _truncate_tool_call_args_json(args: str, head_chars: int = 150) -> str:
@@ -239,7 +279,12 @@ class ContextCompressor:
 
         flat = flatten_messages_for_compress(messages)
         result = [dict(m) for m in flat]
-        prune_boundary = len(result) - protect_tail_count
+        try:
+            boundaries, _ = _tool_group_boundaries(flat)
+        except ValueError as exc:
+            LOGGER.warning("context_compression_pairing_invalid phase=prune reason=%s action=keep_original", exc)
+            return messages
+        prune_boundary = max(cut for cut in boundaries if cut <= max(0, len(result) - max(0, protect_tail_count)))
         if prune_boundary <= 0:
             return messages
 
@@ -259,6 +304,8 @@ class ContextCompressor:
 
             if role == "tool":
                 content = msg.get("content", "")
+                if msg.get("status") == "error":
+                    continue
                 if isinstance(content, str) and len(content) > 150:
                     digest = hashlib.md5(content.encode("utf-8")).hexdigest()
                     if digest in seen_hashes:
@@ -300,17 +347,23 @@ class ContextCompressor:
         """Compress middle turns using LLM. Caller decides when to invoke."""
         strands_input = bool(messages) and isinstance(messages[0].get("content"), list)
         working = flatten_messages_for_compress(messages)
+        try:
+            boundaries, _ = _tool_group_boundaries(working)
+        except ValueError as exc:
+            LOGGER.warning("context_compression_pairing_invalid session_id=%s phase=input reason=%s action=keep_original", session_id, exc)
+            return messages
         pruned_messages = self.prune_old_tool_results(working, self.protect_last_n)
 
-        head_count = min(self.protect_first_n, len(pruned_messages))
-        tail_count = min(self.protect_last_n, len(pruned_messages) - head_count)
-        middle_count = len(pruned_messages) - head_count - tail_count
-        if middle_count <= 2:
-            return messages_to_strands(pruned_messages) if strands_input else pruned_messages
+        head_target = min(max(0, self.protect_first_n), len(working))
+        head_end = next((cut for cut in boundaries if cut >= head_target), len(working))
+        tail_start = max(cut for cut in boundaries if cut <= max(0, len(working) - max(0, self.protect_last_n)))
+        if tail_start - head_end <= 2:
+            candidate = messages_to_strands(pruned_messages) if strands_input else pruned_messages
+            return _validated_compression(candidate, messages, session_id)
 
-        head = pruned_messages[:head_count]
-        middle = pruned_messages[head_count : head_count + middle_count]
-        tail = pruned_messages[head_count + middle_count :]
+        head = pruned_messages[:head_end]
+        middle = pruned_messages[head_end:tail_start]
+        tail = pruned_messages[tail_start:]
 
         middle_prompt = (
             "You are a context compression assistant. Analyze the dialogue sequence below and extract two things:\n"
@@ -332,10 +385,12 @@ class ContextCompressor:
             role = m.get("role", "")
             content = m.get("content") or ""
             tcs = m.get("tool_calls")
-            middle_prompt += f"[{role}]: {content}\n"
+            status = " (failed)" if m.get("status") == "error" else ""
+            middle_prompt += f"[{role}{status}]: {content}\n"
             if tcs:
                 middle_prompt += f"Tool Calls: {json.dumps(tcs)}\n"
 
+        facts_part = ""
         try:
             from dojoagents.agent.usage import usage_scope
 
@@ -357,9 +412,6 @@ class ContextCompressor:
                 summary_content = content.replace("[CONSOLIDATION SUMMARY]", "").strip()
                 facts_part = ""
 
-            self._previous_summary = summary_content
-            if facts_part and memory_manager and session_id:
-                await memory_manager.save_memory(session_id, facts_part)
         except Exception:
             LOGGER.exception("Failed to generate compaction summary")
             summary_content = "[Compacted due to token limit: summary generation failed]"
@@ -369,4 +421,14 @@ class ContextCompressor:
             "content": f"{SUMMARY_PREFIX}\n\n## Compacted Summary\n{summary_content}",
         }
         compressed = [*head, summary_message, *tail]
-        return messages_to_strands(compressed) if strands_input else compressed
+        candidate = messages_to_strands(compressed) if strands_input else compressed
+        result = _validated_compression(candidate, messages, session_id)
+        if result is messages:
+            return messages
+        self._previous_summary = summary_content
+        if facts_part and memory_manager and session_id:
+            try:
+                await memory_manager.save_memory(session_id, facts_part)
+            except Exception:
+                LOGGER.exception("Failed to save compaction memory")
+        return result

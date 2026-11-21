@@ -196,20 +196,17 @@ class RunCoordinator:
             self.run_id,
         )
 
+    @property
+    def lease_remaining_seconds(self) -> float:
+        return (self._active_handle().lease.expires_at - utc_now()).total_seconds()
+
     async def heartbeat(self) -> HeartbeatResult:
         handle = self._active_handle()
-        lease_seconds = float(self.service.config.runtime.lease_seconds)
-        remaining = (handle.lease.expires_at - utc_now()).total_seconds()
-        # Renew when half the lease is gone, or if already expired (same-holder revive).
-        # Always-renewing every heartbeat fought event flush for the file lock and
-        # produced portalocker AlreadyLocked → [Errno 35] under load.
-        if remaining <= max(lease_seconds * 0.5, 30.0) or remaining <= 0:
-            renewed = await self.service.renew_lease(self.principal, handle.lease)
-            self.handle = RunHandle(run=handle.run, lease=renewed)
-            handle = self.handle
+        renewed = await self.service.renew_lease(self.principal, handle.lease)
+        self.handle = RunHandle(run=handle.run, lease=renewed)
         run = await self.service.get_run(self.principal, handle.run.run_id)
-        self.handle = RunHandle(run=run, lease=handle.lease)
-        return HeartbeatResult(lease=handle.lease, cancellation_requested=run.cancellation_requested)
+        self.handle = RunHandle(run=run, lease=renewed)
+        return HeartbeatResult(lease=renewed, cancellation_requested=run.cancellation_requested)
 
     async def commit(
         self,

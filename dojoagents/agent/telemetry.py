@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
-from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Protocol
+from dataclasses import dataclass
+from typing import Any, Mapping, Protocol
 
 LOGGER = logging.getLogger("dojoagents.telemetry")
 
@@ -75,6 +75,19 @@ class LLMCallEvent:
     usage: Mapping[str, int] | None = None
     status: str = "succeeded"
     error_code: str | None = None
+
+
+@dataclass(frozen=True)
+class LLMRequestEvent:
+    """HTTP attempt/retry/final outcome, independent of log-level filtering."""
+
+    run_id: str
+    provider: str
+    model: str
+    event: str
+    attempt: int
+    outcome: str = ""
+    elapsed_ms: float = 0
 
 
 @dataclass(frozen=True)
@@ -136,7 +149,11 @@ def emit(event: object) -> None:
         return
     for hook in _HOOKS:
         try:
-            if isinstance(event, LLMCallEvent):
+            if isinstance(event, LLMRequestEvent):
+                callback = getattr(hook, "on_llm_request", None)
+                if callback is not None:
+                    callback(event)
+            elif isinstance(event, LLMCallEvent):
                 hook.on_llm_call_end(event)
             elif isinstance(event, ToolCallEvent):
                 hook.on_tool_call_end(event)

@@ -135,6 +135,10 @@ async def test_sse_oauth_and_sampling():
     mock_provider_cfg.api_key = "test_key"
     mock_provider_cfg.base_url = "https://api.openai.com/v1"
     mock_provider_cfg.model = "gpt-4"
+    mock_provider_cfg.author = None
+    mock_provider_cfg.max_retries = None
+    mock_provider_cfg.connect_timeout = None
+    mock_provider_cfg.extra_headers = {}
     mock_config.llm_provider.providers = {"openai": mock_provider_cfg}
     
     mock_result = LLMResult(content="Hello from Dojo LLM")

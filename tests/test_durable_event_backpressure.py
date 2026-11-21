@@ -85,13 +85,16 @@ async def test_lease_loss_wakes_backpressure_waiter():
     coordinator = Coordinator()
     coordinator.append_events = AsyncMock(side_effect=SessionLeaseLostError("lost"))
     with anyio.fail_after(5):
-        async with anyio.create_task_group() as group:
-            writer = _DurableEventWriter(coordinator, sink, group)
-            for i in range(28):
-                sink.delta(str(i))
-            with pytest.raises(SessionLeaseLostError, match="lost"):
-                await sink.wait_for_capacity()
-            await writer.close()
+        with pytest.raises(BaseExceptionGroup) as failure:
+            async with anyio.create_task_group() as group:
+                writer = _DurableEventWriter(coordinator, sink, group)
+                for i in range(28):
+                    sink.delta(str(i))
+                await writer._done.wait()
+        assert isinstance(failure.value.exceptions[0], SessionLeaseLostError)
+        with pytest.raises(SessionLeaseLostError, match="lost"):
+            await sink.wait_for_capacity()
+        await writer.close()
 
 
 @pytest.mark.anyio

@@ -183,3 +183,12 @@ Check:
 - whether the export target directory is writable;
 - whether the target session has completed at least one `finish_run`;
 - whether sidecar files were cleaned up externally.
+
+
+## Context compaction and tool-call pairing
+
+Compaction treats an assistant message's complete tool-call batch and its corresponding results as one group. Protected head and tail ranges expand to group boundaries. An in-flight final batch, including a partially returned batch, retains its original IDs and arguments.
+
+Ordinary tool exceptions return an error result with the original call ID so the model can correct its input or continue. Conversion between Strands and compaction messages preserves the tool result's error status; failed results are not summarized as successful output. Explicit cancellation and policy decisions that require stopping retain their existing behavior.
+
+Pairing checks before and after compaction detect unmatched IDs, duplicate results, missing pairs, and changed pending calls. An invalid candidate falls back to the original messages without saving a candidate summary or memory, incrementing compaction counters, or re-executing tools. The `context_compression_pairing_invalid` log includes the session, message index, and pairing reason without message bodies. Already-corrupt history is not repaired by inventing IDs or replaying tools.
