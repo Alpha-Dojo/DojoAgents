@@ -630,7 +630,7 @@ class OpenAICompatibleProvider:
         )
 
     def _model_name(self, model: str) -> str:
-        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower() or "orcarouter.ai" in str(self.base_url or "").lower()
+        is_model_router = self.name == "model-router" or "openrouter.ai" in str(self.base_url or "").lower() or "orcarouter.ai" in str(self.base_url or "").lower() or "atlascloud.ai" in str(self.base_url or "").lower()
         if is_model_router and self.author and not model.startswith(f"{self.author}/"):
             return f"{self.author}/{model}"
         return model
