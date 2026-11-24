@@ -77,70 +77,89 @@ def _strategy_line_trimmed(content: str, pattern: str) -> List[Tuple[int, int]]:
     return matches
 
 def _strategy_whitespace_normalized(content: str, pattern: str) -> List[Tuple[int, int]]:
-    def normalize(s: str) -> str:
-        return re.sub(r"[ \t]+", " ", s)
+    pattern_normalized = re.sub(r"[ \t]+", " ", pattern)
+    content_len = len(content)
+    pattern_len = len(pattern_normalized)
 
-    pattern_normalized = normalize(pattern)
-    content_normalized = normalize(content)
-    
-    norm_matches = []
-    start = 0
-    while True:
-        pos = content_normalized.find(pattern_normalized, start)
-        if pos == -1:
-            break
-        norm_matches.append((pos, pos + len(pattern_normalized)))
-        start = pos + 1
-        
-    if not norm_matches:
-        return []
-        
-    orig_to_norm = []
-    orig_idx = 0
-    norm_idx = 0
-    while orig_idx < len(content) and norm_idx < len(content_normalized):
-        if content[orig_idx] == content_normalized[norm_idx]:
-            orig_to_norm.append(norm_idx)
-            orig_idx += 1
+    def match_positions():
+        # KMP keeps search storage proportional to the pattern, not the file.
+        prefixes = [0] * pattern_len
+        matched = 0
+        for index in range(1, pattern_len):
+            while matched and pattern_normalized[index] != pattern_normalized[matched]:
+                matched = prefixes[matched - 1]
+            if pattern_normalized[index] == pattern_normalized[matched]:
+                matched += 1
+            prefixes[index] = matched
+        matched = 0
+        index = -1
+        in_blanks = False
+        if not pattern_len:
+            yield 0
+        for char in content:
+            if char in " \t":
+                if in_blanks:
+                    continue
+                char = " "
+                in_blanks = True
+            else:
+                in_blanks = False
+            index += 1
+            if not pattern_len:
+                yield index + 1
+                continue
+            while matched and char != pattern_normalized[matched]:
+                matched = prefixes[matched - 1]
+            if char == pattern_normalized[matched]:
+                matched += 1
+            if matched == pattern_len:
+                yield index - pattern_len + 1
+                matched = prefixes[matched - 1]
+
+    def mapped_runs():
+        norm_idx = run_start = 0
+        blank_mapped = False
+        for orig_idx, char in enumerate(content, 1):
+            if char in " \t":
+                if blank_mapped:
+                    continue
+                # Spaces map immediately; tabs map at a nonblank boundary.
+                if char != " " and (orig_idx == content_len or content[orig_idx] in " \t"):
+                    continue
+                blank_mapped = True
+            else:
+                blank_mapped = False
+            yield norm_idx, run_start, orig_idx
             norm_idx += 1
-        elif content[orig_idx] in " \t" and content_normalized[norm_idx] == " ":
-            orig_to_norm.append(norm_idx)
-            orig_idx += 1
-            if orig_idx < len(content) and content[orig_idx] not in " \t":
-                norm_idx += 1
-        elif content[orig_idx] in " \t":
-            orig_to_norm.append(norm_idx)
-            orig_idx += 1
-        else:
-            orig_to_norm.append(norm_idx)
-            orig_idx += 1
-            
-    while orig_idx < len(content):
-        orig_to_norm.append(len(content_normalized))
-        orig_idx += 1
-        
-    norm_to_orig_start = {}
-    norm_to_orig_end = {}
-    for orig_pos, norm_pos in enumerate(orig_to_norm):
-        if norm_pos not in norm_to_orig_start:
-            norm_to_orig_start[norm_pos] = orig_pos
-        norm_to_orig_end[norm_pos] = orig_pos
-        
+            run_start = orig_idx
+        if run_start < content_len:
+            yield norm_idx, run_start, content_len
+
+    # Match starts and ends advance independently, including overlapping matches.
+    start_runs = mapped_runs()
+    end_runs = mapped_runs()
+    start_run = end_run = None
     original_matches = []
-    for norm_start, norm_end in norm_matches:
-        if norm_start in norm_to_orig_start:
-            orig_start = norm_to_orig_start[norm_start]
+    for pos in match_positions():
+        if start_run is None:
+            start_run = next(start_runs, None)
+        if end_run is None:
+            end_run = next(end_runs, None)
+        while start_run is not None and start_run[0] < pos:
+            start_run = next(start_runs, None)
+        orig_start = start_run[1] if start_run is not None else 0
+
+        end_idx = pos + pattern_len - 1
+        while end_run is not None and end_run[0] < end_idx:
+            end_run = next(end_runs, None)
+        if end_run is not None and end_run[0] == end_idx:
+            orig_end = end_run[2]
         else:
-            orig_start = min((i for i, n in enumerate(orig_to_norm) if n >= norm_start), default=0)
-            
-        if (norm_end - 1) in norm_to_orig_end:
-            orig_end = norm_to_orig_end[norm_end - 1] + 1
-        else:
-            orig_end = orig_start + (norm_end - norm_start)
-            
-        while orig_end < len(content) and content[orig_end] in " \t":
+            orig_end = orig_start + pattern_len
+
+        while orig_end < content_len and content[orig_end] in " \t":
             orig_end += 1
-        original_matches.append((orig_start, min(orig_end, len(content))))
+        original_matches.append((orig_start, min(orig_end, content_len)))
     return original_matches
 
 def _strategy_indentation_flexible(content: str, pattern: str) -> List[Tuple[int, int]]:
