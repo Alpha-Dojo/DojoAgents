@@ -23,6 +23,10 @@
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
 
+<p align="center">
+  <b>English</b> · <a href="README_ZH.md">中文</a> · <a href="README_TR.md">Türkçe</a>
+</p>
+
 ---
 
 # DojoAgents: Full-Market AI Copilot for Personal Investment
