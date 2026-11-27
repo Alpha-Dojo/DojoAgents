@@ -23,6 +23,10 @@
   <a href="https://github.com/Alpha-Dojo/DojoAgents/blob/main/docs/README.md"><img src="https://img.shields.io/badge/Join%20GitHub%20Community-DojoAgents-2ea44f?logo=github&logoColor=white" alt="GitHub Community"></a>
 </p>
 
+<p align="center">
+  <a href="README.md">English</a> · <b>中文</b> · <a href="README_TR.md">Türkçe</a>
+</p>
+
 ---
 
 # DojoAgents: 面向个人投资的全市场 AI 助手
